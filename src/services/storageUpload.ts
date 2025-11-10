@@ -1,0 +1,102 @@
+// Cloudflare R2 upload via signed URLs
+import { r2UploadViaSignedUrl } from "./cfApi";
+
+export type MediaType = "image" | "audio";
+
+export interface UploadMediaParams {
+  filmId: string;
+  episodeNum: number; // 1 -> e1
+  type: MediaType;
+  files: File[];
+  startIndex?: number; // default 0; used to compute cardId for naming
+  padDigits?: number; // default 3; zero-padding for cardId
+  inferFromFilenames?: boolean; // if true, try to extract cardId from file name
+  cardIds?: string[]; // optional explicit cardIds mapping (same length as files) overrides inference/sequence
+}
+
+export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (done: number, total: number) => void) {
+  const { filmId, episodeNum, type, files } = params;
+  // epFolder no longer used in new nested path, but kept comment for reference
+  // const epFolder = String(episodeNum).padStart(3, "0");
+  const total = files.length;
+  const start = params.startIndex ?? 0;
+  const pad = Math.max(1, params.padDigits ?? 3);
+  const prefix = filmId.replace(/-/g, "_");
+  const infer = !!params.inferFromFilenames;
+  const isImage = type === "image";
+  const expectedCT = isImage ? "image/jpeg" : "audio/mpeg";
+
+  // Build upload plan with computed or provided cardIds
+  const plan: { file: File; cardId: string }[] = [];
+  const used = new Set<string>();
+  let seq = start;
+  const extractId = (name: string): string | null => {
+    const base = name.replace(/\.[^.]+$/, "");
+    const matches = base.match(/\d+/g);
+    if (!matches || matches.length === 0) return null;
+    const raw = matches[matches.length - 1];
+    if (!raw) return null;
+    return raw.length >= pad ? raw : raw.padStart(pad, "0");
+  };
+
+  const explicit = Array.isArray(params.cardIds) && params.cardIds.length === files.length ? params.cardIds : null;
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    // Enforce content type compatibility with import pattern
+    if (isImage && !/jpe?g$/i.test(f.type) && f.type !== "image/jpeg") {
+      throw new Error(`File ${f.name} is not JPEG (image/jpeg)`);
+    }
+    if (!isImage && !/mpeg$/i.test(f.type) && f.type !== "audio/mpeg") {
+      throw new Error(`File ${f.name} is not MP3 (audio/mpeg)`);
+    }
+
+  let cardId: string | null = explicit ? String(explicit[i]) : (infer ? extractId(f.name) : null);
+    if (!cardId) {
+      cardId = String(seq).padStart(pad, "0");
+      seq += 1;
+    }
+    // ensure uniqueness to avoid overwriting in R2
+    while (used.has(cardId)) {
+      // bump sequentially until unique
+      const n = parseInt(cardId, 10);
+      if (!Number.isNaN(n)) {
+        cardId = String(n + 1).padStart(Math.max(pad, cardId.length), "0");
+      } else {
+        cardId = `${cardId}a`;
+      }
+    }
+    used.add(cardId);
+    plan.push({ file: f, cardId });
+  }
+
+  // If we inferred IDs, keep upload order sorted by numeric value when possible
+  if (infer && !explicit) {
+    plan.sort((a, b) => {
+      const na = parseInt(a.cardId, 10);
+      const nb = parseInt(b.cardId, 10);
+      if (Number.isNaN(na) || Number.isNaN(nb)) return a.cardId.localeCompare(b.cardId);
+      return na - nb;
+    });
+  }
+
+  for (let i = 0; i < plan.length; i++) {
+    const { file: f, cardId } = plan[i];
+    const ext = isImage ? "jpg" : "mp3";
+    // Updated pattern (2025-11 generic): items/{filmId}/episodes/e{episodeNum}/{type}/{filmId_normalized}_{cardId}.ext
+    const fileName = `${prefix}_${cardId}.${ext}`;
+    const bucketPath = `items/${filmId}/episodes/e${episodeNum}/${type}/${fileName}`;
+    await r2UploadViaSignedUrl({ bucketPath, file: f, contentType: expectedCT });
+    onProgress?.(i + 1, total);
+  }
+}
+
+// Upload cover image (JPEG) to items/{filmId}/cover_image/cover.jpg
+export async function uploadCoverImage(params: { filmId: string; episodeNum: number; file: File }) {
+  const { filmId, /* episodeNum */ file } = params;
+  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg') {
+    throw new Error('Cover must be a JPEG image');
+  }
+  const bucketPath = `items/${filmId}/cover_image/cover.jpg`;
+  await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'image/jpeg' });
+}

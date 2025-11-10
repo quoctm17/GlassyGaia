@@ -1,0 +1,29 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+.vite/
+coverage/
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Editors
+.vscode/
+.idea/
+*.sw?
+.DS_Store
+Thumbs.db
+
+# Vercel local metadata
+.vercel/
+
+# Cloudflare worker local config (contains secrets)
+cloudflare-worker/wrangler.toml
