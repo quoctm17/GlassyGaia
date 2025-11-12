@@ -30,9 +30,10 @@ export default function AdminLayout() {
       <aside className="admin-sidenav">
         <div className="admin-sidenav-header">Admin</div>
         <nav className="admin-sidenav-links">
-          <NavLink to="/admin/create" className={({isActive})=> 'admin-nav-link highlight'+(isActive?' active':'')}>Create Film</NavLink>
+          <NavLink to="/admin/create" className={({isActive})=> 'admin-nav-link highlight'+(isActive?' active':'')}>Create</NavLink>
+          <NavLink to="/admin/update" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Update</NavLink>
+          <NavLink to="/admin/content" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Content</NavLink>
           <NavLink to="/admin/media" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Media</NavLink>
-          <NavLink to="/admin/films" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Films</NavLink>
         </nav>
         {!user && (
           <button className="admin-btn" onClick={signInGoogle}>Sign in</button>

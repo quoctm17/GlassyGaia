@@ -9,6 +9,7 @@ export default function Footer() {
 		xiaohongshu: env.VITE_LINK_XIAOHONGSHU || "https://www.xiaohongshu.com/",
 		kofi: env.VITE_LINK_KOFI || "https://ko-fi.com/",
 		buymeacoffee: env.VITE_LINK_BUYMEACOFFEE || "https://www.buymeacoffee.com/",
+		anki: env.VITE_LINK_ANKI || "https://ankiweb.net/shared/by-author/1420758716",
 	} as const;
 	return (
 		<footer className="pixel-footer">
@@ -43,6 +44,9 @@ export default function Footer() {
 						</a>
 						<a className="pixel-social-btn" href={links.buymeacoffee} target="_blank" rel="noreferrer">
 							BuyMeACoffee
+						</a>
+						<a className="pixel-social-btn" href={links.anki} target="_blank" rel="noreferrer">
+							Anki
 						</a>
 					</div>
 				</div>

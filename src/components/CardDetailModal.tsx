@@ -1,6 +1,7 @@
 import type { CardDoc } from "../types";
 import { useMemo } from "react";
 import { useUser } from "../context/UserContext";
+import { canonicalizeLangCode } from "../utils/lang";
 
 interface Props {
   card: CardDoc | null;
@@ -14,9 +15,16 @@ export default function CardDetailModal({ card, open, onClose }: Props) {
 
   const ordered = useMemo(() => {
     if (!card) return [] as string[];
+    const ORDER = ["en","vi","zh","zh_trad","yue","ja","ko","id","th","ms"] as const;
+    const orderIndex = (code: string) => {
+      const idx = ORDER.indexOf((canonicalizeLangCode(code) || code) as unknown as typeof ORDER[number]);
+      return idx === -1 ? 999 : idx;
+    };
     const all = card.subtitle || {};
-    const sel = langs.filter((l) => all[l]);
-    const others = Object.keys(all).filter((l) => !sel.includes(l));
+    const sel = (langs || []).filter((l) => all[l]).sort((a,b)=>orderIndex(a)-orderIndex(b));
+    const others = Object.keys(all)
+      .filter((l) => !sel.includes(l))
+      .sort((a,b)=>orderIndex(a)-orderIndex(b));
     return [...sel, ...others];
   }, [card, langs]);
 

@@ -42,19 +42,22 @@ export function buildR2MediaUrl(params: {
   // Optional overrides
   filePrefix?: string; // filename prefix if different from folder name; fallback: normalized filmId
 }): string {
-  // Updated naming convention (2025-11): nested path with top-level scope and card folders.
+  // Updated naming convention (2025-11): nested path using filmSlug_episodeNum as episode folder.
   // Pattern (public URL path):
-  //   films/{filmId}/episodes/e{episodeNum}/{type}/{filmId_normalized}_{cardId}.{ext}
-  // Example:
-  //   films/cinderella_1/episodes/e1/cards/001/image/cinderella_1_001.jpg
+  //   items/{filmId}/episodes/{filmId}_{episodeNum}/{type}/{filmId_normalized}_{cardId}.{ext}
   const { filmId, episodeId, cardId, type } = params;
-  const epNum = Number((episodeId || "e1").replace(/^e/i, "")) || 1;
+  // Support episodeId in formats: e1, 1, filmSlug_1
+  let epNum = Number(String(episodeId || "e1").replace(/^e/i, ""));
+  if (!epNum || Number.isNaN(epNum)) {
+    const m = String(episodeId || "").match(/_(\d+)$/);
+    epNum = m ? Number(m[1]) : 1;
+  }
   const prefix = (params.filePrefix || filmId).replace(/-/g, "_");
   const ext = type === "image" ? "jpg" : "mp3";
   if (!R2_PUBLIC_BASE) {
-    return `/items/${filmId}/episodes/e${epNum}/${type}/${prefix}_${cardId}.${ext}`;
+    return `/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${prefix}_${cardId}.${ext}`;
   }
-  return `${R2_PUBLIC_BASE}/items/${filmId}/episodes/e${epNum}/${type}/${prefix}_${cardId}.${ext}`;
+  return `${R2_PUBLIC_BASE}/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${prefix}_${cardId}.${ext}`;
 }
 
 // Deprecated helper retained for backward compat (not used with new schema)
@@ -66,7 +69,7 @@ export function buildR2MediaUrl(params: {
 export async function apiListFilms(): Promise<FilmDoc[]> {
   const items = await getJson<Array<Partial<FilmDoc> & { id: string; type?: string }>>(`/items`);
   return items
-    .filter((f) => !f.type || f.type === 'film')
+    .filter((f) => !f.type || f.type === 'movie')
     .map((f) => ({
       id: f.id,
       title: f.title,
@@ -80,6 +83,24 @@ export async function apiListFilms(): Promise<FilmDoc[]> {
   total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number }).total_episodes,
       available_subs: Array.isArray(f.available_subs) ? f.available_subs : [],
     }));
+}
+
+// List all content items (any type) without client-side filtering
+export async function apiListItems(): Promise<FilmDoc[]> {
+  const items = await getJson<Array<Partial<FilmDoc> & { id: string; type?: string }>>(`/items`);
+  return items.map((f) => ({
+    id: f.id!,
+    title: f.title,
+    description: f.description,
+    cover_url: f.cover_url,
+    main_language: (f as unknown as { main_language?: string; language?: string }).main_language
+      || (f as unknown as { main_language?: string; language?: string }).language,
+    type: f.type,
+    release_year: f.release_year,
+    episodes: f.episodes,
+    total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number }).total_episodes,
+    available_subs: Array.isArray(f.available_subs) ? f.available_subs : [],
+  }));
 }
 
 export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {
@@ -154,7 +175,8 @@ export async function r2UploadViaSignedUrl(params: { bucketPath: string; file: F
 
 // Import CSV-processed payload into D1 via Worker
 export interface ImportPayload {
-  film: FilmDoc & { slug?: string }; // slug used externally, id may be UUID internally
+  // allow extra film fields (e.g., episode_title) to flow through
+  film: (FilmDoc & { slug?: string }) & Record<string, unknown>; // slug used externally, id may be UUID internally
   episodeNumber: number; // numeric episode
   cards: Array<Partial<CardDoc> & { id?: string; card_number?: number }>;
   mode?: 'replace' | 'append';
@@ -172,7 +194,7 @@ export async function apiImport(payload: ImportPayload) {
 }
 
 // Update film meta (title, description, cover)
-export async function apiUpdateFilmMeta(params: { filmSlug: string; title?: string; description?: string; cover_url?: string; total_episodes?: number }) {
+export async function apiUpdateFilmMeta(params: { filmSlug: string; title?: string | null; description?: string | null; cover_url?: string | null; total_episodes?: number | null; full_audio_url?: string | null; full_video_url?: string | null; type?: string | null; release_year?: number | null }) {
   assertApiBase();
   const { filmSlug, ...body } = params;
   const res = await fetch(`${API_BASE}/items/${encodeURIComponent(filmSlug)}`, {
@@ -183,6 +205,22 @@ export async function apiUpdateFilmMeta(params: { filmSlug: string; title?: stri
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Update meta failed: ${res.status} ${text}`);
+  }
+}
+
+// Update episode meta (title, full audio/video)
+export async function apiUpdateEpisodeMeta(params: { filmSlug: string; episodeNum: number; title?: string; full_audio_url?: string; full_video_url?: string }) {
+  assertApiBase();
+  const { filmSlug, episodeNum, ...body } = params;
+  const epSlug = `${filmSlug}_${episodeNum}`;
+  const res = await fetch(`${API_BASE}/items/${encodeURIComponent(filmSlug)}/episodes/${encodeURIComponent(epSlug)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Update episode meta failed: ${res.status} ${text}`);
   }
 }
 
@@ -219,6 +257,7 @@ function rowToCardDoc(r: any): CardDoc { // eslint-disable-line @typescript-esli
     sentence: r.sentence,
     CEFR_Level: r.CEFR_Level || r.cefr || r.cefr_level,
     words: r.words || undefined,
+    difficulty_score: typeof r.difficulty_score === 'number' ? r.difficulty_score : undefined,
   };
 }
 
@@ -234,9 +273,13 @@ function buildMediaUrlFromKey(key: string | undefined, filmId: string | undefine
   // simple filename (no path): assume it already follows new naming prefix_cardId.ext
   const prefix = (filmId || "").replace(/-/g, "_");
   const ext = type === "image" ? "jpg" : "mp3";
-  const epNum = Number((episodeId || "e1").replace(/^e/i, "")) || 1;
+  let epNum = Number(String(episodeId || "e1").replace(/^e/i, ""));
+  if (!epNum || Number.isNaN(epNum)) {
+    const m = String(episodeId || "").match(/_(\d+)$/);
+    epNum = m ? Number(m[1]) : 1;
+  }
   const fileName = `${prefix}_${cardId}.${ext}`;
   return R2_PUBLIC_BASE
-    ? `${R2_PUBLIC_BASE}/items/${filmId}/episodes/e${epNum}/${type}/${fileName}`
-    : `/items/${filmId}/episodes/e${epNum}/${type}/${fileName}`;
+    ? `${R2_PUBLIC_BASE}/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${fileName}`
+    : `/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${fileName}`;
 }

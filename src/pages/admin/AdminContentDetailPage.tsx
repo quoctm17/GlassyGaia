@@ -5,87 +5,82 @@ import type { FilmDoc, CardDoc } from '../../types';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
 import { ExternalLink } from 'lucide-react';
 
-export default function AdminFilmDetailPage() {
-  const { filmSlug } = useParams();
+export default function AdminContentDetailPage() {
+  const { contentSlug } = useParams();
   const navigate = useNavigate();
-  const [film, setFilm] = useState<FilmDoc | null>(null);
+  const [item, setItem] = useState<FilmDoc | null>(null);
   const [languages, setLanguages] = useState<string[]>([]);
   const [cards, setCards] = useState<CardDoc[]>([]);
   const [episodeId, setEpisodeId] = useState<string>('e1');
-  const [loadingFilm, setLoadingFilm] = useState(false);
+  const [loadingItem, setLoadingItem] = useState(false);
   const [loadingCards, setLoadingCards] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!filmSlug) return;
+    if (!contentSlug) return;
     let mounted = true;
     (async () => {
-      setLoadingFilm(true);
+      setLoadingItem(true);
       try {
-        const f = await apiGetFilm(filmSlug);
+        const f = await apiGetFilm(contentSlug); // still film API for content item
         if (!mounted) return;
-        setFilm(f);
-        // Derive languages list. Prefer available_subs if present; fallback to main_language.
+        setItem(f);
         const subs = Array.isArray(f?.available_subs) ? f!.available_subs.filter(Boolean) : [];
         const langList = subs.length ? subs : (f?.main_language ? [f.main_language] : []);
         setLanguages(langList);
       } catch (e) { setError((e as Error).message); }
-      finally { setLoadingFilm(false); }
+      finally { setLoadingItem(false); }
     })();
     return () => { mounted = false; };
-  }, [filmSlug]);
+  }, [contentSlug]);
 
   useEffect(() => {
-    if (!filmSlug || !episodeId) return;
+    if (!contentSlug || !episodeId) return;
     let mounted = true;
     (async () => {
       setLoadingCards(true);
       try {
-        const cardRows = await apiFetchCardsForFilm(filmSlug, episodeId);
+        const cardRows = await apiFetchCardsForFilm(contentSlug, episodeId);
         if (!mounted) return;
         setCards(cardRows);
       } catch (e) { setError((e as Error).message); }
       finally { setLoadingCards(false); }
     })();
     return () => { mounted = false; };
-  }, [filmSlug, episodeId]);
+  }, [contentSlug, episodeId]);
 
-  const totalEpisodes = film?.episodes || 1;
+  const totalEpisodes = item?.episodes || 1;
   const episodeOptions = Array.from({ length: totalEpisodes }, (_, i) => `e${i + 1}`);
-
   const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE || '').replace(/\/$/, '');
   const coverDisplayUrl = useMemo(() => {
-    if (!film) return '';
-    let url = film.cover_url || '';
-    // Nếu worker chưa cấu hình R2_PUBLIC_BASE nên trả về đường dẫn tương đối ('/items/...'), ta ghép base public R2.
-    if (url.startsWith('/') && r2Base) {
-      url = r2Base + url; // url đã có leading slash
-    }
-    // Fallback: nếu vẫn chưa có, thử path chuẩn mới.
-    if (!url && film.id) {
-      const path = `/items/${film.id}/cover_image/cover.jpg`;
+    if (!item) return '';
+    let url = item.cover_url || '';
+    if (url.startsWith('/') && r2Base) url = r2Base + url;
+    if (!url && item.id) {
+      const path = `/items/${item.id}/cover_image/cover.jpg`;
       url = r2Base ? r2Base + path : path;
     }
     return url;
-  }, [film, r2Base]);
+  }, [item, r2Base]);
 
   return (
     <div className="admin-section">
       <div className="admin-section-header">
-        <h2 className="admin-title">Film: {filmSlug}</h2>
-        <button className="admin-btn secondary" onClick={() => navigate('/admin/films')}>← Back</button>
+        <h2 className="admin-title">Content: {contentSlug}</h2>
+        <button className="admin-btn secondary" onClick={() => navigate('/admin/content')}>← Back</button>
       </div>
-      {loadingFilm && <div className="admin-info">Loading film...</div>}
+      {loadingItem && <div className="admin-info">Loading content...</div>}
       {error && <div className="admin-error">{error}</div>}
-      {film && (
+      {item && (
         <div className="mb-4 bg-gray-800 border border-gray-700 rounded p-4 space-y-2">
-          <div><span className="font-semibold">Title:</span> {film.title || '-'}</div>
+          <div><span className="font-semibold">Title:</span> {item.title || '-'}</div>
+          <div><span className="font-semibold">Type:</span> {item.type || '-'}</div>
           <div>
             <span className="font-semibold">Main Language:</span>{' '}
-            {film.main_language ? (
+            {item.main_language ? (
               <span className="inline-flex items-center gap-1">
-                <span className={`fi fi-${countryCodeForLang(film.main_language)} w-5 h-3.5`}></span>
-                <span>{langLabel(film.main_language)}</span>
+                <span className={`fi fi-${countryCodeForLang(item.main_language)} w-5 h-3.5`}></span>
+                <span>{langLabel(item.main_language)}</span>
               </span>
             ) : '-'}
           </div>
@@ -102,9 +97,9 @@ export default function AdminFilmDetailPage() {
               </span>
             ) : '-'}
           </div>
-          <div><span className="font-semibold">Episodes:</span> {Number(film.episodes) > 0 ? film.episodes : 1}</div>
-          <div><span className="font-semibold">Total Episodes:</span> {Number(film.total_episodes) > 0 ? film.total_episodes : '-'}</div>
-          <div><span className="font-semibold">Description:</span> {film.description || '-'}</div>
+          <div><span className="font-semibold">Episodes:</span> {Number(item.episodes) > 0 ? item.episodes : 1}</div>
+          <div><span className="font-semibold">Total Episodes:</span> {Number(item.total_episodes) > 0 ? item.total_episodes : '-'}</div>
+          <div><span className="font-semibold">Description:</span> {item.description || '-'}</div>
           {coverDisplayUrl && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -125,10 +120,7 @@ export default function AdminFilmDetailPage() {
         <select className="admin-input" style={{ maxWidth: 140 }} value={episodeId} onChange={e => setEpisodeId(e.target.value)}>
           {episodeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
         </select>
-        <button className="admin-btn" disabled={loadingCards} onClick={() => {
-          // force refresh
-          setEpisodeId(ep => ep);
-        }}>Refresh Cards</button>
+        <button className="admin-btn" disabled={loadingCards} onClick={() => setEpisodeId(ep => ep)}>Refresh Cards</button>
       </div>
 
       <div className="admin-table-wrapper">
@@ -146,7 +138,7 @@ export default function AdminFilmDetailPage() {
           </thead>
           <tbody>
             {cards.map(c => (
-              <tr key={c.id} onClick={() => navigate(`/admin/films/${encodeURIComponent(filmSlug!)}/${episodeId}/${c.id}`)} style={{ cursor: 'pointer' }}>
+              <tr key={c.id} onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/${episodeId}/${c.id}`)} style={{ cursor: 'pointer' }}>
                 <td>{c.id}</td>
                 <td>{c.start}</td>
                 <td>{c.end}</td>

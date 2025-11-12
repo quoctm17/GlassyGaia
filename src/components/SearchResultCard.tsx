@@ -5,7 +5,7 @@ import AudioWaveformPreview from "./AudioWaveformPreview";
 import { useUser } from "../context/UserContext";
 import { toggleFavorite } from "../services/progress";
 import { canonicalizeLangCode, countryCodeForLang } from "../utils/lang";
-import { detectCodesFromCard, subtitleText } from "../utils/subtitles";
+import { subtitleText } from "../utils/subtitles";
 
 interface Props {
   card: CardDoc;
@@ -30,6 +30,7 @@ export default function SearchResultCard({
       "vi",
       "zh",
       "zh_trad",
+      "yue", // Cantonese after Traditional Chinese
       "ja",
       "ko",
       "id",
@@ -49,8 +50,9 @@ export default function SearchResultCard({
     const primary = primaryLang
       ? canonicalizeLangCode(primaryLang) || primaryLang
       : undefined;
+    // If user didn't choose any subtitle languages, show only the Primary language
     const secondaryAll = (
-      langs && langs.length ? langs : detectCodesFromCard(card)
+      langs && langs.length ? langs : []
     ).map((c) => canonicalizeLangCode(c) || (c as string));
     const uniqSecondary = Array.from(new Set(secondaryAll as string[]));
     const filteredSecondary = uniqSecondary.filter(
@@ -138,8 +140,20 @@ export default function SearchResultCard({
 
   // Hover audio waveform preview state
   const [hover, setHover] = useState(false);
+  // Build preview URL: if VITE_PREVIEW_AUDIO_BASE is set, rewrite origin of card.audio_url
+  // to that base (preserving the full R2 key path). Otherwise, use card.audio_url as-is.
   const previewBase = (import.meta.env.VITE_PREVIEW_AUDIO_BASE || "").replace(/\/$/, "");
-  const previewUrl = previewBase ? `${previewBase}/${card.id}.mp3` : card.audio_url;
+  const previewUrl = (() => {
+    try {
+      if (previewBase) {
+        const u = new URL(card.audio_url);
+        return `${previewBase}${u.pathname}`;
+      }
+    } catch {
+      // ignore malformed URL
+    }
+    return card.audio_url;
+  })();
 
   return (
     <div
@@ -185,7 +199,7 @@ export default function SearchResultCard({
             {/* Deck feature deferred */}
           </div>
         </div>
-  <div className="mt-2 space-y-1">
+        <div className="mt-2 space-y-1">
           {(() => {
             const primaryCode = primaryLang
               ? canonicalizeLangCode(primaryLang) || primaryLang
@@ -193,18 +207,50 @@ export default function SearchResultCard({
             const primaryAvailable = primaryCode
               ? !!subtitleText(card, primaryCode)
               : false;
+            const codeToName = (code: string): string => {
+              const c = (canonicalizeLangCode(code) || code).toLowerCase();
+              const map: Record<string, string> = {
+                en: "english",
+                vi: "vietnamese",
+                zh: "chinese",
+                zh_trad: "chinese",
+                yue: "chinese",
+                ja: "japanese",
+                ko: "korean",
+                es: "spanish",
+                ar: "arabic",
+                th: "thai",
+                fr: "french",
+                de: "german",
+                el: "greek",
+                hi: "hindi",
+                id: "indonesian",
+                it: "italian",
+                ms: "malay",
+                nl: "dutch",
+                pl: "polish",
+                pt: "portuguese",
+                ru: "russian",
+              };
+              return map[c] || c;
+            };
             const items = shownLangs;
             return items.map((code) => {
               const raw = subtitleText(card, code) ?? "";
               const q = (highlightQuery ?? "").trim();
               const html = q ? highlightHtml(raw, q) : escapeHtml(raw);
               const isPrimary = primaryAvailable && primaryCode === code;
+              const name = codeToName(code);
+              const roleClass = isPrimary ? `${name}-main` : `${name}-sub`;
+              const rubyClass = isPrimary && ["zh", "ja", "zh_trad"].includes(
+                (canonicalizeLangCode(code) || code).toLowerCase()
+              )
+                ? "hanzi-ruby"
+                : "";
               return (
                 <div
                   key={code}
-                  className={
-                    isPrimary ? "text-base sm:text-lg" : "text-sm text-gray-200"
-                  }
+                  className={`${isPrimary ? "text-base sm:text-lg" : "text-sm text-gray-200"} ${roleClass} ${rubyClass}`}
                 >
                   <span
                     className={`inline-block align-middle mr-2 fi fi-${countryCodeForLang(

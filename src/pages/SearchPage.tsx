@@ -6,8 +6,10 @@ import { searchCardsGlobalClient, listFilms } from "../services/firestore";
 import SuggestionPanel from "../components/SuggestionPanel";
 import { canonicalizeLangCode } from "../utils/lang";
 import SearchBar from "../components/SearchBar";
+import { useUser } from "../context/UserContext";
 
 function SearchPage() {
+  const { preferences } = useUser();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [allResults, setAllResults] = useState<CardDoc[]>([]);
@@ -26,7 +28,7 @@ function SearchPage() {
   const runSearch = async (q: string) => {
     setLoading(true);
     try {
-      const data = await searchCardsGlobalClient(q, 3000, null, filmLangMap);
+      const data = await searchCardsGlobalClient(q, 3000, null, filmLangMap, preferences.main_language);
       setAllResults(data);
     } catch (e) {
       // Gracefully handle initial empty DB / 404
@@ -77,7 +79,7 @@ function SearchPage() {
     // only rerun if we already have results or query has content to avoid extra initial flicker
     runSearch(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filmLangMap]);
+  }, [filmLangMap, preferences.main_language]);
 
   // Recompute available languages from results so selector is dynamic like CardDetail
   useEffect(() => {

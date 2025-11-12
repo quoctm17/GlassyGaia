@@ -12,7 +12,8 @@ export type CanonicalLang =
   | "zh_trad"
   | "id"
   | "th"
-  | "ms";
+  | "ms"
+  | "yue"; // Cantonese
 
 const aliasToCanonical: Record<string, CanonicalLang> = {
   en: "en",
@@ -48,6 +49,12 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
 
   ms: "ms",
   my: "ms",
+
+  // Cantonese (Yue Chinese)
+  yue: "yue",
+  cantonese: "yue",
+  "zh-yue": "yue",
+  zh_yue: "yue",
 };
 
 const canonicalToAliases: Record<CanonicalLang, string[]> = {
@@ -60,6 +67,7 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   id: ["id", "in"],
   th: ["th"],
   ms: ["ms", "my"],
+  yue: ["yue", "cantonese", "zh-yue", "zh_yue"],
 };
 
 export function canonicalizeLangCode(code: string): CanonicalLang | undefined {
@@ -79,6 +87,7 @@ export function langLabel(code: string): string {
     id: "Indonesian",
     th: "Thai",
     ms: "Malay",
+    yue: "Cantonese",
   } as const;
   return map[lang] ?? code.toUpperCase();
 }
@@ -96,6 +105,7 @@ export function langFlag(code: string): string {
     id: "🇮🇩",
     th: "🇹🇭",
     ms: "🇲🇾",
+    yue: "🇭🇰", // Using Hong Kong flag for Cantonese
   } as const;
   return map[lang] ?? "🌐";
 }
@@ -117,6 +127,7 @@ export function countryCodeForLang(code: string): string {
     id: "id",
     th: "th",
     ms: "my",
+    yue: "hk",
   } as const;
   return map[lang] ?? "xx";
 }

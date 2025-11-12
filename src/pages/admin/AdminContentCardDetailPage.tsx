@@ -3,33 +3,33 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { apiGetCardByPath } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
 
-export default function AdminCardDetailPage() {
-  const { filmSlug, episodeId, cardId } = useParams();
+export default function AdminContentCardDetailPage() {
+  const { contentSlug, episodeId, cardId } = useParams();
   const navigate = useNavigate();
   const [card, setCard] = useState<CardDoc | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!filmSlug || !episodeId || !cardId) return;
+    if (!contentSlug || !episodeId || !cardId) return;
     let mounted = true;
     (async () => {
       setLoading(true);
       try {
-        const c = await apiGetCardByPath(filmSlug, episodeId, cardId);
+        const c = await apiGetCardByPath(contentSlug, episodeId, cardId);
         if (!mounted) return;
         setCard(c);
       } catch (e) { setError((e as Error).message); }
       finally { setLoading(false); }
     })();
     return () => { mounted = false; };
-  }, [filmSlug, episodeId, cardId]);
+  }, [contentSlug, episodeId, cardId]);
 
   return (
     <div className="admin-section">
       <div className="admin-section-header">
         <h2 className="admin-title">Card {cardId}</h2>
-        <button className="admin-btn secondary" onClick={() => navigate(`/admin/films/${encodeURIComponent(filmSlug!)}`)}>← Back to film</button>
+        <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}`)}>← Back to content</button>
       </div>
       {loading && <div className="admin-info">Loading...</div>}
       {error && <div className="admin-error">{error}</div>}

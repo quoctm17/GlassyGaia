@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { apiFetchAllCards, apiFetchCardsForFilm } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
 
-export default function AdminMediaPage() {
+export default function AdminContentMediaPage() {
   const [rows, setRows] = useState<CardDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

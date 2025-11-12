@@ -15,6 +15,9 @@ export interface CardDoc {
   sentence?: string; // optional descriptive sentence
   CEFR_Level?: string; // proficiency level
   words?: Record<string, string>; // optional word breakdown
+  card_type?: string; // normalized type text (cleaned sentence)
+  length?: number; // length of card_type for matching/scoring
+  difficulty_score?: number; // 0-100 fine-grained difficulty
 }
 
 export interface EpisodeDoc {
@@ -33,6 +36,8 @@ export interface FilmDoc {
   type?: string; // film/series/book/etc.
   release_year?: number;
   available_subs?: string[]; // collected from film_available_languages
+  full_audio_url?: string; // optional full audio media
+  full_video_url?: string; // optional full video media
 }
 
 export interface UserPreferences {
