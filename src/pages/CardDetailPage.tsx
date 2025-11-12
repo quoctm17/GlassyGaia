@@ -26,7 +26,7 @@ export default function CardDetailPage() {
   }, [filmId, episodeId, cardId]);
 
   const ordered = useMemo(() => {
-    const ORDER = ["en","vi","zh","zh_trad","ja","ko","id","th","ms"] as const;
+    const ORDER = ["en","vi","zh","zh_trad","yue","ja","ko","id","th","ms"] as const;
     if (!card) return [] as string[];
     const baseSecondary = (langs?.length ? langs : detectCodesFromCard(card)).map((c) => canonicalizeLangCode(c) || (c as string));
     const primary = primaryLang ? (canonicalizeLangCode(primaryLang) || primaryLang) : undefined;

@@ -1,4 +1,5 @@
 export default function AboutPage() {
+  const ankiUrl = (import.meta.env.VITE_LINK_ANKI as string) || "https://ankiweb.net/shared/by-author/1420758716";
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-5">
       <h1 className="text-2xl font-bold text-pink-300 drop-shadow-[0_0_6px_rgba(236,72,153,0.6)]">About GlassyGaia</h1>
@@ -47,6 +48,7 @@ export default function AboutPage() {
           <a className="pixel-social-btn" href="https://www.buymeacoffee.com/" target="_blank" rel="noreferrer">BuyMeACoffee</a>
           <a className="pixel-social-btn" href="https://www.tiktok.com/" target="_blank" rel="noreferrer">TikTok</a>
           <a className="pixel-social-btn" href="https://www.xiaohongshu.com/" target="_blank" rel="noreferrer">Xiaohongshu</a>
+          <a className="pixel-social-btn" href={ankiUrl} target="_blank" rel="noreferrer">Anki</a>
         </div>
       </section>
     </div>

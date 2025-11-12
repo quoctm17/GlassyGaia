@@ -1,0 +1,475 @@
+/* Language-specific typography and color styles for main text and subtitles */
+
+/* ======================= vn Vietnamese ======================= */
+.vietnamese-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;    
+  color: #FA812F;     /* Orange */ 
+}
+
+/* Vietnamese main/type for consistency */
+.vietnamese-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.vietnamese-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= EN ENGLISH ======================= */
+.english-type, .english-main {
+  font-size: 17px;                     
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;    
+  text-align: left;                                                     
+}
+
+.english-sub {
+  font-size: 17px;                     
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;    
+  text-align: left;                   
+  color: #636CCB;                                   
+}
+
+/* ======================= 🇪🇸 SPANISH ======================= */
+.spanish-sub {
+  font-size: 17px;                     
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;    
+  text-align: left;                   
+  color: #FAA533;                                   
+}
+
+.spanish-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.spanish-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= AR ARABIC ======================= */
+.arabic-main {
+  font-size: 20px;
+  font-family: "Amiri", "Scheherazade New", sans-serif;
+  margin: 10px 40px;
+  text-align: right; /* revert to right-align for better readability in RTL */
+  direction: rtl;   /* Right-to-left script */
+}
+
+.arabic-sub {
+  font-size: 17px;
+  font-family: "Amiri", "Scheherazade New", sans-serif;
+  margin: 10px 40px;
+  text-align: right; /* revert to right-align for better readability in RTL */
+  color: #138D75;  /* Teal */
+  font-style: italic;
+  direction: rtl;   /* Right-to-left script */
+}
+
+.arabic-type {
+  font-size: 17px;
+  font-family: "Amiri", "Scheherazade New", sans-serif;
+  margin: 10px 40px;
+  text-align: right; /* revert to right-align for better readability in RTL */
+  direction: rtl;
+}
+
+/* ======================= 🈶 CHINESE ======================= */
+.chinese-main {
+  font-size: 35px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;    
+}
+.chinese-type {
+  font-size: 25px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;    
+}
+.chinese-sub {
+  font-size: 25px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;    
+  color: #9929EA;    /* Purple */ 
+}
+
+/* 🔤 ====== Pinyin Styling ====== */
+ruby rt {
+  font-family: "Times New Roman", sans-serif;
+  font-size: 0.5em;        /* smaller size */
+  user-select: none;
+  opacity: 0;              
+  font-style: italic;
+}
+
+/* Show pinyin on hover */
+.hanzi-ruby ruby:hover rt {
+  opacity: 1;
+}
+
+/* ======================= 🇰🇷 KOREAN ======================= */
+.korean-main {
+  font-size: 25px;                
+  font-family: "Malgun Gothic",  
+               "Noto Sans KR",    
+               "Apple SD Gothic Neo",
+               sans-serif;
+  margin: 10px 40px;           
+  line-height: 1.6;                
+  font-weight: 500;                             
+  text-align: left;             
+}
+
+.korean-type {
+  font-size: 18px;                
+  font-family: "Malgun Gothic",  
+               "Noto Sans KR",    
+               "Apple SD Gothic Neo",
+               sans-serif;
+  margin: 10px 40px;           
+  line-height: 1.2;                
+  font-weight: 400;                             
+  text-align: left;             
+}
+
+.korean-sub {
+  font-size: 20px;                
+  font-family: "Malgun Gothic",  
+               "Noto Sans KR",    
+               "Apple SD Gothic Neo",
+               sans-serif;
+  margin: 10px 40px;           
+  line-height: 1.6;                
+  font-weight: 500;                
+  color: #8AA624;     /* Green */                 
+  text-align: left;             
+}
+
+/* ======================= 🇯🇵 JAPANESE TEXT ======================= */
+.japanese-main {
+  font-size: 30px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;    
+}
+
+.japanese-type {
+  font-size: 20px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;    
+}
+
+.japanese-sub {
+  font-size: 20px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  color: #E45A92;    /* Pink */
+  text-align: left;    
+}
+/* ruby visibility for JP */
+ruby rt { color: rgba(0, 0, 0, 0); }
+ruby:hover rt { color: inherit; text-decoration: none; }
+
+/* ======================= 🇹🇭 THAI ======================= */
+.thai-sub {
+  font-size: 20px;                
+  font-family: "Leelawadee UI",   
+               "Noto Sans Thai",
+               "Tahoma",
+               sans-serif;
+  margin: 10px 40px;           
+  line-height: 1.7;                
+  font-weight: 500;                
+  color: #B46ACD;   /* Soft Purple */      
+  text-align: left;             
+}
+
+.thai-main {
+  font-size: 20px;
+  font-family: "Leelawadee UI", "Noto Sans Thai", "Tahoma", sans-serif;
+  margin: 10px 40px;
+  line-height: 1.6;
+  font-weight: 500;
+  text-align: left;
+}
+
+.thai-type {
+  font-size: 20px;
+  font-family: "Leelawadee UI", "Noto Sans Thai", "Tahoma", sans-serif;
+  margin: 10px 40px;
+  line-height: 1.4;
+  font-weight: 400;
+  text-align: left;
+}
+
+/* ======================= FR FRENCH ======================= */
+.french-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #2E86AB;  /* Blue */
+}
+
+.french-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.french-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= NL DUTCH ======================= */
+.dutch-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #E67E22;  /* Orange */
+}
+
+.dutch-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.dutch-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= DE GERMAN ======================= */
+.german-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #C0392B;  /* Red */
+}
+
+.german-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.german-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= EL GREEK ======================= */
+.greek-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #2980B9;  /* Deep Blue */
+}
+
+.greek-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.greek-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= HI HINDI ======================= */
+.hindi-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #8E44AD;  /* Purple */
+}
+
+.hindi-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.hindi-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= ID INDONESIAN ======================= */
+.indonesian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #16A085;  /* Teal */
+}
+
+.indonesian-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.indonesian-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= IT ITALIAN ======================= */
+.italian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #27AE60;  /* Green */
+}
+
+.italian-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.italian-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= MS MALAY ======================= */
+.malay-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #D35400;  /* Warm Orange */
+}
+
+.malay-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.malay-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= PL POLISH ======================= */
+.polish-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #B03A2E;  /* Strong Red */
+}
+
+.polish-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.polish-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= PT PORTUGUESE ======================= */
+.portuguese-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #117A65;  /* Emerald */
+}
+
+.portuguese-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.portuguese-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+/* ======================= RU RUSSIAN ======================= */
+.russian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #7D3C98;  /* Violet */
+}
+
+.russian-main {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+
+.russian-type {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}

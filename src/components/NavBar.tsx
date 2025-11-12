@@ -56,7 +56,15 @@ export default function NavBar() {
             Search
           </NavLink>
           <NavLink
-            to="/movie"
+            to="/about"
+            className={({ isActive }) =>
+              `pixel-tab ${isActive ? "active" : ""}`
+            }
+          >
+            About
+          </NavLink>
+          <NavLink
+            to="/content"
             className={({ isActive }) =>
               `pixel-tab ${isActive ? "active" : ""}`
             }
@@ -64,12 +72,20 @@ export default function NavBar() {
             Movie
           </NavLink>
           <NavLink
-            to="/about"
+            to="/series"
             className={({ isActive }) =>
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
-            About
+            Series
+          </NavLink>
+          <NavLink
+            to="/book"
+            className={({ isActive }) =>
+              `pixel-tab ${isActive ? "active" : ""}`
+            }
+          >
+            Book
           </NavLink>
         </div>
       </div>

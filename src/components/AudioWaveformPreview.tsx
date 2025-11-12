@@ -38,20 +38,28 @@ export default function AudioWaveformPreview({ audioUrl, active, className, barC
   if (!ctx) throw new Error("AudioContext unsupported");
         const audio = await ctx.decodeAudioData(buf.slice(0));
         const ch = audio.getChannelData(0);
-        // Downsample to N bars
-        const bars = Math.min(200, Math.max(80, Math.floor((canvasRef.current?.clientWidth || 240) / 2)));
-        const samplesPerBar = Math.floor(ch.length / bars) || 1;
-        const next: number[] = new Array(bars).fill(0);
-        for (let i = 0; i < bars; i++) {
+        // Downsample to N bars (denser and smoother)
+        const density = 3; // pixels per bar approx
+        const targetBars = Math.min(320, Math.max(100, Math.floor((canvasRef.current?.clientWidth || 300) / density)));
+        const samplesPerBar = Math.max(1, Math.floor(ch.length / targetBars));
+        const raw: number[] = new Array(targetBars).fill(0);
+        for (let i = 0; i < targetBars; i++) {
           let max = 0;
           const start = i * samplesPerBar;
           const end = Math.min(ch.length, start + samplesPerBar);
-          for (let j = start; j < end; j++) {
-            const v = Math.abs(ch[j]);
-            if (v > max) max = v;
-          }
-          next[i] = max;
+          for (let j = start; j < end; j++) max = Math.max(max, Math.abs(ch[j]));
+          raw[i] = max;
         }
+        // Smooth with moving average to avoid jagged bars
+        const smoothWindow = 3;
+        const next = raw.map((_, i) => {
+          let sum = 0, count = 0;
+          for (let k = -smoothWindow; k <= smoothWindow; k++) {
+            const idx = i + k;
+            if (idx >= 0 && idx < raw.length) { sum += raw[idx]; count++; }
+          }
+          return sum / (count || 1);
+        });
         if (!cancelled) setPeaks(next);
         ctx.close();
       } catch (e) {
@@ -80,31 +88,46 @@ export default function AudioWaveformPreview({ audioUrl, active, className, barC
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     // Background gradient for subtle glass look
     const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    bg.addColorStop(0, "rgba(12,9,18,0.6)");
-    bg.addColorStop(1, "rgba(12,9,18,0.8)");
+    bg.addColorStop(0, "rgba(20,16,30,0.55)");
+    bg.addColorStop(1, "rgba(12,9,18,0.85)");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const mid = canvas.height / 2;
-    const gap = 2 * dpr; // gap between bars
+    const gap = 1.5 * dpr; // tighter gap
     const barW = Math.max(dpr, (canvas.width - gap * peaks.length) / peaks.length);
-    ctx.fillStyle = barColor;
+    // Pink → fuchsia vertical gradient for bars
+    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, "#f9a8d4");
+    grad.addColorStop(0.5, barColor);
+    grad.addColorStop(1, "#a78bfa");
+    ctx.fillStyle = grad;
+    ctx.shadowColor = "rgba(236,72,153,0.35)"; // outer glow
+    ctx.shadowBlur = 8 * dpr;
 
     for (let i = 0; i < peaks.length; i++) {
       const x = i * (barW + gap);
-      const amp = Math.max(0.05, peaks[i]);
-      const h = amp * (canvas.height * 0.85);
-      const y = mid - h / 2;
-      // rounded rect bars
-      const r = Math.min(barW, 6 * dpr);
-      roundRect(ctx, x, y, barW, h, r);
+      const amp = Math.max(0.04, peaks[i]);
+      const h = amp * (canvas.height * 0.78);
+      const r = Math.min(barW, 5 * dpr);
+      // Draw mirrored bars for a fuller waveform look
+      const yTop = mid - h;
+      const yBot = mid;
+      roundRect(ctx, x, yTop, barW, h, r);
+      ctx.fill();
+      roundRect(ctx, x, yBot, barW, h, r);
       ctx.fill();
     }
+
+    // Center baseline
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(249,168,212,0.4)";
+    ctx.fillRect(0, mid - 0.5 * dpr, canvas.width, 1 * dpr);
   }, [peaks, barColor]);
 
   return (
     <div className={className} style={{ pointerEvents: "none" }}>
-      <canvas ref={canvasRef} className="w-full h-full opacity-0 transition-opacity duration-200" style={{ opacity: active && (peaks || error) ? 0.92 : 0 }} />
+      <canvas ref={canvasRef} className="w-full h-full opacity-0 transition-opacity duration-200" style={{ opacity: active && (peaks || error) ? 1 : 0 }} />
     </div>
   );
 }

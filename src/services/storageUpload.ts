@@ -85,7 +85,7 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
     const ext = isImage ? "jpg" : "mp3";
     // Updated pattern (2025-11 generic): items/{filmId}/episodes/e{episodeNum}/{type}/{filmId_normalized}_{cardId}.ext
     const fileName = `${prefix}_${cardId}.${ext}`;
-    const bucketPath = `items/${filmId}/episodes/e${episodeNum}/${type}/${fileName}`;
+    const bucketPath = `items/${filmId}/episodes/${filmId}_${episodeNum}/${type}/${fileName}`;
     await r2UploadViaSignedUrl({ bucketPath, file: f, contentType: expectedCT });
     onProgress?.(i + 1, total);
   }
@@ -99,4 +99,45 @@ export async function uploadCoverImage(params: { filmId: string; episodeNum: num
   }
   const bucketPath = `items/${filmId}/cover_image/cover.jpg`;
   await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'image/jpeg' });
+}
+
+// Upload full media for a film (top-level, not per-episode)
+export async function uploadFilmFullMedia(params: { filmId: string; type: 'audio' | 'video'; file: File }) {
+  const { filmId, type, file } = params;
+  if (type === 'audio') {
+    if (!/mpeg$/i.test(file.type) && file.type !== 'audio/mpeg') {
+      throw new Error('Full audio must be MP3 (audio/mpeg)');
+    }
+    const bucketPath = `items/${filmId}/full/audio.mp3`;
+    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'audio/mpeg' });
+    return bucketPath;
+  } else {
+    if (!/mp4$/i.test(file.type) && file.type !== 'video/mp4') {
+      throw new Error('Full video must be MP4 (video/mp4)');
+    }
+    const bucketPath = `items/${filmId}/full/video.mp4`;
+    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'video/mp4' });
+    return bucketPath;
+  }
+}
+
+// Upload full media for a specific episode
+export async function uploadEpisodeFullMedia(params: { filmId: string; episodeNum: number; type: 'audio' | 'video'; file: File }) {
+  const { filmId, episodeNum, type, file } = params;
+  const epFolder = `${filmId}_${episodeNum}`;
+  if (type === 'audio') {
+    if (!/mpeg$/i.test(file.type) && file.type !== 'audio/mpeg') {
+      throw new Error('Episode full audio must be MP3 (audio/mpeg)');
+    }
+    const bucketPath = `items/${filmId}/episodes/${epFolder}/full/audio.mp3`;
+    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'audio/mpeg' });
+    return bucketPath;
+  } else {
+    if (!/mp4$/i.test(file.type) && file.type !== 'video/mp4') {
+      throw new Error('Episode full video must be MP4 (video/mp4)');
+    }
+    const bucketPath = `items/${filmId}/episodes/${epFolder}/full/video.mp4`;
+    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'video/mp4' });
+    return bucketPath;
+  }
 }
