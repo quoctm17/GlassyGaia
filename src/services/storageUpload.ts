@@ -95,7 +95,6 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
     } catch {
       await r2UploadViaSignedUrl({ bucketPath: legacyBucketPath, file: f, contentType: expectedCT });
     }
-    await r2UploadViaSignedUrl({ bucketPath, file: f, contentType: expectedCT });
     onProgress?.(i + 1, total);
   }
 }
