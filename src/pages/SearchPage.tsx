@@ -12,6 +12,7 @@ function SearchPage() {
   const { preferences } = useUser();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [allResults, setAllResults] = useState<CardDoc[]>([]);
   const [availableLangs, setAvailableLangs] = useState<string[]>(["en"]);
   const [filmFilter, setFilmFilter] = useState<string | null>(null);
@@ -80,6 +81,19 @@ function SearchPage() {
     runSearch(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filmLangMap, preferences.main_language]);
+
+  // Debounced live search on query changes
+  useEffect(() => {
+    setSearching(true);
+    const handle = setTimeout(() => {
+      runSearch(query).finally(() => setSearching(false));
+    }, 350);
+    return () => {
+      clearTimeout(handle);
+      setSearching(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   // Recompute available languages from results so selector is dynamic like CardDetail
   useEffect(() => {
@@ -161,6 +175,7 @@ function SearchPage() {
           }}
           placeholder={`Search across all films...`}
           buttonLabel="Search by"
+          loading={searching}
         />
 
         {/* Subtitle language selection moved to NavBar */}

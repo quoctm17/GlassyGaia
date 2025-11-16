@@ -21,7 +21,7 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   const total = files.length;
   const start = params.startIndex ?? 0;
   const pad = Math.max(1, params.padDigits ?? 3);
-  const prefix = filmId.replace(/-/g, "_");
+  // const prefix = filmId.replace(/-/g, "_"); // no longer used in new filename scheme
   const infer = !!params.inferFromFilenames;
   const isImage = type === "image";
   const expectedCT = isImage ? "image/jpeg" : "audio/mpeg";
@@ -84,8 +84,8 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   for (let i = 0; i < plan.length; i++) {
     const { file: f, cardId } = plan[i];
     const ext = isImage ? "jpg" : "mp3";
-    // Updated pattern (2025-11 generic): items/{filmId}/episodes/e{episodeNum}/{type}/{filmId_normalized}_{cardId}.ext
-    const fileName = `${prefix}_${cardId}.${ext}`;
+    // New pattern: filename includes padded episode: {filmId}_{paddedEp}_{cardId}.ext
+    const fileName = `${filmId}_${paddedEp}_${cardId}.${ext}`;
     // New padded folder (non-breaking): filmId_001 style. Keep legacy folder upload for compatibility.
     const newBucketPath = `items/${filmId}/episodes/${filmId}_${paddedEp}/${type}/${fileName}`;
     const legacyBucketPath = `items/${filmId}/episodes/${filmId}_${episodeNum}/${type}/${fileName}`;

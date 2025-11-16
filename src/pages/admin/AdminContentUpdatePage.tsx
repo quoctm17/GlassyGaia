@@ -110,7 +110,10 @@ export default function AdminContentUpdatePage() {
 
 	return (
 		<div className="p-6 max-w-5xl mx-auto space-y-4">
-			<div className="text-lg">Admin: Update Content Metadata</div>
+			<div className="admin-section-header">
+				<h2 className="admin-title">Update Content Metadata</h2>
+				<button className="admin-btn secondary" onClick={() => window.location.href = '/admin/content'}>← Back</button>
+			</div>
 
 			{!user && (
 				<div className="admin-panel space-y-3">
@@ -143,12 +146,13 @@ export default function AdminContentUpdatePage() {
 						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Content Slug</label>
 							<input
-								className="admin-input"
+								className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none"
 								value={contentSlug}
-								onChange={e => setContentSlug(e.target.value)}
 								placeholder="god_of_gamblers_2"
-								disabled={!!slugFromQuery}
-								title={slugFromQuery ? 'Slug is prefilled from list and locked' : undefined}
+								disabled
+								readOnly
+								aria-disabled="true"
+								title="Slug is prefilled from list and locked"
 							/>
 						</div>
 
@@ -229,7 +233,7 @@ export default function AdminContentUpdatePage() {
 
 						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Cover (jpg)</label>
-							<input id="update-cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full" />
+							<input id="update-cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
 						</div>
 
 						<div className="flex items-start gap-2 md:col-span-2">

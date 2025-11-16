@@ -238,7 +238,7 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
       return s;
     }
 
-    const episodeSlug = `${filmSlug}_${episodeNum}`; // DB slug remains unpadded for compatibility
+    const episodeSlug = `${filmSlug}_${String(episodeNum).padStart(3,'0')}`; // padded for consistency with storage paths
     const image_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image" });
     const audio_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "audio" });
 

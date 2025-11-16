@@ -287,6 +287,64 @@ export function countryCodeForLang(code: string): string {
 }
 
 /**
+ * Map a canonical language code to the CSS class base used in language-styles.css
+ * Example: 'en' -> 'english', 'vi' -> 'vietnamese', 'zh'/'zh_trad' -> 'chinese',
+ *          'es_la' -> 'spanish-la', 'pt_br' -> 'portuguese-br', etc.
+ */
+export function languageCssBase(code: string): string {
+  const c = canonicalizeLangCode(code) ?? (code.toLowerCase() as CanonicalLang);
+  const m: Record<CanonicalLang, string> = {
+    en: 'english',
+    vi: 'vietnamese',
+    ja: 'japanese',
+    ko: 'korean',
+    zh: 'chinese',
+    zh_trad: 'chinese',
+    id: 'indonesian',
+    th: 'thai',
+    ms: 'malay',
+    yue: 'cantonese',
+    ar: 'arabic',
+    eu: 'basque',
+    bn: 'bengali',
+    ca: 'catalan',
+    hr: 'croatian',
+    cs: 'czech',
+    da: 'danish',
+    nl: 'dutch',
+    fil: 'filipino',
+    fi: 'finnish',
+    fr: 'french',
+    fr_ca: 'french',
+    gl: 'galician',
+    de: 'german',
+    el: 'greek',
+    he: 'hebrew',
+    hi: 'hindi',
+    hu: 'hungarian',
+    is: 'icelandic',
+    it: 'italian',
+    ml: 'malayalam',
+    no: 'norwegian',
+    pl: 'polish',
+    pt_br: 'portuguese-br',
+    pt_pt: 'portuguese-pt',
+    ro: 'romanian',
+    ru: 'russian',
+    es_la: 'spanish-la',
+    es_es: 'spanish-es',
+    sv: 'swedish',
+    ta: 'tamil',
+    te: 'telugu',
+    tr: 'turkish',
+    uk: 'ukrainian',
+    rec: 'rec',
+    triage: 'triage',
+  };
+  return m[c] ?? 'english';
+}
+
+/**
  * Calculate text length appropriate for the language.
  * - Character-based languages (Chinese, Japanese, Thai, Cantonese): count characters (no spaces)
  * - Word-based languages (English, Vietnamese, etc.): count words (space-delimited)

@@ -46,8 +46,37 @@ export default {
       // 3) Content items list (generic across films, music, books)
       if (path === '/items' && request.method === 'GET') {
         try {
-          const res = await env.DB.prepare('SELECT slug as id,title,main_language,type,release_year,description,total_episodes as episodes,is_original FROM content_items').all();
-          return json(res.results || []);
+          // Include available_subs aggregated from content_item_languages for each item
+          const rows = await env.DB.prepare(`
+            SELECT ci.id as internal_id, ci.slug as id, ci.title, ci.main_language, ci.type, ci.release_year, ci.description, ci.total_episodes as episodes, ci.is_original,
+                   cil.language as lang
+            FROM content_items ci
+            LEFT JOIN content_item_languages cil ON cil.content_item_id = ci.id
+          `).all();
+          const map = new Map();
+          for (const r of (rows.results || [])) {
+            const key = r.id;
+            let it = map.get(key);
+            if (!it) {
+              it = {
+                id: r.id,
+                title: r.title,
+                main_language: r.main_language,
+                type: r.type,
+                release_year: r.release_year,
+                description: r.description,
+                episodes: r.episodes,
+                is_original: r.is_original,
+                available_subs: [],
+              };
+              map.set(key, it);
+            }
+            if (r.lang) {
+              if (!it.available_subs.includes(r.lang)) it.available_subs.push(r.lang);
+            }
+          }
+          const out = Array.from(map.values());
+          return json(out);
         } catch (e) {
           return json([]);
         }
@@ -451,6 +480,99 @@ export default {
   const filmCardsMatch = path.match(/^\/items\/([^/]+)\/episodes\/([^/]+)\/cards$/);
       // 4c) Episode meta
       const episodeMetaMatch = path.match(/^\/items\/([^/]+)\/episodes\/([^/]+)$/);
+      // DELETE episode: remove episode, its cards, subtitles, difficulties, and media
+      if (episodeMetaMatch && request.method === 'DELETE') {
+        const filmSlug = decodeURIComponent(episodeMetaMatch[1]);
+        const episodeSlugRaw = decodeURIComponent(episodeMetaMatch[2]);
+        try {
+          const filmRow = await env.DB.prepare('SELECT id, slug FROM content_items WHERE slug=?').bind(filmSlug).first();
+          if (!filmRow) return json({ error: 'Not found' }, { status: 404 });
+          let epNum = Number(String(episodeSlugRaw).replace(/^e/i, ''));
+          if (!epNum || Number.isNaN(epNum)) {
+            const m = String(episodeSlugRaw).match(/_(\d+)$/);
+            epNum = m ? Number(m[1]) : 1;
+          }
+          // Resolve episode row
+          let episode;
+          try {
+            episode = await env.DB.prepare('SELECT id, episode_number, slug, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+          } catch (e) {
+            try { episode = await env.DB.prepare('SELECT id, episode_num AS episode_number, slug, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch {}
+          }
+          if (!episode) return json({ error: 'Not found' }, { status: 404 });
+          const epId = episode.id;
+          // Enforce rule: cannot delete the first episode of a film
+          try {
+            let minRow;
+            try {
+              minRow = await env.DB.prepare('SELECT MIN(episode_number) AS mn FROM episodes WHERE content_item_id=?').bind(filmRow.id).first();
+            } catch (e) {
+              try { minRow = await env.DB.prepare('SELECT MIN(episode_num) AS mn FROM episodes WHERE content_item_id=?').bind(filmRow.id).first(); } catch {}
+            }
+            const minEp = minRow ? Number(minRow.mn) : 1;
+            if (epNum === minEp) {
+              return json({ error: 'Cannot delete the first episode' }, { status: 400 });
+            }
+          } catch {}
+          // Collect related cards and media keys
+          const mediaKeys = new Set();
+          const mediaErrors = [];
+          const normalizeKey = (k) => (k ? String(k).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '') : null);
+          if (episode.cover_key) mediaKeys.add(normalizeKey(episode.cover_key));
+          if (episode.full_audio_key) mediaKeys.add(normalizeKey(episode.full_audio_key));
+          if (episode.full_video_key) mediaKeys.add(normalizeKey(episode.full_video_key));
+          // Add conventional episode media locations (both legacy and padded)
+          const epPadded = String(epNum).padStart(3,'0');
+          const epFolderLegacy = `${filmRow.slug}_${epNum}`;
+          const epFolderPadded = `${filmRow.slug}_${epPadded}`;
+          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover.jpg`);
+          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/audio.mp3`);
+          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/video.mp4`);
+          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/cover/cover.jpg`);
+          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/audio.mp3`);
+          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/video.mp4`);
+          // Collect card keys
+          let cardsRows = { results: [] };
+          try {
+            cardsRows = await env.DB.prepare('SELECT id, image_key, audio_key FROM cards WHERE episode_id=?').bind(epId).all();
+          } catch {}
+          const cardIds = [];
+          for (const c of (cardsRows.results || [])) {
+            cardIds.push(c.id);
+            if (c.image_key) mediaKeys.add(normalizeKey(c.image_key));
+            if (c.audio_key) mediaKeys.add(normalizeKey(c.audio_key));
+          }
+          // Delete DB rows in a transaction
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
+          try {
+            if (cardIds.length) {
+              const ph = cardIds.map(() => '?').join(',');
+              try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
+              try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
+              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id=?`).bind(epId).run(); } catch {}
+            } else {
+              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id=?`).bind(epId).run(); } catch {}
+            }
+            try { await env.DB.prepare('DELETE FROM episodes WHERE id=?').bind(epId).run(); } catch {}
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
+          } catch (e) {
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
+            throw e;
+          }
+          // Best-effort media deletion
+          let mediaDeletedCount = 0;
+          if (env.MEDIA_BUCKET) {
+            for (const k of mediaKeys) {
+              if (!k) continue;
+              try { await env.MEDIA_BUCKET.delete(k); mediaDeletedCount += 1; }
+              catch { mediaErrors.push(`fail:${k}`); }
+            }
+          }
+          return json({ ok: true, deleted: `${filmSlug}_${epNum}`, cards_deleted: cardIds.length, media_deleted: mediaDeletedCount, media_errors: mediaErrors });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
       if (episodeMetaMatch && (request.method === 'PATCH' || request.method === 'GET')) {
         const filmSlug = decodeURIComponent(episodeMetaMatch[1]);
         const episodeSlugRaw = decodeURIComponent(episodeMetaMatch[2]);
@@ -734,6 +856,123 @@ export default {
           return json({ id: displayId, episode_id: outEpisodeId, episode_display: displayPadded, film_id: filmSlug, start: startS, end: endS, duration: dur, image_key: row.image_key, audio_key: row.audio_key, sentence: row.sentence, card_type: row.card_type, length: row.length, difficulty_score: row.difficulty_score, cefr_level: cefr, subtitle });
         } catch { return new Response('Not found', { status: 404, headers: withCors() }); }
       }
+      // PATCH card: update subtitles, audio_key, image_key
+      if (cardMatch && request.method === 'PATCH') {
+        const filmSlug = cardMatch[1];
+        const episodeSlug = cardMatch[2];
+        const cardDisplay = cardMatch[3];
+        try {
+          const body = await request.json();
+          const film = await env.DB.prepare('SELECT id, slug FROM content_items WHERE slug=?').bind(filmSlug).first();
+          if (!film) return json({ error: 'Not found' }, { status: 404 });
+          let epNum = Number(String(episodeSlug).replace(/^e/i, ''));
+          if (!epNum || Number.isNaN(epNum)) {
+            const m = String(episodeSlug).match(/_(\d+)$/);
+            epNum = m ? Number(m[1]) : 1;
+          }
+          let ep;
+          try {
+            ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_number=?').bind(film.id, epNum).first();
+          } catch (e) {
+            try { ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch {}
+          }
+          if (!ep) return json({ error: 'Not found' }, { status: 404 });
+          const cardNum = Number(cardDisplay);
+          const row = await env.DB.prepare('SELECT id FROM cards WHERE episode_id=? AND card_number=?').bind(ep.id, cardNum).first();
+          if (!row) return json({ error: 'Not found' }, { status: 404 });
+          
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
+          try {
+            // Update subtitle if provided
+            if (body.subtitle && typeof body.subtitle === 'object') {
+              // Delete existing subtitles
+              await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run();
+              // Insert new subtitles
+              for (const [lang, text] of Object.entries(body.subtitle)) {
+                if (text && String(text).trim()) {
+                  await env.DB.prepare('INSERT INTO card_subtitles (card_id, language, text) VALUES (?, ?, ?)').bind(row.id, lang, text).run();
+                }
+              }
+            }
+            // Update audio_key if provided
+            if (body.audio_url) {
+              const normalizeKey = (url) => String(url).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '');
+              const audioKey = normalizeKey(body.audio_url);
+              await env.DB.prepare('UPDATE cards SET audio_key=? WHERE id=?').bind(audioKey, row.id).run();
+            }
+            // Update image_key if provided
+            if (body.image_url) {
+              const normalizeKey = (url) => String(url).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '');
+              const imageKey = normalizeKey(body.image_url);
+              await env.DB.prepare('UPDATE cards SET image_key=? WHERE id=?').bind(imageKey, row.id).run();
+            }
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
+          } catch (e) {
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
+            throw e;
+          }
+          return json({ ok: true, updated: String(cardNum).padStart(4, '0') });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      if (cardMatch && request.method === 'DELETE') {
+        const filmSlug = cardMatch[1];
+        const episodeSlug = cardMatch[2];
+        const cardDisplay = cardMatch[3];
+        try {
+          const film = await env.DB.prepare('SELECT id, slug FROM content_items WHERE slug=?').bind(filmSlug).first();
+          if (!film) return json({ error: 'Not found' }, { status: 404 });
+          let epNum = Number(String(episodeSlug).replace(/^e/i, ''));
+          if (!epNum || Number.isNaN(epNum)) {
+            const m = String(episodeSlug).match(/_(\d+)$/);
+            epNum = m ? Number(m[1]) : 1;
+          }
+          let ep;
+          try {
+            ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_number=?').bind(film.id, epNum).first();
+          } catch (e) {
+            try { ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch {}
+          }
+          if (!ep) return json({ error: 'Not found' }, { status: 404 });
+          const cardNum = Number(cardDisplay);
+          const row = await env.DB.prepare('SELECT id, card_number, image_key, audio_key FROM cards WHERE episode_id=? AND card_number=?').bind(ep.id, cardNum).first();
+          if (!row) return json({ error: 'Not found' }, { status: 404 });
+          // Enforce: cannot delete the first card in the episode
+          let minRow = await env.DB.prepare('SELECT MIN(card_number) AS mn FROM cards WHERE episode_id=?').bind(ep.id).first().catch(() => null);
+          const minCard = minRow ? Number(minRow.mn) : cardNum;
+          if (row.card_number === minCard) {
+            return json({ error: 'Cannot delete the first card' }, { status: 400 });
+          }
+          const mediaKeys = new Set();
+          const normalizeKey = (k) => (k ? String(k).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '') : null);
+          if (row.image_key) mediaKeys.add(normalizeKey(row.image_key));
+          if (row.audio_key) mediaKeys.add(normalizeKey(row.audio_key));
+          // Delete DB rows
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
+          try {
+            try { await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run(); } catch {}
+            try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id=?').bind(row.id).run(); } catch {}
+            try { await env.DB.prepare('DELETE FROM cards WHERE id=?').bind(row.id).run(); } catch {}
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
+          } catch (e) {
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
+            throw e;
+          }
+          // Delete media
+          let mediaDeletedCount = 0; const mediaErrors = [];
+          if (env.MEDIA_BUCKET) {
+            for (const k of mediaKeys) {
+              if (!k) continue;
+              try { await env.MEDIA_BUCKET.delete(k); mediaDeletedCount += 1; }
+              catch { mediaErrors.push(`fail:${k}`); }
+            }
+          }
+          return json({ ok: true, deleted: String(cardNum).padStart(4,'0'), media_deleted: mediaDeletedCount, media_errors: mediaErrors });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
 
       // 8) Import bulk (server generates UUIDs; client provides slug and numbers)
       if (path === '/import' && request.method === 'POST') {
@@ -795,14 +1034,17 @@ export default {
           }
           if (!episode) {
             const epUuid = crypto.randomUUID();
+            const epPadded = String(episodeNumber).padStart(3, '0');
+            const episodeTitle = (film.episode_title && String(film.episode_title).trim()) ? String(film.episode_title).trim() : `e${epPadded}`;
+            const episodeSlug = `${filmSlug}_${epPadded}`;
             // Insert with slug column if available; fallback without slug on older schema
             try {
               await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_number,title,slug) VALUES (?,?,?,?,?)').bind(
                 epUuid,
                 filmRow.id,
                 episodeNumber,
-                `e${episodeNumber}`,
-                `${filmSlug}_${episodeNumber}`
+                episodeTitle,
+                episodeSlug
               ).run();
             } catch (e) {
               // Fallback older schema with episode_num
@@ -811,15 +1053,15 @@ export default {
                   epUuid,
                   filmRow.id,
                   episodeNumber,
-                  `e${episodeNumber}`,
-                  `${filmSlug}_${episodeNumber}`
+                  episodeTitle,
+                  episodeSlug
                 ).run();
               } catch (e2) {
                 await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_num,title) VALUES (?,?,?,?)').bind(
                   epUuid,
                   filmRow.id,
                   episodeNumber,
-                  `e${episodeNumber}`
+                  episodeTitle
                 ).run();
               }
             }

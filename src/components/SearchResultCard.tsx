@@ -184,9 +184,15 @@ export default function SearchResultCard({
       <div className="flex-1 min-w-0 relative z-10">
         <div className="flex items-center gap-3">
           <audio controls preload="none" src={card.audio_url} onPlay={onPlay} />
-          <div className="text-xs text-gray-400">
+          <div className="text-xs text-gray-400 flex items-center gap-2">
             ep {String(card.episode)} · {card.start.toFixed(2)}s–
             {card.end.toFixed(2)}s
+            {primaryLang && (
+              <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-700 text-gray-100 text-[10px]">
+                <span className={`fi fi-${countryCodeForLang(primaryLang)}`}></span>
+                <span>{(canonicalizeLangCode(primaryLang) || primaryLang).toUpperCase()}</span>
+              </span>
+            )}
           </div>
           <div className="ml-auto flex items-center gap-2">
             <button

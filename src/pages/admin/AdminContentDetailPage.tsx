@@ -3,7 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { apiGetFilm, apiListEpisodes } from '../../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../../types';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
-import { ExternalLink, PlusCircle } from 'lucide-react';
+import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import PortalDropdown from '../../components/PortalDropdown';
+import toast from 'react-hot-toast';
+import { apiDeleteEpisode } from '../../services/cfApi';
 
 export default function AdminContentDetailPage() {
   const { contentSlug } = useParams();
@@ -12,8 +15,11 @@ export default function AdminContentDetailPage() {
   const [languages, setLanguages] = useState<string[]>([]);
   const [episodes, setEpisodes] = useState<Array<{ episode_number: number; title: string | null; slug: string; cover_url: string | null; full_audio_url: string | null; full_video_url: string | null }>>([]);
   const [loadingItem, setLoadingItem] = useState(false);
-  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
+  const [loadingEpisodes, setLoadingEpisodes] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openMenuFor, setOpenMenuFor] = useState<{ slug: string; anchor: HTMLElement; closing?: boolean } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ slug: string; title: string; episode_number: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!contentSlug) return;
@@ -57,6 +63,11 @@ export default function AdminContentDetailPage() {
       const path = `/items/${item.id}/cover_image/cover.jpg`;
       url = r2Base ? r2Base + path : path;
     }
+    // Add cache-busting query string using updated_at or Date.now()
+    // Use Date.now() to force reload after update
+    if (url) {
+      url += (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    }
     return url;
   }, [item, r2Base]);
 
@@ -70,69 +81,145 @@ export default function AdminContentDetailPage() {
   }
   const levelStats = useMemo(() => parseLevelStats(item?.level_framework_stats as unknown), [item?.level_framework_stats]);
 
+  const pageSize = 10;
+  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortColumn, setSortColumn] = useState<"num" | "title" | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+  const filteredEpisodes = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    let rows = episodes;
+    if (q) {
+      rows = rows.filter(ep => {
+        const num = String(ep.episode_number).padStart(3,'0');
+        const title = (ep.title || '').toLowerCase();
+        return num.includes(q) || title.includes(q);
+      });
+    }
+    if (sortColumn) {
+      rows = [...rows].sort((a, b) => {
+        let cmp = 0;
+        if (sortColumn === 'num') {
+          cmp = a.episode_number - b.episode_number;
+        } else {
+          const ta = (a.title || '').toLowerCase();
+          const tb = (b.title || '').toLowerCase();
+          cmp = ta < tb ? -1 : ta > tb ? 1 : 0;
+        }
+        return sortDirection === 'asc' ? cmp : -cmp;
+      });
+    }
+    return rows;
+  }, [episodes, searchQuery, sortColumn, sortDirection]);
+
+  const handleSort = (col: "num" | "title") => {
+    if (sortColumn === col) setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortColumn(col); setSortDirection('asc'); }
+  };
   return (
     <div className="admin-section">
-      <div className="admin-section-header">
+      <div className="admin-section-header flex items-center gap-2">
         <h2 className="admin-title">Content: {contentSlug}</h2>
-        <button className="admin-btn secondary" onClick={() => navigate('/admin/content')}>← Back</button>
+        <div className="flex gap-2 ml-auto">
+          <button
+            className="admin-btn primary flex items-center gap-2"
+            onClick={() => navigate(`/admin/update?slug=${encodeURIComponent(contentSlug!)}`)}
+          >
+            <Pencil className="w-4 h-4" />
+            <span>Update</span>
+          </button>
+          <button className="admin-btn secondary" onClick={() => navigate('/admin/content')}>← Back</button>
+        </div>
       </div>
       {loadingItem && <div className="admin-info">Loading content...</div>}
       {error && <div className="admin-error">{error}</div>}
       {item && (
-        <div className="admin-panel mb-4 space-y-2">
-          <div><span className="font-semibold">Title:</span> {item.title || '-'}</div>
-          <div><span className="font-semibold">Type:</span> {item.type || '-'}</div>
-          <div>
-            <span className="font-semibold">Main Language:</span>{' '}
-            {item.main_language ? (
-              <span className="inline-flex items-center gap-1">
-                <span className={`fi fi-${countryCodeForLang(item.main_language)} w-5 h-3.5`}></span>
-                <span>{langLabel(item.main_language)}</span>
-              </span>
-            ) : '-'}
-          </div>
-          <div>
-            <span className="font-semibold">Available Subs:</span>{' '}
-            {languages.length ? (
-              <span className="inline-flex flex-wrap gap-2">
-                {languages.map(l => (
-                  <span key={l} className="inline-flex items-center gap-1 bg-gray-700/60 px-2 py-0.5 rounded text-xs">
-                    <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
-                    <span>{langLabel(l)}</span>
-                  </span>
-                ))}
-              </span>
-            ) : '-'}
-          </div>
-          <div><span className="font-semibold">Episodes:</span> {Number(item.episodes) > 0 ? item.episodes : 1}</div>
-          <div><span className="font-semibold">Total Episodes:</span> {Number(item.total_episodes) > 0 ? item.total_episodes : '-'}</div>
-          <div><span className="font-semibold">Description:</span> {item.description || '-'}</div>
-          {coverDisplayUrl && (
-            <div className="space-y-2">
+        <div className="space-y-4">
+          {/* Content Details Panel */}
+          <div className="admin-panel space-y-3">
+            <div className="text-sm font-semibold text-pink-300">Content Information</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
-                <span className="font-semibold">Cover:</span>
-                <a href={coverDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
-                  <ExternalLink className="w-4 h-4" />
-                  Open
-                </a>
+                <label className="w-32 text-sm text-gray-400">Title:</label>
+                <span className="text-gray-200">{item.title || '-'}</span>
               </div>
-              <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Type:</label>
+                <span className="text-gray-200">{item.type || '-'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Main Language:</label>
+                {item.main_language ? (
+                  <span className="inline-flex items-center gap-1 text-gray-200">
+                    <span className={`fi fi-${countryCodeForLang(item.main_language)} w-5 h-3.5`}></span>
+                    <span>{langLabel(item.main_language)}</span>
+                  </span>
+                ) : <span className="text-gray-200">-</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Episodes:</label>
+                <span className="text-gray-200">{Number(item.episodes) > 0 ? item.episodes : 1}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Total Episodes:</label>
+                <span className="text-gray-200">{Number(item.total_episodes) > 0 ? item.total_episodes : '-'}</span>
+              </div>
             </div>
-          )}
-          {/* Content-level Stats */}
-          <div className="pt-2 space-y-2">
-            <div><span className="font-semibold">Total Cards:</span> {item.num_cards ?? '-'}</div>
-            <div><span className="font-semibold">Avg Difficulty:</span> {typeof item.avg_difficulty_score === 'number' ? item.avg_difficulty_score.toFixed(1) : '-'}</div>
             <div>
-              <span className="font-semibold">Level Distribution:</span>
-              {levelStats && levelStats.length ? (
-                <div className="mt-2 space-y-2">
+              <label className="w-32 text-sm text-gray-400">Available Subs:</label>
+              {languages.length ? (
+                <div className="inline-flex flex-wrap gap-2 mt-2">
+                  {languages.map(l => (
+                    <span key={l} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border-2 border-pink-500/40 bg-[#1a0f24] text-xs text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.25)] hover:border-pink-400/60 transition-colors">
+                      <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
+                      <span>{langLabel(l)}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : <span className="text-gray-200">-</span>}
+            </div>
+            <div>
+              <label className="w-32 text-sm text-gray-400">Description:</label>
+              <div className="text-gray-200 mt-1">{item.description || '-'}</div>
+            </div>
+            {coverDisplayUrl && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="w-32 text-sm text-gray-400">Cover:</label>
+                  <a href={coverDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
+                    <ExternalLink className="w-4 h-4" />
+                    Open
+                  </a>
+                </div>
+                <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+              </div>
+            )}
+          </div>
+
+          {/* Stats Panel */}
+          <div className="admin-panel space-y-3">
+            <div className="text-sm font-semibold text-pink-300">Statistics</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Total Cards:</label>
+                <span className="text-gray-200">{item.num_cards ?? '-'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Avg Difficulty:</label>
+                <span className="text-gray-200">{typeof item.avg_difficulty_score === 'number' ? item.avg_difficulty_score.toFixed(1) : '-'}</span>
+              </div>
+            </div>
+            {levelStats && levelStats.length > 0 && (
+              <div>
+                <div className="text-sm text-gray-400 mb-2">Level Distribution:</div>
+                <div className="space-y-2">
                   {levelStats.map((entry, idx) => (
-                    <div key={idx} className="bg-gray-800/40 rounded p-2">
-                      <div className="text-sm text-pink-300">{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
-                      <div className="flex flex-wrap gap-2 mt-1">
+                    <div key={idx} className="bg-[#1a0f24] rounded-lg p-3 border-2 border-pink-500/50 shadow-[0_0_12px_rgba(236,72,153,0.25)]">
+                      <div className="text-sm text-pink-200 mb-2">{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
+                      <div className="flex flex-wrap gap-2">
                         {Object.entries(entry.levels).map(([lvl, pct]) => (
-                          <div key={lvl} className="text-xs bg-gray-700/60 px-2 py-0.5 rounded">
+                          <div key={lvl} className="text-xs bg-gray-700/60 px-2 py-1 rounded">
                             <span className="text-gray-300">{lvl}:</span> <span className="text-pink-300">{pct}%</span>
                           </div>
                         ))}
@@ -140,17 +227,19 @@ export default function AdminContentDetailPage() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <span> -</span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mt-8 mb-4 flex items-center justify-between gap-3">
         {loadingEpisodes ? <div className="admin-info">Loading episodes…</div> : <div />}
-        <div>
+        <div className="flex items-center gap-3 ml-auto">
+          <div className="relative w-[360px] max-w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input className="admin-input !pl-10" placeholder="Search by # or title" value={searchQuery} onChange={(e)=>{ setPage(1); setSearchQuery(e.target.value); }} />
+          </div>
           <button className="admin-btn primary flex items-center gap-2" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/add-episode`)}>
             <PlusCircle className="w-4 h-4" />
             <span>Add Episode</span>
@@ -163,29 +252,138 @@ export default function AdminContentDetailPage() {
         <table className="admin-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Title</th>
+              <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('num')}>
+                <div className="flex items-center gap-1">
+                  <span>#</span>
+                  {sortColumn === 'num' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                </div>
+              </th>
+              <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('title')}>
+                <div className="flex items-center gap-1">
+                  <span>Title</span>
+                  {sortColumn === 'title' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                </div>
+              </th>
               <th>Cover</th>
               <th>Full Audio</th>
               <th>Full Video</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {episodes.map(ep => (
+            {filteredEpisodes.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(ep => (
               <tr key={ep.slug} onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${ep.slug}`)} style={{ cursor: 'pointer' }}>
                 <td>{String(ep.episode_number).padStart(3,'0')}</td>
                 <td className="admin-cell-ellipsis" title={ep.title || ''}>{ep.title || '-'}</td>
                 <td>{ep.cover_url ? <a href={ep.cover_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
                 <td>{ep.full_audio_url ? <a href={ep.full_audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
                 <td>{ep.full_video_url ? <a href={ep.full_video_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
+                <td onMouseDown={(e)=>e.stopPropagation()}>
+                  <button
+                    className="admin-btn secondary !px-2 !py-1"
+                    title="Actions"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const el = e.currentTarget as HTMLElement;
+                      setOpenMenuFor(prev => {
+                        if (prev && prev.slug === ep.slug) {
+                          const next = { ...prev, closing: true } as typeof prev;
+                          setTimeout(() => setOpenMenuFor(null), 300);
+                          return next;
+                        }
+                        return { slug: ep.slug, anchor: el };
+                      });
+                    }}
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                  {openMenuFor?.slug === ep.slug && openMenuFor.anchor && (
+                    <PortalDropdown
+                      anchorEl={openMenuFor.anchor}
+                      align="center"
+                      closing={openMenuFor.closing}
+                      durationMs={300}
+                      onClose={() => setOpenMenuFor(null)}
+                      className="admin-dropdown-panel py-1"
+                    >
+                      <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${ep.slug}`); }}>
+                        <Eye className="w-4 h-4" />
+                        <span>View</span>
+                      </div>
+                      <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${ep.slug}/update`); }}>
+                        <Pencil className="w-4 h-4" />
+                        <span>Update</span>
+                      </div>
+                      {ep.episode_number > 1 && (
+                        <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); setConfirmDelete({ slug: ep.slug, title: ep.title || ep.slug, episode_number: ep.episode_number }); }}>
+                          <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
+                        </div>
+                      )}
+                    </PortalDropdown>
+                  )}
+                </td>
               </tr>
             ))}
-            {episodes.length === 0 && !loadingEpisodes && (
-              <tr><td colSpan={5} className="admin-empty">No episodes found</td></tr>
+            {filteredEpisodes.length === 0 && !loadingEpisodes && (
+              <tr><td colSpan={6} className="admin-empty">No episodes found</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {!loadingEpisodes && filteredEpisodes.length > 0 && (
+        <div className="flex items-center justify-between mt-2">
+          <div className="text-xs text-gray-400">
+            Showing {(page-1)*pageSize + 1}-{Math.min(page*pageSize, filteredEpisodes.length)} of {filteredEpisodes.length}
+          </div>
+          <div className="flex gap-2">
+            <button className="admin-btn secondary !py-1 !px-2" disabled={page<=1} onClick={() => setPage(p => Math.max(1, p-1))}>Prev</button>
+            <button className="admin-btn secondary !py-1 !px-2" disabled={page*pageSize>=filteredEpisodes.length} onClick={() => setPage(p => (p*pageSize<filteredEpisodes.length ? p+1 : p))}>Next</button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Delete Episode Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)}>
+          <div
+            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xoá Episode</h3>
+            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xoá:</p>
+            <p className="text-[#f9a8d4] font-semibold mb-4">"{confirmDelete.title}" (#{String(confirmDelete.episode_number).padStart(3,'0')})</p>
+            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xoá toàn bộ Cards và Media thuộc episode này. Không thể hoàn tác!</p>
+            <div className="flex gap-3 justify-end">
+              <button className="admin-btn secondary" onClick={() => setConfirmDelete(null)} disabled={deleting}>Huỷ</button>
+              <button
+                className="admin-btn primary"
+                disabled={deleting}
+                onClick={async () => {
+                  if (!contentSlug) return;
+                  setDeleting(true);
+                  try {
+                    const res = await apiDeleteEpisode({ filmSlug: contentSlug, episodeNum: confirmDelete.episode_number });
+                    if ('error' in res) {
+                      toast.error(res.error);
+                      return;
+                    }
+                    setEpisodes(prev => prev.filter(e => e.slug !== confirmDelete.slug));
+                    toast.success(`Đã xoá Episode (Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`);
+                    setConfirmDelete(null);
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  } finally { setDeleting(false); }
+                }}
+              >
+                {deleting ? 'Đang xoá...' : 'Xoá'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
