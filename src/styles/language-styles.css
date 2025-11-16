@@ -473,3 +473,255 @@ ruby:hover rt { color: inherit; text-decoration: none; }
   margin: 10px 40px;
   text-align: left;
 }
+
+/* ======================= HE HEBREW (RTL) ======================= */
+.hebrew-main {
+  font-size: 18px;
+  font-family: "Rubik", "Noto Sans Hebrew", sans-serif;
+  margin: 10px 40px;
+  text-align: right;
+  direction: rtl;
+}
+.hebrew-sub {
+  font-size: 17px;
+  font-family: "Rubik", "Noto Sans Hebrew", sans-serif;
+  margin: 10px 40px;
+  text-align: right;
+  color: #1F618D; /* Deep Blue */
+  direction: rtl;
+}
+.hebrew-type {
+  font-size: 17px;
+  font-family: "Rubik", "Noto Sans Hebrew", sans-serif;
+  margin: 10px 40px;
+  text-align: right;
+  direction: rtl;
+}
+
+/* ======================= YUE CANTONESE ======================= */
+.cantonese-main { /* reuse Chinese aesthetics */
+  font-size: 28px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.cantonese-type {
+  font-size: 22px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.cantonese-sub {
+  font-size: 22px;
+  font-family: "KaiTi", "SimKai", serif;
+  margin: 10px 40px;
+  text-align: left;
+  color: #7E57C2; /* Purple */
+}
+
+/* ======================= FIL FILIPINO ======================= */
+.filipino-main, .filipino-type, .filipino-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.filipino-sub { color: #2E86C1; }
+
+/* ======================= FI FINNISH ======================= */
+.finnish-main, .finnish-type, .finnish-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.finnish-sub { color: #1ABC9C; }
+
+/* ======================= HU HUNGARIAN ======================= */
+.hungarian-main, .hungarian-type, .hungarian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.hungarian-sub { color: #AF7AC5; }
+
+/* ======================= IS ICELANDIC ======================= */
+.icelandic-main, .icelandic-type, .icelandic-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.icelandic-sub { color: #5DADE2; }
+
+/* ======================= ML MALAYALAM ======================= */
+.malayalam-main, .malayalam-type, .malayalam-sub {
+  font-size: 18px;
+  font-family: "Noto Sans Malayalam", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.malayalam-sub { color: #16A085; }
+
+/* ======================= NO NORWEGIAN ======================= */
+.norwegian-main, .norwegian-type, .norwegian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.norwegian-sub { color: #2874A6; }
+
+/* ======================= RO ROMANIAN ======================= */
+.romanian-main, .romanian-type, .romanian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.romanian-sub { color: #D68910; }
+
+/* ======================= SV SWEDISH ======================= */
+.swedish-main, .swedish-type, .swedish-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.swedish-sub { color: #2980B9; }
+
+/* ======================= TR TURKISH ======================= */
+.turkish-main, .turkish-type, .turkish-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.turkish-sub { color: #C0392B; }
+
+/* ======================= UK UKRAINIAN ======================= */
+.ukrainian-main, .ukrainian-type, .ukrainian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.ukrainian-sub { color: #1F618D; }
+
+/* ======================= EU BASQUE ======================= */
+.basque-main, .basque-type, .basque-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.basque-sub { color: #196F3D; }
+
+/* ======================= BN BENGALI ======================= */
+.bengali-main, .bengali-type, .bengali-sub {
+  font-size: 18px;
+  font-family: "Noto Sans Bengali", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.bengali-sub { color: #8E44AD; }
+
+/* ======================= CA CATALAN ======================= */
+.catalan-main, .catalan-type, .catalan-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.catalan-sub { color: #D35400; }
+
+/* ======================= HR CROATIAN ======================= */
+.croatian-main, .croatian-type, .croatian-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.croatian-sub { color: #7D6608; }
+
+/* ======================= CS CZECH ======================= */
+.czech-main, .czech-type, .czech-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.czech-sub { color: #2C3E50; }
+
+/* ======================= DA DANISH ======================= */
+.danish-main, .danish-type, .danish-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.danish-sub { color: #1ABC9C; }
+
+/* ======================= GL GALICIAN ======================= */
+.galician-main, .galician-type, .galician-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.galician-sub { color: #5D6D7E; }
+
+/* ======================= PT-BR PORTUGUESE (BRAZIL) ======================= */
+.portuguese-br-main, .portuguese-br-type, .portuguese-br-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.portuguese-br-sub { color: #117A65; }
+
+/* ======================= PT-PT PORTUGUESE (PORTUGAL) ======================= */
+.portuguese-pt-main, .portuguese-pt-type, .portuguese-pt-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.portuguese-pt-sub { color: #1E8449; }
+
+/* ======================= ES-LA SPANISH (LATAM) ======================= */
+.spanish-la-main, .spanish-la-type, .spanish-la-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.spanish-la-sub { color: #D68910; }
+
+/* ======================= ES-ES SPANISH (SPAIN) ======================= */
+.spanish-es-main, .spanish-es-type, .spanish-es-sub {
+  font-size: 17px;
+  font-family: "Roboto", "Noto Sans", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.spanish-es-sub { color: #FAA533; }
+
+/* ======================= TA TAMIL ======================= */
+.tamil-main, .tamil-type, .tamil-sub {
+  font-size: 18px;
+  font-family: "Noto Sans Tamil", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.tamil-sub { color: #884EA0; }
+
+/* ======================= TE TELUGU ======================= */
+.telugu-main, .telugu-type, .telugu-sub {
+  font-size: 18px;
+  font-family: "Noto Sans Telugu", sans-serif;
+  margin: 10px 40px;
+  text-align: left;
+}
+.telugu-sub { color: #6C3483; }

@@ -8,6 +8,7 @@ export interface CardDoc {
   episode_id?: string; // normalized episode id (e.g., e1)
   start: number; // seconds (converted from ms in DB)
   end: number; // seconds (converted from ms in DB)
+  duration?: number; // seconds
   audio_url: string; // fully qualified URL to audio resource
   image_url: string; // fully qualified URL to image resource
   subtitle: SubtitleMap; // aggregated subtitles keyed by language
@@ -36,8 +37,11 @@ export interface FilmDoc {
   type?: string; // film/series/book/etc.
   release_year?: number;
   available_subs?: string[]; // collected from film_available_languages
-  full_audio_url?: string; // optional full audio media
-  full_video_url?: string; // optional full video media
+  is_original?: boolean; // true if this is the original (source language) version
+  // Aggregated statistics for the whole content item (optional)
+  num_cards?: number | null;
+  avg_difficulty_score?: number | null;
+  level_framework_stats?: string | LevelFrameworkStats[] | null;
 }
 
 export interface UserPreferences {
@@ -60,4 +64,25 @@ export interface UserEventLog {
   event: "view_card" | "play_audio" | "change_languages";
   timestamp: string; // ISO
   lang_selected?: string[];
+}
+
+// Stats structure: array of frameworks with optional language and levels percentage map
+export interface LevelFrameworkEntry {
+  framework: string;
+  language?: string | null;
+  levels: Record<string, number>; // level -> percentage (0-100 with decimals)
+}
+export type LevelFrameworkStats = LevelFrameworkEntry[];
+
+// Episode detail shape returned by admin stats endpoint
+export interface EpisodeDetailDoc {
+  episode_number: number;
+  slug: string;
+  title: string | null;
+  cover_url: string | null;
+  full_audio_url: string | null;
+  full_video_url: string | null;
+  num_cards?: number | null;
+  avg_difficulty_score?: number | null;
+  level_framework_stats?: string | LevelFrameworkStats[] | null;
 }

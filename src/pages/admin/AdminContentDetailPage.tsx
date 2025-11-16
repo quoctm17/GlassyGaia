@@ -1,19 +1,18 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { apiGetFilm, apiFetchCardsForFilm } from '../../services/cfApi';
-import type { FilmDoc, CardDoc } from '../../types';
+import { apiGetFilm, apiListEpisodes } from '../../services/cfApi';
+import type { FilmDoc, LevelFrameworkStats } from '../../types';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, PlusCircle } from 'lucide-react';
 
 export default function AdminContentDetailPage() {
   const { contentSlug } = useParams();
   const navigate = useNavigate();
   const [item, setItem] = useState<FilmDoc | null>(null);
   const [languages, setLanguages] = useState<string[]>([]);
-  const [cards, setCards] = useState<CardDoc[]>([]);
-  const [episodeId, setEpisodeId] = useState<string>('e1');
+  const [episodes, setEpisodes] = useState<Array<{ episode_number: number; title: string | null; slug: string; cover_url: string | null; full_audio_url: string | null; full_video_url: string | null }>>([]);
   const [loadingItem, setLoadingItem] = useState(false);
-  const [loadingCards, setLoadingCards] = useState(false);
+  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,22 +34,20 @@ export default function AdminContentDetailPage() {
   }, [contentSlug]);
 
   useEffect(() => {
-    if (!contentSlug || !episodeId) return;
+    if (!contentSlug) return;
     let mounted = true;
     (async () => {
-      setLoadingCards(true);
+      setLoadingEpisodes(true);
       try {
-        const cardRows = await apiFetchCardsForFilm(contentSlug, episodeId);
+        const rows = await apiListEpisodes(contentSlug);
         if (!mounted) return;
-        setCards(cardRows);
+        setEpisodes(rows);
       } catch (e) { setError((e as Error).message); }
-      finally { setLoadingCards(false); }
+      finally { setLoadingEpisodes(false); }
     })();
     return () => { mounted = false; };
-  }, [contentSlug, episodeId]);
-
-  const totalEpisodes = item?.episodes || 1;
-  const episodeOptions = Array.from({ length: totalEpisodes }, (_, i) => `e${i + 1}`);
+  }, [contentSlug]);
+  
   const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE || '').replace(/\/$/, '');
   const coverDisplayUrl = useMemo(() => {
     if (!item) return '';
@@ -63,6 +60,16 @@ export default function AdminContentDetailPage() {
     return url;
   }, [item, r2Base]);
 
+  function parseLevelStats(raw: unknown): LevelFrameworkStats | null {
+    if (!raw) return null;
+    if (Array.isArray(raw)) return raw as LevelFrameworkStats;
+    if (typeof raw === 'string') {
+      try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr as LevelFrameworkStats : null; } catch { return null; }
+    }
+    return null;
+  }
+  const levelStats = useMemo(() => parseLevelStats(item?.level_framework_stats as unknown), [item?.level_framework_stats]);
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -72,7 +79,7 @@ export default function AdminContentDetailPage() {
       {loadingItem && <div className="admin-info">Loading content...</div>}
       {error && <div className="admin-error">{error}</div>}
       {item && (
-        <div className="mb-4 bg-gray-800 border border-gray-700 rounded p-4 space-y-2">
+        <div className="admin-panel mb-4 space-y-2">
           <div><span className="font-semibold">Title:</span> {item.title || '-'}</div>
           <div><span className="font-semibold">Type:</span> {item.type || '-'}</div>
           <div>
@@ -112,44 +119,69 @@ export default function AdminContentDetailPage() {
               <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
             </div>
           )}
+          {/* Content-level Stats */}
+          <div className="pt-2 space-y-2">
+            <div><span className="font-semibold">Total Cards:</span> {item.num_cards ?? '-'}</div>
+            <div><span className="font-semibold">Avg Difficulty:</span> {typeof item.avg_difficulty_score === 'number' ? item.avg_difficulty_score.toFixed(1) : '-'}</div>
+            <div>
+              <span className="font-semibold">Level Distribution:</span>
+              {levelStats && levelStats.length ? (
+                <div className="mt-2 space-y-2">
+                  {levelStats.map((entry, idx) => (
+                    <div key={idx} className="bg-gray-800/40 rounded p-2">
+                      <div className="text-sm text-pink-300">{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {Object.entries(entry.levels).map(([lvl, pct]) => (
+                          <div key={lvl} className="text-xs bg-gray-700/60 px-2 py-0.5 rounded">
+                            <span className="text-gray-300">{lvl}:</span> <span className="text-pink-300">{pct}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span> -</span>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="mb-4 flex items-center gap-3">
-        <label className="text-sm">Episode:</label>
-        <select className="admin-input" style={{ maxWidth: 140 }} value={episodeId} onChange={e => setEpisodeId(e.target.value)}>
-          {episodeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-        </select>
-        <button className="admin-btn" disabled={loadingCards} onClick={() => setEpisodeId(ep => ep)}>Refresh Cards</button>
+      <div className="mb-4 flex items-center justify-between">
+        {loadingEpisodes ? <div className="admin-info">Loading episodes…</div> : <div />}
+        <div>
+          <button className="admin-btn primary flex items-center gap-2" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/add-episode`)}>
+            <PlusCircle className="w-4 h-4" />
+            <span>Add Episode</span>
+          </button>
+        </div>
       </div>
 
+      {/* Episodes list */}
       <div className="admin-table-wrapper">
         <table className="admin-table">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Sentence</th>
-              <th>CEFR</th>
-              <th>Image</th>
-              <th>Audio</th>
+              <th>#</th>
+              <th>Title</th>
+              <th>Cover</th>
+              <th>Full Audio</th>
+              <th>Full Video</th>
             </tr>
           </thead>
           <tbody>
-            {cards.map(c => (
-              <tr key={c.id} onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/${episodeId}/${c.id}`)} style={{ cursor: 'pointer' }}>
-                <td>{c.id}</td>
-                <td>{c.start}</td>
-                <td>{c.end}</td>
-                <td className="admin-cell-ellipsis" title={c.sentence || ''}>{c.sentence || ''}</td>
-                <td>{c.CEFR_Level || ''}</td>
-                <td>{c.image_url ? <a href={c.image_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Image</a> : '-'}</td>
-                <td>{c.audio_url ? <a href={c.audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Audio</a> : '-'}</td>
+            {episodes.map(ep => (
+              <tr key={ep.slug} onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${ep.slug}`)} style={{ cursor: 'pointer' }}>
+                <td>{String(ep.episode_number).padStart(3,'0')}</td>
+                <td className="admin-cell-ellipsis" title={ep.title || ''}>{ep.title || '-'}</td>
+                <td>{ep.cover_url ? <a href={ep.cover_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
+                <td>{ep.full_audio_url ? <a href={ep.full_audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
+                <td>{ep.full_video_url ? <a href={ep.full_video_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
               </tr>
             ))}
-            {cards.length === 0 && !loadingCards && (
-              <tr><td colSpan={7} className="admin-empty">No cards found for episode {episodeId}</td></tr>
+            {episodes.length === 0 && !loadingEpisodes && (
+              <tr><td colSpan={5} className="admin-empty">No episodes found</td></tr>
             )}
           </tbody>
         </table>

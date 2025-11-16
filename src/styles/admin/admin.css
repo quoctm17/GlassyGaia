@@ -82,9 +82,23 @@
     transition: background .15s, box-shadow .15s, filter .15s;
 }
 
+.admin-btn:disabled,
+.admin-btn[disabled] {
+    opacity: .45;
+    filter: grayscale(.35) brightness(.9);
+    cursor: not-allowed;
+    box-shadow: 0 0 0 2px rgba(236,72,153,0.15);
+}
+
 .admin-btn:hover {
     background: #db2777;
     box-shadow: 0 0 0 2px rgba(236,72,153,0.55), 0 0 14px rgba(236,72,153,0.55);
+}
+
+.admin-btn:disabled:hover,
+.admin-btn[disabled]:hover {
+    background: #ec4899; /* keep base */
+    box-shadow: 0 0 0 2px rgba(236,72,153,0.15); /* no glow */
 }
 
 .admin-btn.primary {
@@ -93,6 +107,11 @@
 
 .admin-btn.primary:hover {
     background: #db2777;
+}
+
+.admin-btn.primary:disabled,
+.admin-btn.primary[disabled] {
+    background: #a83e73; /* muted pink */
 }
 
 .admin-btn.secondary {
@@ -283,6 +302,17 @@
     background: rgba(236,72,153,0.12);
 }
 
+/* Pink-themed checkboxes inside admin panels */
+.admin-panel input[type="checkbox"] {
+    accent-color: #ec4899; /* pink */
+    width: 16px;
+    height: 16px;
+}
+.admin-panel input[type="checkbox"]:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(236,72,153,0.45);
+}
+
 @media (max-width: 860px) {
     .admin-layout {
         flex-direction: column;
@@ -307,3 +337,27 @@
         margin-left: 8px;
     }
 }
+
+/* Ensure emoji flags render with proper color glyphs even if parent font lacks emoji support */
+.emoji-flag {
+    font-family: 'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji','Twemoji Mozilla','Android Emoji','EmojiSymbols','Helvetica','Arial',sans-serif;
+    font-size: 16px;
+    line-height: 1;
+    display: inline-block;
+}
+
+/* Fallback flag-icons style pairing: shrink to similar size when shown beside emoji */
+.flag-fallback,
+.flag-svg {
+    width: 16px;
+    height: 12px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
+    border-radius: 2px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* If later we detect emoji flag support, we can hide fallback. Provide hook classes on <html>. */
+html.flag-emoji-supported .flag-fallback { display: none; }
+html.flag-emoji-supported .emoji-flag { display: none; }
+html.no-flag-emoji .emoji-flag { display: none; }

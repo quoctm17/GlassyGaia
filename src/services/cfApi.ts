@@ -1,5 +1,5 @@
 // Cloudflare API client and helpers for D1 + R2
-import type { CardDoc, FilmDoc } from "../types";
+import type { CardDoc, FilmDoc, EpisodeDetailDoc, LevelFrameworkStats } from "../types";
 
 function normalizeBase(input: string | undefined): string {
   if (!input) return "";
@@ -8,24 +8,40 @@ function normalizeBase(input: string | undefined): string {
   return t.replace(/\/$/, "");
 }
 
-const API_BASE = normalizeBase(import.meta.env.VITE_CF_API_BASE as string | undefined);
-const R2_PUBLIC_BASE = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
+const API_BASE = normalizeBase(
+  import.meta.env.VITE_CF_API_BASE as string | undefined
+);
+const R2_PUBLIC_BASE =
+  (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(
+    /\/$/,
+    ""
+  ) || "";
+
+function normalizeOriginalFlag(raw: number | boolean | undefined): boolean {
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw !== 0;
+  return true; // default true when absent
+}
 
 function assertApiBase() {
   if (!API_BASE) {
-    throw new Error("VITE_CF_API_BASE is not set. Provide your Cloudflare Worker/Pages API base URL.");
+    throw new Error(
+      "VITE_CF_API_BASE is not set. Provide your Cloudflare Worker/Pages API base URL."
+    );
   }
 }
 
 async function getJson<T>(path: string): Promise<T> {
   assertApiBase();
-  const res = await fetch(`${API_BASE}${path}`, { headers: { Accept: "application/json" } });
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { Accept: "application/json" },
+  });
   if (!res.ok) {
     // Treat 404 as empty data so UI can show empty-state gracefully
     if (res.status === 404) {
       // Attempt to return sensible empty shape: [] or null
       // Caller should narrow type; we use 'any' cast here.
-      return ([] as unknown) as T;
+      return [] as unknown as T;
     }
     const text = await res.text().catch(() => "");
     throw new Error(`API ${path} failed: ${res.status} ${text}`);
@@ -63,51 +79,75 @@ export function buildR2MediaUrl(params: {
 // Deprecated helper retained for backward compat (not used with new schema)
 // remove unused legacy helper entirely
 
-
 // New normalized endpoint: /items returns generic content items (films/music/books).
 // We filter to type === 'film' for admin Films views.
 export async function apiListFilms(): Promise<FilmDoc[]> {
-  const items = await getJson<Array<Partial<FilmDoc> & { id: string; type?: string }>>(`/items`);
+  const items = await getJson<
+    Array<Partial<FilmDoc> & { id: string; type?: string }>
+  >(`/items`);
   return items
-    .filter((f) => !f.type || f.type === 'movie')
+    .filter((f) => !f.type || f.type === "movie")
     .map((f) => ({
       id: f.id,
       title: f.title,
       description: f.description,
       cover_url: f.cover_url,
-      main_language: (f as unknown as { main_language?: string; language?: string }).main_language
-        || (f as unknown as { main_language?: string; language?: string }).language,
+      main_language:
+        (f as unknown as { main_language?: string; language?: string })
+          .main_language ||
+        (f as unknown as { main_language?: string; language?: string })
+          .language,
       type: f.type,
       release_year: f.release_year,
       episodes: f.episodes,
-  total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number }).total_episodes,
+      total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number })
+        .total_episodes,
       available_subs: Array.isArray(f.available_subs) ? f.available_subs : [],
+      is_original: normalizeOriginalFlag(
+        (f as Partial<FilmDoc> & { is_original?: number | boolean }).is_original
+      ),
     }));
 }
 
 // List all content items (any type) without client-side filtering
 export async function apiListItems(): Promise<FilmDoc[]> {
-  const items = await getJson<Array<Partial<FilmDoc> & { id: string; type?: string }>>(`/items`);
+  const items = await getJson<
+    Array<Partial<FilmDoc> & { id: string; type?: string }>
+  >(`/items`);
   return items.map((f) => ({
     id: f.id!,
     title: f.title,
     description: f.description,
     cover_url: f.cover_url,
-    main_language: (f as unknown as { main_language?: string; language?: string }).main_language
-      || (f as unknown as { main_language?: string; language?: string }).language,
+    main_language:
+      (f as unknown as { main_language?: string; language?: string })
+        .main_language ||
+      (f as unknown as { main_language?: string; language?: string }).language,
     type: f.type,
     release_year: f.release_year,
     episodes: f.episodes,
-    total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number }).total_episodes,
+    total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number })
+      .total_episodes,
     available_subs: Array.isArray(f.available_subs) ? f.available_subs : [],
+    is_original: normalizeOriginalFlag(
+      (f as Partial<FilmDoc> & { is_original?: number | boolean }).is_original
+    ),
   }));
 }
 
 export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {
   try {
-    const f = await getJson<Partial<FilmDoc> & { id?: string }>(`/items/${encodeURIComponent(filmId)}`);
-    if (!f || typeof f !== 'object' || Array.isArray(f) || !('id' in f) || !f.id) {
-      throw new Error('Not Found');
+    const f = await getJson<Partial<FilmDoc> & { id?: string }>(
+      `/items/${encodeURIComponent(filmId)}`
+    );
+    if (
+      !f ||
+      typeof f !== "object" ||
+      Array.isArray(f) ||
+      !("id" in f) ||
+      !f.id
+    ) {
+      throw new Error("Not Found");
     }
     const lm = f as unknown as { main_language?: string; language?: string };
     const film: FilmDoc = {
@@ -119,12 +159,42 @@ export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {
       type: f.type,
       release_year: f.release_year,
       episodes: f.episodes,
-  total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number }).total_episodes,
+      total_episodes: (f as Partial<FilmDoc> & { total_episodes?: number })
+        .total_episodes,
       available_subs: Array.isArray(f.available_subs) ? f.available_subs : [],
+      is_original: normalizeOriginalFlag(
+        (f as Partial<FilmDoc> & { is_original?: number | boolean }).is_original
+      ),
+      num_cards: (f as Partial<FilmDoc> & { num_cards?: number | null }).num_cards ?? null,
+      avg_difficulty_score: (f as Partial<FilmDoc> & { avg_difficulty_score?: number | null }).avg_difficulty_score ?? null,
+      level_framework_stats: (f as Partial<FilmDoc> & { level_framework_stats?: string | LevelFrameworkStats[] | null }).level_framework_stats ?? null,
     };
     return film;
   } catch {
     return null;
+  }
+}
+
+// Episode meta shape returned by /items/:slug/episodes
+export interface EpisodeMetaApi {
+  episode_number: number;
+  title: string | null;
+  slug: string;
+  cover_url: string | null;
+  full_audio_url: string | null;
+  full_video_url: string | null;
+}
+
+export async function apiListEpisodes(
+  filmSlug: string
+): Promise<EpisodeMetaApi[]> {
+  try {
+    const rows = await getJson<EpisodeMetaApi[]>(
+      `/items/${encodeURIComponent(filmSlug)}/episodes`
+    );
+    return rows as EpisodeMetaApi[];
+  } catch {
+    return [];
   }
 }
 
@@ -135,28 +205,61 @@ export async function apiFetchCardsForFilm(
 ): Promise<CardDoc[]> {
   // New backend path may differ; attempt first new normalized then fallback.
   const basePath = episodeId
-    ? `/items/${encodeURIComponent(filmId)}/episodes/${encodeURIComponent(episodeId)}/cards?limit=${max}`
+    ? `/items/${encodeURIComponent(filmId)}/episodes/${encodeURIComponent(
+        episodeId
+      )}/cards?limit=${max}`
     : `/items/${encodeURIComponent(filmId)}/cards?limit=${max}`;
-  const rows = await getJson<Array<any>>(basePath); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const rows = await getJson<Array<Record<string, unknown>>>(basePath);
   return rows.map(rowToCardDoc);
 }
 
 export async function apiFetchAllCards(max = 1000): Promise<CardDoc[]> {
-  const rows = await getJson<Array<any>>(`/cards?limit=${max}`); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const rows = await getJson<Array<Record<string, unknown>>>(
+    `/cards?limit=${max}`
+  );
   return rows.map(rowToCardDoc);
 }
 
-export async function apiGetCardByPath(filmId: string, episodeId: string, cardId: string): Promise<CardDoc | null> {
+export async function apiGetCardByPath(
+  filmId: string,
+  episodeId: string,
+  cardId: string
+): Promise<CardDoc | null> {
   try {
-    const row = await getJson<any>(`/cards/${encodeURIComponent(filmId)}/${encodeURIComponent(episodeId)}/${encodeURIComponent(cardId)}`); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const row = await getJson<Record<string, unknown>>(
+      `/cards/${encodeURIComponent(filmId)}/${encodeURIComponent(
+        episodeId
+      )}/${encodeURIComponent(cardId)}`
+    );
     return rowToCardDoc(row);
   } catch {
     return null;
   }
 }
 
+// Get an episode detail with stats
+export async function apiGetEpisodeDetail(params: {
+  filmSlug: string;
+  episodeNum: number;
+}): Promise<EpisodeDetailDoc | null> {
+  try {
+    const { filmSlug, episodeNum } = params;
+    const epSlug = `${filmSlug}_${episodeNum}`;
+    const row = await getJson<EpisodeDetailDoc>(
+      `/items/${encodeURIComponent(filmSlug)}/episodes/${encodeURIComponent(epSlug)}`
+    );
+    return row as EpisodeDetailDoc;
+  } catch {
+    return null;
+  }
+}
+
 // Signed upload to R2: ask the Worker for a signed URL, then PUT the bytes.
-export async function r2UploadViaSignedUrl(params: { bucketPath: string; file: File; contentType?: string }) {
+export async function r2UploadViaSignedUrl(params: {
+  bucketPath: string;
+  file: File;
+  contentType?: string;
+}) {
   assertApiBase();
   const { bucketPath, file } = params;
   const ct = params.contentType || file.type || "application/octet-stream";
@@ -169,7 +272,11 @@ export async function r2UploadViaSignedUrl(params: { bucketPath: string; file: F
     throw new Error(`Failed to get signed URL: ${signRes.status}`);
   }
   const { url } = (await signRes.json()) as { url: string };
-  const put = await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": ct } });
+  const put = await fetch(url, {
+    method: "PUT",
+    body: file,
+    headers: { "Content-Type": ct },
+  });
   if (!put.ok) throw new Error(`Upload failed: ${put.status}`);
 }
 
@@ -179,7 +286,7 @@ export interface ImportPayload {
   film: (FilmDoc & { slug?: string }) & Record<string, unknown>; // slug used externally, id may be UUID internally
   episodeNumber: number; // numeric episode
   cards: Array<Partial<CardDoc> & { id?: string; card_number?: number }>;
-  mode?: 'replace' | 'append';
+  mode?: "replace" | "append";
 }
 
 export async function apiImport(payload: ImportPayload) {
@@ -194,7 +301,16 @@ export async function apiImport(payload: ImportPayload) {
 }
 
 // Update film meta (title, description, cover)
-export async function apiUpdateFilmMeta(params: { filmSlug: string; title?: string | null; description?: string | null; cover_url?: string | null; total_episodes?: number | null; full_audio_url?: string | null; full_video_url?: string | null; type?: string | null; release_year?: number | null }) {
+export async function apiUpdateFilmMeta(params: {
+  filmSlug: string;
+  title?: string | null;
+  description?: string | null;
+  cover_url?: string | null;
+  total_episodes?: number | null;
+  type?: string | null;
+  release_year?: number | null;
+  is_original?: boolean | null;
+}) {
   assertApiBase();
   const { filmSlug, ...body } = params;
   const res = await fetch(`${API_BASE}/items/${encodeURIComponent(filmSlug)}`, {
@@ -209,59 +325,183 @@ export async function apiUpdateFilmMeta(params: { filmSlug: string; title?: stri
 }
 
 // Update episode meta (title, full audio/video)
-export async function apiUpdateEpisodeMeta(params: { filmSlug: string; episodeNum: number; title?: string; full_audio_url?: string; full_video_url?: string }) {
+export async function apiUpdateEpisodeMeta(params: {
+  filmSlug: string;
+  episodeNum: number;
+  title?: string;
+  cover_url?: string;
+  cover_key?: string;
+  full_audio_url?: string;
+  full_audio_key?: string;
+  full_video_url?: string;
+  full_video_key?: string;
+}) {
   assertApiBase();
   const { filmSlug, episodeNum, ...body } = params;
   const epSlug = `${filmSlug}_${episodeNum}`;
-  const res = await fetch(`${API_BASE}/items/${encodeURIComponent(filmSlug)}/episodes/${encodeURIComponent(epSlug)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const res = await fetch(
+    `${API_BASE}/items/${encodeURIComponent(
+      filmSlug
+    )}/episodes/${encodeURIComponent(epSlug)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
+    const text = await res.text().catch(() => "");
     throw new Error(`Update episode meta failed: ${res.status} ${text}`);
   }
 }
 
+// Calculate statistics (num_cards, avg_difficulty_score, level distributions)
+export async function apiCalculateStats(params: {
+  filmSlug: string;
+  episodeNum: number;
+}): Promise<{ ok: true } | { error: string }> {
+  assertApiBase();
+  const { filmSlug, episodeNum } = params;
+  const epSlug = `${filmSlug}_${episodeNum}`;
+  const res = await fetch(
+    `${API_BASE}/items/${encodeURIComponent(filmSlug)}/episodes/${encodeURIComponent(epSlug)}/calc-stats`,
+    { method: "POST" }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return { error: `Stats calc failed: ${res.status} ${text}` } as { error: string };
+  }
+  try {
+    await res.json();
+  } catch {
+    // ignore non-JSON bodies
+  }
+  return { ok: true } as { ok: true };
+}
+
+// Delete a content item (and cascade its episodes/cards via backend)
+export async function apiDeleteItem(filmSlug: string): Promise<
+  | { ok: true; deleted: string; episodes_deleted: number; cards_deleted: number; media_deleted: number; media_errors: string[] }
+  | { error: string }
+> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/items/${encodeURIComponent(filmSlug)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { error: `Delete failed: ${res.status} ${text}` };
+  }
+  try {
+    const body = await res.json();
+    if (body && body.ok) {
+      return {
+        ok: true,
+        deleted: body.deleted,
+        episodes_deleted: body.episodes_deleted || 0,
+        cards_deleted: body.cards_deleted || 0,
+        media_deleted: body.media_deleted || 0,
+        media_errors: Array.isArray(body.media_errors) ? body.media_errors : [],
+      };
+    }
+    return { error: 'Unexpected delete response' };
+  } catch {
+    return { error: 'Malformed delete response' };
+  }
+}
+
 // Helper to convert a normalized API row into CardDoc
-function rowToCardDoc(r: any): CardDoc { // eslint-disable-line @typescript-eslint/no-explicit-any
+function rowToCardDoc(r: Record<string, unknown>): CardDoc {
   // Expect fields: card_id or id, episode_id, film_id?, start_time_ms, end_time_ms, audio_key, image_key, subtitles? or subtitle map.
-  const id = String(r.id ?? r.card_id ?? "");
-  const episodeId = String(r.episode_id ?? r.episode ?? "e1");
-  const filmId = r.film_id ? String(r.film_id) : undefined;
-  const startMs = Number(r.start_time_ms ?? r.start_ms ?? r.start ?? 0);
-  const endMs = Number(r.end_time_ms ?? r.end_ms ?? r.end ?? 0);
+  const get = (k: string): unknown => r[k];
+  const id = String(get("id") ?? get("card_id") ?? "");
+  const episodeId = String(get("episode_id") ?? get("episode") ?? "e1");
+  const filmIdVal = get("film_id");
+  const filmId = filmIdVal != null ? String(filmIdVal) : undefined;
+  const startMs = Number(
+    get("start_time_ms") ?? get("start_time") ?? get("start_ms") ?? get("start") ?? 0
+  );
+  const endMs = Number(
+    get("end_time_ms") ?? get("end_time") ?? get("end_ms") ?? get("end") ?? 0
+  );
   const start = startMs > 1000 ? startMs / 1000 : startMs; // convert if ms
   const end = endMs > 1000 ? endMs / 1000 : endMs;
-  const sub = r.subtitle || r.subtitles || {};
-  const subtitle: Record<string, string> = Array.isArray(sub)
-    ? sub.reduce((acc: Record<string, string>, row: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-        if (row && row.language && row.text) acc[String(row.language)] = String(row.text);
-        return acc;
-      }, {})
-    : (sub as Record<string, string>);
+  const subCandidate = (get("subtitle") ?? get("subtitles")) as unknown;
+  const subtitle: Record<string, string> = Array.isArray(subCandidate)
+    ? (subCandidate as Array<Record<string, unknown>>).reduce(
+        (acc: Record<string, string>, row: Record<string, unknown>) => {
+          const lang = row["language"];
+          const text = row["text"];
+          if (typeof lang === "string" && typeof text === "string") {
+            acc[lang] = text;
+          }
+          return acc;
+        },
+        {}
+      )
+    : ((subCandidate as Record<string, string>) || {});
   // Build media URLs: if audio_key/image_key are full URLs use them; otherwise treat as bucket paths relative to R2_PUBLIC_BASE
-  const audioUrl = buildMediaUrlFromKey(r.audio_url || r.audio_key, filmId, episodeId, id, "audio");
-  const imageUrl = buildMediaUrlFromKey(r.image_url || r.image_key, filmId, episodeId, id, "image");
+  const audioUrl = buildMediaUrlFromKey(
+    (get("audio_url") as string | undefined) || (get("audio_key") as string | undefined),
+    filmId,
+    episodeId,
+    id,
+    "audio"
+  );
+  const imageUrl = buildMediaUrlFromKey(
+    (get("image_url") as string | undefined) || (get("image_key") as string | undefined),
+    filmId,
+    episodeId,
+    id,
+    "image"
+  );
   return {
     id,
     episode: episodeId,
     episode_id: episodeId,
     start,
     end,
+    duration: typeof get("duration") === "number" ? (get("duration") as number) : undefined,
     audio_url: audioUrl,
     image_url: imageUrl,
     subtitle,
     film_id: filmId,
-    sentence: r.sentence,
-    CEFR_Level: r.CEFR_Level || r.cefr || r.cefr_level,
-    words: r.words || undefined,
-    difficulty_score: typeof r.difficulty_score === 'number' ? r.difficulty_score : undefined,
+    sentence: (get("sentence") as string | undefined),
+    CEFR_Level:
+      ((get("CEFR_Level") as string | undefined) ||
+        (get("cefr") as string | undefined) ||
+        (get("cefr_level") as string | undefined)) as
+        | string
+        | undefined,
+    words: (() => {
+      const w = get("words");
+      if (w && typeof w === "object" && !Array.isArray(w)) {
+        return w as Record<string, string>;
+      }
+      if (typeof w === "string") {
+        try {
+          const parsed = JSON.parse(w);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            return parsed as Record<string, string>;
+          }
+        } catch {
+          // ignore malformed JSON in words field
+        }
+      }
+      return undefined;
+    })(),
+    difficulty_score:
+      typeof get("difficulty_score") === "number"
+        ? (get("difficulty_score") as number)
+        : undefined,
   };
 }
 
-function buildMediaUrlFromKey(key: string | undefined, filmId: string | undefined, episodeId: string, cardId: string, type: "audio" | "image"): string {
+function buildMediaUrlFromKey(
+  key: string | undefined,
+  filmId: string | undefined,
+  episodeId: string,
+  cardId: string,
+  type: "audio" | "image"
+): string {
   if (!key) {
     return buildR2MediaUrl({ filmId: filmId || "", episodeId, cardId, type });
   }
@@ -278,8 +518,10 @@ function buildMediaUrlFromKey(key: string | undefined, filmId: string | undefine
     const m = String(episodeId || "").match(/_(\d+)$/);
     epNum = m ? Number(m[1]) : 1;
   }
+  const padded = String(epNum).padStart(3,'0');
   const fileName = `${prefix}_${cardId}.${ext}`;
-  return R2_PUBLIC_BASE
-    ? `${R2_PUBLIC_BASE}/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${fileName}`
-    : `/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${fileName}`;
+  // Prefer padded path; legacy fallback if needed (consumer can probe)
+  const base = R2_PUBLIC_BASE || '';
+  const primary = `${base ? base : ''}/items/${filmId}/episodes/${filmId}_${padded}/${type}/${fileName}`.replace(/\/\/+/, '/');
+  return primary;
 }
