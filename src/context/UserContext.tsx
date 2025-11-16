@@ -58,6 +58,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const requireAll = localMode ? localMode === "1" : (defaultPrefs.require_all_langs ?? false);
   const mainLang = localStorage.getItem("main_language") || defaultPrefs.main_language || "en";
   setPreferences({ subtitle_languages: Array.isArray(langs) && langs.length ? langs : defaultPrefs.subtitle_languages, require_all_langs: requireAll, main_language: mainLang });
+    // Load persisted admin key (if any)
+    const savedKey = localStorage.getItem("admin_key");
+    if (savedKey) setAdminKey(savedKey);
+
     // Subscribe to Firebase Auth (if configured); otherwise keep user null (anonymous navigation allowed)
     if (hasFirebaseConfig) {
       const auth = getAuth();
@@ -78,6 +82,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         .finally(() => setLoading(false));
     }
   }, [hasFirebaseConfig]);
+
+  // Persist admin key for convenience across admin pages
+  useEffect(() => {
+    if (adminKey) localStorage.setItem("admin_key", adminKey);
+    else localStorage.removeItem("admin_key");
+  }, [adminKey]);
 
   const setSubtitleLanguages = async (langs: string[]) => {
     setPreferences((p) => ({ subtitle_languages: langs, require_all_langs: p.require_all_langs ?? false, main_language: p.main_language }));

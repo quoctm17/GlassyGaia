@@ -1,14 +1,18 @@
 import { useEffect, useMemo } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import '../../styles/admin/admin.css';
 import toast from 'react-hot-toast';
 
 export default function AdminLayout() {
-  const { user, loading, signInGoogle } = useUser();
+  const { user, loading, signInGoogle, adminKey, setAdminKey } = useUser();
   const allowedEmails = useMemo(() => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || '')
     .split(',').map((s: string) => s.trim()).filter(Boolean), []);
   const isAdminEmail = !!user && allowedEmails.includes(user.email || '');
+  const pass = (import.meta.env.VITE_IMPORT_KEY || '').toString();
+  const requireKey = !!pass;
+  const location = useLocation();
+  const isContentSection = /^(\/admin\/(content|create|ingest|items))/i.test(location.pathname);
   const navigate = useNavigate();
 
   // Nếu không phải admin email, đẩy ra khỏi khu vực admin
@@ -30,9 +34,7 @@ export default function AdminLayout() {
       <aside className="admin-sidenav">
         <div className="admin-sidenav-header">Admin</div>
         <nav className="admin-sidenav-links">
-          <NavLink to="/admin/create" className={({isActive})=> 'admin-nav-link highlight'+(isActive?' active':'')}>Create</NavLink>
-          <NavLink to="/admin/update" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Update</NavLink>
-          <NavLink to="/admin/content" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Content</NavLink>
+          <NavLink to="/admin/content" className={({isActive})=> 'admin-nav-link'+((isActive || isContentSection)?' active':'')}>Content</NavLink>
           <NavLink to="/admin/media" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Media</NavLink>
         </nav>
         {!user && (
@@ -42,6 +44,18 @@ export default function AdminLayout() {
           <div className="admin-user-block">
             <div className="email" title={user.email || undefined}>{user.email}</div>
             <div className={isAdminEmail? 'status ok':'status bad'}>{isAdminEmail? 'Admin email':'Not admin'}</div>
+            {requireKey && (
+              <div className="mt-2">
+                <label className="block text-xs mb-1">Admin Key</label>
+                <input
+                  type="password"
+                  className="admin-input"
+                  placeholder="Enter admin key"
+                  value={adminKey}
+                  onChange={e => setAdminKey(e.target.value)}
+                />
+              </div>
+            )}
           </div>
         )}
         <div className="admin-sidenav-footer">

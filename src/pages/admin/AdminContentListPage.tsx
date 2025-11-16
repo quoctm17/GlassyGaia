@@ -1,24 +1,53 @@
 import { useEffect, useState } from 'react';
-import { apiListItems } from '../../services/cfApi';
+import { apiListItems, apiGetFilm, apiDeleteItem } from '../../services/cfApi';
 import type { FilmDoc } from '../../types';
 import { useNavigate } from 'react-router-dom';
 import { canonicalizeLangCode, countryCodeForLang, langLabel } from '../../utils/lang';
+import { PlusCircle, Eye, Pencil, Trash2, ChevronDown, MoreHorizontal, Filter, Search, ChevronUp, Film, Music, Book, Tv } from 'lucide-react';
+import toast from 'react-hot-toast';
 import LanguageTag from '../../components/LanguageTag';
+import PortalDropdown from '../../components/PortalDropdown';
 
 export default function AdminContentListPage() {
   const [rows, setRows] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const [openMenuFor, setOpenMenuFor] = useState<{ id: string; anchor: HTMLElement; closing?: boolean } | null>(null);
+  const [openSubsFor, setOpenSubsFor] = useState<{ id: string; anchor: HTMLElement; closing?: boolean } | null>(null);
+  const [origFilter, setOrigFilter] = useState<'all' | 'original' | 'non-original'>('all');
+  const [confirmDelete, setConfirmDelete] = useState<{ slug: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deletionProgress, setDeletionProgress] = useState<{ stage: string; details: string } | null>(null);
+  // Filters dropdown (portal) state
+  const [filterDropdown, setFilterDropdown] = useState<{ anchor: HTMLElement; closing?: boolean } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [langFilter, setLangFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [yearFilter, setYearFilter] = useState<string>('all');
+  const [sortColumn, setSortColumn] = useState<'slug' | 'title' | 'type' | 'main_language' | 'release_year' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoading(true);
       try {
+        // Fetch base list first
         const items = await apiListItems();
         if (!mounted) return;
-        setRows(items);
+
+        // Enrich with details (available_subs, cover, etc.) similar to ContentMoviePage
+        const detailed = await Promise.all(
+          items.map(async (f) => {
+            const d = await apiGetFilm(f.id).catch(() => null);
+            return d
+              ? { ...f, ...d, available_subs: Array.isArray(d.available_subs) ? d.available_subs : (Array.isArray(f.available_subs) ? f.available_subs : []) }
+              : f;
+          })
+        );
+        if (!mounted) return;
+        setRows(detailed);
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -30,10 +59,182 @@ export default function AdminContentListPage() {
     };
   }, []);
 
+  // Close any open popovers when clicking outside
+  // Removed global mousedown close so toggle works properly via portal logic
+
+  // Helper: Get type icon
+  const getTypeIcon = (type: string | undefined) => {
+    const t = (type || 'movie').toLowerCase();
+    if (t === 'movie' || t === 'film') return <Film className="w-4 h-4" />;
+    if (t === 'series' || t === 'tv') return <Tv className="w-4 h-4" />;
+    if (t === 'music') return <Music className="w-4 h-4" />;
+    if (t === 'book') return <Book className="w-4 h-4" />;
+    return <Film className="w-4 h-4" />;
+  };
+
+  // Get unique values for filters
+  const uniqueLangs = Array.from(new Set(rows.map(r => r.main_language).filter(Boolean)));
+  const uniqueTypes = Array.from(new Set(rows.map(r => r.type).filter(Boolean)));
+  const uniqueYears = Array.from(new Set(rows.map(r => r.release_year).filter(Boolean))).sort((a, b) => (b as number) - (a as number));
+
+  // Apply filters + search + sort
+  let filteredRows = rows.filter((f) => {
+    // Original filter
+    if (origFilter !== 'all') {
+      const flag = (typeof f.is_original === 'boolean') ? f.is_original : true;
+      if (origFilter === 'original' && !flag) return false;
+      if (origFilter === 'non-original' && flag) return false;
+    }
+    // Language filter
+    if (langFilter !== 'all' && f.main_language !== langFilter) return false;
+    // Type filter
+    if (typeFilter !== 'all' && f.type !== typeFilter) return false;
+    // Year filter
+    if (yearFilter !== 'all' && String(f.release_year) !== yearFilter) return false;
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchSlug = f.id?.toLowerCase().includes(q);
+      const matchTitle = f.title?.toLowerCase().includes(q);
+      const matchType = f.type?.toLowerCase().includes(q);
+      if (!matchSlug && !matchTitle && !matchType) return false;
+    }
+    return true;
+  });
+
+  // Apply sorting
+  if (sortColumn) {
+    filteredRows = [...filteredRows].sort((a, b) => {
+      let valA: string | number | undefined;
+      let valB: string | number | undefined;
+      if (sortColumn === 'slug') {
+        valA = a.id;
+        valB = b.id;
+      } else {
+        valA = a[sortColumn];
+        valB = b[sortColumn];
+      }
+      if (sortColumn === 'release_year') {
+        valA = valA || 0;
+        valB = valB || 0;
+      } else {
+        valA = String(valA || '').toLowerCase();
+        valB = String(valB || '').toLowerCase();
+      }
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  const handleSort = (column: typeof sortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
-        <h2 className="admin-title">Content</h2>
+        <div className="flex items-center justify-between gap-3 w-full">
+          {/* Left: Title + Search aligned to left */}
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <h2 className="admin-title shrink-0">Content</h2>
+            <div className="relative flex-1 max-w-[680px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by slug, title, or type..."
+                className="admin-input !pl-10 w-full"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+          {/* Right: Filters then Create aligned to right */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="admin-btn secondary flex items-center gap-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                const el = e.currentTarget as HTMLElement;
+                setFilterDropdown(prev => {
+                  if (prev && prev.anchor === el) {
+                    const next = { ...prev, closing: true } as typeof prev;
+                    setTimeout(() => setFilterDropdown(null), 300);
+                    return next;
+                  }
+                  return { anchor: el };
+                });
+              }}
+            >
+              <Filter className="w-4 h-4" />
+              <span>Filters</span>
+              {filterDropdown && !filterDropdown.closing ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </button>
+            <button
+              type="button"
+              className="admin-btn primary flex items-center gap-2"
+              onClick={() => navigate('/admin/create')}
+              title="Create new content"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Create</span>
+            </button>
+          </div>
+        </div>
+        {/* Filters Dropdown via Portal (does not shift table) */}
+        {filterDropdown?.anchor && (
+          <PortalDropdown
+            anchorEl={filterDropdown.anchor}
+            align="right"
+            minWidth={680}
+            closing={filterDropdown.closing}
+            durationMs={300}
+            onClose={() => setFilterDropdown(null)}
+            className="admin-dropdown-panel p-3"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Original</label>
+                <select className="admin-input !py-1" value={origFilter} onChange={(e) => setOrigFilter(e.target.value as 'all' | 'original' | 'non-original')}>
+                  <option value="all">All</option>
+                  <option value="original">Original</option>
+                  <option value="non-original">Non-original</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Language</label>
+                <select className="admin-input !py-1" value={langFilter} onChange={(e) => setLangFilter(e.target.value)}>
+                  <option value="all">All Languages</option>
+                  {uniqueLangs.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Type</label>
+                <select className="admin-input !py-1" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                  <option value="all">All Types</option>
+                  {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Release Year</label>
+                <select className="admin-input !py-1" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+                  <option value="all">All Years</option>
+                  {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+          </PortalDropdown>
+        )}
       </div>
       {loading && <div className="admin-info">Loading...</div>}
       {error && <div className="admin-error">{error}</div>}
@@ -41,44 +242,168 @@ export default function AdminContentListPage() {
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Slug</th>
-              <th>Title</th>
-              <th>Type</th>
-              <th>Main language</th>
-              <th>Release</th>
+              <th className="w-12">#</th>
+              <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('slug')}>
+                <div className="flex items-center gap-1">
+                  <span>Slug</span>
+                  {sortColumn === 'slug' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                </div>
+              </th>
+              <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('title')}>
+                <div className="flex items-center gap-1">
+                  <span>Title</span>
+                  {sortColumn === 'title' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                </div>
+              </th>
+              <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('type')}>
+                <div className="flex items-center gap-1">
+                  <span>Type</span>
+                  {sortColumn === 'type' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                </div>
+              </th>
+              <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('main_language')}>
+                <div className="flex items-center gap-1">
+                  <span>Main language</span>
+                  {sortColumn === 'main_language' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                </div>
+              </th>
+              <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('release_year')}>
+                <div className="flex items-center gap-1">
+                  <span>Release</span>
+                  {sortColumn === 'release_year' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
+                </div>
+              </th>
               <th>Subs</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && !loading && !error && (
+            {filteredRows.length === 0 && !loading && !error && (
               <tr>
-                <td colSpan={7} className="admin-empty">No content found</td>
+                <td colSpan={8} className="admin-empty">No content found</td>
               </tr>
             )}
-            {rows.map((f) => {
-              const subs = Array.from(new Set((f.available_subs || []).map(s => canonicalizeLangCode(s) || s.toLowerCase())));
+            {filteredRows.map((f, idx) => {
+              const mainCanon = f.main_language ? (canonicalizeLangCode(f.main_language) || f.main_language.toLowerCase()) : undefined;
+              const subs = Array.from(
+                new Set(
+                  (f.available_subs || [])
+                    .map((s) => canonicalizeLangCode(s) || s.toLowerCase())
+                    .filter((s) => s && s !== mainCanon)
+                )
+              );
               return (
                 <tr key={f.id} onClick={() => navigate(`/admin/content/${encodeURIComponent(f.id)}`)} style={{ cursor:'pointer' }}>
+                  <td className="text-gray-400">{idx + 1}</td>
                   <td className="admin-cell-ellipsis" title={f.id}>{f.id}</td>
                   <td className="admin-cell-ellipsis" title={f.title || ''}>{f.title || '-'}</td>
-                  <td>{f.type || '-'}</td>
+                  <td>
+                    <div className="inline-flex items-center gap-2">
+                      {getTypeIcon(f.type)}
+                      <span>{f.type || '-'}</span>
+                    </div>
+                  </td>
                   <td>{f.main_language ? <LanguageTag code={f.main_language} /> : '-'}</td>
                   <td>{f.release_year || '-'}</td>
                   <td>
-                    {subs.length ? (
-                      <span className="inline-flex flex-wrap gap-1">
-                        {subs.map(s => (
-                          <span key={s} className="inline-flex items-center gap-1 bg-gray-700/60 px-2 py-0.5 rounded text-xs">
-                            <span className={`fi fi-${countryCodeForLang(s)} w-4 h-3`}></span>
-                            <span>{langLabel(s)}</span>
-                          </span>
-                        ))}
-                      </span>
-                    ) : '-'}
+                    {subs.length > 0 ? (
+                      <div className="inline-flex items-center gap-2" onMouseDown={(e)=>e.stopPropagation()}>
+                        <span className="text-sm">{subs.length} Subs</span>
+                        <button
+                          type="button"
+                          className="admin-btn secondary !px-2 !py-1"
+                          title="View subtitle languages"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const el = e.currentTarget as HTMLElement;
+                            setOpenSubsFor(prev => {
+                              if (prev && prev.id === f.id) {
+                                // trigger close with animation, then unmount after duration
+                                const next = { ...prev, closing: true } as typeof prev;
+                                setTimeout(() => setOpenSubsFor(null), 300);
+                                return next;
+                              }
+                              return { id: f.id, anchor: el };
+                            });
+                            setOpenMenuFor(null);
+                          }}
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
+                        {openSubsFor?.id === f.id && openSubsFor.anchor && (
+                          <PortalDropdown
+                            anchorEl={openSubsFor.anchor}
+                            align="center"
+                            minWidth={180}
+                            closing={openSubsFor.closing}
+                            durationMs={300}
+                            onClose={() => setOpenSubsFor(null)}
+                            className="admin-dropdown-panel py-2"
+                          >
+                            <div className="text-xs text-gray-300 px-3 mb-1">Available subtitles</div>
+                            <div className="flex flex-col">
+                              {subs.map((s) => (
+                                <div key={s} className="admin-dropdown-item !py-2 !px-3" onClick={(e) => e.stopPropagation()}>
+                                  <span className={`fi fi-${countryCodeForLang(s)} w-4 h-3`}></span>
+                                  <span>{langLabel(s)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </PortalDropdown>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400">0 Subs</span>
+                    )}
                   </td>
                   <td>
-                    <button className="admin-btn secondary" onClick={(e) => { e.stopPropagation(); navigate(`/admin/content/${encodeURIComponent(f.id)}`); }}>View</button>
+                    <button
+                      className="admin-btn secondary !px-2 !py-1"
+                      title="Actions"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const el = e.currentTarget as HTMLElement;
+                        setOpenMenuFor(prev => {
+                          if (prev && prev.id === f.id) {
+                            // trigger close with animation, then unmount after duration
+                            const next = { ...prev, closing: true } as typeof prev;
+                            setTimeout(() => setOpenMenuFor(null), 300);
+                            return next;
+                          }
+                          return { id: f.id, anchor: el };
+                        });
+                        setOpenSubsFor(null);
+                      }}
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {openMenuFor?.id === f.id && openMenuFor.anchor && (
+                      <PortalDropdown
+                        anchorEl={openMenuFor.anchor}
+                        align="center"
+                        closing={openMenuFor.closing}
+                        durationMs={300}
+                        onClose={() => setOpenMenuFor(null)}
+                        className="admin-dropdown-panel py-1"
+                      >
+                        <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(f.id)}`); }}>
+                          <Eye className="w-4 h-4" />
+                          <span>View</span>
+                        </div>
+                        <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/update?slug=${encodeURIComponent(f.id)}`); }}>
+                          <Pencil className="w-4 h-4" />
+                          <span>Update</span>
+                        </div>
+                        <div className="admin-dropdown-item" onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenuFor(null);
+                          setConfirmDelete({ slug: f.id, title: f.title || f.id });
+                        }}>
+                          <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
+                        </div>
+                      </PortalDropdown>
+                    )}
                   </td>
                 </tr>
               );
@@ -86,6 +411,68 @@ export default function AdminContentListPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Custom Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)}>
+          <div 
+            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xoá</h3>
+            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xoá nội dung:</p>
+            <p className="text-[#f9a8d4] font-semibold mb-4">"{confirmDelete.title}"</p>
+            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xoá toàn bộ Episodes, Cards và Media thuộc nội dung này. Không thể hoàn tác!</p>
+            {deletionProgress && (
+              <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
+                <div className="text-sm font-semibold text-[#f9a8d4] mb-1">{deletionProgress.stage}</div>
+                <div className="text-xs text-[#e9d5ff]">{deletionProgress.details}</div>
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                className="admin-btn secondary"
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+              >
+                Huỷ
+              </button>
+              <button
+                className="admin-btn primary"
+                disabled={deleting}
+                onClick={async () => {
+                  setDeleting(true);
+                  setDeletionProgress({ stage: 'Đang xoá...', details: 'Đang xử lý yêu cầu xoá' });
+                  try {
+                    setDeletionProgress({ stage: 'Đang xoá database...', details: 'Xoá Episodes, Cards và metadata' });
+                    const res = await apiDeleteItem(confirmDelete.slug);
+                    if ('error' in res) {
+                      toast.error(res.error);
+                      setDeletionProgress(null);
+                      return;
+                    }
+                    setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xoá ${res.episodes_deleted} episodes, ${res.cards_deleted} cards, ${res.media_deleted} media files` });
+                    setRows(prev => prev.filter(r => r.id !== confirmDelete.slug));
+                    setTimeout(() => {
+                      const msg = `Đã xoá nội dung + media (Episodes: ${res.episodes_deleted}, Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`;
+                      toast.success(msg);
+                      setConfirmDelete(null);
+                      setDeletionProgress(null);
+                    }, 1000);
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                    setDeletionProgress(null);
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+              >
+                {deleting ? 'Đang xoá...' : 'Xoá'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

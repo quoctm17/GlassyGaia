@@ -128,7 +128,7 @@ export default function NavBar() {
               <div className="absolute right-0 mt-2 w-48 bg-[#241530] border-2 border-pink-500 rounded-md shadow-xl z-50 p-1">
                 {showAdminLinks && (
                   <Link
-                    to="/admin"
+                    to="/admin/content"
                     className="flex items-center gap-2 px-3 py-2 text-sm text-amber-300 hover:bg-pink-600/30 rounded"
                     onClick={() => setOpen(false)}
                   >

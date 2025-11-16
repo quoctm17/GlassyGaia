@@ -1,50 +1,62 @@
--- Migration 001: Initial Schema for GlassyGaia (v2 - Scalable Difficulty)
+-- Migration 001: Initial Schema for GlassyGaia (final consolidated)
+-- NOTE: User requested integrating all schema adjustments here (no separate 002).
+-- Film-level full_audio_key/full_video_key columns were never added; episode-level media + cover handled via *_key fields.
+-- Episodes table includes cover_key, full_audio_key, full_video_key from the start.
 -- This is the baseline schema, using generic "content" terminology for future scalability.
 -- It is designed to be safe to run on an empty database.
 
 -- Foreign keys are enabled by default in D1; omit PRAGMA for remote migrations
 
-CREATE TABLE IF NOT EXISTS content_items (
+CREATE TABLE content_items (
   id TEXT PRIMARY KEY NOT NULL,
   slug TEXT UNIQUE NOT NULL,
   title TEXT NOT NULL,
   main_language TEXT NOT NULL,
   type TEXT NOT NULL, -- e.g., 'movie', 'series', 'book', 'audio'
+  is_original INTEGER NOT NULL DEFAULT 1, -- 1 = original (source language) version, 0 = non-original (dub/alternate)
   description TEXT,
-  cover_key TEXT,
-  full_audio_key TEXT, -- full audio file key (optional)
-  full_video_key TEXT, -- full video file key (optional)
+  cover_key TEXT, -- R2 object key for content-level cover image
   release_year INTEGER,
   -- Total intended episodes for this content (business metadata, can exceed currently uploaded episodes).
   total_episodes INTEGER NOT NULL DEFAULT 1,
+  -- Aggregated statistics for whole content
+  num_cards INTEGER NOT NULL DEFAULT 0,
+  avg_difficulty_score REAL,
+  level_framework_stats TEXT, -- JSON array of { language, framework, levels: { <level>: percent } }
   created_at INTEGER DEFAULT (strftime('%s','now')),
   updated_at INTEGER DEFAULT (strftime('%s','now'))
 );
 
-CREATE TABLE IF NOT EXISTS content_item_languages (
+CREATE TABLE content_item_languages (
   content_item_id TEXT NOT NULL REFERENCES content_items(id) ON DELETE CASCADE,
   language TEXT NOT NULL,
   PRIMARY KEY (content_item_id, language)
 );
 
-CREATE TABLE IF NOT EXISTS episodes (
+CREATE TABLE episodes (
   id TEXT PRIMARY KEY NOT NULL,
   content_item_id TEXT NOT NULL REFERENCES content_items(id) ON DELETE CASCADE,
   episode_number INTEGER NOT NULL,
   slug TEXT, -- stable public identifier like filmSlug_1
   title TEXT,
+  cover_key TEXT, -- R2 object key for episode-level cover image (optional)
   full_audio_key TEXT,
   full_video_key TEXT,
+  -- Per-episode statistics
+  num_cards INTEGER NOT NULL DEFAULT 0,
+  avg_difficulty_score REAL,
+  level_framework_stats TEXT, -- JSON array of { language, framework, levels: { <level>: percent } }
   created_at INTEGER DEFAULT (strftime('%s','now')),
   updated_at INTEGER DEFAULT (strftime('%s','now'))
 );
 
-CREATE TABLE IF NOT EXISTS cards (
+CREATE TABLE cards (
   id TEXT PRIMARY KEY NOT NULL,
   episode_id TEXT NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
   card_number INTEGER NOT NULL,
-  start_time_ms INTEGER NOT NULL,
-  end_time_ms INTEGER NOT NULL,
+  start_time INTEGER NOT NULL, -- seconds
+  end_time INTEGER NOT NULL,   -- seconds
+  duration INTEGER NOT NULL,   -- seconds (rounded end-start, min 0)
   image_key TEXT,
   audio_key TEXT,
   difficulty_score REAL, -- 0-100 float score for fine-grained recommendations
@@ -57,7 +69,7 @@ CREATE TABLE IF NOT EXISTS cards (
 );
 
 -- NEW TABLE: To store difficulty levels from various frameworks (CEFR, JLPT, HSK, etc.)
-CREATE TABLE IF NOT EXISTS card_difficulty_levels (
+CREATE TABLE card_difficulty_levels (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
   framework TEXT NOT NULL, -- e.g., 'CEFR', 'JLPT', 'HSK'
@@ -66,7 +78,7 @@ CREATE TABLE IF NOT EXISTS card_difficulty_levels (
   UNIQUE(card_id, framework, language) -- A card can only have one level per framework-language pair
 );
 
-CREATE TABLE IF NOT EXISTS card_subtitles (
+CREATE TABLE card_subtitles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
   language TEXT NOT NULL,

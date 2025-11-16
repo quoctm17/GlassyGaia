@@ -80,12 +80,21 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
     });
   }
 
+  const paddedEp = String(episodeNum).padStart(3,'0');
   for (let i = 0; i < plan.length; i++) {
     const { file: f, cardId } = plan[i];
     const ext = isImage ? "jpg" : "mp3";
     // Updated pattern (2025-11 generic): items/{filmId}/episodes/e{episodeNum}/{type}/{filmId_normalized}_{cardId}.ext
     const fileName = `${prefix}_${cardId}.${ext}`;
-    const bucketPath = `items/${filmId}/episodes/${filmId}_${episodeNum}/${type}/${fileName}`;
+    // New padded folder (non-breaking): filmId_001 style. Keep legacy folder upload for compatibility.
+    const newBucketPath = `items/${filmId}/episodes/${filmId}_${paddedEp}/${type}/${fileName}`;
+    const legacyBucketPath = `items/${filmId}/episodes/${filmId}_${episodeNum}/${type}/${fileName}`;
+    // Prefer new padded path; attempt upload; on failure (unlikely) fallback legacy.
+    try {
+      await r2UploadViaSignedUrl({ bucketPath: newBucketPath, file: f, contentType: expectedCT });
+    } catch {
+      await r2UploadViaSignedUrl({ bucketPath: legacyBucketPath, file: f, contentType: expectedCT });
+    }
     await r2UploadViaSignedUrl({ bucketPath, file: f, contentType: expectedCT });
     onProgress?.(i + 1, total);
   }
@@ -99,6 +108,25 @@ export async function uploadCoverImage(params: { filmId: string; episodeNum: num
   }
   const bucketPath = `items/${filmId}/cover_image/cover.jpg`;
   await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'image/jpeg' });
+}
+
+// Upload episode cover image (JPEG) to items/{filmId}/episodes/{filmId}_{episodeNum}/cover/cover.jpg
+export async function uploadEpisodeCoverImage(params: { filmId: string; episodeNum: number; file: File }) {
+  const { filmId, episodeNum, file } = params;
+  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg') {
+    throw new Error('Episode cover must be a JPEG image');
+  }
+  const epFolderPadded = `${filmId}_${String(episodeNum).padStart(3,'0')}`;
+  const epFolderLegacy = `${filmId}_${episodeNum}`;
+  const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/cover/cover.jpg`;
+  const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/cover/cover.jpg`;
+  try {
+    await r2UploadViaSignedUrl({ bucketPath: bucketPathNew, file, contentType: 'image/jpeg' });
+    return bucketPathNew;
+  } catch {
+    await r2UploadViaSignedUrl({ bucketPath: bucketPathLegacy, file, contentType: 'image/jpeg' });
+    return bucketPathLegacy;
+  }
 }
 
 // Upload full media for a film (top-level, not per-episode)
@@ -124,20 +152,33 @@ export async function uploadFilmFullMedia(params: { filmId: string; type: 'audio
 // Upload full media for a specific episode
 export async function uploadEpisodeFullMedia(params: { filmId: string; episodeNum: number; type: 'audio' | 'video'; file: File }) {
   const { filmId, episodeNum, type, file } = params;
-  const epFolder = `${filmId}_${episodeNum}`;
+  const epFolderPadded = `${filmId}_${String(episodeNum).padStart(3,'0')}`;
+  const epFolderLegacy = `${filmId}_${episodeNum}`;
   if (type === 'audio') {
     if (!/mpeg$/i.test(file.type) && file.type !== 'audio/mpeg') {
       throw new Error('Episode full audio must be MP3 (audio/mpeg)');
     }
-    const bucketPath = `items/${filmId}/episodes/${epFolder}/full/audio.mp3`;
-    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'audio/mpeg' });
-    return bucketPath;
+    const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/full/audio.mp3`;
+    const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/full/audio.mp3`;
+    try {
+      await r2UploadViaSignedUrl({ bucketPath: bucketPathNew, file, contentType: 'audio/mpeg' });
+      return bucketPathNew;
+    } catch {
+      await r2UploadViaSignedUrl({ bucketPath: bucketPathLegacy, file, contentType: 'audio/mpeg' });
+      return bucketPathLegacy;
+    }
   } else {
     if (!/mp4$/i.test(file.type) && file.type !== 'video/mp4') {
       throw new Error('Episode full video must be MP4 (video/mp4)');
     }
-    const bucketPath = `items/${filmId}/episodes/${epFolder}/full/video.mp4`;
-    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'video/mp4' });
-    return bucketPath;
+    const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/full/video.mp4`;
+    const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/full/video.mp4`;
+    try {
+      await r2UploadViaSignedUrl({ bucketPath: bucketPathNew, file, contentType: 'video/mp4' });
+      return bucketPathNew;
+    } catch {
+      await r2UploadViaSignedUrl({ bucketPath: bucketPathLegacy, file, contentType: 'video/mp4' });
+      return bucketPathLegacy;
+    }
   }
 }

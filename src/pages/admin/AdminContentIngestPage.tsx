@@ -1,1357 +1,800 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import toast from "react-hot-toast";
+import Papa from "papaparse";
 import { useUser } from "../../context/UserContext";
+import { importFilmFromCsv, type ImportFilmMeta } from "../../services/importer";
 import {
-	importFilmFromCsv,
-	type ImportFilmMeta,
-} from "../../services/importer";
-import {
-	uploadCoverImage,
-	uploadMediaBatch,
-	uploadFilmFullMedia,
-	uploadEpisodeFullMedia,
+  uploadCoverImage,
+  uploadMediaBatch,
+  uploadEpisodeCoverImage,
+  uploadEpisodeFullMedia,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateFilmMeta, apiUpdateEpisodeMeta } from "../../services/cfApi";
-import Papa from "papaparse";
-import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines } from "lucide-react";
+import { apiUpdateFilmMeta, apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from "../../services/cfApi";
+import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2 } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
-import { langLabel, countryCodeForLang, canonicalizeLangCode } from "../../utils/lang";
+import { langLabel, canonicalizeLangCode } from "../../utils/lang";
+import FlagDisplay from "../../components/FlagDisplay";
 
 export default function AdminContentIngestPage() {
-	const { user, signInGoogle, adminKey, setAdminKey } = useUser();
-	const allowedEmails = useMemo(
-		() =>
-			(import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "")
-				.split(",")
-				.map((s: string) => s.trim())
-				.filter(Boolean),
-		[]
-	);
-	const pass = (import.meta.env.VITE_IMPORT_KEY || "").toString();
-	const requireKey = !!pass;
-	// Strict rule: must have allowed email AND correct key (if key configured)
-	const isAdmin =
-		!!user &&
-		allowedEmails.includes(user.email || "") &&
-		(!requireKey || adminKey === pass);
+  const { user, signInGoogle, adminKey } = useUser();
+  const allowedEmails = useMemo(
+    () => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "")
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter(Boolean),
+    []
+  );
+  const pass = (import.meta.env.VITE_IMPORT_KEY || "").toString();
+  const requireKey = !!pass;
+  const isAdmin = !!user && allowedEmails.includes(user.email || "") && (!requireKey || adminKey === pass);
 
-	// Content meta
-	const [filmId, setFilmId] = useState("");
-	const [episodeNum, setEpisodeNum] = useState<number>(1);
-	const [title, setTitle] = useState("");
-	const [episodeTitle, setEpisodeTitle] = useState("");
-	const [description, setDescription] = useState("");
-	const [coverUrl, setCoverUrl] = useState("");
-	const [totalEpisodes, setTotalEpisodes] = useState<number | "">("");
-	// Optional new meta fields
-	const [contentType, setContentType] = useState<ContentType | "">(""); // centralized enum options
-	const [releaseYear, setReleaseYear] = useState<number | "">("");
-	const [typeOpen, setTypeOpen] = useState<boolean>(false);
-	const [yearOpen, setYearOpen] = useState<boolean>(false);
-	const langDropdownRef = useRef<HTMLDivElement | null>(null);
-	const typeDropdownRef = useRef<HTMLDivElement | null>(null);
-	const yearDropdownRef = useRef<HTMLDivElement | null>(null);
-	// Main language selection
-	const [mainLanguage, setMainLanguage] = useState<string>("en");
-	const [langOpen, setLangOpen] = useState<boolean>(false);
-	const LANG_OPTIONS: string[] = ["en", "vi", "zh", "ja", "ko", "id", "th", "ms"];
-	// Extend language options supported in utils
-	const EXT_LANGS: string[] = ["zh_trad", "yue"];
-	const ALL_LANG_OPTIONS = [...LANG_OPTIONS, ...EXT_LANGS];
+  // Content meta state
+  const [filmId, setFilmId] = useState("");
+  const [episodeNum] = useState<number>(1);
+  const [title, setTitle] = useState("");
+  const [episodeTitle, setEpisodeTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
+  // Slug uniqueness check state
+  const [slugChecked, setSlugChecked] = useState(false);
+  const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null); // null: not checked
+  const [contentType, setContentType] = useState<ContentType | "">("");
+  const [isOriginal, setIsOriginal] = useState<boolean>(true);
+  const [slugChecking, setSlugChecking] = useState(false);
+  const [releaseYear, setReleaseYear] = useState<number | "">("");
+  const [mainLanguage, setMainLanguage] = useState<string>("en");
 
-	// Helper: CSV validation (headers first, then rows)
-	function validateCsv(headers: string[], rows: Record<string, string>[]) {
-		const errors: string[] = [];
-		const warnings: string[] = [];
-		// Build header map (case-insensitive)
-		const headerMap: Record<string, string> = {};
-		headers.forEach((h) => {
-			const lower = (h || "").toLowerCase();
-			if (!headerMap[lower]) headerMap[lower] = h;
-		});
-		const required = ["start", "end", "sentence", "type"];
-		const missing = required.filter((r) => !headerMap[r]);
-		if (missing.length) {
-			errors.push(
-				`Thiếu cột bắt buộc: ${missing.map((m) => `"${m}"`).join(", ")}. Hãy thêm các cột này.`
-			);
-			setCsvErrors(errors);
-			setCsvWarnings([]);
-			setCsvValid(false);
-			return;
-		}
+  // Dropdown state
+  const [langOpen, setLangOpen] = useState(false);
+  const [typeOpen, setTypeOpen] = useState(false);
+  const [yearOpen, setYearOpen] = useState(false);
+  const langDropdownRef = useRef<HTMLDivElement | null>(null);
+  const typeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const yearDropdownRef = useRef<HTMLDivElement | null>(null);
+  // Language dropdown helpers
+  const [langQuery, setLangQuery] = useState("");
 
-		// Detect language columns (similar to importer)
-		const langAliases: Record<string, string> = {
-			english: "en",
-			vietnamese: "vi",
-			chinese: "zh",
-			"chinese simplified": "zh",
-			japanese: "ja",
-			korean: "ko",
-			indonesian: "id",
-			thai: "th",
-			malay: "ms",
-			"chinese traditional": "zh_trad",
-			"traditional chinese": "zh_trad",
-			cantonese: "yue",
-		};
-		const supported = new Set(["en", "vi", "zh", "ja", "ko", "id", "th", "ms", "zh_trad", "yue"]);
-		const detectedLangs = new Set<string>();
-		headers.forEach((h) => {
-			const key = (h || "").trim().toLowerCase().replace(/\s+\(.*\)$/g, "");
-			const alias = langAliases[key];
-			// Only accept explicit alias or exact supported code (avoid matching "end" -> "en").
-			const canon = alias ? alias : supported.has(key) ? key : null;
-			if (canon && supported.has(canon)) detectedLangs.add(canon);
-		});
-		const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
-		if (!detectedLangs.has(mainCanon)) {
-			errors.push(
-				`Main Language đang chọn là "${langLabel(mainCanon)}" (${mainCanon}). CSV cần có một cột phụ đề cho ngôn ngữ này (ví dụ: "${mainCanon}" hoặc tên tương đương).`
-			);
-			setCsvErrors(errors);
-			setCsvWarnings([]);
-			setCsvValid(false);
-			return;
-		}
+  const ALL_LANG_OPTIONS: string[] = [
+    "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
+    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","tr","uk"
+  ];
+  const SORTED_LANG_OPTIONS = useMemo(() => {
+    // Sort by human-friendly label A->Z
+    return [...ALL_LANG_OPTIONS].sort((a, b) => langLabel(a).localeCompare(langLabel(b)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const FILTERED_LANG_OPTIONS = useMemo(() => {
+    const q = langQuery.trim().toLowerCase();
+    if (!q) return SORTED_LANG_OPTIONS;
+    return SORTED_LANG_OPTIONS.filter(l => {
+      const label = `${langLabel(l)} (${l})`.toLowerCase();
+      return label.includes(q);
+    });
+  }, [langQuery, SORTED_LANG_OPTIONS]);
 
-		// Row checks (limit error spam)
-		const maxErrors = 50;
-		let count = 0;
-		rows.forEach((row, i) => {
-			for (const k of required) {
-				const original = headerMap[k];
-				const v = original ? (row[original] || "").toString().trim() : "";
-				if (!v) {
-					errors.push(`Hàng ${i + 2}: cột "${k}" bị trống.`);
-					count++;
-					if (count >= maxErrors) return;
-				}
-			}
-			if (count >= maxErrors) return;
-		});
-		// Soft heuristic: warn if many Sentence cells seem to mismatch English when main language is en
-		const sentenceHeader = headerMap["sentence"];
-		if (sentenceHeader) {
-			const sample = rows.slice(0, Math.min(50, rows.length));
-			const cjkRe = /[\u3040-\u30ff\u3400-\u9fff\uF900-\uFAFF]/; // Hiragana/Katakana/CJK
-			const hangulRe = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/;
-			let suspicious = 0;
-			const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
-			sample.forEach((r) => {
-				const s = (r[sentenceHeader] || "").toString();
-				if (!s.trim()) return;
-				if (mainCanon === "en") {
-					if (cjkRe.test(s) || hangulRe.test(s)) suspicious++;
-				}
-			});
-			if (suspicious >= Math.ceil(sample.length * 0.3)) {
-				warnings.push(
-					`Cột "Sentence" có vẻ chứa nhiều ký tự không thuộc ${langLabel(mainCanon)}. Đây chỉ là cảnh báo, vẫn cho phép import.`
-				);
-			}
-		}
-		setCsvErrors(errors);
-		setCsvWarnings(warnings);
-		setCsvValid(errors.length === 0);
-	}
+  // CSV & validation state
+  const [csvText, setCsvText] = useState("");
+  const csvRef = useRef<HTMLInputElement | null>(null);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
+  const [csvValid, setCsvValid] = useState<boolean | null>(null);
+  const [csvFileName, setCsvFileName] = useState<string>("");
 
-	// CSV
-	const [csvText, setCsvText] = useState("");
-	const csvRef = useRef<HTMLInputElement | null>(null);
-	const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
-	const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
-	const [csvErrors, setCsvErrors] = useState<string[]>([]);
-	const [csvValid, setCsvValid] = useState<boolean | null>(null);
-	const [csvFileName, setCsvFileName] = useState<string>("");
-	const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
+  // Media selection state
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [audioFiles, setAudioFiles] = useState<File[]>([]);
+  const [infer, setInfer] = useState(true);
+  const [padDigits, setPadDigits] = useState(4);
+  const [startIndex, setStartIndex] = useState(0);
+  const [replaceMode, setReplaceMode] = useState(true);
 
-	// Derived helpers for preview highlighting
-	const lowerHeaderMap = useMemo(() => {
-		const m: Record<string, string> = {};
-		(csvHeaders || []).forEach((h) => {
-			m[(h || "").toLowerCase()] = h;
-		});
-		return m;
-	}, [csvHeaders]);
-	const requiredOriginals = useMemo(() => {
-		const req = ["start", "end", "sentence", "type"];
-		return req.map((k) => lowerHeaderMap[k]).filter(Boolean) as string[];
-	}, [lowerHeaderMap]);
+  // Optional media toggles (film-level full media removed per new schema)
+  const [addCover, setAddCover] = useState(false);
+  const [addEpCover, setAddEpCover] = useState(false);
+  const [addEpAudio, setAddEpAudio] = useState(false);
+  const [addEpVideo, setAddEpVideo] = useState(false);
 
-	function findHeaderForLang(headers: string[], lang: string): string | null {
-		const langAliases: Record<string, string> = {
-			english: "en",
-			vietnamese: "vi",
-			chinese: "zh",
-			"chinese simplified": "zh",
-			japanese: "ja",
-			korean: "ko",
-			indonesian: "id",
-			thai: "th",
-			malay: "ms",
-			"chinese traditional": "zh_trad",
-			"traditional chinese": "zh_trad",
-			cantonese: "yue",
-		};
-		const supported = new Set(["en", "vi", "zh", "ja", "ko", "id", "th", "ms", "zh_trad", "yue"]);
-		const target = canonicalizeLangCode(lang) || lang;
-		for (const h of headers) {
-			const key = (h || "").trim().toLowerCase().replace(/\s+\(.*\)$/g, "");
-			const alias = langAliases[key];
-			const canon = alias ? alias : supported.has(key) ? key : null;
-			if (canon === target) return h;
-		}
-		return null;
-	}
-	const mainLangHeader = useMemo(
-		() => findHeaderForLang(csvHeaders, mainLanguage),
-		[csvHeaders, mainLanguage]
-	);
+  // Progress state
+  const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState("idle");
+  const [coverDone, setCoverDone] = useState(0);
+  const [epCoverDone, setEpCoverDone] = useState(0);
+  const [epFullAudioDone, setEpFullAudioDone] = useState(0);
+  const [epFullVideoDone, setEpFullVideoDone] = useState(0);
+  const [imagesDone, setImagesDone] = useState(0);
+  const [audioDone, setAudioDone] = useState(0);
+  const [importDone, setImportDone] = useState(false);
+  const [statsDone, setStatsDone] = useState(false);
 
-	// Media
-	const [imageFiles, setImageFiles] = useState<File[]>([]);
-	const [audioFiles, setAudioFiles] = useState<File[]>([]);
-	const [infer, setInfer] = useState(true);
-	const [padDigits, setPadDigits] = useState(3);
-	const [startIndex, setStartIndex] = useState(0);
-	// Simplified: Cards follow Media IDs when Infer is on; else use StartIndex + PadDigits.
-	const [replaceMode, setReplaceMode] = useState(true); // default replace to avoid duplicates
+  const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
 
-	// Progress
-	const [busy, setBusy] = useState(false);
-	const [stage, setStage] = useState<string>("idle");
-	const [coverDone, setCoverDone] = useState<number>(0);
-	const [imagesDone, setImagesDone] = useState<number>(0);
-	const [audioDone, setAudioDone] = useState<number>(0);
-	const [importDone, setImportDone] = useState<boolean>(false);
-	const [filmFullAudioDone, setFilmFullAudioDone] = useState<number>(0);
-	const [filmFullVideoDone, setFilmFullVideoDone] = useState<number>(0);
-	const [epFullAudioDone, setEpFullAudioDone] = useState<number>(0);
-	const [epFullVideoDone, setEpFullVideoDone] = useState<number>(0);
-	// Optional media toggles
-	const [addCover, setAddCover] = useState(false);
-	const [addFilmAudio, setAddFilmAudio] = useState(false);
-	const [addFilmVideo, setAddFilmVideo] = useState(false);
-	const [addEpAudio, setAddEpAudio] = useState(false);
-	const [addEpVideo, setAddEpVideo] = useState(false);
+  // CSV helpers
+  const lowerHeaderMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    csvHeaders.forEach(h => { m[(h || "").toLowerCase()] = h; });
+    return m;
+  }, [csvHeaders]);
+  const requiredOriginals = useMemo(() => ["start", "end"].map(k => lowerHeaderMap[k]).filter(Boolean) as string[], [lowerHeaderMap]);
 
-	const r2Base =
-		(import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(
-			/\/$/,
-			""
-		) || "";
+  const validateCsv = useCallback((headers: string[], rows: Record<string, string>[]) => {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const headerMap: Record<string, string> = {};
+    headers.forEach(h => { const l = (h || "").toLowerCase(); if (!headerMap[l]) headerMap[l] = h; });
+    // Không cho phép cột sentence
+    if (headerMap["sentence"]) {
+      errors.push("Không được truyền cột 'sentence' trong CSV. Hệ thống sẽ tự động lấy subtitle của Main Language để điền vào.");
+    }
+    const required = ["start", "end"]; // Type is optional
+    const missing = required.filter(r => !headerMap[r]);
+    if (missing.length) {
+      errors.push(`Thiếu cột bắt buộc: ${missing.join(", ")}`);
+    }
+    // language detection
+    const langAliases: Record<string, string> = {
+      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
+      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
+    };
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
+    const detected = new Set<string>();
+    headers.forEach(h => {
+      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      const alias = langAliases[key];
+      const canon = alias ? alias : supported.has(key) ? key : null;
+      if (canon) detected.add(canon);
+    });
+    const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
+    if (!detected.has(mainCanon)) {
+      errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon}`);
+    }
+    // row required cell checks (limit to 50 errors)
+    let ec = 0;
+    const maxErr = 50;
+    rows.forEach((row, i) => {
+      required.forEach(k => {
+        const orig = headerMap[k];
+        const v = orig ? (row[orig] || "").toString().trim() : "";
+        if (!v) { errors.push(`Hàng ${i + 2}: cột "${k}" trống.`); ec++; }
+      });
+      if (ec >= maxErr) return;
+    });
+    setCsvErrors(errors);
+    setCsvWarnings(warnings);
+    setCsvValid(errors.length === 0);
+  }, [mainLanguage]);
 
-	const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
-		const f = e.target.files?.[0];
-		if (!f) return;
-		const text = await f.text();
-		setCsvText(text);
-		setCsvFileName(f.name);
-		try {
-			const parsed = Papa.parse<Record<string, string>>(text, {
-				header: true,
-				skipEmptyLines: "greedy",
-			});
-			const headers = (parsed.meta.fields || []).map((h) => (h || "").trim());
-			const rows = (parsed.data || []) as Record<string, string>[];
-			setCsvHeaders(headers);
-			setCsvRows(rows);
-			if (!rows.length) {
-				setCsvErrors(["CSV không có dữ liệu hàng nào."]);
-				setCsvValid(false);
-			} else {
-				validateCsv(headers, rows);
-			}
-		} catch {
-			setCsvErrors(["Lỗi đọc CSV. Vui lòng kiểm tra định dạng."]);
-			setCsvValid(false);
-		}
-	};
+  function findHeaderForLang(headers: string[], lang: string): string | null {
+    const langAliases: Record<string, string> = {
+      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
+      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
+    };
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
+    const target = canonicalizeLangCode(lang) || lang;
+    for (const h of headers) {
+      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      const alias = langAliases[key];
+      const canon = alias ? alias : supported.has(key) ? key : null;
+      if (canon === target) return h;
+    }
+    return null;
+  }
+  const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, mainLanguage), [csvHeaders, mainLanguage]);
 
-	// Revalidate when main language or headers/rows change
-	useEffect(() => {
-		if (csvHeaders.length && csvRows.length) {
-			validateCsv(csvHeaders, csvRows);
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [mainLanguage]);
+  // Effects
+  useEffect(() => { if (csvHeaders.length && csvRows.length) validateCsv(csvHeaders, csvRows); }, [csvHeaders, csvRows, validateCsv]);
+  useEffect(() => {
+    function outside(e: MouseEvent) {
+      const t = e.target as Node | null;
+      if (langOpen && langDropdownRef.current && t && !langDropdownRef.current.contains(t)) setLangOpen(false);
+      if (typeOpen && typeDropdownRef.current && t && !typeDropdownRef.current.contains(t)) setTypeOpen(false);
+      if (yearOpen && yearDropdownRef.current && t && !yearDropdownRef.current.contains(t)) setYearOpen(false);
+    }
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, [langOpen, typeOpen, yearOpen]);
 
-	// Close dropdowns on outside click
-	useEffect(() => {
-		function handleClickOutside(e: MouseEvent) {
-			const target = e.target as Node | null;
-			if (langOpen && langDropdownRef.current && target && !langDropdownRef.current.contains(target)) {
-				setLangOpen(false);
-			}
-			if (typeOpen && typeDropdownRef.current && target && !typeDropdownRef.current.contains(target)) {
-				setTypeOpen(false);
-			}
-			if (yearOpen && yearDropdownRef.current && target && !yearDropdownRef.current.contains(target)) {
-				setYearOpen(false);
-			}
-		}
-		document.addEventListener("mousedown", handleClickOutside);
-		return () => document.removeEventListener("mousedown", handleClickOutside);
-	}, [langOpen, typeOpen, yearOpen]);
+  // Debounced slug availability auto-check
+  useEffect(() => {
+    const slug = filmId.trim();
+    if (!slug) { setSlugChecked(false); setSlugAvailable(null); return; }
+    setSlugChecking(true);
+    setSlugChecked(false); setSlugAvailable(null);
+    const handle = setTimeout(async () => {
+      try {
+        const film = await apiGetFilm(slug);
+        if (film) { setSlugChecked(true); setSlugAvailable(false); }
+        else { setSlugChecked(true); setSlugAvailable(true); }
+      } finally { setSlugChecking(false); }
+    }, 550);
+    return () => clearTimeout(handle);
+  }, [filmId]);
 
+  // Derived: can the user start creation?
+  const canCreate = useMemo(() => {
+    const hasUser = !!user;
+    const emailOk = hasUser && allowedEmails.includes(user?.email || "");
+    const keyOk = !requireKey || adminKey === pass;
+    const slugOk = !!filmId && slugChecked && slugAvailable === true;
+    const csvOk = csvValid === true;
+    const titleOk = (title || "").trim().length > 0;
+    // Required card media: at least 1 image and 1 audio file
+    const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
+    // Optional toggles: if checked, require a file chosen for that input
+    const coverOk = !addCover || ((document.getElementById("cover-file") as HTMLInputElement)?.files?.length || 0) > 0;
+    const epCoverOk = !addEpCover || ((document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.length || 0) > 0;
+    const epAudioOk = !addEpAudio || ((document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.length || 0) > 0;
+    const epVideoOk = !addEpVideo || ((document.getElementById("ep-full-video") as HTMLInputElement)?.files?.length || 0) > 0;
+    const optionalUploadsOk = coverOk && epCoverOk && epAudioOk && epVideoOk;
+    return !!(hasUser && emailOk && keyOk && slugOk && csvOk && titleOk && cardMediaOk && optionalUploadsOk);
+  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, imageFiles.length, audioFiles.length, addCover, addEpCover, addEpAudio, addEpVideo]);
 
-	const onPickImages = (e: React.ChangeEvent<HTMLInputElement>) => {
-		setImageFiles(Array.from(e.target.files || []));
-	};
-	const onPickAudio = (e: React.ChangeEvent<HTMLInputElement>) => {
-		setAudioFiles(Array.from(e.target.files || []));
-	};
+  // Handlers
+  const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const text = await f.text();
+    setCsvText(text);
+    setCsvFileName(f.name);
+    try {
+      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: "greedy" });
+      const headers = (parsed.meta.fields || []).map(h => (h || "").trim());
+      const rows = (parsed.data || []) as Record<string, string>[];
+      setCsvHeaders(headers);
+      setCsvRows(rows);
+      if (!rows.length) {
+        setCsvErrors(["CSV không có dữ liệu hàng nào."]); setCsvValid(false);
+      } else { validateCsv(headers, rows); }
+    } catch { setCsvErrors(["Lỗi đọc CSV."]); setCsvValid(false); }
+  };
+  const onPickImages = (e: React.ChangeEvent<HTMLInputElement>) => setImageFiles(Array.from(e.target.files || []));
+  const onPickAudio = (e: React.ChangeEvent<HTMLInputElement>) => setAudioFiles(Array.from(e.target.files || []));
 
-	const doUploadCover = async (): Promise<string | undefined> => {
-		if (!addCover) return undefined;
-		const input = document.getElementById(
-			"cover-file"
-		) as HTMLInputElement | null;
-		const file = input?.files?.[0];
-		if (!file) return undefined;
-		setStage("cover");
-		await uploadCoverImage({ filmId, episodeNum, file });
-		// New cover path convention: items/{filmId}/cover_image/cover.jpg
-		const url = r2Base
-			? `${r2Base}/items/${filmId}/cover_image/cover.jpg`
-			: `/items/${filmId}/cover_image/cover.jpg`;
-		setCoverUrl(url);
-		setCoverDone(1);
-		// Save to DB
-		await apiUpdateFilmMeta({ filmSlug: filmId, cover_url: url }).catch(() => {});
-		toast.success("Cover uploaded");
-		return url;
-	};
+  const doUploadCover = async (): Promise<string | undefined> => {
+    if (!addCover) return undefined;
+    const file = (document.getElementById("cover-file") as HTMLInputElement)?.files?.[0];
+    if (!file) return undefined;
+    setStage("cover");
+    await uploadCoverImage({ filmId, episodeNum, file });
+    const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover.jpg` : `/items/${filmId}/cover_image/cover.jpg`;
+    setCoverUrl(url); setCoverDone(1);
+    await apiUpdateFilmMeta({ filmSlug: filmId, cover_url: url }).catch(() => {});
+    toast.success("Cover uploaded");
+    return url;
+  };
+  const doUploadEpisodeCover = async () => {
+    if (!addEpCover) return;
+    const file = (document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.[0];
+    if (!file) return;
+    setStage("ep_cover");
+    const key = await uploadEpisodeCoverImage({ filmId, episodeNum, file });
+    setEpCoverDone(1);
+    try {
+      await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, cover_key: key });
+      toast.success("Episode cover uploaded");
+    } catch (e) {
+      console.error("Episode cover meta update failed", e);
+      toast.error("Không cập nhật được episode cover meta (có thể do schema cũ)");
+    }
+  };
+  const doUploadEpisodeFull = async () => {
+    const aFile = (document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.[0];
+    const vFile = (document.getElementById("ep-full-video") as HTMLInputElement)?.files?.[0];
+    if (addEpAudio && aFile) {
+      setStage("ep_full_audio");
+      const key = await uploadEpisodeFullMedia({ filmId, episodeNum, type: "audio", file: aFile });
+      setEpFullAudioDone(1);
+      try {
+        await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, full_audio_key: key });
+      } catch (e) {
+        console.error("Episode full audio meta update failed", e);
+        toast.error("Không cập nhật được full audio meta tập (schema?)");
+      }
+    }
+    if (addEpVideo && vFile) {
+      setStage("ep_full_video");
+      const key = await uploadEpisodeFullMedia({ filmId, episodeNum, type: "video", file: vFile });
+      setEpFullVideoDone(1);
+      try {
+        await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, full_video_key: key });
+      } catch (e) {
+        console.error("Episode full video meta update failed", e);
+        toast.error("Không cập nhật được full video meta tập (schema?)");
+      }
+    }
+  };
+  const doUploadMedia = async (type: MediaType, files: File[]) => {
+    if (!files.length) return;
+    setStage(type === "image" ? "images" : "audio");
+    await uploadMediaBatch({ filmId, episodeNum, type, files, padDigits, startIndex, inferFromFilenames: infer }, done => {
+      if (type === "image") setImagesDone(done); else setAudioDone(done);
+    });
+    toast.success(type === "image" ? "Images uploaded" : "Audio uploaded");
+  };
 
-	const doUploadFilmFull = async () => {
-		const audioInput = document.getElementById(
-			"film-full-audio"
-		) as HTMLInputElement | null;
-		const videoInput = document.getElementById(
-			"film-full-video"
-		) as HTMLInputElement | null;
-		if (addFilmAudio && audioInput?.files?.[0]) {
-			setStage("film_full_audio");
-			const key = await uploadFilmFullMedia({
-				filmId,
-				type: "audio",
-				file: audioInput.files[0],
-			});
-			setFilmFullAudioDone(1);
-			await apiUpdateFilmMeta({
-				filmSlug: filmId,
-				full_audio_url: r2Base ? `${r2Base}/${key}` : `/${key}`,
-			}).catch(() => {});
-		}
-		if (addFilmVideo && videoInput?.files?.[0]) {
-			setStage("film_full_video");
-			const key = await uploadFilmFullMedia({
-				filmId,
-				type: "video",
-				file: videoInput.files[0],
-			});
-			setFilmFullVideoDone(1);
-			await apiUpdateFilmMeta({
-				filmSlug: filmId,
-				full_video_url: r2Base ? `${r2Base}/${key}` : `/${key}`,
-			}).catch(() => {});
-		}
-	};
+  const onCreateAll = async () => {
+    if (!user) { toast.error("Sign in required"); return; }
+    if (!allowedEmails.includes(user.email || "")) { toast.error("Admin email required"); return; }
+    if (requireKey && adminKey !== pass) { toast.error("Admin Key required"); return; }
+    if (!filmId) { toast.error("Please enter Content Slug"); return; }
+    if (!slugChecked || !slugAvailable) { toast.error("Cần kiểm tra slug trước"); return; }
+    try {
+      setBusy(true); setStage("starting");
+      setCoverDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
+      // 1. Upload cover for content (if any)
+      const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
+      // 2. Upload card media (images/audio) for cards (these do not depend on episode row)
+      await doUploadMedia("image", imageFiles);
+      await doUploadMedia("audio", audioFiles);
+      // 3. Import CSV to create episode 1 (must be before episode-level media upload)
+      if (!csvText) { toast.error("Please select a CSV for cards"); return; }
+      setStage("import");
+      const filmMeta: ImportFilmMeta = {
+        title,
+        description,
+        cover_url: uploadedCoverUrl ?? coverUrl ?? "",
+        language: mainLanguage,
+        available_subs: [],
+        episodes: 1,
+        total_episodes: 1,
+        episode_title: episodeTitle || undefined,
+        ...(contentType ? { type: contentType } : {}),
+        ...(releaseYear !== "" ? { release_year: releaseYear } : {}),
+        is_original: isOriginal,
+      };
+      // derive cardIds from filenames when infer enabled
+      let cardIds: string[] | undefined = undefined;
+      if (infer) {
+        const all = [...imageFiles, ...audioFiles];
+        const set = new Set<string>();
+        all.forEach(f => { const m = f.name.match(/(\d+)(?=\.[^.]+$)/); if (m) { const raw = m[1]; const id = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0"); set.add(id); } });
+        if (set.size) { cardIds = Array.from(set).sort((a,b)=>parseInt(a,10)-parseInt(b,10)); }
+      }
+      await importFilmFromCsv({ filmSlug: filmId, episodeNum, filmMeta, csvText, mode: replaceMode ? "replace" : "append", cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds }, () => {});
+      setImportDone(true);
+      // 4. Upload episode-level media (cover, full audio, full video) AFTER episode row exists
+      await doUploadEpisodeCover().catch(() => {});
+      await doUploadEpisodeFull().catch(() => {});
+      // 5. Calculate stats immediately after import
+      setStage("calculating_stats");
+      try {
+        const res = await apiCalculateStats({ filmSlug: filmId, episodeNum });
+        if ("error" in res) {
+          toast.error("Tính thống kê thất bại (có thể do schema cũ)");
+        } else {
+          setStatsDone(true);
+        }
+      } catch {
+        // ignore but surface a toast
+        toast.error("Không tính được thống kê cho nội dung này");
+      }
+      setStage("done"); toast.success("Content + Episode 1 created successfully");
+      // Sau khi upload xong, gọi lại apiGetFilm để cập nhật trạng thái slug
+      const film = await apiGetFilm(filmId).catch(() => null);
+      setSlugChecked(true);
+      setSlugAvailable(film ? false : true);
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
 
-	const doUploadEpisodeFull = async () => {
-		const audioInput = document.getElementById(
-			"ep-full-audio"
-		) as HTMLInputElement | null;
-		const videoInput = document.getElementById(
-			"ep-full-video"
-		) as HTMLInputElement | null;
-		if (addEpAudio && audioInput?.files?.[0]) {
-			setStage("ep_full_audio");
-			const key = await uploadEpisodeFullMedia({
-				filmId,
-				episodeNum,
-				type: "audio",
-				file: audioInput.files[0],
-			});
-			setEpFullAudioDone(1);
-			await apiUpdateEpisodeMeta({
-				filmSlug: filmId,
-				episodeNum,
-				full_audio_url: r2Base ? `${r2Base}/${key}` : `/${key}`,
-			}).catch(() => {});
-		}
-		if (addEpVideo && videoInput?.files?.[0]) {
-			setStage("ep_full_video");
-			const key = await uploadEpisodeFullMedia({
-				filmId,
-				episodeNum,
-				type: "video",
-				file: videoInput.files[0],
-			});
-			setEpFullVideoDone(1);
-			await apiUpdateEpisodeMeta({
-				filmSlug: filmId,
-				episodeNum,
-				full_video_url: r2Base ? `${r2Base}/${key}` : `/${key}`,
-			}).catch(() => {});
-		}
-	};
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-4">
+  <div className="text-lg">Admin: Create New Content (Episode 1)</div>
 
-	const doUploadMedia = async (type: MediaType, files: File[]) => {
-		if (!files.length) return;
-		setStage(type === "image" ? "images" : "audio");
-		await uploadMediaBatch(
-			{
-				filmId,
-				episodeNum,
-				type,
-				files,
-				padDigits,
-				startIndex,
-				inferFromFilenames: infer,
-			},
-			(done) => {
-				if (type === "image") setImagesDone(done);
-				else setAudioDone(done);
-			}
-		);
-		if (files.length > 0) {
-			toast.success(type === "image" ? "Images uploaded" : "Audio uploaded");
-		}
-	};
+      {/* Auth */}
+      {user ? (
+        <div className="admin-panel space-y-2">
+          <div className="text-sm">Signed in as <span className="text-gray-300">{user.email}</span></div>
+          <div className="text-sm">Admin emails allowed: <span className="text-gray-400">{(import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "").toString()}</span></div>
+          {requireKey && (
+            <div className="text-xs text-gray-400">Admin Key required — set it once in the SideNav.</div>
+          )}
+          <div className="text-sm">Access: {isAdmin ? <span className="text-green-400">granted</span> : <span className="text-red-400">denied</span>}</div>
+        </div>
+      ) : (
+        <div className="admin-panel">
+          <div className="text-sm mb-2">You must sign in to continue.</div>
+          <button className="admin-btn" onClick={signInGoogle}>Sign in with Google</button>
+        </div>
+      )}
 
-	const onCreateAll = async () => {
-		// Gate with toasts instead of disabling button
-		if (!user) {
-			toast.error("Sign in required");
-			return;
-		}
-		const isAdminEmail = allowedEmails.includes(user.email || "");
-		if (!isAdminEmail) {
-			toast.error("Admin email required");
-			return;
-		}
-		if (requireKey && adminKey !== pass) {
-			toast.error("Admin Key required");
-			return;
-		}
-		if (!filmId) {
-			toast.error("Please enter Content Slug");
-			return;
-		}
-		try {
-			setBusy(true);
-			// Reset progress states
-			setStage("starting");
-			setCoverDone(0);
-			setImagesDone(0);
-			setAudioDone(0);
-			setFilmFullAudioDone(0);
-			setFilmFullVideoDone(0);
-			setEpFullAudioDone(0);
-			setEpFullVideoDone(0);
-			setImportDone(false);
-			// 1) Cover (optional)
-			const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
-			// 2) Content-level Full media (optional)
-			await doUploadFilmFull().catch(() => {});
-			// 3) Episode-level Full media (optional)
-			await doUploadEpisodeFull().catch(() => {});
-			// 4) Card media (images/audio)
-			await doUploadMedia("image", imageFiles);
-			await doUploadMedia("audio", audioFiles);
-			// 5) Import content + cards
-			if (!csvText) {
-				toast.error("Please select a CSV for cards");
-				return;
-			}
-			setStage("import");
-			const filmMeta: ImportFilmMeta = {
-				title,
-				description,
-				// Prefer the freshly uploaded URL returned above to avoid async state race
-				cover_url: uploadedCoverUrl ?? coverUrl ?? "",
-				language: mainLanguage,
-				available_subs: [],
-				episodes: 1,
-				total_episodes:
-					typeof totalEpisodes === "number" ? totalEpisodes : undefined,
-				episode_title: episodeTitle || undefined,
-				...(contentType ? { type: contentType } : {}),
-				...(releaseYear !== "" ? { release_year: releaseYear } : {}),
-			};
-			// Determine card IDs behavior
-			let cardIds: string[] | undefined = undefined;
-			if (infer) {
-				// Extract numeric ids from media filenames and use them for cards
-				const allFiles = [...imageFiles, ...audioFiles];
-				const set = new Set<string>();
-				for (const f of allFiles) {
-					const m = f.name.match(/(\d+)(?=\.[a-zA-Z]+$)/);
-					if (!m) continue;
-					const raw = m[1];
-					const id =
-						raw.length >= padDigits ? raw : raw.padStart(padDigits, "0");
-					set.add(id);
-				}
-				if (set.size > 0) {
-					cardIds = Array.from(set);
-					cardIds.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-				}
-			}
-			await importFilmFromCsv(
-				{
-					filmSlug: filmId,
-					episodeNum,
-					filmMeta,
-					csvText,
-					mode: replaceMode ? "replace" : "append",
-					cardStartIndex: startIndex,
-					cardPadDigits: padDigits,
-					cardIds,
-				},
-				() => {}
-			);
-			setImportDone(true);
-			setStage("done");
-			toast.success("Content, media, and cards created successfully");
-		} catch (e) {
-			toast.error((e as Error).message);
-		} finally {
-			setBusy(false);
-		}
-	};
+      {/* Quick Guide */}
+      {isAdmin && (
+        <div className="admin-panel space-y-3">
+          <div className="text-sm font-semibold">Hướng dẫn nhanh</div>
+            <div className="admin-subpanel text-xs space-y-3">
+            <div className="text-gray-300 font-semibold">A) Các trường nhập</div>
+            <ul className="list-disc pl-5 space-y-1 text-gray-400">
+              <li><span className="text-gray-300">Content Slug</span>: slug không dấu (vd. <code>cinderella</code>). Dùng nút Check để xác thực không trùng.</li>
+              <li><span className="text-gray-300">Main Language</span>: ngôn ngữ chính.</li>
+              <li><span className="text-gray-300">Title</span>, <span className="text-gray-300">Description</span> mô tả.</li>
+              <li><span className="text-gray-300">Episode 1</span>: tự động tạo, không chỉnh sửa số tập ở đây.</li>
+              <li><span className="text-gray-300">Episode Title</span> (tuỳ chọn).</li>
+              <li><span className="text-gray-300">Type</span>: cleaned text for the card (should be the main-language snippet used for study; remove audio/pronunciation cues like <code>[music]</code> or <code>(sfx)</code>). Not used to classify content type.</li>
+              <li><span className="text-gray-300">Release Year</span> (tuỳ chọn) helps categorize.</li>
+              <li><span className="text-gray-300">Media tuỳ chọn</span>: Cover (content + episode), Full Audio/Video cho Episode.</li>
+              <li><span className="text-gray-300">Card Media Files</span>: ảnh (.jpg) & audio (.mp3) cho cards (bắt buộc).</li>
+            </ul>
+            <div className="text-gray-300 font-semibold">B) CSV cần</div>
+            <ul className="list-disc pl-5 space-y-1 text-gray-400">
+              <li>Cột bắt buộc: <code>start,end</code>.</li>
+              <li>Phải có cột phụ đề cho Main Language ({mainLanguage}).</li>
+              <li><code>type</code> tùy chọn; <code>sentence</code> tự động lấy từ phụ đề của Main Language.</li>
+              <li>Hỗ trợ đa ngôn ngữ: en, vi, zh, zh_trad, yue, ja, ko, id, th, ms.</li>
+              <li><code>difficulty_score</code> (0-100) + alias; framework <code>cefr</code>/<code>jlpt</code>/<code>hsk</code> tuỳ chọn.</li>
+              <li>Infer IDs: lấy số cuối tên file làm card id; nếu tắt dùng Pad + Start Index.</li>
+            </ul>
+            <div className="text-[10px] text-gray-500 italic space-y-1">
+              <div>Ví dụ tối thiểu: <code>start,end,type,en</code></div>
+              <div>Đảm bảo thời gian tăng dần để hiển thị ổn định.</div>
+            </div>
+          </div>
+        </div>
+      )}
 
-	return (
-		<div className="p-6 max-w-5xl mx-auto space-y-4">
-			<div className="text-lg">Admin: Create Content (cover + media + cards)</div>
+      {/* Content meta */}
+      <div className="admin-panel space-y-4">
+        <div className="text-sm font-semibold">Content Meta</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Content Slug</label>
+            <div className="relative w-full">
+              <input
+                className="admin-input pr-9"
+                value={filmId}
+                onChange={e => setFilmId(e.target.value.replace(/\s+/g,'_').toLowerCase())}
+                placeholder="cinderella"
+              />
+              {(slugChecking || slugChecked) && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 text-pink-400 group">
+                  {slugChecking && <Loader2 className="w-4 h-4 animate-spin text-gray-500" />}
+                  {!slugChecking && slugChecked && slugAvailable === true && <CheckCircle className="w-4 h-4 text-green-500" />}
+                  {!slugChecking && slugChecked && slugAvailable === false && <XCircle className="w-4 h-4 text-red-400" />}
+                  {/* Pretty tooltip */}
+                  <div className="absolute right-0 mt-2 translate-y-2 hidden group-hover:block whitespace-nowrap px-2 py-1 text-[11px] leading-tight rounded border shadow-lg bg-[#241530] border-pink-500/50 text-pink-100">
+                    {slugChecking ? 'Đang kiểm tra…' : (slugAvailable ? 'Slug khả dụng - có thể tạo.' : 'Slug đã tồn tại - chọn slug khác.')}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Main Language</label>
+            <div className="relative w-full" ref={langDropdownRef}>
+              <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
+                <span className="inline-flex items-center gap-2">
+                  {/* Use emoji flags for 100% reliability across all languages */}
+                  <FlagDisplay lang={mainLanguage} />
+                  <span>{langLabel(mainLanguage)} ({mainLanguage})</span>
+                </span>
+                <span className="text-gray-400">▼</span>
+              </button>
+              {langOpen && (
+                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
+                  <div className="sticky top-0 z-10 bg-[#241530] p-2 border-b border-pink-500/50">
+                    <input
+                      autoFocus
+                      value={langQuery}
+                      onChange={(e) => setLangQuery(e.target.value)}
+                      placeholder="Search language..."
+                      className="admin-input text-xs py-1 px-2"
+                    />
+                  </div>
+                  {FILTERED_LANG_OPTIONS.map(l => (
+                    <div key={l} className="admin-dropdown-item" onClick={() => { setMainLanguage(l); setLangOpen(false); setLangQuery(""); }}>
+                      <FlagDisplay lang={l} />
+                      <span className="text-sm">{langLabel(l)} ({l})</span>
+                    </div>
+                  ))}
+                  {FILTERED_LANG_OPTIONS.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-pink-200/70">No languages match “{langQuery}”.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Title</label>
+            <input className="admin-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" />
+          </div>
+                    <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Release Year</label>
+            <div className="relative w-full" ref={yearDropdownRef}>
+              <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setYearOpen(v => !v); }}>
+                <span>{releaseYear !== "" ? releaseYear : "(optional)"}</span>
+                <span className="text-gray-400">▼</span>
+              </button>
+              {yearOpen && (
+                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
+                  {(() => { const yrs: number[] = []; const current = new Date().getFullYear(); for (let y = current; y >= 1950; y--) yrs.push(y); return yrs; })().map(y => (
+                    <div key={y} className="admin-dropdown-item" onClick={() => { setReleaseYear(y); setYearOpen(false); }}><span>{y}</span></div>
+                  ))}
+                  <div className="admin-dropdown-clear" onClick={() => { setReleaseYear(""); setYearOpen(false); }}>Clear</div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Type</label>
+            <div className="relative w-full" ref={typeDropdownRef}>
+              <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setTypeOpen(v => !v); }}>
+                <span className="inline-flex items-center gap-2">
+                  {contentType === "movie" && <Film className="w-4 h-4" />}
+                  {contentType === "series" && <Clapperboard className="w-4 h-4" />}
+                  {contentType === "book" && <BookIcon className="w-4 h-4" />}
+                  {contentType === "audio" && <AudioLines className="w-4 h-4" />}
+                  <span>{contentType ? CONTENT_TYPE_LABELS[contentType] : "(optional)"}</span>
+                </span>
+                <span className="text-gray-400">▼</span>
+              </button>
+              {typeOpen && (
+                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
+                  {CONTENT_TYPES.map(t => (
+                    <div key={t} className="admin-dropdown-item text-sm" onClick={() => { setContentType(t); setTypeOpen(false); }}>
+                      {t === "movie" && <Film className="w-4 h-4" />}
+                      {t === "series" && <Clapperboard className="w-4 h-4" />}
+                      {t === "book" && <BookIcon className="w-4 h-4" />}
+                      {t === "audio" && <AudioLines className="w-4 h-4" />}
+                      <span>{CONTENT_TYPE_LABELS[t]}</span>
+                    </div>
+                  ))}
+                  <div className="admin-dropdown-clear" onClick={() => { setContentType(""); setTypeOpen(false); }}>Clear</div>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Right column partner for Type: Original Version toggle */}
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Original Version</label>
+            <div className="flex items-center gap-3">
+              <input id="chk-original" type="checkbox" checked={isOriginal} onChange={e => setIsOriginal(e.target.checked)} />
+              <label htmlFor="chk-original" className="text-xs text-gray-300 cursor-pointer">This is the original version (source language).</label>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-start gap-2">
+          <label className="w-40 text-sm pt-1">Description</label>
+          <textarea className="admin-input" rows={3} value={description} onChange={e => setDescription(e.target.value)} />
+        </div>
 
-			{/* Auth */}
-			{user ? (
-				<div className="admin-panel space-y-2">
-					<div className="text-sm">
-						Signed in as <span className="text-gray-300">{user.email}</span>
-					</div>
-					<div className="text-sm">
-						Admin emails allowed:{" "}
-						<span className="text-gray-400">
-							{(import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "").toString()}
-						</span>
-					</div>
-					{requireKey && (
-						<div className="flex gap-2 items-center">
-							<label className="w-32 text-sm">Admin Key</label>
-							<input
-								type="password"
-								className="admin-input"
-								value={adminKey}
-								onChange={(e) => setAdminKey(e.target.value)}
-								placeholder="Enter admin key"
-							/>
-						</div>
-					)}
-					<div className="text-sm">
-						Access:{" "}
-						{isAdmin ? (
-							<span className="text-green-400">granted</span>
-						) : (
-							<span className="text-red-400">denied</span>
-						)}
-					</div>
-				</div>
-			) : (
-				<div className="admin-panel">
-					<div className="text-sm mb-2">You must sign in to continue.</div>
-					<button className="admin-btn" onClick={signInGoogle}>
-						Sign in with Google
-					</button>
-				</div>
-			)}
+        {/* Existing Episodes panel removed for E1-only creation */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="admin-subpanel space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <input id="chk-cover" type="checkbox" checked={addCover} onChange={e => setAddCover(e.target.checked)} />
+              <label htmlFor="chk-cover" className="cursor-pointer">Add Cover (jpg)</label>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa chính (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover.jpg</span>
+              </span>
+            </div>
+            {addCover && (
+              <>
+                <input id="cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/cover_image/cover.jpg</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
-			{/* Quick Guide (only when admin access is granted) */}
-			{isAdmin && (
-				<div className="admin-panel space-y-3">
-					<div className="text-sm font-semibold">Hướng dẫn nhanh</div>
-					<div className="admin-subpanel text-xs space-y-3">
-						<div className="text-gray-300 font-semibold">A) Các trường nhập</div>
-						<ul className="list-disc pl-5 space-y-1 text-gray-400">
-							<li>
-								<span className="text-gray-300">Content Slug</span>: chuỗi slug không dấu (vd. <code>cinderella_1</code>) dùng để tạo thư mục lưu media.
-							</li>
-							<li>
-								<span className="text-gray-300">Main Language</span>: ngôn ngữ chính của nội dung. Dropdown có cờ và mã ngôn ngữ.
-							</li>
-							<li>
-								<span className="text-gray-300">Title</span>, <span className="text-gray-300">Description</span>: thông tin mô tả.
-							</li>
-							<li>
-								<span className="text-gray-300">Total Episodes</span>: tổng số tập dự kiến (có thể cập nhật sau).
-							</li>
-							<li>
-								<span className="text-gray-300">Episode Num</span>: số tập đang nhập (vd. 1). <span className="text-gray-400">Episode Title</span> là tên riêng cho tập.
-							</li>
-							<li>
-								<span className="text-gray-300">Type (optional)</span>: phân loại nội dung (Movie / Series / Book / Audio) giúp filter & hiển thị icon.
-							</li>
-							<li>
-								<span className="text-gray-300">Release Year (optional)</span>: năm phát hành hỗ trợ sort & context lịch sử.
-							</li>
-							<li>
-								<span className="text-gray-300">Media tuỳ chọn (checkbox)</span>: Cover, Full Audio/Video cho Content/Episode. Chỉ hiện input khi bật.
-							</li>
-							<li>
-								<span className="text-gray-300">Card Media Files</span>: ảnh (.jpg) và audio (.mp3) cho các card. <b className="text-red-400">Bắt buộc</b>.
-							</li>
-						</ul>
+      {/* Episode 1 meta (number locked) */}
+      <div className="admin-panel space-y-4">
+        <div className="text-sm font-semibold">Episode 1</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm flex items-center gap-1">
+              <span>Episode Num</span>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
+                  This page only creates Episode 1. To add more episodes, use the Add Episode page. The episode number is locked here.
+                </span>
+              </span>
+            </label>
+            <input type="number" min={1} className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none" value={1} disabled readOnly aria-disabled="true" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Episode Title</label>
+            <input className="admin-input" value={episodeTitle} onChange={e => setEpisodeTitle(e.target.value)} placeholder="Optional episode title" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="admin-subpanel space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} />
+              <label htmlFor="chk-ep-cover" className="cursor-pointer">Add Cover (Episode)</label>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
+              </span>
+            </div>
+            {addEpCover && (
+              <>
+                <input id="ep-cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + episodeNum}/cover/cover.jpg</div>
+              </>
+            )}
+          </div>
+          <div className="admin-subpanel space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <input id="chk-ep-audio" type="checkbox" checked={addEpAudio} onChange={e => setAddEpAudio(e.target.checked)} />
+              <label htmlFor="chk-ep-audio" className="cursor-pointer">Add Full Audio (Episode)</label>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Upload full audio (.mp3) cho tập.</span>
+              </span>
+            </div>
+            {addEpAudio && (
+              <>
+                <input id="ep-full-audio" type="file" accept="audio/mpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + episodeNum}/full/audio.mp3</div>
+              </>
+            )}
+          </div>
+          <div className="admin-subpanel space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <input id="chk-ep-video" type="checkbox" checked={addEpVideo} onChange={e => setAddEpVideo(e.target.checked)} />
+              <label htmlFor="chk-ep-video" className="cursor-pointer">Add Full Video (Episode)</label>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Upload full video (.mp4) cho tập.</span>
+              </span>
+            </div>
+            {addEpVideo && (
+              <>
+                <input id="ep-full-video" type="file" accept="video/mp4" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + episodeNum}/full/video.mp4</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
-						<div className="text-gray-300 font-semibold">B) CSV cần những gì?</div>
-						<ul className="list-disc pl-5 space-y-1 text-gray-400">
-							<li>Bắt buộc cột: <code>start</code>, <code>end</code>, <code>sentence</code>, <code>type</code>.</li>
-							<li>
-								CSV phải có <b>một cột phụ đề cho Main Language</b> (vd. chọn <code>en</code> thì cần cột <code>en</code> hoặc tên tương đương như "english").
-							</li>
-							<li>Hỗ trợ phụ đề đa ngôn ngữ: <code>en</code>, <code>vi</code>, <code>zh</code>, <code>zh_trad</code>, <code>yue</code>, <code>ja</code>, <code>ko</code>, <code>id</code>, <code>th</code>, <code>ms</code>.</li>
-							<li>
-								<span className="text-gray-300">Difficulty (tuỳ chọn)</span>: <code>difficulty_score</code> 0–100 (nhận alias <code>score</code>, <code>difficulty_percent</code>, <code>difficulty</code>, <code>diff</code>, <code>card_difficulty</code>; nếu 1–5 sẽ tự scale lên 0–100).
-							</li>
-							<li><span className="text-gray-300">Framework (tuỳ chọn)</span>: <code>cefr</code>, <code>jlpt</code>, <code>hsk</code> hoặc dạng <code>difficulty_topik</code>/<code>level_topik_ko</code>.</li>
-							<li>
-								<span className="text-gray-300">Infer IDs</span>: lấy số ở cuối tên file để làm ID card (vd. image_007.jpg → 007). Nếu tắt, dùng Start Index + Pad Digits.
-							</li>
-							<li>
-								<code>length</code> (tuỳ chọn): nếu có và là số sẽ dùng trực tiếp; nếu bỏ trống hoặc không có cột này, hệ thống tự tính bằng độ dài của <code>type</code> sau khi bỏ khoảng trắng.
-							</li>
-						</ul>
+      {/* CSV */}
+      <div className="admin-panel space-y-3">
+        <div className="text-sm font-semibold">Cards CSV</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={onPickCsv} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500" />
+          <button type="button" className="admin-btn" onClick={() => {
+            const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
+            const headers = ["start","end",mainCanon,"cefr","difficulty_score"]; // type optional
+            const sample = [
+              ["13.75","24.602","Once upon a time","A2","40"],
+              ["24.603","27.209","Her name was Ella.","A2","35"],
+            ];
+            const csv = [headers.join(","), ...sample.map(r=>r.join(","))].join("\n");
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `template_${mainCanon}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          }}>Download template</button>
+        </div>
+        {csvFileName && <div className="text-xs text-gray-500">{csvFileName}</div>}
+        {csvValid !== null && (
+          <div className={`flex items-start gap-2 text-sm ${csvValid ? "text-green-400" : "text-red-400"}`}>
+            {csvValid ? <CheckCircle className="w-4 h-4 mt-0.5" /> : <XCircle className="w-4 h-4 mt-0.5" />}
+            <div>{csvValid ? <span>CSV hợp lệ.</span> : <div className="space-y-1"><div>CSV cần chỉnh sửa:</div><ul className="list-disc pl-5 text-xs">{csvErrors.map((er,i)=><li key={i}>{er}</li>)}</ul></div>}</div>
+          </div>
+        )}
+        {csvWarnings.length > 0 && csvValid && (
+          <div className="flex items-start gap-2 text-xs text-yellow-400"><AlertTriangle className="w-4 h-4 mt-0.5" /><ul className="list-disc pl-5">{csvWarnings.map((w,i)=><li key={i}>{w}</li>)}</ul></div>
+        )}
+        {csvHeaders.length > 0 && (
+          <div className="overflow-auto border border-gray-700 rounded max-h-[480px]">
+            <table className="min-w-full text-xs">
+              <thead className="bg-gray-800 sticky top-0">
+                <tr>
+                  <th className="px-2 py-1 text-left font-semibold text-gray-300 whitespace-nowrap">#</th>
+                  {csvHeaders.map(h => <th key={h} className="px-2 py-1 text-left font-semibold text-gray-300 whitespace-nowrap">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {csvRows.slice(0,300).map((row,i) => (
+                  <tr key={i} className="odd:bg-gray-900/40">
+                    <td className="px-2 py-1 text-gray-400 whitespace-nowrap">{i+1}</td>
+                    {csvHeaders.map(h => {
+                      const val = (row[h] ?? "").toString();
+                      const isRequired = requiredOriginals.includes(h) || (mainLangHeader === h);
+                      const isBlank = !val.trim();
+                      const cls = isRequired && isBlank ? "bg-red-900/40 text-red-200" : "text-gray-300";
+                      return <td key={h} className={`px-2 py-1 whitespace-nowrap max-w-[240px] overflow-hidden text-ellipsis ${cls}`} title={val || undefined}>{val}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-						<div className="text-[10px] text-gray-500 italic space-y-1">
-							<div>Mẹo: đảm bảo thời gian <code>start</code>/<code>end</code> tăng dần để hiển thị ổn định.</div>
-							<div>Ví dụ header tối thiểu: <code>start,end,sentence,type,en</code></div>
-							<div>Các cột framework không bắt buộc; nếu không có vẫn import bình thường.</div>
-						</div>
-					</div>
-				</div>
-			)}
+      {/* Card Media */}
+      <div className="admin-panel space-y-3">
+        <div className="text-sm font-semibold">Card Media Files</div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="admin-subpanel">
+            <div className="text-xs text-gray-400 mb-2">Images (.jpg)</div>
+            <input type="file" accept="image/jpeg" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+          </div>
+          <div className="admin-subpanel">
+            <div className="text-xs text-gray-400 mb-2">Audio (.mp3)</div>
+            <input type="file" accept="audio/mpeg" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+          </div>
+          <div className="flex flex-col gap-3 md:col-span-2">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex items-center gap-2 flex-1">
+                <label className="w-32 text-sm">Pad Digits</label>
+                <input type="number" min={1} value={padDigits} onChange={e => setPadDigits(Math.max(1, Number(e.target.value)||1))} className="admin-input disabled:opacity-50" disabled={infer} />
+              </div>
+              <div className="flex items-center gap-2 flex-1">
+                <label className="w-32 text-sm">Start Index</label>
+                <input type="number" min={0} value={startIndex} onChange={e => setStartIndex(Math.max(0, Number(e.target.value)||0))} className="admin-input disabled:opacity-50" disabled={infer} />
+              </div>
+            </div>
+            {infer && <div className="text-xs text-gray-500">Pad Digits & Start Index chỉ dùng khi tắt Infer IDs.</div>}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex items-center gap-2 flex-1">
+                <input id="infer-ids" type="checkbox" checked={infer} onChange={e => setInfer(e.target.checked)} />
+                <label htmlFor="infer-ids" className="text-sm select-none">Infer IDs</label>
+                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Lấy số cuối tên file làm Card ID.</span></span>
+              </div>
+              <div className="flex items-center gap-2 flex-1">
+                <input id="replace-cards" type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
+                <label htmlFor="replace-cards" className="text-sm select-none">Replace existing cards</label>
+                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-72 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Nếu bật xoá toàn bộ cards + subtitles trước khi thêm mới.</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-			{/* Content meta */}
-			<div className="admin-panel space-y-4">
-				<div className="text-sm font-semibold">Content Meta</div>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Content Slug</label>
-						<input
-							className="admin-input"
-							value={filmId}
-							onChange={(e) => setFilmId(e.target.value)}
-							placeholder="god_of_gamblers_2"
-							title="Slug không dấu cho Content"
-						/>
-					</div>
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Main Language</label>
-						{/* Custom dropdown with flags */}
-						<div className="relative w-full" ref={langDropdownRef}>
-							<button
-								type="button"
-								className="admin-input flex items-center justify-between"
-								onClick={(e) => {
-									e.preventDefault();
-									setLangOpen((v) => !v);
-								}}
-								title="Ngôn ngữ chính của nội dung (main_language)"
-							>
-								<span className="inline-flex items-center gap-2">
-									<span className={`fi fi-${countryCodeForLang(mainLanguage)} w-5 h-3.5`}></span>
-									<span>{langLabel(mainLanguage)} ({mainLanguage})</span>
-								</span>
-								<span className="text-gray-400">▼</span>
-							</button>
-							{langOpen && (
-								<div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
-									{ALL_LANG_OPTIONS.map((l) => (
-										<div
-											key={l}
-											className="admin-dropdown-item"
-											onClick={() => {
-												setMainLanguage(l);
-												setLangOpen(false);
-											}}
-										>
-											<span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
-											<span className="text-sm">{langLabel(l)} ({l})</span>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-					</div>
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Title</label>
-						<input
-							className="admin-input"
-							value={title}
-							onChange={(e) => setTitle(e.target.value)}
-							placeholder="Title"
-						/>
-					</div>
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Total Episodes</label>
-						<input
-							type="number"
-							min={1}
-							className="admin-input"
-							value={totalEpisodes}
-							onChange={(e) => {
-								const n = Number(e.target.value);
-								setTotalEpisodes(
-									!e.target.value
-										? ""
-										: Number.isFinite(n)
-										? Math.max(1, Math.floor(n))
-										: ""
-								);
-							}}
-							placeholder="e.g. 12"
-							title="Tổng số tập dự kiến. Có thể cập nhật sau ở trang Update Meta."
-						/>
-					</div>
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Type</label>
-						<div className="relative w-full" ref={typeDropdownRef}>
-							<button
-								type="button"
-								className="admin-input flex items-center justify-between"
-								onClick={(e) => {
-									e.preventDefault();
-									setTypeOpen((v) => !v);
-								}}
-								title="Loại nội dung (không bắt buộc)"
-							>
-								<span className="inline-flex items-center gap-2">
-									{contentType === "movie" && <Film className="w-4 h-4" />}
-									{contentType === "series" && <Clapperboard className="w-4 h-4" />}
-									{contentType === "book" && <BookIcon className="w-4 h-4" />}
-									{contentType === "audio" && <AudioLines className="w-4 h-4" />}
-									<span>{contentType ? CONTENT_TYPE_LABELS[contentType] : "(optional)"}</span>
-								</span>
-								<span className="text-gray-400">▼</span>
-							</button>
-							{typeOpen && (
-								<div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
-									{CONTENT_TYPES.map((t) => (
-										<div
-											key={t}
-											className="admin-dropdown-item text-sm"
-											onClick={() => {
-												setContentType(t);
-												setTypeOpen(false);
-											}}
-										>
-											{t === "movie" && <Film className="w-4 h-4" />}
-											{t === "series" && <Clapperboard className="w-4 h-4" />}
-											{t === "book" && <BookIcon className="w-4 h-4" />}
-											{t === "audio" && <AudioLines className="w-4 h-4" />}
-											<span>{CONTENT_TYPE_LABELS[t]}</span>
-										</div>
-									))}
-									<div
-										className="admin-dropdown-clear"
-										onClick={() => {
-											setContentType("");
-											setTypeOpen(false);
-										}}
-									>
-										Clear
-									</div>
-								</div>
-							)}
-						</div>
-					</div>
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Release Year</label>
-						<div className="relative w-full" ref={yearDropdownRef}>
-							<button
-								type="button"
-								className="admin-input flex items-center justify-between"
-								onClick={(e) => {
-									e.preventDefault();
-									setYearOpen((v) => !v);
-								}}
-								title="Năm phát hành (không bắt buộc)"
-							>
-								<span>{releaseYear !== "" ? releaseYear : "(optional)"}</span>
-								<span className="text-gray-400">▼</span>
-							</button>
-							{yearOpen && (
-								<div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
-									{(() => {
-										const years: number[] = [];
-										const current = new Date().getFullYear();
-										for (let y = current; y >= 1950; y--) years.push(y);
-										return years.map((y) => (
-											<div
-												key={y}
-												className="admin-dropdown-item"
-												onClick={() => {
-													setReleaseYear(y);
-													setYearOpen(false);
-												}}
-											>
-												<span>{y}</span>
-											</div>
-										));
-									})()}
-									<div
-										className="admin-dropdown-clear"
-										onClick={() => {
-											setReleaseYear("");
-											setYearOpen(false);
-										}}
-									>
-										Clear
-									</div>
-								</div>
-							)}
-						</div>
-					</div>
-				</div>
-				<div className="flex items-start gap-2">
-					<label className="w-40 text-sm pt-2">Description</label>
-					<textarea
-						className="admin-input"
-						rows={3}
-						value={description}
-						onChange={(e) => setDescription(e.target.value)}
-					/>
-				</div>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-					<div className="admin-subpanel space-y-2">
-						<div className="flex items-center gap-2 text-xs text-gray-300">
-							<input id="chk-cover" type="checkbox" checked={addCover} onChange={(e) => setAddCover(e.target.checked)} />
-							<label htmlFor="chk-cover" className="cursor-pointer">Add Cover (jpg)</label>
-							<span className="relative group inline-flex">
-								<HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-								<span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
-									Ảnh bìa chính (.jpg). Lưu tại items/&lt;contentSlug&gt;/cover_image/cover.jpg và ghi vào cover_url.
-								</span>
-							</span>
-						</div>
-						{addCover && (
-							<>
-								<input id="cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full" />
-								<div className="text-[11px] text-gray-500">Lưu tại: items/{'{'}filmSlug{'}'}/cover_image/cover.jpg</div>
-							</>
-						)}
-					</div>
-					<div className="admin-subpanel space-y-2">
-						<div className="flex items-center gap-2 text-xs text-gray-300">
-							<input id="chk-film-audio" type="checkbox" checked={addFilmAudio} onChange={(e) => setAddFilmAudio(e.target.checked)} />
-							<label htmlFor="chk-film-audio" className="cursor-pointer">Add Full Audio (Content)</label>
-							<span className="relative group inline-flex">
-								<HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-								<span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
-									Upload toàn bộ audio (.mp3) cho nội dung. Ghi vào full_audio_url của content.
-								</span>
-							</span>
-						</div>
-						{addFilmAudio && (
-							<>
-								<input id="film-full-audio" type="file" accept="audio/mpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full" />
-								<div className="text-[11px] text-gray-500">Tự động ghi vào full_audio_key của Content</div>
-							</>
-						)}
-					</div>
-					<div className="admin-subpanel space-y-2">
-						<div className="flex items-center gap-2 text-xs text-gray-300">
-							<input id="chk-film-video" type="checkbox" checked={addFilmVideo} onChange={(e) => setAddFilmVideo(e.target.checked)} />
-							<label htmlFor="chk-film-video" className="cursor-pointer">Add Full Video (Content)</label>
-							<span className="relative group inline-flex">
-								<HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-								<span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
-									Upload toàn bộ video (.mp4) cho nội dung. Ghi vào full_video_url của content.
-								</span>
-							</span>
-						</div>
-						{addFilmVideo && (
-							<>
-								<input id="film-full-video" type="file" accept="video/mp4" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full" />
-								<div className="text-[11px] text-gray-500">Tự động ghi vào full_video_key của Content</div>
-							</>
-						)}
-					</div>
-				</div>
-			</div>
-
-			{/* Episode */}
-			<div className="admin-panel space-y-4">
-				<div className="text-sm font-semibold">Episode</div>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Episode Num</label>
-						<input
-							type="number"
-							min={1}
-							className="admin-input"
-							value={episodeNum}
-							onChange={(e) =>
-								setEpisodeNum(Math.max(1, Number(e.target.value) || 1))
-							}
-						/>
-					</div>
-					<div className="flex items-center gap-2">
-						<label className="w-40 text-sm">Episode Title</label>
-						<input
-							className="admin-input"
-							value={episodeTitle}
-							onChange={(e) => setEpisodeTitle(e.target.value)}
-							placeholder="Optional episode title"
-							title="Tên riêng cho tập/chương này (nếu là Series/Book)."
-						/>
-					</div>
-				</div>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-					<div className="admin-subpanel space-y-2">
-						<div className="flex items-center gap-2 text-xs text-gray-300">
-							<input id="chk-ep-audio" type="checkbox" checked={addEpAudio} onChange={(e) => setAddEpAudio(e.target.checked)} />
-							<label htmlFor="chk-ep-audio" className="cursor-pointer">Add Full Audio (Episode)</label>
-							<span className="relative group inline-flex">
-								<HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-								<span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
-									Upload full audio (.mp3) cho tập này. Ghi vào full_audio_url của episode.
-								</span>
-							</span>
-						</div>
-						{addEpAudio && (
-							<>
-								<input id="ep-full-audio" type="file" accept="audio/mpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full" />
-								<div className="text-[11px] text-gray-500">Ghi vào full_audio_key của Episode</div>
-							</>
-						)}
-					</div>
-					<div className="admin-subpanel space-y-2">
-						<div className="flex items-center gap-2 text-xs text-gray-300">
-							<input id="chk-ep-video" type="checkbox" checked={addEpVideo} onChange={(e) => setAddEpVideo(e.target.checked)} />
-							<label htmlFor="chk-ep-video" className="cursor-pointer">Add Full Video (Episode)</label>
-							<span className="relative group inline-flex">
-								<HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-								<span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
-									Upload full video (.mp4) cho tập này. Ghi vào full_video_url của episode.
-								</span>
-							</span>
-						</div>
-						{addEpVideo && (
-							<>
-								<input id="ep-full-video" type="file" accept="video/mp4" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full" />
-								<div className="text-[11px] text-gray-500">Ghi vào full_video_key của Episode</div>
-							</>
-						)}
-					</div>
-				</div>
-			</div>
-
-			{/* CSV */}
-			<div className="admin-panel space-y-3">
-				<div className="text-sm font-semibold">Cards CSV</div>
-				<div className="flex items-center gap-2 flex-wrap">
-					<input
-						ref={csvRef}
-						type="file"
-						accept=".csv,text/csv"
-						onChange={onPickCsv}
-						className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600"
-					/>
-					<button
-						type="button"
-						className="admin-btn"
-						title="Tải file CSV mẫu theo Main Language đang chọn"
-						onClick={() => {
-							const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
-							const headers = [
-								"start",
-								"end",
-								"Sentence",
-								"Type",
-								mainCanon,
-								"cefr",
-								"difficulty_topik",
-								"difficulty_score",
-							];
-							const sample = [
-								[
-									"13.75",
-									"24.602",
-									"Once upon a time",
-									"narration",
-									"Once upon a time",
-									"A2",
-									"",
-									"40",
-								],
-								[
-									"24.603",
-									"27.209",
-									"Her name was Ella.",
-									"dialogue",
-									"Her name was Ella.",
-									"A2",
-									"",
-									"35",
-								],
-							];
-							const csv = [headers.join(","), ...sample.map((r) => r.join(","))].join("\n");
-							const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-							const url = URL.createObjectURL(blob);
-							const a = document.createElement("a");
-							a.href = url;
-							a.download = `template_${mainCanon}.csv`;
-							document.body.appendChild(a);
-							a.click();
-							a.remove();
-							URL.revokeObjectURL(url);
-						}}
-					>
-						Download template
-					</button>
-				</div>
-				{csvFileName && (
-					<div className="text-xs text-gray-500">{csvFileName}</div>
-				)}
-				{csvValid !== null && (
-					<div className={`flex items-start gap-2 text-sm ${csvValid ? "text-green-400" : "text-red-400"}`}>
-						{csvValid ? <CheckCircle className="w-4 h-4 mt-0.5" /> : <XCircle className="w-4 h-4 mt-0.5" />}
-						<div>
-							{csvValid ? (
-								<span>CSV hợp lệ. Bạn có thể upload.</span>
-							) : (
-								<div className="space-y-1">
-									<div>CSV cần chỉnh sửa trước khi upload:</div>
-									<ul className="list-disc pl-5 text-xs">
-										{csvErrors.map((er, idx) => (
-											<li key={idx}>{er}</li>
-										))}
-									</ul>
-								</div>
-							)}
-						</div>
-					</div>
-				)}
-				{csvWarnings.length > 0 && csvValid && (
-					<div className="flex items-start gap-2 text-xs text-yellow-400">
-						<AlertTriangle className="w-4 h-4 mt-0.5" />
-						<ul className="list-disc pl-5">
-							{csvWarnings.map((w, i) => (
-								<li key={i}>{w}</li>
-							))}
-						</ul>
-					</div>
-				)}
-				{csvHeaders.length > 0 && (
-					<div className="overflow-auto border border-gray-700 rounded max-h-[480px]">
-						<table className="min-w-full text-xs">
-							<thead className="bg-gray-800 sticky top-0">
-								<tr>
-									<th className="px-2 py-1 text-left font-semibold text-gray-300 whitespace-nowrap">#</th>
-									{csvHeaders.map((h) => (
-										<th key={h} className="px-2 py-1 text-left font-semibold text-gray-300 whitespace-nowrap">{h}</th>
-									))}
-								</tr>
-							</thead>
-							<tbody>
-								{csvRows.slice(0, 300).map((row, i) => (
-									<tr key={i} className="odd:bg-gray-900/40">
-										<td className="px-2 py-1 text-gray-400 whitespace-nowrap">{i + 2}</td>
-										{csvHeaders.map((h) => {
-											const val = (row[h] ?? "").toString();
-											const isRequiredCell = requiredOriginals.includes(h) || (mainLangHeader === h);
-											const isBlank = !val.trim();
-											const cls = isRequiredCell && isBlank ? "bg-red-900/40 text-red-200" : "text-gray-300";
-											return (
-												<td key={h} className={`px-2 py-1 whitespace-nowrap max-w-[240px] overflow-hidden text-ellipsis ${cls}`} title={val || undefined}>
-													{val}
-												</td>
-											);
-										})}
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-				)}
-			</div>
-
-			{/* Media */}
-			<div className="admin-panel space-y-3">
-				<div className="text-sm font-semibold">Card Media Files</div>
-				<div className="grid gap-3 md:grid-cols-2">
-					<div className="admin-subpanel">
-						<div className="text-xs text-gray-400 mb-2">Images (.jpg)</div>
-						<input
-							type="file"
-							accept="image/jpeg"
-							multiple
-							onChange={onPickImages}
-							className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full"
-						/>
-					</div>
-					<div className="admin-subpanel">
-						<div className="text-xs text-gray-400 mb-2">Audio (.mp3)</div>
-						<input
-							type="file"
-							accept="audio/mpeg"
-							multiple
-							onChange={onPickAudio}
-							className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-700 file:text-gray-100 hover:file:bg-gray-600 w-full"
-						/>
-					</div>
-					<div className="flex flex-col gap-3 md:col-span-2">
-						<div className="flex flex-col sm:flex-row gap-3">
-							<div className="flex items-center gap-2 flex-1">
-								<label className="w-32 text-sm">Pad Digits</label>
-								<input
-									type="number"
-									min={1}
-									value={padDigits}
-									onChange={(e) =>
-										setPadDigits(Math.max(1, Number(e.target.value) || 1))
-									}
-									className="admin-input disabled:opacity-50"
-									disabled={infer}
-									title={infer ? "Disabled when Infer IDs is ON" : undefined}
-								/>
-							</div>
-							<div className="flex items-center gap-2 flex-1">
-								<label className="w-32 text-sm">Start Index</label>
-								<input
-									type="number"
-									min={0}
-									value={startIndex}
-									onChange={(e) =>
-										setStartIndex(Math.max(0, Number(e.target.value) || 0))
-									}
-									className="admin-input disabled:opacity-50"
-									disabled={infer}
-									title={infer ? "Disabled when Infer IDs is ON" : undefined}
-								/>
-							</div>
-						</div>
-						{infer && (
-							<div className="text-xs text-gray-500">
-								Pad Digits và Start Index chỉ dùng khi tắt Infer IDs.
-							</div>
-						)}
-						<div className="flex flex-col sm:flex-row gap-3">
-							<div className="flex items-center gap-2 flex-1">
-								<input
-									id="infer-ids"
-									type="checkbox"
-									checked={infer}
-									onChange={(e) => setInfer(e.target.checked)}
-								/>
-								<label htmlFor="infer-ids" className="text-sm select-none">
-									Infer IDs
-								</label>
-								<span className="relative group inline-flex">
-									<HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-									<span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
-										Tự động lấy số cuối trong tên file làm Card ID (clip_12.mp3 → 012). Nếu tắt, ID tăng dần từ Start Index.
-									</span>
-								</span>
-							</div>
-							<div className="flex items-center gap-2 flex-1">
-								<input
-									id="replace-cards"
-									type="checkbox"
-									checked={replaceMode}
-									onChange={(e) => setReplaceMode(e.target.checked)}
-								/>
-								<label htmlFor="replace-cards" className="text-sm select-none">
-									Replace existing cards
-								</label>
-								<span className="relative group inline-flex">
-									<HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-									<span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-72 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
-										Nếu bật: xoá tất cả cards + subtitles của episode trước khi chèn (tránh trùng). Nếu tắt: sẽ thêm mới vào cuối.
-									</span>
-								</span>
-							</div>
-						</div>
-						{/* Card-specific config removed: Cards follow Media IDs when Infer IDs is ON; otherwise use Start Index + Pad Digits. */}
-					</div>
-				</div>
-			</div>
-
-			<div className="flex flex-col gap-3">
-				<div className="flex gap-2 items-center">
-					{!user && (
-						<button className="admin-btn" onClick={signInGoogle}>
-							Sign in with Google
-						</button>
-					)}
-					<button
-						className="admin-btn primary"
-						disabled={busy || csvValid !== true}
-						onClick={onCreateAll}
-						title={
-							!isAdmin
-								? "Requires allowed admin email + correct AdminKey"
-								: undefined
-						}
-					>
-						{busy ? "Processing..." : "Create content + cards + media"}
-					</button>
-					<div className="text-xs text-gray-400">Stage: {stage}</div>
-				</div>
-				{(busy || stage === "done") && (
-					<div className="admin-panel text-xs space-y-2">
-						<div className="flex justify-between">
-							<span>Cover</span>
-							<span>
-								{coverDone > 0
-									? "✓"
-									: (document.getElementById("cover-file") as HTMLInputElement)
-											?.files?.length
-									? "..."
-									: "skip"}
-							</span>
-						</div>
-						<div className="flex justify-between">
-							<span>Content Full Audio</span>
-							<span>
-								{filmFullAudioDone
-									? "✓"
-									: (
-											document.getElementById(
-												"film-full-audio"
-											) as HTMLInputElement
-										)?.files?.length
-									? "..."
-									: "skip"}
-							</span>
-						</div>
-						<div className="flex justify-between">
-							<span>Content Full Video</span>
-							<span>
-								{filmFullVideoDone
-									? "✓"
-									: (
-											document.getElementById(
-												"film-full-video"
-											) as HTMLInputElement
-										)?.files?.length
-									? "..."
-									: "skip"}
-							</span>
-						</div>
-						<div className="flex justify-between">
-							<span>Episode Full Audio</span>
-							<span>
-								{epFullAudioDone
-									? "✓"
-									: (
-											document.getElementById(
-												"ep-full-audio"
-											) as HTMLInputElement
-										)?.files?.length
-									? "..."
-									: "skip"}
-							</span>
-						</div>
-						<div className="flex justify-between">
-							<span>Episode Full Video</span>
-							<span>
-								{epFullVideoDone
-									? "✓"
-									: (
-											document.getElementById(
-												"ep-full-video"
-											) as HTMLInputElement
-										)?.files?.length
-									? "..."
-									: "skip"}
-							</span>
-						</div>
-						<div className="flex justify-between">
-							<span>Images</span>
-							<span>
-								{imagesDone}/{imageFiles.length}
-							</span>
-						</div>
-						<div className="flex justify-between">
-							<span>Audio</span>
-							<span>
-								{audioDone}/{audioFiles.length}
-							</span>
-						</div>
-						<div className="flex justify-between">
-							<span>Import</span>
-							<span>
-								{importDone ? "✓" : stage === "import" ? "..." : "pending"}
-							</span>
-						</div>
-						{/* Overall bar */}
-						{(() => {
-							const totalUnits =
-								(coverDone
-									? 1
-									: (document.getElementById("cover-file") as HTMLInputElement)
-											?.files?.length
-									? 1
-									: 0) +
-								(filmFullAudioDone ||
-								(document.getElementById("film-full-audio") as HTMLInputElement)
-									?.files?.length
-									? 1
-									: 0) +
-								(filmFullVideoDone ||
-								(document.getElementById("film-full-video") as HTMLInputElement)
-									?.files?.length
-									? 1
-									: 0) +
-								(epFullAudioDone ||
-								(document.getElementById("ep-full-audio") as HTMLInputElement)
-									?.files?.length
-									? 1
-									: 0) +
-								(epFullVideoDone ||
-								(document.getElementById("ep-full-video") as HTMLInputElement)
-									?.files?.length
-									? 1
-									: 0) +
-								imageFiles.length +
-								audioFiles.length +
-								1; // +1 import
-							const completedUnits =
-								coverDone +
-								filmFullAudioDone +
-								filmFullVideoDone +
-								epFullAudioDone +
-								epFullVideoDone +
-								imagesDone +
-								audioDone +
-								(importDone ? 1 : 0);
-							const pct =
-								totalUnits === 0
-									? 0
-									: Math.round((completedUnits / totalUnits) * 100);
-							return (
-								<div className="mt-2">
-									<div className="h-2 bg-gray-700 rounded overflow-hidden">
-										<div
-											style={{ width: pct + "%" }}
-											className="h-full bg-pink-500 transition-all duration-300"
-										/>
-									</div>
-									<div className="mt-1 text-right">{pct}%</div>
-								</div>
-							);
-						})()}
-					</div>
-				)}
-			</div>
-		</div>
-	);
+      {/* Actions + Progress */}
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-2 items-center">
+          {!user && <button className="admin-btn" onClick={signInGoogle}>Sign in with Google</button>}
+          <button className="admin-btn primary" disabled={busy || !canCreate} onClick={onCreateAll} title={!isAdmin ? "Requires allowed admin email + key" : undefined}>{busy ? "Processing..." : "Create Content"}</button>
+          <div className="text-xs text-gray-400">Stage: {stage}</div>
+        </div>
+        {(busy || stage === "done") && (
+          <div className="admin-panel text-xs space-y-2">
+            <ProgressItem label="Cover" done={coverDone > 0} pending={!!(document.getElementById("cover-file") as HTMLInputElement)?.files?.length && coverDone === 0} />
+            <ProgressItem label="Episode Cover" done={epCoverDone > 0} pending={!!(document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.length && epCoverDone === 0} />
+            <ProgressItem label="Episode Full Audio" done={epFullAudioDone > 0} pending={!!(document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.length && epFullAudioDone === 0} />
+            <ProgressItem label="Episode Full Video" done={epFullVideoDone > 0} pending={!!(document.getElementById("ep-full-video") as HTMLInputElement)?.files?.length && epFullVideoDone === 0} />
+            <div className="flex justify-between"><span>Images</span><span>{imagesDone}/{imageFiles.length}</span></div>
+            <div className="flex justify-between"><span>Audio</span><span>{audioDone}/{audioFiles.length}</span></div>
+            <div className="flex justify-between"><span>Import</span><span>{importDone ? "✓" : stage === "import" ? "..." : "pending"}</span></div>
+            <div className="flex justify-between"><span>Calculating Stats</span><span>{statsDone ? "✓" : stage === "calculating_stats" ? "..." : (importDone ? "pending" : "skip")}</span></div>
+            {(() => {
+              const totalUnits =
+                (coverDone ? 1 : (document.getElementById("cover-file") as HTMLInputElement)?.files?.length ? 1 : 0) +
+                (epCoverDone || (document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.length ? 1 : 0) +
+                (epFullAudioDone || (document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.length ? 1 : 0) +
+                (epFullVideoDone || (document.getElementById("ep-full-video") as HTMLInputElement)?.files?.length ? 1 : 0) +
+                imageFiles.length + audioFiles.length + 1 + 1; // import + stats
+              const completedUnits = coverDone + epCoverDone + epFullAudioDone + epFullVideoDone + imagesDone + audioDone + (importDone ? 1 : 0) + (statsDone ? 1 : 0);
+              const pct = totalUnits === 0 ? 0 : Math.round(completedUnits / totalUnits * 100);
+              return (
+                <div className="mt-2">
+                  <div className="h-2 bg-gray-700 rounded overflow-hidden">
+                    <div style={{ width: pct + "%" }} className="h-full bg-pink-500 transition-all duration-300" />
+                  </div>
+                  <div className="mt-1 text-right">{pct}%</div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
+function ProgressItem({ label, done, pending }: { label: string; done: boolean; pending: boolean }) {
+  return (
+    <div className="flex justify-between">
+      <span>{label}</span>
+      <span>{done ? "✓" : pending ? "..." : "skip"}</span>
+    </div>
+  );
+}

@@ -18,6 +18,8 @@ import AdminContentMediaPage from './pages/admin/AdminContentMediaPage';
 import AdminContentListPage from './pages/admin/AdminContentListPage';
 import AdminContentDetailPage from './pages/admin/AdminContentDetailPage';
 import AdminContentCardDetailPage from './pages/admin/AdminContentCardDetailPage';
+import AdminAddEpisodePage from './pages/admin/AdminAddEpisodePage';
+import AdminEpisodeDetailPage from './pages/admin/AdminEpisodeDetailPage';
 import { Toaster } from 'react-hot-toast';
 
 function App() {
@@ -56,6 +58,8 @@ function App() {
                 <Route path="content" element={<AdminContentListPage />} />
                 <Route path="content/:contentSlug" element={<AdminContentDetailPage />} />
                 <Route path="content/:contentSlug/:episodeId/:cardId" element={<AdminContentCardDetailPage />} />
+                <Route path="content/:contentSlug/episodes/:episodeSlug" element={<AdminEpisodeDetailPage />} />
+                <Route path="content/:contentSlug/add-episode" element={<AdminAddEpisodePage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />

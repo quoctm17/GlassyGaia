@@ -2,7 +2,7 @@
 import Papa from "papaparse";
 import { apiImport, buildR2MediaUrl, type ImportPayload } from "./cfApi";
 import { v4 as uuidv4 } from 'uuid';
-import { canonicalizeLangCode } from "../utils/lang";
+import { canonicalizeLangCode, calculateTextLength } from "../utils/lang";
 
 export type ImportFilmMeta = {
   title: string;
@@ -14,13 +14,13 @@ export type ImportFilmMeta = {
   description?: string;
   total_episodes?: number; // new: total intended episodes for this film
   episode_title?: string; // optional: title of current episode being ingested
+  is_original?: boolean; // original version flag (true: source language, false: alternate/dub)
 };
 
 export type ColumnMapping = {
   start: string;
   end: string;
   type?: string;
-  sentence?: string; // will be required now
   length?: string; // optional column name for normalized type length
   cefr?: string; // optional column name (CEFR_Level)
   jlpt?: string; // JLPT level N5..N1
@@ -60,41 +60,73 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
   const start = headerOf("start", "start_time", "start_time_ms", "begin");
   const end = headerOf("end", "end_time", "end_time_ms", "finish");
   const type = headerOf("type");
-  const sentence = headerOf("sentence", "text", "line");
+  // Note: 'sentence' column is no longer used by the system (2025-11)
   const length = headerOf("length");
-  const cefr = headerOf("cefr_level", "cefr", "level_cefr");
-  const jlpt = headerOf("jlpt", "jlpt_level", "level_jlpt");
-  const hsk = headerOf("hsk", "hsk_level", "level_hsk");
-  // Unified difficulty score (0-100). Accept legacy aliases and band columns; band (1-5) will be scaled.
-  const difficultyScoreRaw = headerOf("difficulty_score", "score", "difficulty_percent", "difficulty", "diff", "card_difficulty");
+  // Framework level columns (support both 'cefr_level', 'cefr', and 'CEFR Level' with space)
+  const cefr = headerOf("cefr level", "cefr_level", "cefr", "level_cefr");
+  const jlpt = headerOf("jlpt level", "jlpt_level", "jlpt", "level_jlpt");
+  const hsk = headerOf("hsk level", "hsk_level", "hsk", "level_hsk");
+  // Unified difficulty score (0-100). Match specific score column names to avoid confusion with framework columns.
+  const difficultyScoreRaw = headerOf("difficulty score", "difficulty_score", "difficultyscore", "score", "difficulty_percent", "card_difficulty");
 
   // Language label aliases mapping -> canonical code
   const langAliases: Record<string, string> = {
-    english: "en",
-    en: "en",
-    vietnamese: "vi",
-    vi: "vi",
-    chinese: "zh",
-    chinese_simplified: "zh",
-    zh: "zh",
-    japanese: "ja",
-    ja: "ja",
-    korean: "ko",
-    ko: "ko",
-    indonesian: "id",
-    id: "id",
-    thai: "th",
-    th: "th",
-    malay: "ms",
-    ms: "ms",
+    // Core codes and names
+    english: "en", en: "en",
+    vietnamese: "vi", vi: "vi",
+    chinese: "zh", chinese_simplified: "zh", zh: "zh",
+    japanese: "ja", ja: "ja",
+    korean: "ko", ko: "ko",
+    indonesian: "id", id: "id",
+    thai: "th", th: "th",
+    malay: "ms", ms: "ms",
+    // Extended list
+    arabic: "ar", ar: "ar",
+    basque: "eu", eu: "eu",
+    bengali: "bn", bn: "bn",
+    cantonese: "yue", yue: "yue", "zh-yue": "yue", zh_yue: "yue",
+    catalan: "ca", ca: "ca",
+    "chinese traditional": "zh_trad", traditional_chinese: "zh_trad", zh_trad: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad",
+    croatian: "hr", hr: "hr",
+    czech: "cs", cs: "cs",
+    danish: "da", da: "da",
+    dutch: "nl", nl: "nl",
+    filipino: "fil", tagalog: "fil", fil: "fil", tl: "fil",
+    finnish: "fi", fi: "fi",
+    french: "fr", fr: "fr",
+    "french canadian": "fr_ca", fr_ca: "fr_ca",
+    galician: "gl", gl: "gl",
+    german: "de", de: "de",
+    greek: "el", el: "el",
+    hebrew: "he", he: "he", iw: "he",
+    hindi: "hi", hi: "hi",
+    hungarian: "hu", hu: "hu",
+    icelandic: "is", is: "is",
+    italian: "it", it: "it",
+    malayalam: "ml", ml: "ml",
+    norwegian: "no", no: "no",
+    polish: "pl", pl: "pl",
+    "portuguese (brazil)": "pt_br", pt_br: "pt_br",
+    "portuguese (portugal)": "pt_pt", pt_pt: "pt_pt", portuguese: "pt_pt",
+    romanian: "ro", ro: "ro",
+    russian: "ru", ru: "ru",
+    "spanish (latin america)": "es_la", es_la: "es_la",
+    "spanish (spain)": "es_es", es_es: "es_es", spanish: "es_es",
+    swedish: "sv", sv: "sv",
+    tamil: "ta", ta: "ta",
+    telugu: "te", te: "te",
+    turkish: "tr", tr: "tr",
+    ukrainian: "uk", uk: "uk",
   };
 
   const subtitles: Record<string, string> = {};
   const detected: string[] = [];
   for (const h of headers) {
-    const key = h.trim().toLowerCase().replace(/\s+\(.*\)$/g, ""); // strip (Simplified), etc.
-    const canon = canonicalizeLangCode(langAliases[key] || key) || (langAliases[key] || "");
-    if (canon && ["en","vi","zh","ja","ko","id","th","ms","zh_trad","yue"].includes(canon)) {
+    const key = h.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, ""); // strip (Simplified), [CC], etc.
+    const canon = (langAliases[key] as string) || canonicalizeLangCode(key) || "";
+    if (canon && [
+      "ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"
+    ].includes(canon)) {
       subtitles[canon] = h; detected.push(canon);
     }
   }
@@ -107,24 +139,20 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
 
   // Discover any additional difficulty framework columns dynamically
   const frameworkCols: Array<{ framework: string; header: string; language?: string }> = [];
-  const knownFrameworks = new Set(["cefr","jlpt","hsk"]);
-  const knownLangs = new Set(["en","vi","zh","ja","ko","id","th","ms","zh_trad","yue"]);
   for (const original of headers) {
     const raw = original.trim();
     const key = raw.toLowerCase();
     if (!raw) continue;
-    // Skip columns we already mapped (start/end/type/sentence/subtitles/known frameworks/difficulty score)
-    if ([start, end, type, sentence, cefr, jlpt, hsk, difficultyScoreRaw].filter(Boolean).includes(raw)) continue;
-    const lowerStripped = key.replace(/\s+\(.*\)$/g, "");
-    if (subtitles[lowerStripped]) continue;
-    // Patterns supported:
-    //  - difficulty_<framework>[_<lang>] / diff_<framework>[_<lang>]
-    //  - level_<framework>[_<lang>]
-    //  - <framework>_level[_<lang>]
-    //  - <framework> (bare) if framework name is recognizable
+    // Skip columns we already mapped (start/end/type/length/known frameworks/difficulty score)
+    if ([start, end, type, length, cefr, jlpt, hsk, difficultyScoreRaw].filter(Boolean).includes(raw)) continue;
+    const lowerStripped = key.replace(/\s*[([].*?[)\]]\s*/g, "");
+    // Skip subtitle columns by matching original header against mapped subtitle headers
+    if (Object.values(subtitles).includes(original)) continue;
+    // Patterns supported for dynamic frameworks ONLY:
+    //  - difficulty_<framework>[_<lang>]
+    //  - diff_<framework>[_<lang>]
     const patterns: RegExp[] = [
-      /^(?:difficulty|diff|level)[_:\-/ ]?([a-z0-9]+?)(?:[_:\-/ ]([a-z_]{2,8}))?$/i,
-      /^([a-z0-9]+?)[_:\-/ ](?:level|difficulty)(?:[_:\-/ ]([a-z_]{2,8}))?$/i,
+      /^(?:difficulty|diff)[_:\-/ ]?([a-z0-9]+?)(?:[_:\-/ ]([a-z_]{2,8}))?$/i,
     ];
     let fw: string | undefined;
     let lang: string | undefined;
@@ -136,15 +164,10 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
         break;
       }
     }
-    if (!fw) {
-      // As a fallback: if header equals a likely framework token (e.g., topik), take it
-      const token = lowerStripped.replace(/[^a-z0-9_]/g, "");
-      if (token && token.length >= 3 && !knownLangs.has(token) && !knownFrameworks.has(token)) {
-        fw = token;
-      }
-    }
     if (!fw) continue;
     const fwUpper = fw.toUpperCase();
+    // Exclude score/percent columns (these are difficulty_score, not frameworks)
+    if (fwUpper === 'SCORE' || fwUpper === 'PERCENT') continue;
     // Infer language defaults for known frameworks
     let fwLang: string | undefined = lang?.toLowerCase();
     if (!fwLang) {
@@ -159,7 +182,7 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     frameworkCols.push({ framework: fwUpper, header: original, language: fwLang });
   }
 
-  return { mapping: { start, end, type, sentence, length, cefr, jlpt, hsk, difficultyScore: difficultyScoreRaw, frameworkCols, subtitles }, detectedLangs: detected, primary };
+  return { mapping: { start, end, type, length, cefr, jlpt, hsk, difficultyScore: difficultyScoreRaw, frameworkCols, subtitles }, detectedLangs: detected, primary };
 }
 
 export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done: number, total: number) => void) {
@@ -172,7 +195,7 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
 
   const rows: Record<string, string>[] = (parsed.data as unknown as Record<string, string>[]);
   const total = rows.length;
-  const padWidthAuto = Math.max(3, String(Math.max(0, total - 1)).length);
+  const padWidthAuto = Math.max(4, String(Math.max(0, total - 1)).length);
   const padWidth = Math.max(1, opts.cardPadDigits || padWidthAuto);
   const baseIndex = Math.max(0, opts.cardStartIndex || 0);
   const explicitIds = Array.isArray(opts.cardIds) ? opts.cardIds.filter(Boolean) : null;
@@ -182,14 +205,13 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
   const auto = detectMappingFromHeaders(headerFields);
   const mapping = opts.mapping || auto.mapping;
 
-  // Enforce required columns: start, end, sentence, type
-  if (!mapping.sentence) throw new Error("CSV must include 'sentence' column");
-  if (!mapping.type) throw new Error("CSV must include 'type' column (normalized text)");
+  // Enforce required columns: start, end (Type is optional)
 
   // Assemble film meta with detected languages and primary
   const mainLang = filmMeta.language || auto.primary || "en";
   const available = Array.from(new Set([...(filmMeta.available_subs || []), ...auto.detectedLangs]));
   const meta = { ...filmMeta, language: mainLang, available_subs: available, total_cards: total };
+  // mainCanon retained for potential future use but not required for import generation
 
   const cards = rows.map((row, index) => {
     // If explicit IDs provided and count matches total rows, use them as display IDs
@@ -199,27 +221,38 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
       : String(baseIndex + index).padStart(padWidth, "0");
     const parsedNum = parseInt(displayId, 10);
     const card_number = Number.isFinite(parsedNum) ? parsedNum : (baseIndex + index);
-  const start = parseFloat((row[mapping.start] || "0").replace(",", "."));
-  const end = parseFloat((row[mapping.end] || "0").replace(",", "."));
-  const sentenceVal = mapping.sentence ? (row[mapping.sentence] || "").toString().trim() : "";
-  const typeVal = mapping.type ? (row[mapping.type] || "").toString().trim() : "";
-  if (!sentenceVal) throw new Error(`Row ${index + 1}: 'sentence' is required`);
-  if (!typeVal) throw new Error(`Row ${index + 1}: 'type' is required`);
+    const start = parseFloat((row[mapping.start] || "0").replace(",", "."));
+    const end = parseFloat((row[mapping.end] || "0").replace(",", "."));
+    const typeVal = mapping.type ? (row[mapping.type] || "").toString().trim() : ""; // may be empty
 
-    // Build R2 URLs using cfApi helper
-    // We still build media paths using filmSlug and synthetic episode slug e{episodeNum}
-  const episodeSlug = `${filmSlug}_${episodeNum}`;
-    const image_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: episodeSlug, cardId: displayId, type: "image" });
-    const audio_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: episodeSlug, cardId: displayId, type: "audio" });
+    function normalizeType(raw: string, subs: Record<string, string>, mainLangCode: string) {
+      if (!raw) return "";
+      let s = raw.replace(/\[[^\]]+\]/g, "").replace(/\([^)]*\)/g, "");
+      s = s.replace(/\s+/g, " ").trim();
+      const lower = s.toLowerCase();
+      if (lower === "narration" || lower === "dialogue" || lower === "narrator") {
+        const mainCanon = canonicalizeLangCode(mainLangCode) || mainLangCode;
+        const mainText = subs[mainCanon] || "";
+        return (mainText || "").trim();
+      }
+      return s;
+    }
 
-  const subtitle: Record<string, string> = {};
+    const episodeSlug = `${filmSlug}_${episodeNum}`; // DB slug remains unpadded for compatibility
+    const image_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image" });
+    const audio_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "audio" });
+
+    const subtitle: Record<string, string> = {};
     Object.entries(mapping.subtitles || {}).forEach(([canon, header]) => {
       const c = canonicalizeLangCode(canon) || canon;
       subtitle[c] = (row[header]?.trim?.() as string) ?? "";
     });
 
-    // Difficulty frameworks collected into array for backend new schema
-  const difficulty_levels: Array<{ framework: string; level: string; language?: string }> = [];
+    // Always set sentence from main language subtitle
+    const mainCanon = canonicalizeLangCode(mainLang) || mainLang;
+    const sentence = subtitle[mainCanon] || "";
+
+    const difficulty_levels: Array<{ framework: string; level: string; language?: string }> = [];
     const cefrLevel = mapping.cefr ? (row[mapping.cefr] || "").toString().trim() : "";
     if (cefrLevel) difficulty_levels.push({ framework: "CEFR", level: cefrLevel, language: "en" });
     const jlptLevel = mapping.jlpt ? (row[mapping.jlpt] || "").toString().trim() : "";
@@ -228,14 +261,11 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
     if (hskLevel) difficulty_levels.push({ framework: "HSK", level: hskLevel, language: "zh" });
     const difficultyScoreVal = mapping.difficultyScore ? (row[mapping.difficultyScore] || "").toString().trim() : "";
     let difficultyScoreNum = difficultyScoreVal ? Number(difficultyScoreVal) : undefined;
-    // If value looks like a 1-5 band, scale to 0-100
     if (Number.isFinite(difficultyScoreNum) && difficultyScoreNum != null) {
       if (difficultyScoreNum <= 5) {
         difficultyScoreNum = (difficultyScoreNum / 5) * 100;
       }
     }
-
-    // Dynamic frameworks from discovered headers
     if (Array.isArray(mapping.frameworkCols)) {
       for (const col of mapping.frameworkCols) {
         const v = (row[col.header] || "").toString().trim();
@@ -244,8 +274,10 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
       }
     }
 
+    const sanitizedType = normalizeType(typeVal, subtitle, mainLang);
+
     return {
-      id: uuidv4(), // internal UUID (not used client-side yet)
+      id: uuidv4(),
       card_number,
       start,
       end,
@@ -253,24 +285,31 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
       episode_id: episodeSlug,
       film_id: filmSlug,
       subtitle,
-  type: typeVal,
-  sentence: sentenceVal,
-  // Length handling: if CSV provides an explicit numeric value in "length" column, use it;
-  // otherwise compute from normalized `type` (strip all whitespace and count characters).
-  // This keeps scoring consistent even when length column omitted.
-  length: (() => {
-    const raw = mapping.length ? (row[mapping.length] || "").toString().trim() : "";
-    if (raw) {
-      const n = Number(raw);
-      if (Number.isFinite(n) && n >= 0) return Math.floor(n);
-    }
-    // Fallback: derived length from normalized type text (remove whitespace)
-    const normalized = typeVal.replace(/\s+/g, "");
-    return normalized.length;
-  })(),
-      CEFR_Level: cefrLevel || undefined, // backward compatibility for old clients
+      sentence, // always from main language subtitle
+      type: sanitizedType,
+      length: (() => {
+        const raw = mapping.length ? (row[mapping.length] || "").toString().trim() : "";
+        if (raw) {
+          const n = Number(raw);
+          if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+        }
+        if (sanitizedType) {
+          return calculateTextLength(sanitizedType, mainCanon);
+        }
+        const mainText = subtitle[mainCanon] || "";
+        if (mainText) {
+          return calculateTextLength(mainText, mainCanon);
+        }
+        for (const [langCode, textVal] of Object.entries(subtitle)) {
+          if (textVal && textVal.trim()) {
+            return calculateTextLength(textVal, langCode);
+          }
+        }
+        return 0;
+      })(),
+      CEFR_Level: cefrLevel || undefined,
       difficulty_levels: difficulty_levels.length ? difficulty_levels : undefined,
-  difficulty_score: Number.isFinite(difficultyScoreNum) ? difficultyScoreNum : undefined,
+      difficulty_score: Number.isFinite(difficultyScoreNum) ? difficultyScoreNum : undefined,
       image_url,
       audio_url,
     };
