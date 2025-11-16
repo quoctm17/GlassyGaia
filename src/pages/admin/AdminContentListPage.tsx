@@ -136,6 +136,8 @@ export default function AdminContentListPage() {
     }
   };
 
+  const pageSize = 20;
+  const [page, setPage] = useState(1);
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -283,7 +285,7 @@ export default function AdminContentListPage() {
                 <td colSpan={8} className="admin-empty">No content found</td>
               </tr>
             )}
-            {filteredRows.map((f, idx) => {
+            {filteredRows.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map((f, idx) => {
               const mainCanon = f.main_language ? (canonicalizeLangCode(f.main_language) || f.main_language.toLowerCase()) : undefined;
               const subs = Array.from(
                 new Set(
@@ -294,7 +296,7 @@ export default function AdminContentListPage() {
               );
               return (
                 <tr key={f.id} onClick={() => navigate(`/admin/content/${encodeURIComponent(f.id)}`)} style={{ cursor:'pointer' }}>
-                  <td className="text-gray-400">{idx + 1}</td>
+                  <td className="text-gray-400">{(page-1)*pageSize + idx + 1}</td>
                   <td className="admin-cell-ellipsis" title={f.id}>{f.id}</td>
                   <td className="admin-cell-ellipsis" title={f.title || ''}>{f.title || '-'}</td>
                   <td>
@@ -411,6 +413,19 @@ export default function AdminContentListPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {!loading && filteredRows.length > 0 && (
+        <div className="flex items-center justify-between mt-2">
+          <div className="text-xs text-gray-400">
+            Showing {(page-1)*pageSize + 1}-{Math.min(page*pageSize, filteredRows.length)} of {filteredRows.length}
+          </div>
+          <div className="flex gap-2">
+            <button className="admin-btn secondary !py-1 !px-2" disabled={page<=1} onClick={() => setPage(p => Math.max(1, p-1))}>Prev</button>
+            <button className="admin-btn secondary !py-1 !px-2" disabled={page*pageSize>=filteredRows.length} onClick={() => setPage(p => (p*pageSize<filteredRows.length ? p+1 : p))}>Next</button>
+          </div>
+        </div>
+      )}
 
       {/* Custom Confirmation Modal */}
       {confirmDelete && (

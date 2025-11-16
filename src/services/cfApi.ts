@@ -52,28 +52,24 @@ async function getJson<T>(path: string): Promise<T> {
 // Build media URLs when the API doesn't provide them explicitly.
 export function buildR2MediaUrl(params: {
   filmId: string;
-  episodeId: string; // e.g., e1
-  cardId: string; // padded id like 001
+  episodeId: string; // accepts e1, e001, 1, filmSlug_1
+  cardId: string; // display/card id; will be padded to 4 digits if numeric
   type: "audio" | "image";
-  // Optional overrides
-  filePrefix?: string; // filename prefix if different from folder name; fallback: normalized filmId
 }): string {
-  // Updated naming convention (2025-11): nested path using filmSlug_episodeNum as episode folder.
-  // Pattern (public URL path):
-  //   items/{filmId}/episodes/{filmId}_{episodeNum}/{type}/{filmId_normalized}_{cardId}.{ext}
+  // New naming convention:
+  // items/{filmId}/episodes/{filmId}_{episode3}/{type}/{filmId}_{episode3}_{card4}.{ext}
   const { filmId, episodeId, cardId, type } = params;
-  // Support episodeId in formats: e1, 1, filmSlug_1
   let epNum = Number(String(episodeId || "e1").replace(/^e/i, ""));
   if (!epNum || Number.isNaN(epNum)) {
     const m = String(episodeId || "").match(/_(\d+)$/);
     epNum = m ? Number(m[1]) : 1;
   }
-  const prefix = (params.filePrefix || filmId).replace(/-/g, "_");
+  const epPadded = String(epNum).padStart(3, "0");
+  const isDigits = /^[0-9]+$/.test(String(cardId));
+  const cardPadded = isDigits ? String(cardId).padStart(4, "0") : String(cardId);
   const ext = type === "image" ? "jpg" : "mp3";
-  if (!R2_PUBLIC_BASE) {
-    return `/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${prefix}_${cardId}.${ext}`;
-  }
-  return `${R2_PUBLIC_BASE}/items/${filmId}/episodes/${filmId}_${epNum}/${type}/${prefix}_${cardId}.${ext}`;
+  const rel = `items/${filmId}/episodes/${filmId}_${epPadded}/${type}/${filmId}_${epPadded}_${cardPadded}.${ext}`;
+  return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${rel}` : `/${rel}`;
 }
 
 // Deprecated helper retained for backward compat (not used with new schema)
@@ -234,6 +230,41 @@ export async function apiGetCardByPath(
     return rowToCardDoc(row);
   } catch {
     return null;
+  }
+}
+
+// Delete a single card and its media
+export async function apiDeleteCard(params: {
+  filmSlug: string;
+  episodeSlug: string; // accepts e1 or slug_001
+  cardId: string; // display id e.g. 0001
+}): Promise<
+  | { ok: true; deleted: string; media_deleted: number; media_errors: string[] }
+  | { error: string }
+> {
+  assertApiBase();
+  const { filmSlug, episodeSlug, cardId } = params;
+  const res = await fetch(
+    `${API_BASE}/cards/${encodeURIComponent(filmSlug)}/${encodeURIComponent(episodeSlug)}/${encodeURIComponent(cardId)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { error: `Card delete failed: ${res.status} ${text}` };
+  }
+  try {
+    const body = await res.json();
+    if (body && body.ok) {
+      return {
+        ok: true,
+        deleted: body.deleted,
+        media_deleted: body.media_deleted || 0,
+        media_errors: Array.isArray(body.media_errors) ? body.media_errors : [],
+      };
+    }
+    return { error: 'Unexpected delete response' };
+  } catch {
+    return { error: 'Malformed delete response' };
   }
 }
 
@@ -408,6 +439,42 @@ export async function apiDeleteItem(filmSlug: string): Promise<
   }
 }
 
+// Delete a specific episode (cascade cards + media)
+export async function apiDeleteEpisode(params: {
+  filmSlug: string;
+  episodeNum: number;
+}): Promise<
+  | { ok: true; deleted: string; cards_deleted: number; media_deleted: number; media_errors: string[] }
+  | { error: string }
+> {
+  assertApiBase();
+  const { filmSlug, episodeNum } = params;
+  const epSlug = `${filmSlug}_${episodeNum}`;
+  const res = await fetch(
+    `${API_BASE}/items/${encodeURIComponent(filmSlug)}/episodes/${encodeURIComponent(epSlug)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { error: `Episode delete failed: ${res.status} ${text}` };
+  }
+  try {
+    const body = await res.json();
+    if (body && body.ok) {
+      return {
+        ok: true,
+        deleted: body.deleted,
+        cards_deleted: body.cards_deleted || 0,
+        media_deleted: body.media_deleted || 0,
+        media_errors: Array.isArray(body.media_errors) ? body.media_errors : [],
+      };
+    }
+    return { error: 'Unexpected delete response' };
+  } catch {
+    return { error: 'Malformed delete response' };
+  }
+}
+
 // Helper to convert a normalized API row into CardDoc
 function rowToCardDoc(r: Record<string, unknown>): CardDoc {
   // Expect fields: card_id or id, episode_id, film_id?, start_time_ms, end_time_ms, audio_key, image_key, subtitles? or subtitle map.
@@ -510,18 +577,19 @@ function buildMediaUrlFromKey(
     // If existing objects still under films/, return them directly; new ones under items/
     return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${key}` : `/${key}`;
   }
-  // simple filename (no path): assume it already follows new naming prefix_cardId.ext
-  const prefix = (filmId || "").replace(/-/g, "_");
+  // simple filename (no path): synthesize full path using new convention
+  if (!filmId) {
+    return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${key}` : `/${key}`;
+  }
   const ext = type === "image" ? "jpg" : "mp3";
   let epNum = Number(String(episodeId || "e1").replace(/^e/i, ""));
   if (!epNum || Number.isNaN(epNum)) {
     const m = String(episodeId || "").match(/_(\d+)$/);
     epNum = m ? Number(m[1]) : 1;
   }
-  const padded = String(epNum).padStart(3,'0');
-  const fileName = `${prefix}_${cardId}.${ext}`;
-  // Prefer padded path; legacy fallback if needed (consumer can probe)
-  const base = R2_PUBLIC_BASE || '';
-  const primary = `${base ? base : ''}/items/${filmId}/episodes/${filmId}_${padded}/${type}/${fileName}`.replace(/\/\/+/, '/');
-  return primary;
+  const epPadded = String(epNum).padStart(3, "0");
+  const isDigits = /^[0-9]+$/.test(String(cardId));
+  const cardPadded = isDigits ? String(cardId).padStart(4, "0") : String(cardId);
+  const rel = `items/${filmId}/episodes/${filmId}_${epPadded}/${type}/${filmId}_${epPadded}_${cardPadded}.${ext}`;
+  return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${rel}` : `/${rel}`;
 }

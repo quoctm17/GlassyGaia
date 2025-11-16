@@ -15,6 +15,7 @@ import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Bo
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
 import { langLabel, canonicalizeLangCode } from "../../utils/lang";
+import ProgressBar from "../../components/ProgressBar";
 import FlagDisplay from "../../components/FlagDisplay";
 
 export default function AdminContentIngestPage() {
@@ -109,6 +110,11 @@ export default function AdminContentIngestPage() {
   const [audioDone, setAudioDone] = useState(0);
   const [importDone, setImportDone] = useState(false);
   const [statsDone, setStatsDone] = useState(false);
+  // File presence flags for optional uploads (to drive validation reliably)
+  const [hasCoverFile, setHasCoverFile] = useState(false);
+  const [hasEpCoverFile, setHasEpCoverFile] = useState(false);
+  const [hasEpAudioFile, setHasEpAudioFile] = useState(false);
+  const [hasEpVideoFile, setHasEpVideoFile] = useState(false);
 
   const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
 
@@ -197,6 +203,12 @@ export default function AdminContentIngestPage() {
     return () => document.removeEventListener("mousedown", outside);
   }, [langOpen, typeOpen, yearOpen]);
 
+  // Reset file flags when toggles are turned off
+  useEffect(() => { if (!addCover) setHasCoverFile(false); }, [addCover]);
+  useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
+  useEffect(() => { if (!addEpAudio) setHasEpAudioFile(false); }, [addEpAudio]);
+  useEffect(() => { if (!addEpVideo) setHasEpVideoFile(false); }, [addEpVideo]);
+
   // Debounced slug availability auto-check
   useEffect(() => {
     const slug = filmId.trim();
@@ -223,14 +235,14 @@ export default function AdminContentIngestPage() {
     const titleOk = (title || "").trim().length > 0;
     // Required card media: at least 1 image and 1 audio file
     const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
-    // Optional toggles: if checked, require a file chosen for that input
-    const coverOk = !addCover || ((document.getElementById("cover-file") as HTMLInputElement)?.files?.length || 0) > 0;
-    const epCoverOk = !addEpCover || ((document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.length || 0) > 0;
-    const epAudioOk = !addEpAudio || ((document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.length || 0) > 0;
-    const epVideoOk = !addEpVideo || ((document.getElementById("ep-full-video") as HTMLInputElement)?.files?.length || 0) > 0;
+    // Optional toggles: if checked, require a file chosen for that input (use reactive flags)
+    const coverOk = !addCover || hasCoverFile;
+    const epCoverOk = !addEpCover || hasEpCoverFile;
+    const epAudioOk = !addEpAudio || hasEpAudioFile;
+    const epVideoOk = !addEpVideo || hasEpVideoFile;
     const optionalUploadsOk = coverOk && epCoverOk && epAudioOk && epVideoOk;
     return !!(hasUser && emailOk && keyOk && slugOk && csvOk && titleOk && cardMediaOk && optionalUploadsOk);
-  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, imageFiles.length, audioFiles.length, addCover, addEpCover, addEpAudio, addEpVideo]);
+  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, imageFiles.length, audioFiles.length, addCover, addEpCover, addEpAudio, addEpVideo, hasCoverFile, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
 
   // Handlers
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -381,7 +393,10 @@ export default function AdminContentIngestPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-4">
-  <div className="text-lg">Admin: Create New Content (Episode 1)</div>
+      <div className="admin-section-header">
+        <h2 className="admin-title">Create New Content (Episode 1)</h2>
+        <button className="admin-btn secondary" onClick={() => window.location.href = '/admin/content'}>← Back</button>
+      </div>
 
       {/* Auth */}
       {user ? (
@@ -572,7 +587,7 @@ export default function AdminContentIngestPage() {
             </div>
             {addCover && (
               <>
-                <input id="cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <input id="cover-file" type="file" accept="image/jpeg" onChange={e => setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
                 <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/cover_image/cover.jpg</div>
               </>
             )}
@@ -613,8 +628,8 @@ export default function AdminContentIngestPage() {
             </div>
             {addEpCover && (
               <>
-                <input id="ep-cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + episodeNum}/cover/cover.jpg</div>
+                <input id="ep-cover-file" type="file" accept="image/jpeg" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
               </>
             )}
           </div>
@@ -629,8 +644,8 @@ export default function AdminContentIngestPage() {
             </div>
             {addEpAudio && (
               <>
-                <input id="ep-full-audio" type="file" accept="audio/mpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + episodeNum}/full/audio.mp3</div>
+                <input id="ep-full-audio" type="file" accept="audio/mpeg" onChange={e => setHasEpAudioFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/audio.mp3</div>
               </>
             )}
           </div>
@@ -645,8 +660,8 @@ export default function AdminContentIngestPage() {
             </div>
             {addEpVideo && (
               <>
-                <input id="ep-full-video" type="file" accept="video/mp4" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + episodeNum}/full/video.mp4</div>
+                <input id="ep-full-video" type="file" accept="video/mp4" onChange={e => setHasEpVideoFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
               </>
             )}
           </div>
@@ -682,28 +697,53 @@ export default function AdminContentIngestPage() {
         )}
         {csvHeaders.length > 0 && (
           <div className="overflow-auto border border-gray-700 rounded max-h-[480px]">
-            <table className="min-w-full text-xs">
-              <thead className="bg-gray-800 sticky top-0">
+            <table className="w-full text-[12px] border-collapse">
+              <thead className="sticky top-0 bg-[#1a0f24] z-10">
                 <tr>
-                  <th className="px-2 py-1 text-left font-semibold text-gray-300 whitespace-nowrap">#</th>
-                  {csvHeaders.map(h => <th key={h} className="px-2 py-1 text-left font-semibold text-gray-300 whitespace-nowrap">{h}</th>)}
+                  <th className="border border-gray-700 px-2 py-1 text-left">#</th>
+                  {csvHeaders.map((h, i) => {
+                    const isRequired = requiredOriginals.includes(h);
+                    const isMainLang = mainLangHeader === h;
+                    return (
+                      <th
+                        key={i}
+                        className={`border border-gray-700 px-2 py-1 text-left ${isRequired || isMainLang ? 'bg-pink-900/30 font-semibold' : ''}`}
+                        title={isRequired ? 'Required' : isMainLang ? 'Main Language' : ''}
+                      >
+                        {h}
+                        {isRequired && <span className="text-red-400 ml-1">*</span>}
+                        {isMainLang && <span className="text-amber-400 ml-1">★</span>}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {csvRows.slice(0,300).map((row,i) => (
-                  <tr key={i} className="odd:bg-gray-900/40">
-                    <td className="px-2 py-1 text-gray-400 whitespace-nowrap">{i+1}</td>
-                    {csvHeaders.map(h => {
-                      const val = (row[h] ?? "").toString();
-                      const isRequired = requiredOriginals.includes(h) || (mainLangHeader === h);
-                      const isBlank = !val.trim();
-                      const cls = isRequired && isBlank ? "bg-red-900/40 text-red-200" : "text-gray-300";
-                      return <td key={h} className={`px-2 py-1 whitespace-nowrap max-w-[240px] overflow-hidden text-ellipsis ${cls}`} title={val || undefined}>{val}</td>;
+                {csvRows.map((row, i) => (
+                  <tr key={i} className="hover:bg-pink-900/10">
+                    <td className="border border-gray-700 px-2 py-1 text-gray-500">{i + 1}</td>
+                    {csvHeaders.map((h, j) => {
+                      const val = row[h] || '';
+                      const isRequired = requiredOriginals.includes(h);
+                      const isMainLang = mainLangHeader === h;
+                      const isEmpty = !val.trim();
+                      return (
+                        <td
+                          key={j}
+                          className={`border border-gray-700 px-2 py-1 ${isEmpty && (isRequired || isMainLang) ? 'bg-red-900/20 text-red-300' : 'text-gray-300'}`}
+                        >
+                          {val}
+                        </td>
+                      );
                     })}
                   </tr>
                 ))}
               </tbody>
             </table>
+            <div className="text-[10px] text-gray-500 px-2 py-1">
+              <span className="text-red-400">*</span> = Required column |{' '}
+              <span className="text-amber-400">★</span> = Main Language column
+            </div>
           </div>
         )}
       </div>
@@ -773,15 +813,8 @@ export default function AdminContentIngestPage() {
                 (epFullVideoDone || (document.getElementById("ep-full-video") as HTMLInputElement)?.files?.length ? 1 : 0) +
                 imageFiles.length + audioFiles.length + 1 + 1; // import + stats
               const completedUnits = coverDone + epCoverDone + epFullAudioDone + epFullVideoDone + imagesDone + audioDone + (importDone ? 1 : 0) + (statsDone ? 1 : 0);
-              const pct = totalUnits === 0 ? 0 : Math.round(completedUnits / totalUnits * 100);
-              return (
-                <div className="mt-2">
-                  <div className="h-2 bg-gray-700 rounded overflow-hidden">
-                    <div style={{ width: pct + "%" }} className="h-full bg-pink-500 transition-all duration-300" />
-                  </div>
-                  <div className="mt-1 text-right">{pct}%</div>
-                </div>
-              );
+              const pct = totalUnits === 0 ? 0 : Math.round((completedUnits / totalUnits) * 100);
+              return (<div className="mt-2"><ProgressBar percent={pct} /></div>);
             })()}
           </div>
         )}

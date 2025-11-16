@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, X } from "lucide-react";
+import { Search, X, Loader2 } from "lucide-react";
 
 export interface SearchBarProps {
   value?: string; // controlled value
@@ -11,6 +11,7 @@ export interface SearchBarProps {
   showClear?: boolean; // whether to show clear button when query non-empty
   buttonLabel?: string; // override 'Search by'
   autoFocus?: boolean;
+  loading?: boolean; // show loading indicator
 }
 
 export default function SearchBar({
@@ -23,6 +24,7 @@ export default function SearchBar({
   showClear = true,
   buttonLabel = "Search by",
   autoFocus = false,
+  loading = false,
 }: SearchBarProps) {
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
@@ -61,7 +63,11 @@ export default function SearchBar({
   return (
     <div className="pixel-searchbar">
       <div className="pixel-input-wrapper">
-        <Search className="pixel-input-icon" />
+        {loading ? (
+          <Loader2 className="pixel-input-icon animate-spin" />
+        ) : (
+          <Search className="pixel-input-icon" />
+        )}
         <input
           value={q}
           onChange={(e) => handleChange(e.target.value)}
