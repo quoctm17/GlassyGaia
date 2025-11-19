@@ -48,14 +48,15 @@ export default function AdminEpisodeDetailPage() {
     return () => { mounted = false; };
   }, [contentSlug, episodeSlug]);
 
-  // Load cards for the episode
+  // Load cards for the episode (optimized: fetch with higher limit and cache)
   useEffect(() => {
     if (!contentSlug || !episodeSlug) return;
     let mounted = true;
     (async () => {
       setLoadingCards(true);
       try {
-        const rows = await apiFetchCardsForFilm(contentSlug, episodeSlug, 1000);
+        // Fetch with a reasonable high limit; API already returns subtitles in bulk
+        const rows = await apiFetchCardsForFilm(contentSlug, episodeSlug, 2000);
         if (!mounted) return;
         setCards(rows);
       } catch {
@@ -293,6 +294,19 @@ export default function AdminEpisodeDetailPage() {
             </tr>
           </thead>
           <tbody>
+            {loadingCards && (
+              Array.from({ length: pageSize }).map((_, i) => (
+                <tr key={`sk-${i}`} className="animate-pulse">
+                  <td className="opacity-60">••••</td>
+                  <td className="opacity-60">...</td>
+                  <td className="opacity-60">...</td>
+                  <td className="opacity-60">...</td>
+                  <td className="opacity-60">-</td>
+                  <td className="opacity-60">-</td>
+                  <td className="opacity-60">...</td>
+                </tr>
+              ))
+            )}
             {filteredCards.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map((c) => {
               const idPadded = String(c.id).padStart(4,'0');
               // Determine if this is the first card (protect)
@@ -356,7 +370,7 @@ export default function AdminEpisodeDetailPage() {
               </tr>
             );})}
             {filteredCards.length === 0 && !loadingCards && (
-              <tr><td colSpan={6} className="admin-empty">No cards found</td></tr>
+              <tr><td colSpan={7} className="admin-empty">No cards found</td></tr>
             )}
           </tbody>
         </table>

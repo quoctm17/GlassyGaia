@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { apiListItems, apiGetFilm, apiDeleteItem } from '../../services/cfApi';
+import { useUser } from "../../context/UserContext";
+import { getAvailableMainLanguages } from "../../services/firestore";
 import type { FilmDoc } from '../../types';
 import { useNavigate } from 'react-router-dom';
 import { canonicalizeLangCode, countryCodeForLang, langLabel } from '../../utils/lang';
@@ -7,8 +9,12 @@ import { PlusCircle, Eye, Pencil, Trash2, ChevronDown, MoreHorizontal, Filter, S
 import toast from 'react-hot-toast';
 import LanguageTag from '../../components/LanguageTag';
 import PortalDropdown from '../../components/PortalDropdown';
+import CustomSelect from '../../components/CustomSelect';
+import FlagDisplay from '../../components/FlagDisplay';
+import ProgressBar from '../../components/ProgressBar';
 
 export default function AdminContentListPage() {
+  const { preferences, setMainLanguage } = useUser();
   const [rows, setRows] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,6 +25,7 @@ export default function AdminContentListPage() {
   const [confirmDelete, setConfirmDelete] = useState<{ slug: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deletionProgress, setDeletionProgress] = useState<{ stage: string; details: string } | null>(null);
+  const [deletionPercent, setDeletionPercent] = useState(0);
   // Filters dropdown (portal) state
   const [filterDropdown, setFilterDropdown] = useState<{ anchor: HTMLElement; closing?: boolean } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,9 +80,31 @@ export default function AdminContentListPage() {
   };
 
   // Get unique values for filters
-  const uniqueLangs = Array.from(new Set(rows.map(r => r.main_language).filter(Boolean)));
-  const uniqueTypes = Array.from(new Set(rows.map(r => r.type).filter(Boolean)));
-  const uniqueYears = Array.from(new Set(rows.map(r => r.release_year).filter(Boolean))).sort((a, b) => (b as number) - (a as number));
+  const uniqueLangs = useMemo(() => Array.from(new Set(rows.map(r => r.main_language).filter(Boolean))), [rows]);
+  const uniqueTypes = useMemo(() => Array.from(new Set(rows.map(r => r.type).filter(Boolean))), [rows]);
+  const uniqueYears = useMemo(() => Array.from(new Set(rows.map(r => r.release_year).filter(Boolean))).sort((a, b) => (b as number) - (a as number)), [rows]);
+
+  // Prepare options for CustomSelect
+  const origOptions = [
+    { value: 'all', label: 'All' },
+    { value: 'original', label: 'Original' },
+    { value: 'non-original', label: 'Non-original' },
+  ];
+  const langOptions = [
+    { value: 'all', label: 'All Languages' },
+    ...uniqueLangs.map(l => ({ value: l as string, label: `${langLabel(l as string)} (${l})`, icon: <FlagDisplay lang={l as string} /> })),
+  ];
+  const typeOptions = [
+    { value: 'all', label: 'All Types' },
+    ...uniqueTypes.map(t => {
+      const icon = getTypeIcon(t as string);
+      return { value: t as string, label: (t as string), icon };
+    }),
+  ];
+  const yearOptions = [
+    { value: 'all', label: 'All Years' },
+    ...uniqueYears.map(y => ({ value: String(y), label: String(y) })),
+  ];
 
   // Apply filters + search + sort
   let filteredRows = rows.filter((f) => {
@@ -207,32 +236,37 @@ export default function AdminContentListPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Original</label>
-                <select className="admin-input !py-1" value={origFilter} onChange={(e) => setOrigFilter(e.target.value as 'all' | 'original' | 'non-original')}>
-                  <option value="all">All</option>
-                  <option value="original">Original</option>
-                  <option value="non-original">Non-original</option>
-                </select>
+                <CustomSelect
+                  value={origFilter}
+                  options={origOptions}
+                  onChange={(v) => setOrigFilter(v as 'all' | 'original' | 'non-original')}
+                />
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Language</label>
-                <select className="admin-input !py-1" value={langFilter} onChange={(e) => setLangFilter(e.target.value)}>
-                  <option value="all">All Languages</option>
-                  {uniqueLangs.map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
+                <CustomSelect
+                  value={langFilter}
+                  options={langOptions}
+                  onChange={setLangFilter}
+                  searchable
+                />
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Type</label>
-                <select className="admin-input !py-1" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-                  <option value="all">All Types</option>
-                  {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <CustomSelect
+                  value={typeFilter}
+                  options={typeOptions}
+                  onChange={setTypeFilter}
+                />
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Release Year</label>
-                <select className="admin-input !py-1" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
-                  <option value="all">All Years</option>
-                  {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+                <CustomSelect
+                  value={yearFilter}
+                  options={yearOptions}
+                  onChange={setYearFilter}
+                  allowClear
+                />
               </div>
             </div>
           </PortalDropdown>
@@ -440,8 +474,9 @@ export default function AdminContentListPage() {
             <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xoá toàn bộ Episodes, Cards và Media thuộc nội dung này. Không thể hoàn tác!</p>
             {deletionProgress && (
               <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
-                <div className="text-sm font-semibold text-[#f9a8d4] mb-1">{deletionProgress.stage}</div>
-                <div className="text-xs text-[#e9d5ff]">{deletionProgress.details}</div>
+                <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
+                <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
+                <ProgressBar percent={deletionPercent} />
               </div>
             )}
             <div className="flex gap-3 justify-end">
@@ -457,27 +492,63 @@ export default function AdminContentListPage() {
                 disabled={deleting}
                 onClick={async () => {
                   setDeleting(true);
-                  setDeletionProgress({ stage: 'Đang xoá...', details: 'Đang xử lý yêu cầu xoá' });
+                  setDeletionPercent(10);
+                  let timer: number | undefined;
+                  let slowTimer: number | undefined;
+                  setDeletionProgress({ stage: 'Đang xoá...', details: 'Đang xử lý yêu cầu xoá (khởi tạo xoá database + thu thập media)' });
                   try {
-                    setDeletionProgress({ stage: 'Đang xoá database...', details: 'Xoá Episodes, Cards và metadata' });
+                    // Phase 1: fast ramp to 70%
+                    timer = window.setInterval(() => {
+                      setDeletionPercent((p) => (p < 70 ? p + 4 : p));
+                    }, 220);
+                    setTimeout(() => {
+                      // Phase 2: slower ramp 70% -> 85% (DB deletion likely still running or starting media deletion)
+                      if (timer) window.clearInterval(timer);
+                      timer = window.setInterval(() => {
+                        setDeletionPercent((p) => (p < 85 ? p + 2 : p));
+                      }, 500);
+                    }, 3000);
+                    // Phase 3: indeterminate finalization 85% -> 95% tiny heartbeat while media deletes concurrently
+                    slowTimer = window.setInterval(() => {
+                      setDeletionPercent((p) => (p >= 85 && p < 95 ? p + 1 : p));
+                    }, 4000);
+                    setDeletionProgress({ stage: 'Đang xoá database...', details: 'Xoá Episodes, Cards, subtitles và metadata' });
                     const res = await apiDeleteItem(confirmDelete.slug);
                     if ('error' in res) {
                       toast.error(res.error);
                       setDeletionProgress(null);
+                      setDeletionPercent(0);
+                      if (timer) window.clearInterval(timer);
+                      if (slowTimer) window.clearInterval(slowTimer);
                       return;
                     }
+                    if (timer) window.clearInterval(timer);
+                    if (slowTimer) window.clearInterval(slowTimer);
+                    setDeletionPercent(100);
                     setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xoá ${res.episodes_deleted} episodes, ${res.cards_deleted} cards, ${res.media_deleted} media files` });
                     setRows(prev => prev.filter(r => r.id !== confirmDelete.slug));
+                    // Refresh global main-language options; if current no longer available, switch to first
+                    try {
+                      const langs = await getAvailableMainLanguages();
+                      const current = preferences.main_language || 'en';
+                      if (!langs.includes(current) && langs.length) {
+                        await setMainLanguage(langs[0]);
+                      }
+                    } catch {/* ignore refresh errors */}
                     setTimeout(() => {
                       const msg = `Đã xoá nội dung + media (Episodes: ${res.episodes_deleted}, Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`;
                       toast.success(msg);
                       setConfirmDelete(null);
                       setDeletionProgress(null);
-                    }, 1000);
+                      setDeletionPercent(0);
+                    }, 600);
                   } catch (e) {
                     toast.error((e as Error).message);
                     setDeletionProgress(null);
+                    setDeletionPercent(0);
                   } finally {
+                    if (timer) window.clearInterval(timer);
+                    if (slowTimer) window.clearInterval(slowTimer);
                     setDeleting(false);
                   }
                 }}

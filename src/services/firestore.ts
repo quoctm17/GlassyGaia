@@ -1,5 +1,5 @@
 // Cloudflare D1 adapter - replaces Firebase Firestore
-import { apiGetFilm, apiListFilms, apiFetchCardsForFilm, apiFetchAllCards, apiGetCardByPath, apiListItems } from "./cfApi";
+import { apiGetFilm, apiListFilms, apiFetchCardsForFilm, apiFetchAllCards, apiGetCardByPath, apiListItems, apiSearchCardsFTS } from "./cfApi";
 import { canonicalizeLangCode } from "../utils/lang";
 import { subtitleText } from "../utils/subtitles";
 import type { CardDoc, FilmDoc } from "../types";
@@ -85,6 +85,10 @@ export async function listFilms(): Promise<FilmDoc[]> {
   return await apiListFilms();
 }
 
+// List all items regardless of type (movie, series, book, audio)
+export async function listAllItems(): Promise<FilmDoc[]> {
+  return await apiListItems();
+}
 // Filter items by content type (film/series/book/audio)
 export async function listContentByType(type: string): Promise<FilmDoc[]> {
   const all = await apiListItems();
@@ -126,6 +130,53 @@ export async function fetchAllCards(max = 1000): Promise<CardDoc[]> {
   return await apiFetchAllCards(max);
 }
 
+// Lightweight in-memory cache to avoid re-fetching the global cards pool on every keystroke
+// Cache is shared within the module and expires after a short TTL
+let __allCardsCache: { data: CardDoc[]; max: number; expiresAt: number } | null = null;
+let __allCardsInflight: Promise<CardDoc[]> | null = null;
+
+// Allow external callers to invalidate cached global cards pool
+export function invalidateGlobalCardsCache() {
+  __allCardsCache = null;
+  __allCardsInflight = null;
+}
+
+async function fetchAllCardsCached(max = 1000, ttlMs = 120_000): Promise<CardDoc[]> {
+  const now = Date.now();
+  if (
+    __allCardsCache &&
+    __allCardsCache.expiresAt > now &&
+    __allCardsCache.max >= max
+  ) {
+    return __allCardsCache.data;
+  }
+  if (__allCardsInflight) {
+    try {
+      const data = await __allCardsInflight;
+      // Even if in-flight was for a different max, reuse if it's good enough
+      if (data && (__allCardsCache?.max ?? 0) >= max && (__allCardsCache?.expiresAt ?? 0) > Date.now()) {
+        return data;
+      }
+    } catch {
+      // ignore and fall through to new fetch
+    }
+  }
+  // Fetch with the requested max; store and set TTL
+  __allCardsInflight = apiFetchAllCards(max)
+    .then((rows) => {
+      __allCardsCache = {
+        data: rows,
+        max,
+        expiresAt: Date.now() + ttlMs,
+      };
+      return rows;
+    })
+    .finally(() => {
+      // leave last promise around until next call completes; don't null immediately to allow short coalescing window
+    });
+  return await __allCardsInflight;
+}
+
 export async function searchCardsGlobalClient(
   queryText: string,
   max = 200,
@@ -133,8 +184,21 @@ export async function searchCardsGlobalClient(
   filmLanguageMap?: Record<string, string>,
   selectedMainLang?: string
 ): Promise<CardDoc[]> {
-  const pool = await fetchAllCards(max);
-  const q = queryText.trim().toLowerCase();
+  const q = queryText.trim();
+  // Prefer server-side FTS when there is a query; fall back to cached client filtering on error
+  if (q) {
+    try {
+      const main = selectedMainLang ? (canonicalizeLangCode(selectedMainLang) || selectedMainLang.toLowerCase()) : null;
+      const rows = await apiSearchCardsFTS({ q, limit: max, mainLanguage: main });
+      // Optional client-side narrowing by film filter if provided
+      return filmFilter ? rows.filter(r => r.film_id === filmFilter) : rows;
+    } catch {
+      // fall through to client filtering
+    }
+  }
+  // Use cached global pool to minimize repeated network calls while typing or when no query
+  const pool = await fetchAllCardsCached(max);
+  const qLower = q.toLowerCase();
   const pool1 = filmFilter ? pool.filter((c) => c.film_id === filmFilter) : pool;
   const hasLangMap = !!filmLanguageMap && Object.keys(filmLanguageMap).length > 0;
   const pool2 = selectedMainLang && hasLangMap
@@ -149,8 +213,8 @@ export async function searchCardsGlobalClient(
     const lang = filmLanguageMap?.[String(c.film_id ?? "")] ?? "";
     const canonical = canonicalizeLangCode(lang) || lang.toLowerCase();
     const text = canonical ? (subtitleText(c, canonical) ?? "") : "";
-    if (text) return text.toLowerCase().includes(q);
-    return Object.values(c.subtitle ?? {}).some((t) => (t ?? "").toLowerCase().includes(q));
+    if (text) return text.toLowerCase().includes(qLower);
+    return Object.values(c.subtitle ?? {}).some((t) => (t ?? "").toLowerCase().includes(qLower));
   });
 }
 

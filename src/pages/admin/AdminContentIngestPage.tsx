@@ -10,7 +10,8 @@ import {
   uploadEpisodeFullMedia,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateFilmMeta, apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from "../../services/cfApi";
+import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from "../../services/cfApi";
+import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
 import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2 } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
@@ -19,7 +20,7 @@ import ProgressBar from "../../components/ProgressBar";
 import FlagDisplay from "../../components/FlagDisplay";
 
 export default function AdminContentIngestPage() {
-  const { user, signInGoogle, adminKey } = useUser();
+  const { user, signInGoogle, adminKey, preferences: globalPreferences, setMainLanguage: setGlobalMainLanguage } = useUser();
   const allowedEmails = useMemo(
     () => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "")
       .split(",")
@@ -84,6 +85,8 @@ export default function AdminContentIngestPage() {
   const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
   const [csvFileName, setCsvFileName] = useState<string>("");
+  // Allow selecting which CSV header to treat as Main Language subtitle
+  const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string>("");
 
   // Media selection state
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -98,6 +101,7 @@ export default function AdminContentIngestPage() {
   const [addEpCover, setAddEpCover] = useState(false);
   const [addEpAudio, setAddEpAudio] = useState(false);
   const [addEpVideo, setAddEpVideo] = useState(false);
+  const [epFullAudioExt, setEpFullAudioExt] = useState<'mp3' | 'wav'>('mp3');
 
   // Progress state
   const [busy, setBusy] = useState(false);
@@ -106,8 +110,12 @@ export default function AdminContentIngestPage() {
   const [epCoverDone, setEpCoverDone] = useState(0);
   const [epFullAudioDone, setEpFullAudioDone] = useState(0);
   const [epFullVideoDone, setEpFullVideoDone] = useState(0);
+  const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
+  const [epFullVideoBytesTotal, setEpFullVideoBytesTotal] = useState(0);
   const [imagesDone, setImagesDone] = useState(0);
   const [audioDone, setAudioDone] = useState(0);
+  const [imagesTotal, setImagesTotal] = useState(0);
+  const [audioTotal, setAudioTotal] = useState(0);
   const [importDone, setImportDone] = useState(false);
   const [statsDone, setStatsDone] = useState(false);
   // File presence flags for optional uploads (to drive validation reliably)
@@ -147,15 +155,36 @@ export default function AdminContentIngestPage() {
     };
     const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
     const detected = new Set<string>();
+    const recognizedSubtitleHeaders = new Set<string>();
     headers.forEach(h => {
       const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
       const alias = langAliases[key];
       const canon = alias ? alias : supported.has(key) ? key : null;
-      if (canon) detected.add(canon);
+      if (canon) { detected.add(canon); recognizedSubtitleHeaders.add(h); }
     });
     const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
     if (!detected.has(mainCanon)) {
       errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon}`);
+    }
+    // Warn for ignored/unused columns (not required, not known frameworks/difficulty, not subtitles)
+    const knownSingles = new Set(["start","end","type","length","cefr","cefr level","cefr_level","jlpt","jlpt level","jlpt_level","hsk","hsk level","hsk_level","difficulty score","difficulty_score","difficultyscore","score","difficulty_percent","card_difficulty"]);
+    const isFrameworkDynamic = (raw: string) => {
+      const key = raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key);
+    };
+    const ignored: string[] = [];
+    for (const h of headers) {
+      const raw = (h || '').trim();
+      if (!raw) continue;
+      const low = raw.toLowerCase();
+      if (knownSingles.has(low)) continue;
+      if (recognizedSubtitleHeaders.has(raw)) continue;
+      if (isFrameworkDynamic(raw)) continue;
+      if (low === 'sentence') continue; // already an error above
+      ignored.push(raw);
+    }
+    if (ignored.length) {
+      warnings.push(`Các cột sẽ bị bỏ qua: ${ignored.join(', ')}`);
     }
     // row required cell checks (limit to 50 errors)
     let ec = 0;
@@ -173,6 +202,39 @@ export default function AdminContentIngestPage() {
     setCsvValid(errors.length === 0);
   }, [mainLanguage]);
 
+  // Derive list for footnote display (kept in sync with validateCsv rules)
+  const ignoredHeaders = useMemo(() => {
+    if (!csvHeaders.length) return [] as string[];
+    const langAliases: Record<string, string> = {
+      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
+      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
+    };
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
+    const recognizedSubtitleHeaders = new Set<string>();
+    csvHeaders.forEach(h => {
+      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      const alias = langAliases[key];
+      const canon = alias ? alias : supported.has(key) ? key : null;
+      if (canon) recognizedSubtitleHeaders.add(h);
+    });
+    const knownSingles = new Set(["start","end","type","length","cefr","cefr level","cefr_level","jlpt","jlpt level","jlpt_level","hsk","hsk level","hsk_level","difficulty score","difficulty_score","difficultyscore","score","difficulty_percent","card_difficulty"]);
+    const isFrameworkDynamic = (raw: string) => {
+      const key = raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key);
+    };
+    const ignored: string[] = [];
+    for (const h of csvHeaders) {
+      const raw = (h || '').trim(); if (!raw) continue;
+      const low = raw.toLowerCase();
+      if (knownSingles.has(low)) continue;
+      if (recognizedSubtitleHeaders.has(raw)) continue;
+      if (isFrameworkDynamic(raw)) continue;
+      if (low === 'sentence') continue;
+      ignored.push(raw);
+    }
+    return ignored;
+  }, [csvHeaders]);
+
   function findHeaderForLang(headers: string[], lang: string): string | null {
     const langAliases: Record<string, string> = {
       english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
@@ -189,6 +251,37 @@ export default function AdminContentIngestPage() {
     return null;
   }
   const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, mainLanguage), [csvHeaders, mainLanguage]);
+  const mainLangHeaderOptions = useMemo(() => {
+    // Collect all headers that map to the selected main language canon
+    const langAliases: Record<string, string> = {
+      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
+      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
+    };
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
+    const target = canonicalizeLangCode(mainLanguage) || mainLanguage;
+    const candidates: string[] = [];
+    for (const h of csvHeaders) {
+      const key = (h || "").trim().toLowerCase().replace(/\s*\(.*?\)\s*/g, "").replace(/\s*\[.*?\]\s*/g, "");
+      const alias = (langAliases as Record<string,string>)[key];
+      const canon = alias ? alias : (supported.has(key) ? key : null);
+      if (canon === target) candidates.push(h);
+    }
+    // Prefer non-CC headers first
+    const prefer = (s: string) => (/\[(?:cc)\]/i.test(s) || /\(cc\)/i.test(s)) ? 1 : 0;
+    return candidates.sort((a, b) => prefer(a) - prefer(b));
+  }, [csvHeaders, mainLanguage]);
+
+  // Keep override in sync with options (choose best default automatically)
+  useEffect(() => {
+    if (mainLangHeaderOptions.length === 0) {
+      setMainLangHeaderOverride("");
+      return;
+    }
+    // If current override not in options, reset to first preferred option
+    if (!mainLangHeaderOptions.includes(mainLangHeaderOverride)) {
+      setMainLangHeaderOverride(mainLangHeaderOptions[0]);
+    }
+  }, [mainLangHeaderOptions, mainLangHeaderOverride]);
 
   // Effects
   useEffect(() => { if (csvHeaders.length && csvRows.length) validateCsv(csvHeaders, csvRows); }, [csvHeaders, csvRows, validateCsv]);
@@ -273,7 +366,7 @@ export default function AdminContentIngestPage() {
     await uploadCoverImage({ filmId, episodeNum, file });
     const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover.jpg` : `/items/${filmId}/cover_image/cover.jpg`;
     setCoverUrl(url); setCoverDone(1);
-    await apiUpdateFilmMeta({ filmSlug: filmId, cover_url: url }).catch(() => {});
+    // Removed early apiUpdateFilmMeta call (film may not exist yet). Cover URL will be applied via import filmMeta.
     toast.success("Cover uploaded");
     return url;
   };
@@ -308,7 +401,8 @@ export default function AdminContentIngestPage() {
     }
     if (addEpVideo && vFile) {
       setStage("ep_full_video");
-      const key = await uploadEpisodeFullMedia({ filmId, episodeNum, type: "video", file: vFile });
+      setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(vFile.size);
+      const key = await uploadEpisodeFullMedia({ filmId, episodeNum, type: "video", file: vFile, onProgress: (done, total) => { setEpFullVideoBytesDone(done); setEpFullVideoBytesTotal(total); } });
       setEpFullVideoDone(1);
       try {
         await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, full_video_key: key });
@@ -321,9 +415,13 @@ export default function AdminContentIngestPage() {
   const doUploadMedia = async (type: MediaType, files: File[]) => {
     if (!files.length) return;
     setStage(type === "image" ? "images" : "audio");
-    await uploadMediaBatch({ filmId, episodeNum, type, files, padDigits, startIndex, inferFromFilenames: infer }, done => {
-      if (type === "image") setImagesDone(done); else setAudioDone(done);
+    // const started = Date.now();
+    // Reset visible totals to the selected file count; will be corrected by callback's total
+    if (type === "image") { setImagesTotal(files.length); setImagesDone(0); } else { setAudioTotal(files.length); setAudioDone(0); }
+    await uploadMediaBatch({ filmId, episodeNum, type, files, padDigits, startIndex, inferFromFilenames: infer }, (done, total) => {
+      if (type === "image") { setImagesDone(done); setImagesTotal(total); } else { setAudioDone(done); setAudioTotal(total); }
     });
+    // const ms = Date.now() - started; // duration available if needed
     toast.success(type === "image" ? "Images uploaded" : "Audio uploaded");
   };
 
@@ -339,10 +437,12 @@ export default function AdminContentIngestPage() {
       // 1. Upload cover for content (if any)
       const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
       // 2. Upload card media (images/audio) for cards (these do not depend on episode row)
-      await doUploadMedia("image", imageFiles);
-      await doUploadMedia("audio", audioFiles);
+      await Promise.all([
+        doUploadMedia("image", imageFiles),
+        doUploadMedia("audio", audioFiles)
+      ]);
       // 3. Import CSV to create episode 1 (must be before episode-level media upload)
-      if (!csvText) { toast.error("Please select a CSV for cards"); return; }
+      if (!csvText) { toast.error("Please select a CSV for cards"); setBusy(false); return; }
       setStage("import");
       const filmMeta: ImportFilmMeta = {
         title,
@@ -365,8 +465,25 @@ export default function AdminContentIngestPage() {
         all.forEach(f => { const m = f.name.match(/(\d+)(?=\.[^.]+$)/); if (m) { const raw = m[1]; const id = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0"); set.add(id); } });
         if (set.size) { cardIds = Array.from(set).sort((a,b)=>parseInt(a,10)-parseInt(b,10)); }
       }
-      await importFilmFromCsv({ filmSlug: filmId, episodeNum, filmMeta, csvText, mode: replaceMode ? "replace" : "append", cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds }, () => {});
-      setImportDone(true);
+      try {
+        await importFilmFromCsv({
+          filmSlug: filmId,
+          episodeNum,
+          filmMeta,
+          csvText,
+          mode: replaceMode ? "replace" : "append",
+          cardStartIndex: startIndex,
+          cardPadDigits: padDigits,
+          cardIds,
+          overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
+        }, () => {});
+        setImportDone(true);
+        toast.success("Import completed");
+      } catch (importErr) {
+        console.error("❌ Import failed:", importErr);
+        toast.error("Import failed: " + (importErr as Error).message);
+        throw importErr; // Re-throw to stop the process
+      }
       // 4. Upload episode-level media (cover, full audio, full video) AFTER episode row exists
       await doUploadEpisodeCover().catch(() => {});
       await doUploadEpisodeFull().catch(() => {});
@@ -384,6 +501,16 @@ export default function AdminContentIngestPage() {
         toast.error("Không tính được thống kê cho nội dung này");
       }
       setStage("done"); toast.success("Content + Episode 1 created successfully");
+      // Post-success: refresh global main-language options and notify Search to refresh
+      try {
+        const langs = await getAvailableMainLanguages();
+        const current = (globalPreferences.main_language) || 'en';
+        if (!langs.includes(current) && langs.length) {
+          await setGlobalMainLanguage(langs[0]);
+        }
+      } catch { /* ignore */ }
+      try { invalidateGlobalCardsCache(); } catch { /* ignore */ }
+      try { window.dispatchEvent(new CustomEvent('content-updated')); } catch { /* ignore */ }
       // Sau khi upload xong, gọi lại apiGetFilm để cập nhật trạng thái slug
       const film = await apiGetFilm(filmId).catch(() => null);
       setSlugChecked(true);
@@ -644,8 +771,23 @@ export default function AdminContentIngestPage() {
             </div>
             {addEpAudio && (
               <>
-                <input id="ep-full-audio" type="file" accept="audio/mpeg" onChange={e => setHasEpAudioFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/audio.mp3</div>
+                <input
+                  id="ep-full-audio"
+                  type="file"
+                  accept="audio/mpeg,audio/wav"
+                  onChange={e => {
+                    const file = (e.target as HTMLInputElement).files?.[0] || null;
+                    setHasEpAudioFile(!!file);
+                    if (file) {
+                      const t = (file.type || '').toLowerCase();
+                      setEpFullAudioExt((/wav$/.test(t) || t === 'audio/wav' || t === 'audio/x-wav') ? 'wav' : 'mp3');
+                    } else {
+                      setEpFullAudioExt('mp3');
+                    }
+                  }}
+                  className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full"
+                />
+                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/audio.{epFullAudioExt}</div>
               </>
             )}
           </div>
@@ -695,6 +837,21 @@ export default function AdminContentIngestPage() {
         {csvWarnings.length > 0 && csvValid && (
           <div className="flex items-start gap-2 text-xs text-yellow-400"><AlertTriangle className="w-4 h-4 mt-0.5" /><ul className="list-disc pl-5">{csvWarnings.map((w,i)=><li key={i}>{w}</li>)}</ul></div>
         )}
+        {csvHeaders.length > 0 && mainLangHeaderOptions.length > 1 && (
+          <div className="flex items-center gap-2 text-sm">
+            <label className="text-gray-300">Main Language column ({langLabel(mainLanguage)}):</label>
+            <select
+              className="admin-input !py-1 !px-2 max-w-xs"
+              value={mainLangHeaderOverride || mainLangHeaderOptions[0]}
+              onChange={e => setMainLangHeaderOverride(e.target.value)}
+            >
+              {mainLangHeaderOptions.map(h => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+            <span className="text-xs text-gray-500">Prefers non-CC by default</span>
+          </div>
+        )}
         {csvHeaders.length > 0 && (
           <div className="overflow-auto border border-gray-700 rounded max-h-[480px]">
             <table className="w-full text-[12px] border-collapse">
@@ -703,7 +860,8 @@ export default function AdminContentIngestPage() {
                   <th className="border border-gray-700 px-2 py-1 text-left">#</th>
                   {csvHeaders.map((h, i) => {
                     const isRequired = requiredOriginals.includes(h);
-                    const isMainLang = mainLangHeader === h;
+                    const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
+                    const isMainLang = selectedMainHeader === h;
                     return (
                       <th
                         key={i}
@@ -725,7 +883,8 @@ export default function AdminContentIngestPage() {
                     {csvHeaders.map((h, j) => {
                       const val = row[h] || '';
                       const isRequired = requiredOriginals.includes(h);
-                      const isMainLang = mainLangHeader === h;
+                      const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
+                      const isMainLang = selectedMainHeader === h;
                       const isEmpty = !val.trim();
                       return (
                         <td
@@ -743,6 +902,11 @@ export default function AdminContentIngestPage() {
             <div className="text-[10px] text-gray-500 px-2 py-1">
               <span className="text-red-400">*</span> = Required column |{' '}
               <span className="text-amber-400">★</span> = Main Language column
+              {ignoredHeaders.length > 0 && (
+                <>
+                  {' '}| <span className="text-yellow-400">⚠</span> Ignored columns: {ignoredHeaders.join(', ')}
+                </>
+              )}
             </div>
           </div>
         )}
@@ -758,7 +922,7 @@ export default function AdminContentIngestPage() {
           </div>
           <div className="admin-subpanel">
             <div className="text-xs text-gray-400 mb-2">Audio (.mp3)</div>
-            <input type="file" accept="audio/mpeg" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+            <input type="file" accept="audio/mpeg,audio/wav" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
           </div>
           <div className="flex flex-col gap-3 md:col-span-2">
             <div className="flex flex-col sm:flex-row gap-3">
@@ -797,23 +961,90 @@ export default function AdminContentIngestPage() {
         </div>
         {(busy || stage === "done") && (
           <div className="admin-panel text-xs space-y-2">
-            <ProgressItem label="Cover" done={coverDone > 0} pending={!!(document.getElementById("cover-file") as HTMLInputElement)?.files?.length && coverDone === 0} />
-            <ProgressItem label="Episode Cover" done={epCoverDone > 0} pending={!!(document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.length && epCoverDone === 0} />
-            <ProgressItem label="Episode Full Audio" done={epFullAudioDone > 0} pending={!!(document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.length && epFullAudioDone === 0} />
-            <ProgressItem label="Episode Full Video" done={epFullVideoDone > 0} pending={!!(document.getElementById("ep-full-video") as HTMLInputElement)?.files?.length && epFullVideoDone === 0} />
-            <div className="flex justify-between"><span>Images</span><span>{imagesDone}/{imageFiles.length}</span></div>
-            <div className="flex justify-between"><span>Audio</span><span>{audioDone}/{audioFiles.length}</span></div>
-            <div className="flex justify-between"><span>Import</span><span>{importDone ? "✓" : stage === "import" ? "..." : "pending"}</span></div>
-            <div className="flex justify-between"><span>Calculating Stats</span><span>{statsDone ? "✓" : stage === "calculating_stats" ? "..." : (importDone ? "pending" : "skip")}</span></div>
+            {/* Progress items in actual execution order */}
+            {/* 1. Cover (optional) */}
+            {addCover && hasCoverFile && (
+              <ProgressItem label="1. Cover" done={coverDone > 0} pending={stage === "cover" || (busy && coverDone === 0)} />
+            )}
+            {/* 2. Card Media (images + audio in parallel) */}
+            <div className="flex justify-between"><span>2. Images</span><span>{imagesDone}/{imagesTotal}</span></div>
+            <div className="flex justify-between"><span>3. Audio</span><span>{audioDone}/{audioTotal}</span></div>
+            {/* 3. Import CSV */}
+            <div className="flex justify-between">
+              <span>4. Import CSV</span>
+              <span>{importDone ? "✓" : stage === "import" ? "..." : (imagesDone === imageFiles.length && audioDone === audioFiles.length ? "waiting" : "pending")}</span>
+            </div>
+            {/* 4. Episode-level optional media (after import) */}
+            {addEpCover && hasEpCoverFile && (
+              <ProgressItem label="5. Episode Cover" done={epCoverDone > 0} pending={stage === "ep_cover" || (importDone && epCoverDone === 0)} />
+            )}
+            {addEpAudio && hasEpAudioFile && (
+              <ProgressItem label="6. Episode Full Audio" done={epFullAudioDone > 0} pending={stage === "ep_full_audio" || (importDone && epFullAudioDone === 0)} />
+            )}
+            {addEpVideo && hasEpVideoFile && (
+              <div className="flex justify-between">
+                <span>7. Episode Full Video</span>
+                <span>
+                  {epFullVideoDone > 0
+                    ? "✓"
+                    : stage === "ep_full_video" && epFullVideoBytesTotal > 0
+                      ? `${Math.min(100, Math.round((epFullVideoBytesDone / epFullVideoBytesTotal) * 100))}%`
+                      : (importDone ? "waiting" : "pending")}
+                </span>
+              </div>
+            )}
+            {/* 5. Calculate Stats (final step) */}
+            <div className="flex justify-between">
+              <span>8. Calculating Stats</span>
+              <span>{statsDone ? "✓" : stage === "calculating_stats" ? "..." : (importDone ? "waiting" : "pending")}</span>
+            </div>
+            {/* Progress bar */}
             {(() => {
-              const totalUnits =
-                (coverDone ? 1 : (document.getElementById("cover-file") as HTMLInputElement)?.files?.length ? 1 : 0) +
-                (epCoverDone || (document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.length ? 1 : 0) +
-                (epFullAudioDone || (document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.length ? 1 : 0) +
-                (epFullVideoDone || (document.getElementById("ep-full-video") as HTMLInputElement)?.files?.length ? 1 : 0) +
-                imageFiles.length + audioFiles.length + 1 + 1; // import + stats
-              const completedUnits = coverDone + epCoverDone + epFullAudioDone + epFullVideoDone + imagesDone + audioDone + (importDone ? 1 : 0) + (statsDone ? 1 : 0);
-              const pct = totalUnits === 0 ? 0 : Math.round((completedUnits / totalUnits) * 100);
+              // Calculate total steps (each optional media counts as 1 unit)
+              let totalSteps = 0;
+              let completedSteps = 0;
+
+              // 1. Cover (optional)
+              if (addCover && hasCoverFile) {
+                totalSteps++;
+                if (coverDone > 0) completedSteps++;
+              }
+
+              // 2-3. Card media (images + audio) - use EFFECTIVE totals from uploader (after skips)
+              totalSteps += imagesTotal + audioTotal;
+              completedSteps += imagesDone + audioDone;
+
+              // 4. Import CSV (required)
+              totalSteps++;
+              if (importDone) completedSteps++;
+
+              // 5-7. Episode-level media (optional)
+              if (addEpCover && hasEpCoverFile) {
+                totalSteps++;
+                if (epCoverDone > 0) completedSteps++;
+              }
+              if (addEpAudio && hasEpAudioFile) {
+                totalSteps++;
+                if (epFullAudioDone > 0) completedSteps++;
+              }
+              if (addEpVideo && hasEpVideoFile) {
+                totalSteps++;
+                if (epFullVideoDone > 0) completedSteps += 1;
+                else if (stage === 'ep_full_video' && epFullVideoBytesTotal > 0) {
+                  completedSteps += Math.max(0, Math.min(1, epFullVideoBytesDone / epFullVideoBytesTotal));
+                }
+              }
+
+              // 8. Calculate Stats (required)
+              totalSteps++;
+              if (statsDone) completedSteps++;
+
+              // Prevent showing 100% until ALL steps are completed
+              let pct: number;
+              if (totalSteps === 0) pct = 0;
+              else if (completedSteps === totalSteps) pct = 100;
+              else pct = Math.min(99, Math.floor((completedSteps / totalSteps) * 100));
+
               return (<div className="mt-2"><ProgressBar percent={pct} /></div>);
             })()}
           </div>

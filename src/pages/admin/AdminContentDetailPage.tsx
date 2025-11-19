@@ -3,10 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { apiGetFilm, apiListEpisodes } from '../../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../../types';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
-import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown, Film, Clapperboard, Book as BookIcon, AudioLines } from 'lucide-react';
 import PortalDropdown from '../../components/PortalDropdown';
 import toast from 'react-hot-toast';
 import { apiDeleteEpisode } from '../../services/cfApi';
+import { CONTENT_TYPE_LABELS, type ContentType } from '../../types/content';
 
 export default function AdminContentDetailPage() {
   const { contentSlug } = useParams();
@@ -146,7 +147,17 @@ export default function AdminContentDetailPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Type:</label>
-                <span className="text-gray-200">{item.type || '-'}</span>
+                <span className="inline-flex items-center gap-1.5 text-gray-200">
+                  {(() => {
+                    const t = (item.type || '').toLowerCase();
+                    if (t === 'movie') return <Film className="w-4 h-4 text-pink-300" />;
+                    if (t === 'series') return <Clapperboard className="w-4 h-4 text-pink-300" />;
+                    if (t === 'book') return <BookIcon className="w-4 h-4 text-pink-300" />;
+                    if (t === 'audio') return <AudioLines className="w-4 h-4 text-pink-300" />;
+                    return null;
+                  })()}
+                  <span>{(CONTENT_TYPE_LABELS[(item.type || '') as ContentType] || item.type) || '-'}</span>
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Main Language:</label>

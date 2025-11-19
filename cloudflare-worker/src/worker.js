@@ -34,6 +34,26 @@ export default {
         return json({ url: uploadUrl });
       }
 
+      // 1b) Batch sign upload: accepts array of {path, contentType} and returns array of signed URLs
+      // Reduces round-trips for bulk uploads (e.g., 1000 files from 1000 requests to ~10 batched requests)
+      if (path === '/r2/sign-upload-batch' && request.method === 'POST') {
+        const body = await request.json();
+        const items = body.items; // Array of {path, contentType?}
+        if (!Array.isArray(items) || items.length === 0) {
+          return json({ error: 'Missing or empty items array' }, { status: 400 });
+        }
+        const urls = items.map(item => {
+          const key = item.path;
+          const contentType = item.contentType || 'application/octet-stream';
+          if (!key) return null;
+          return {
+            path: key,
+            url: url.origin + '/r2/upload?key=' + encodeURIComponent(key) + '&ct=' + encodeURIComponent(contentType)
+          };
+        }).filter(Boolean);
+        return json({ urls });
+      }
+
       // 2) PUT upload proxy: actually store into R2
       if (path === '/r2/upload' && request.method === 'PUT') {
         const key = url.searchParams.get('key');
@@ -41,6 +61,172 @@ export default {
         if (!key) return json({ error: 'Missing key' }, { status: 400 });
         await env.MEDIA_BUCKET.put(key, request.body, { httpMetadata: { contentType: ct } });
         return json({ ok: true, key });
+      }
+
+      // 2c) Multipart upload endpoints for large files (video)
+      // INIT: POST /r2/multipart/init { key, contentType }
+      if (path === '/r2/multipart/init' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const key = body.key;
+          const contentType = body.contentType || 'application/octet-stream';
+          if (!key) return json({ error: 'Missing key' }, { status: 400 });
+          const mpu = await env.MEDIA_BUCKET.createMultipartUpload(key, { httpMetadata: { contentType } });
+          return json({ uploadId: mpu.uploadId, key });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      // UPLOAD PART: PUT /r2/multipart/part?key=...&uploadId=...&partNumber=1  (body=bytes)
+      if (path === '/r2/multipart/part' && request.method === 'PUT') {
+        try {
+          const key = url.searchParams.get('key');
+          const uploadId = url.searchParams.get('uploadId');
+          const pn = url.searchParams.get('partNumber');
+          const partNumber = Number(pn);
+          if (!key || !uploadId || !partNumber) return json({ error: 'Missing key/uploadId/partNumber' }, { status: 400 });
+          const mpu = await env.MEDIA_BUCKET.resumeMultipartUpload(key, uploadId);
+          if (!mpu) return json({ error: 'Not found' }, { status: 404 });
+          const res = await mpu.uploadPart(partNumber, request.body);
+          return json({ etag: res.etag, partNumber });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      // COMPLETE: POST /r2/multipart/complete { key, uploadId, parts:[{partNumber,etag}] }
+      if (path === '/r2/multipart/complete' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const key = body.key; const uploadId = body.uploadId; const parts = body.parts || [];
+          if (!key || !uploadId || !Array.isArray(parts) || !parts.length) return json({ error: 'Missing key/uploadId/parts' }, { status: 400 });
+          const mpu = await env.MEDIA_BUCKET.resumeMultipartUpload(key, uploadId);
+          if (!mpu) return json({ error: 'Not found' }, { status: 404 });
+          await mpu.complete(parts.map(p => ({ partNumber: Number(p.partNumber), etag: String(p.etag) })));
+          return json({ ok: true, key });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      // ABORT: POST /r2/multipart/abort { key, uploadId }
+      if (path === '/r2/multipart/abort' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const key = body.key; const uploadId = body.uploadId;
+          if (!key || !uploadId) return json({ error: 'Missing key/uploadId' }, { status: 400 });
+          const mpu = await env.MEDIA_BUCKET.resumeMultipartUpload(key, uploadId);
+          if (!mpu) return json({ error: 'Not found' }, { status: 404 });
+          await mpu.abort();
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // 2a) List R2 objects
+      // Default: returns mixed directories and files under a prefix using delimiter '/'
+      // When flat=1: returns a paginated flat list of objects with cursor for recursive operations
+      if (path === '/r2/list' && request.method === 'GET') {
+        if (!env.MEDIA_BUCKET) return json([], { status: 200 });
+        const inputPrefix = url.searchParams.get('prefix') || '';
+        const norm = String(inputPrefix).replace(/^\/+|\/+$/g, '');
+        const flat = /^(1|true|yes)$/i.test(url.searchParams.get('flat') || '');
+        if (flat) {
+          const cursor = url.searchParams.get('cursor') || undefined;
+          const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit') || '1000')));
+          try {
+            const prefixFlat = norm ? (norm.endsWith('/') ? norm : norm + '/') : '';
+            const res = await env.MEDIA_BUCKET.list({ prefix: prefixFlat, cursor, limit });
+            const objects = (res.objects || []).map((o) => ({
+              key: o.key,
+              size: o.size,
+              modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+            }));
+            return json({ objects, cursor: res.cursor || null, truncated: !!res.truncated });
+          } catch (e) {
+            return json({ error: e.message }, { status: 500 });
+          }
+        }
+        const prefix = norm ? (norm.endsWith('/') ? norm : norm + '/') : '';
+        try {
+          const res = await env.MEDIA_BUCKET.list({ prefix, delimiter: '/' });
+          const base = env.R2_PUBLIC_BASE || '';
+          const makeUrl = (k) => base ? `${base}/${k}` : `${url.origin}/media/${k}`;
+          const dirs = (res.delimitedPrefixes || []).map((p) => {
+            const key = p;
+            const name = key.replace(/^.*\//, '').replace(/\/$/, '') || key;
+            return { key, name, type: 'directory' };
+          });
+          const files = (res.objects || []).map((o) => ({
+            key: o.key,
+            name: o.key.replace(/^.*\//, ''),
+            type: 'file',
+            size: o.size,
+            modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+            url: makeUrl(o.key),
+          }));
+          return json([ ...dirs, ...files ]);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // 2b) Delete R2 object (file) or empty directory (prefix ending with '/')
+      if (path === '/r2/delete' && request.method === 'DELETE') {
+        if (!env.MEDIA_BUCKET) return json({ error: 'R2 not configured' }, { status: 400 });
+        const key = url.searchParams.get('key');
+        const recursive = /^(1|true|yes)$/i.test(url.searchParams.get('recursive') || '');
+        if (!key) return json({ error: 'Missing key' }, { status: 400 });
+        try {
+          if (key.endsWith('/')) {
+            if (!recursive) {
+              // Delete directory only if empty
+              const check = await env.MEDIA_BUCKET.list({ prefix: key, limit: 2 });
+              const has = (check.objects && check.objects.length) || (check.delimitedPrefixes && check.delimitedPrefixes.length);
+              if (has) return json({ error: 'not-empty' }, { status: 400 });
+              return json({ ok: true });
+            }
+            // Recursive delete (performance optimized): delete objects in parallel batches
+            let cursor = undefined; let total = 0;
+            // allow optional concurrency override (?c=30)
+            const concRaw = url.searchParams.get('c');
+            let concurrency = 20;
+            if (concRaw) {
+              const n = Number(concRaw);
+              if (Number.isFinite(n) && n > 0 && n <= 100) concurrency = Math.floor(n);
+            }
+            while (true) {
+              const res = await env.MEDIA_BUCKET.list({ prefix: key, cursor, limit: 1000 });
+              const objs = res.objects || [];
+              if (!objs.length) {
+                if (!res.truncated) break;
+                cursor = res.cursor;
+                continue;
+              }
+              // Delete in concurrent batches to reduce total time
+              let idx = 0;
+              async function runBatch() {
+                while (idx < objs.length) {
+                  const batch = [];
+                  for (let j = 0; j < concurrency && idx < objs.length; j++, idx++) {
+                    const objKey = objs[idx].key;
+                    batch.push(env.MEDIA_BUCKET.delete(objKey));
+                  }
+                  await Promise.allSettled(batch);
+                }
+              }
+              await runBatch();
+              total += objs.length;
+              if (!res.truncated) break;
+              cursor = res.cursor;
+            }
+            return json({ ok: true, deleted: total, concurrency });
+          } else {
+            await env.MEDIA_BUCKET.delete(key);
+            return json({ ok: true });
+          }
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
       }
 
       // 3) Content items list (generic across films, music, books)
@@ -333,6 +519,7 @@ export default {
                 const cardPh = cardIds.map(() => '?').join(',');
                 // Delete subtitles and difficulty levels
                 try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch {}
+                try { await env.DB.prepare(`DELETE FROM card_subtitles_fts WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch {}
                 try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch {}
               }
               // Delete cards
@@ -351,18 +538,29 @@ export default {
           }
 
           // Best-effort R2 deletion of collected media keys (after DB commit)
+          // Previous implementation deleted sequentially causing long waits for large media sets.
+          // Use batched concurrent deletes to reduce total time.
           let mediaDeletedCount = 0;
-            if (env.MEDIA_BUCKET) {
-              for (const key of mediaKeys) {
-                if (!key) continue;
-                try {
-                  await env.MEDIA_BUCKET.delete(key);
-                  mediaDeletedCount += 1;
-                } catch (err) {
-                  mediaErrors.push(`fail:${key}`);
+          if (env.MEDIA_BUCKET && mediaKeys.size) {
+            const keys = Array.from(mediaKeys).filter(Boolean);
+            const concurrency = 40; // reasonable parallelism without overwhelming R2
+            let idx = 0;
+            async function runBatch() {
+              while (idx < keys.length) {
+                const batch = [];
+                for (let i = 0; i < concurrency && idx < keys.length; i++, idx++) {
+                  const k = keys[idx];
+                  batch.push(
+                    env.MEDIA_BUCKET.delete(k)
+                      .then(() => { mediaDeletedCount += 1; })
+                      .catch(() => { mediaErrors.push(`fail:${k}`); })
+                  );
                 }
+                await Promise.allSettled(batch);
               }
             }
+            await runBatch();
+          }
 
           return json({ ok: true, deleted: filmRow.slug, episodes_deleted: episodesResults.length, cards_deleted: cardsResults.length, media_deleted: mediaDeletedCount, media_errors: mediaErrors });
         } catch (e) {
@@ -548,6 +746,7 @@ export default {
             if (cardIds.length) {
               const ph = cardIds.map(() => '?').join(',');
               try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
+              try { await env.DB.prepare(`DELETE FROM card_subtitles_fts WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
               try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
               try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id=?`).bind(epId).run(); } catch {}
             } else {
@@ -683,17 +882,28 @@ export default {
             res = await env.DB.prepare(sqlLegacy).bind(ep.id, limit).all();
           }
           const rows = res.results || [];
+          // Optimize: Batch fetch subtitles and CEFR levels for all cards
+          const cardIds = rows.map(r => r.internal_id);
+          const subsMap = new Map();
+          const cefrMap = new Map();
+          if (cardIds.length > 0) {
+            const ph = cardIds.map(() => '?').join(',');
+            try {
+              const allSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).all();
+              (allSubs.results || []).forEach(s => {
+                if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                subsMap.get(s.card_id)[s.language] = s.text;
+              });
+            } catch {}
+            try {
+              const allCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...cardIds).all();
+              (allCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
+            } catch {}
+          }
           const out = [];
           for (const r of rows) {
-            const subs = await env.DB.prepare('SELECT language,text FROM card_subtitles WHERE card_id=?').bind(r.internal_id).all();
-            const subtitle = {};
-            (subs.results || []).forEach(s => { subtitle[s.language] = s.text; });
-            // Fetch CEFR level for compatibility output
-            let cefr = null;
-            try {
-              const lvl = await env.DB.prepare('SELECT level FROM card_difficulty_levels WHERE card_id=? AND framework=?').bind(r.internal_id, 'CEFR').first();
-              cefr = lvl ? lvl.level : null;
-            } catch {}
+            const subtitle = subsMap.get(r.internal_id) || {};
+            const cefr = cefrMap.get(r.internal_id) || null;
             const displayId = String(r.card_number ?? '').padStart(3, '0');
             const outEpisodeId = ep.slug || `${filmSlug}_${epNum}`;
             const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
@@ -742,16 +952,28 @@ export default {
             }
           }
           const rows = res.results || [];
+          // Optimize: Batch fetch subtitles and CEFR levels
+          const cardIds = rows.map(r => r.internal_id);
+          const subsMap = new Map();
+          const cefrMap = new Map();
+          if (cardIds.length > 0) {
+            const ph = cardIds.map(() => '?').join(',');
+            try {
+              const allSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).all();
+              (allSubs.results || []).forEach(s => {
+                if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                subsMap.get(s.card_id)[s.language] = s.text;
+              });
+            } catch {}
+            try {
+              const allCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...cardIds).all();
+              (allCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
+            } catch {}
+          }
           const out = [];
           for (const r of rows) {
-            const subs = await env.DB.prepare('SELECT language,text FROM card_subtitles WHERE card_id=?').bind(r.internal_id).all();
-            const subtitle = {};
-            (subs.results || []).forEach(s => { subtitle[s.language] = s.text; });
-            let cefr = null;
-            try {
-              const lvl = await env.DB.prepare('SELECT level FROM card_difficulty_levels WHERE card_id=? AND framework=?').bind(r.internal_id, 'CEFR').first();
-              cefr = lvl ? lvl.level : null;
-            } catch {}
+            const subtitle = subsMap.get(r.internal_id) || {};
+            const cefr = cefrMap.get(r.internal_id) || null;
             const displayId = String(r.card_number ?? '').padStart(3, '0');
             const episodeSlug = r.episode_slug || `${filmSlug}_${Number(r.episode_number) || 1}`;
             const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
@@ -789,19 +1011,40 @@ export default {
             }
           }
           const rows = res.results || [];
+          // Optimize: Batch fetch subtitles, CEFR, and film slugs
+          const cardIds = rows.map(r => r.internal_id);
+          const filmIds = [...new Set(rows.map(r => r.film_id))];
+          const subsMap = new Map();
+          const cefrMap = new Map();
+          const filmSlugMap = new Map();
+          if (cardIds.length > 0) {
+            const ph = cardIds.map(() => '?').join(',');
+            try {
+              const allSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).all();
+              (allSubs.results || []).forEach(s => {
+                if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                subsMap.get(s.card_id)[s.language] = s.text;
+              });
+            } catch {}
+            try {
+              const allCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...cardIds).all();
+              (allCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
+            } catch {}
+          }
+          if (filmIds.length > 0) {
+            const phFilm = filmIds.map(() => '?').join(',');
+            try {
+              const allFilms = await env.DB.prepare(`SELECT id, slug FROM content_items WHERE id IN (${phFilm})`).bind(...filmIds).all();
+              (allFilms.results || []).forEach(f => filmSlugMap.set(f.id, f.slug));
+            } catch {}
+          }
           const out = [];
           for (const r of rows) {
-            const subs = await env.DB.prepare('SELECT language,text FROM card_subtitles WHERE card_id=?').bind(r.internal_id).all();
-            const subtitle = {};
-            (subs.results || []).forEach(s => { subtitle[s.language] = s.text; });
-            const film = await env.DB.prepare('SELECT slug FROM content_items WHERE id=?').bind(r.film_id).first();
+            const subtitle = subsMap.get(r.internal_id) || {};
+            const film = { slug: filmSlugMap.get(r.film_id) || 'item' };
             const displayId = String(r.card_number ?? '').padStart(3, '0');
-            const episodeSlug = r.episode_slug || `${film?.slug || 'item'}_${Number(r.episode_number) || 1}`;
-            let cefr = null;
-            try {
-              const lvl = await env.DB.prepare('SELECT level FROM card_difficulty_levels WHERE card_id=? AND framework=?').bind(r.internal_id, 'CEFR').first();
-              cefr = lvl ? lvl.level : null;
-            } catch {}
+            const episodeSlug = r.episode_slug || `${film.slug}_${Number(r.episode_number) || 1}`;
+            const cefr = cefrMap.get(r.internal_id) || null;
             const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
             const endS = (r.end_time != null) ? r.end_time : Math.round((r.end_time_ms || 0) / 1000);
             const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
@@ -809,6 +1052,102 @@ export default {
           }
           return json(out);
         } catch { return json([]); }
+      }
+
+      // 6b) Full-text search endpoint (FTS5) over subtitles
+      if (path === '/search' && request.method === 'GET') {
+        const q = url.searchParams.get('q') || '';
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') || '100')));
+        const mainLang = url.searchParams.get('main'); // filter by content_items.main_language
+        if (!q.trim()) return json([]);
+        try {
+          // Build a MATCH query that supports prefix on the last term for short inputs like "As"
+          // FTS5 is case-insensitive by default but requires lowercase tokens
+          const tokens = q.trim().toLowerCase().split(/\s+/).slice(0, 6).map(s => s.replace(/["'*]/g, ''));
+          // Use OR for single token (more inclusive), AND for multi-token (precise)
+          const operator = tokens.length === 1 ? ' OR ' : ' AND ';
+          const match = tokens.map((t, i) => {
+            const isLast = i === tokens.length - 1;
+            const needsPrefix = isLast && t.length >= 1; // Allow single-character prefix search
+            return needsPrefix ? `${t}*` : t;
+          }).join(operator);
+          // Subquery: collect best-ranked card ids by bm25 over FTS5
+          const parts = [];
+          let res;
+          try {
+            // FTS5 tables don't support aliases in MATCH clause or bm25() with GROUP BY
+            // Use simpler approach: get distinct card_ids from FTS match
+            // Filter by subtitle language (card_subtitles_fts.language) to search only main language subtitles
+            const sql = `
+              SELECT DISTINCT c.id AS card_id
+              FROM card_subtitles_fts
+              JOIN cards c ON c.id = card_subtitles_fts.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE card_subtitles_fts MATCH ?
+              ${mainLang ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?)' : ''}
+              LIMIT ?`;
+            const mainCanon = mainLang ? String(mainLang).toLowerCase() : null;
+            res = mainCanon
+              ? await env.DB.prepare(sql).bind(match, mainCanon, limit).all()
+              : await env.DB.prepare(sql).bind(match, limit).all();
+          } catch (e) {
+            // If FTS not ready, return empty to allow client fallback
+            return json([]);
+          }
+          const ranked = res.results || [];
+          if (!ranked.length) return json([]);
+          const cardIds = ranked.map(r => r.card_id);
+          // Join back details preserving rank order via an inline table
+          // Build CASE expression for ordering when IN clause used (SQLite-compatible)
+          const placeholders = cardIds.map(() => '?').join(',');
+          const orderCase = cardIds.map((id, idx) => `WHEN c.id=? THEN ${idx}`).join(' ');
+          const bindOrder = [...cardIds];
+          const detailSql = `
+            SELECT c.card_number,
+                   c.start_time AS start_time,
+                   c.end_time AS end_time,
+                   c.duration,
+                   c.image_key,
+                   c.audio_key,
+                   c.sentence,
+                   c.card_type,
+                   c.length,
+                   c.difficulty_score,
+                   e.episode_number,
+                   e.slug as episode_slug,
+                   ci.slug as film_slug,
+                   c.id as internal_id
+            FROM cards c
+            JOIN episodes e ON c.episode_id=e.id
+            JOIN content_items ci ON e.content_item_id=ci.id
+            WHERE c.id IN (${placeholders})
+            ORDER BY CASE ${orderCase} END ASC
+            LIMIT ?`;
+          const detailBind = [...cardIds, ...bindOrder, limit];
+          const det = await env.DB.prepare(detailSql).bind(...detailBind).all();
+          const rows = det.results || [];
+          const out = [];
+          for (const r of rows) {
+            const subs = await env.DB.prepare('SELECT language,text FROM card_subtitles WHERE card_id=?').bind(r.internal_id).all();
+            const subtitle = {};
+            (subs.results || []).forEach(s => { subtitle[s.language] = s.text; });
+            let cefr = null;
+            try {
+              const lvl = await env.DB.prepare('SELECT level FROM card_difficulty_levels WHERE card_id=? AND framework=?').bind(r.internal_id, 'CEFR').first();
+              cefr = lvl ? lvl.level : null;
+            } catch {}
+            const displayId = String(r.card_number ?? '').padStart(3, '0');
+            const episodeSlug = r.episode_slug || `${r.film_slug || 'item'}_${Number(r.episode_number) || 1}`;
+            const startS = (r.start_time != null) ? r.start_time : 0;
+            const endS = (r.end_time != null) ? r.end_time : 0;
+            const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
+            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, film_id: r.film_slug, subtitle });
+          }
+          return json(out);
+        } catch (e) {
+          return json([]);
+        }
       }
 
       // 7) Card by path (lookup by film slug, episode slug, and display card id (card_number padded))
@@ -885,12 +1224,13 @@ export default {
           try {
             // Update subtitle if provided
             if (body.subtitle && typeof body.subtitle === 'object') {
-              // Delete existing subtitles
+              // Replace existing subtitles and mirror into FTS
               await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run();
-              // Insert new subtitles
+              await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE card_id=?').bind(row.id).run();
               for (const [lang, text] of Object.entries(body.subtitle)) {
                 if (text && String(text).trim()) {
                   await env.DB.prepare('INSERT INTO card_subtitles (card_id, language, text) VALUES (?, ?, ?)').bind(row.id, lang, text).run();
+                  await env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(String(text), lang, row.id).run();
                 }
               }
             }
@@ -952,6 +1292,7 @@ export default {
           try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           try {
             try { await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run(); } catch {}
+            try { await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE card_id=?').bind(row.id).run(); } catch {}
             try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id=?').bind(row.id).run(); } catch {}
             try { await env.DB.prepare('DELETE FROM cards WHERE id=?').bind(row.id).run(); } catch {}
             try { await env.DB.prepare('COMMIT').run(); } catch {}
@@ -974,7 +1315,24 @@ export default {
         }
       }
 
-      // 8) Import bulk (server generates UUIDs; client provides slug and numbers)
+      // 8) Media proxy with CORS (serves R2 objects for waveform preview and client access)
+      if (path.startsWith('/media/')) {
+        const key = path.replace(/^\/media\//, '');
+        if (!key) return new Response('Not found', { status: 404, headers: withCors() });
+        try {
+          const obj = await env.MEDIA_BUCKET.get(key);
+          if (!obj) return new Response('Not found', { status: 404, headers: withCors() });
+          const headers = withCors({
+            'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+          });
+          return new Response(obj.body, { headers });
+        } catch (e) {
+          return new Response('Not found', { status: 404, headers: withCors() });
+        }
+      }
+
+      // 9) Import bulk (server generates UUIDs; client provides slug and numbers)
       if (path === '/import' && request.method === 'POST') {
         const body = await request.json();
           const film = body.film || {};
@@ -1020,10 +1378,9 @@ export default {
               filmRow.id
             ).run();
           }
-          if (Array.isArray(film.available_subs)) {
-            for (const lang of film.available_subs) {
-              await env.DB.prepare('INSERT OR IGNORE INTO content_item_languages (content_item_id,language) VALUES (?,?)').bind(filmRow.id, lang).run();
-            }
+          if (Array.isArray(film.available_subs) && film.available_subs.length) {
+            const subLangStmts = film.available_subs.map((lang) => env.DB.prepare('INSERT OR IGNORE INTO content_item_languages (content_item_id,language) VALUES (?,?)').bind(filmRow.id, lang));
+            try { await env.DB.batch(subLangStmts); } catch {}
           }
           // Ensure episode exists, else create
           let episode;
@@ -1084,77 +1441,94 @@ export default {
           // If mode is replace, delete existing cards and subtitles for this episode before inserting new ones
           if (mode === 'replace') {
             try {
-              const existing = await env.DB.prepare('SELECT id FROM cards WHERE episode_id=?').bind(episode.id).all();
-              for (const row of existing.results || []) {
-                await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run();
-              }
-              await env.DB.prepare('DELETE FROM cards WHERE episode_id=?').bind(episode.id).run();
-            } catch (e) {
-              // Non-fatal; continue even if cleanup fails
+              await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run();
+            } catch {}
+            try {
+              await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run();
+            } catch {}
+            try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run(); } catch {}
+            try { await env.DB.prepare('DELETE FROM cards WHERE episode_id=?').bind(episode.id).run(); } catch {}
+          }
+
+          // Helper: run an array of prepared statements in batches to minimize API calls
+          async function runStmtBatches(stmts, size = 200) {
+            for (let i = 0; i < stmts.length; i += size) {
+              const slice = stmts.slice(i, i + size);
+              if (slice.length) await env.DB.batch(slice);
             }
           }
+
+          // Prebuild statements
+          const cardsNewSchema = [];
+          const cardsLegacySchema = [];
+          const subStmts = [];
+          const ftsStmts = [];
+          const diffStmts = [];
+
+          const normalizeKey = (u) => (u ? String(u).replace(/^https?:\/\/[^/]+\//, '') : null);
+
+          const cardIds = []; // keep generated uuids in order for debugging if needed
           for (const c of cards) {
             const cardUuid = crypto.randomUUID();
+            cardIds.push(cardUuid);
             const cardNum = c.card_number != null ? Number(c.card_number) : (c.id ? Number(String(c.id).replace(/^0+/, '')) : null);
-            // Derive difficulty_score; if legacy 'difficulty' 1-5 provided, scale to 0-100; if >5 treat as already percent
             let diffScoreVal = null;
-            if (typeof c.difficulty_score === 'number') {
-              diffScoreVal = c.difficulty_score;
-            } else if (typeof c.difficulty === 'number') {
-              diffScoreVal = c.difficulty <= 5 ? (c.difficulty / 5) * 100 : c.difficulty;
-            }
+            if (typeof c.difficulty_score === 'number') diffScoreVal = c.difficulty_score;
+            else if (typeof c.difficulty === 'number') diffScoreVal = c.difficulty <= 5 ? (c.difficulty / 5) * 100 : c.difficulty;
             const sStart = Math.max(0, Math.round(Number(c.start || 0)));
             const sEnd = Math.max(0, Math.round(Number(c.end || 0)));
             const dur = Math.max(0, sEnd - sStart);
-            try {
-              await env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time,end_time,duration,image_key,audio_key,sentence,card_type,length,difficulty_score) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(
-                cardUuid,
-                episode.id,
-                cardNum,
-                sStart,
-                sEnd,
-                dur,
-                c.image_url ? String(c.image_url).replace(/^https?:\/\/[^/]+\//, '') : null,
-                c.audio_url ? String(c.audio_url).replace(/^https?:\/\/[^/]+\//, '') : null,
-                c.sentence || null,
-                c.type || c.card_type || null,
-                (typeof c.length === 'number' ? Math.floor(c.length) : null),
-                (typeof diffScoreVal === 'number' ? diffScoreVal : null)
-              ).run();
-            } catch (e) {
-              // Legacy fallback: old ms schema
-              await env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time_ms,end_time_ms,image_key,audio_key,sentence,card_type,length,difficulty_score) VALUES (?,?,?,?,?,?,?,?,?,?,?)').bind(
-                cardUuid,
-                episode.id,
-                cardNum,
-                sStart * 1000,
-                sEnd * 1000,
-                c.image_url ? String(c.image_url).replace(/^https?:\/\/[^/]+\//, '') : null,
-                c.audio_url ? String(c.audio_url).replace(/^https?:\/\/[^/]+\//, '') : null,
-                c.sentence || null,
-                c.type || c.card_type || null,
-                (typeof c.length === 'number' ? Math.floor(c.length) : null),
-                (typeof diffScoreVal === 'number' ? diffScoreVal : null)
-              ).run();
-            }
+
+            cardsNewSchema.push(
+              env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time,end_time,duration,image_key,audio_key,sentence,card_type,length,difficulty_score) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+                .bind(cardUuid, episode.id, cardNum, sStart, sEnd, dur, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null))
+            );
+            cardsLegacySchema.push(
+              env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time_ms,end_time_ms,image_key,audio_key,sentence,card_type,length,difficulty_score) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+                .bind(cardUuid, episode.id, cardNum, sStart * 1000, sEnd * 1000, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null))
+            );
+
             if (c.subtitle) {
               for (const [lang, text] of Object.entries(c.subtitle)) {
                 if (!text) continue;
-                await env.DB.prepare('INSERT OR IGNORE INTO card_subtitles (card_id,language,text) VALUES (?,?,?)').bind(cardUuid, lang, text).run();
+                subStmts.push(env.DB.prepare('INSERT OR IGNORE INTO card_subtitles (card_id,language,text) VALUES (?,?,?)').bind(cardUuid, lang, text));
+                ftsStmts.push(env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(String(text), lang, cardUuid));
               }
             }
-            // Insert difficulty frameworks if provided
             if (Array.isArray(c.difficulty_levels)) {
               for (const d of c.difficulty_levels) {
                 if (!d || !d.framework || !d.level) continue;
                 const lang = d.language || null;
-                await env.DB.prepare('INSERT OR REPLACE INTO card_difficulty_levels (card_id,framework,level,language) VALUES (?,?,?,?)').bind(cardUuid, String(d.framework), String(d.level), lang).run();
+                diffStmts.push(env.DB.prepare('INSERT OR REPLACE INTO card_difficulty_levels (card_id,framework,level,language) VALUES (?,?,?,?)').bind(cardUuid, String(d.framework), String(d.level), lang));
               }
             } else if (c.CEFR_Level) {
-              // Back-compat: accept CEFR_Level string
-              await env.DB.prepare('INSERT OR REPLACE INTO card_difficulty_levels (card_id,framework,level,language) VALUES (?,?,?,?)').bind(cardUuid, 'CEFR', String(c.CEFR_Level), 'en').run();
+              diffStmts.push(env.DB.prepare('INSERT OR REPLACE INTO card_difficulty_levels (card_id,framework,level,language) VALUES (?,?,?,?)').bind(cardUuid, 'CEFR', String(c.CEFR_Level), 'en'));
             }
           }
+
+          // Execute in a transaction; try new schema first, fallback to legacy once
+          const runImport = async (useLegacy) => {
+            try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
+            try {
+              await runStmtBatches(useLegacy ? cardsLegacySchema : cardsNewSchema, 200);
+              await runStmtBatches(subStmts, 400);
+              await runStmtBatches(ftsStmts, 400);
+              await runStmtBatches(diffStmts, 400);
+              try { await env.DB.prepare('COMMIT').run(); } catch {}
+              return true;
+            } catch (e) {
+              try { await env.DB.prepare('ROLLBACK').run(); } catch {}
+              throw e;
+            }
+          };
+
+          try {
+            await runImport(false);
+          } catch (e1) {
+            // Fallback once using legacy ms columns
+            await runImport(true);
+          }
+
           return json({ ok: true, inserted: cards.length, mode });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
