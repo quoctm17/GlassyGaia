@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiGetEpisodeDetail, apiFetchCardsForFilm } from "../../services/cfApi";
 import type { EpisodeDetailDoc, LevelFrameworkStats, CardDoc } from "../../types";
+import { sortLevelsByDifficulty } from "../../utils/levelSort";
 import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown } from "lucide-react";
 import PortalDropdown from "../../components/PortalDropdown";
 import toast from "react-hot-toast";
@@ -234,7 +235,7 @@ export default function AdminEpisodeDetailPage() {
                     <div key={idx} className="bg-[#1a0f24] rounded-lg p-3 border-2 border-pink-500/50 shadow-[0_0_12px_rgba(236,72,153,0.25)]">
                       <div className="text-sm text-pink-200 mb-2">{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
                       <div className="flex flex-wrap gap-2">
-                        {Object.entries(entry.levels).map(([lvl, pct]) => (
+                        {sortLevelsByDifficulty(entry.levels).map(([lvl, pct]) => (
                           <div key={lvl} className="text-xs bg-gray-700/60 px-2 py-1 rounded">
                             <span className="text-gray-300">{lvl}:</span> <span className="text-pink-300">{pct}%</span>
                           </div>

@@ -95,20 +95,26 @@
   font-size: 18px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
-  text-align: left;    
+  text-align: left;
+  letter-spacing: 0; /* Reset any inherited letter-spacing for CJK */
+  word-spacing: 0; /* Reset any inherited word-spacing for CJK */
 }
 .chinese-type {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
-  text-align: left;    
+  text-align: left;
+  letter-spacing: 0;
+  word-spacing: 0;
 }
 .chinese-sub {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
-  text-align: left;    
-  color: #9929EA;    /* Purple */ 
+  text-align: left;
+  color: #9929EA;    /* Purple */
+  letter-spacing: 0;
+  word-spacing: 0;
 }
 
 /* 🔤 ====== Pinyin/Furigana/Jyutping Styling ====== */
@@ -124,6 +130,14 @@ ruby rt {
   position: relative;
 }
 
+/* Fix for multiple CJK characters inside single <rb> tag */
+ruby rb {
+  display: inline;
+  letter-spacing: 0;
+  word-spacing: 0;
+  white-space: nowrap;
+}
+
 /* Enhance interactivity and readability for East Asian ruby pairs only */
 .hanzi-ruby ruby {
   margin: 0;
@@ -133,6 +147,9 @@ ruby rt {
   cursor: help;
   /* Keep default ruby layout - rt displays above rb */
   ruby-position: over;
+  /* Fix spacing between CJK characters: reset word-spacing and letter-spacing */
+  word-spacing: 0;
+  letter-spacing: 0;
 }
 
 .hanzi-ruby ruby:hover {
@@ -209,14 +226,18 @@ ruby rt {
   font-size: 18px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
-  text-align: left;    
+  text-align: left;
+  letter-spacing: 0; /* Reset any inherited letter-spacing for CJK */
+  word-spacing: 0; /* Reset any inherited word-spacing for CJK */
 }
 
 .japanese-type {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
-  text-align: left;    
+  text-align: left;
+  letter-spacing: 0;
+  word-spacing: 0;
 }
 
 .japanese-sub {
@@ -224,7 +245,9 @@ ruby rt {
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   color: #E45A92;    /* Pink */
-  text-align: left;    
+  text-align: left;
+  letter-spacing: 0;
+  word-spacing: 0;
 }
 /* ruby visibility is controlled globally (hidden by default, show on hover) */
 
@@ -543,12 +566,16 @@ ruby rt {
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;
+  letter-spacing: 0;
+  word-spacing: 0;
 }
 .cantonese-type {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;
+  letter-spacing: 0;
+  word-spacing: 0;
 }
 .cantonese-sub {
   font-size: 14px;
@@ -556,6 +583,8 @@ ruby rt {
   margin: 10px 40px;
   text-align: left;
   color: #7E57C2; /* Purple */
+  letter-spacing: 0;
+  word-spacing: 0;
 }
 
 /* ======================= FIL FILIPINO ======================= */

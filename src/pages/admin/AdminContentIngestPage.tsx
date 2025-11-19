@@ -326,6 +326,7 @@ export default function AdminContentIngestPage() {
     const slugOk = !!filmId && slugChecked && slugAvailable === true;
     const csvOk = csvValid === true;
     const titleOk = (title || "").trim().length > 0;
+    const typeOk = !!contentType;
     // Required card media: at least 1 image and 1 audio file
     const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
     // Optional toggles: if checked, require a file chosen for that input (use reactive flags)
@@ -334,8 +335,8 @@ export default function AdminContentIngestPage() {
     const epAudioOk = !addEpAudio || hasEpAudioFile;
     const epVideoOk = !addEpVideo || hasEpVideoFile;
     const optionalUploadsOk = coverOk && epCoverOk && epAudioOk && epVideoOk;
-    return !!(hasUser && emailOk && keyOk && slugOk && csvOk && titleOk && cardMediaOk && optionalUploadsOk);
-  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, imageFiles.length, audioFiles.length, addCover, addEpCover, addEpAudio, addEpVideo, hasCoverFile, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
+    return !!(hasUser && emailOk && keyOk && slugOk && csvOk && titleOk && typeOk && cardMediaOk && optionalUploadsOk);
+  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addEpCover, addEpAudio, addEpVideo, hasCoverFile, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
 
   // Handlers
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -667,7 +668,7 @@ export default function AdminContentIngestPage() {
                   {contentType === "series" && <Clapperboard className="w-4 h-4" />}
                   {contentType === "book" && <BookIcon className="w-4 h-4" />}
                   {contentType === "audio" && <AudioLines className="w-4 h-4" />}
-                  <span>{contentType ? CONTENT_TYPE_LABELS[contentType] : "(optional)"}</span>
+                  <span>{contentType ? CONTENT_TYPE_LABELS[contentType] : "(required)"}</span>
                 </span>
                 <span className="text-gray-400">▼</span>
               </button>

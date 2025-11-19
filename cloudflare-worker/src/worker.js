@@ -1068,7 +1068,8 @@ export default {
           const operator = tokens.length === 1 ? ' OR ' : ' AND ';
           const match = tokens.map((t, i) => {
             const isLast = i === tokens.length - 1;
-            const needsPrefix = isLast && t.length >= 1; // Allow single-character prefix search
+            // Apply prefix wildcard ONLY for single-token queries to avoid over-broad matches (e.g. 'sun*' in 'the sun').
+            const needsPrefix = tokens.length === 1 && isLast && t.length >= 1;
             return needsPrefix ? `${t}*` : t;
           }).join(operator);
           // Subquery: collect best-ranked card ids by bm25 over FTS5
@@ -1077,7 +1078,7 @@ export default {
           try {
             // FTS5 tables don't support aliases in MATCH clause or bm25() with GROUP BY
             // Use simpler approach: get distinct card_ids from FTS match
-            // Filter by subtitle language (card_subtitles_fts.language) to search only main language subtitles
+            // When main language provided: restrict BOTH to that subtitle language AND the content item's main_language.
             const sql = `
               SELECT DISTINCT c.id AS card_id
               FROM card_subtitles_fts
@@ -1085,12 +1086,15 @@ export default {
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
               WHERE card_subtitles_fts MATCH ?
-              ${mainLang ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?)' : ''}
+              ${mainLang ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
               LIMIT ?`;
             const mainCanon = mainLang ? String(mainLang).toLowerCase() : null;
-            res = mainCanon
-              ? await env.DB.prepare(sql).bind(match, mainCanon, limit).all()
-              : await env.DB.prepare(sql).bind(match, limit).all();
+            if (mainCanon) {
+              // Bind order: match, subtitle language, item main language, limit
+              res = await env.DB.prepare(sql).bind(match, mainCanon, mainCanon, limit).all();
+            } else {
+              res = await env.DB.prepare(sql).bind(match, limit).all();
+            }
           } catch (e) {
             // If FTS not ready, return empty to allow client fallback
             return json([]);

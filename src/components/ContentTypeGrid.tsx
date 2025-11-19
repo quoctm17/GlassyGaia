@@ -48,6 +48,7 @@ export default function ContentTypeGrid({ type, headingOverride, limit }: Conten
   }
 
   const onEnter = (f: FilmDoc, e?: React.MouseEvent<HTMLElement>) => {
+    if (modalOpen) return; // Don't show hover overlay when modal is open
     if (e) {
       const rect = e.currentTarget.getBoundingClientRect();
       const overlayWidth = Math.min(window.innerWidth * 0.75, 480);
@@ -82,6 +83,7 @@ export default function ContentTypeGrid({ type, headingOverride, limit }: Conten
   };
   const closeModal = () => { 
     setModalOpen(false);
+    setHoveredId(null); // Clear any hover state when modal closes
     window.setTimeout(() => setSelectedFilm(null), 500); // wait for closing animation
   };
 
@@ -95,10 +97,13 @@ export default function ContentTypeGrid({ type, headingOverride, limit }: Conten
         {items.map(f => {
           const cover = f.cover_url || (R2Base ? `${R2Base}/items/${f.id}/cover_image/cover.jpg` : `/items/${f.id}/cover_image/cover.jpg`);
           const isHovered = hoveredId === f.id;
+          const baseCardCls = "group relative rounded-lg transition-all duration-500 will-change-transform cursor-pointer";
+          const hoverEnhance = modalOpen ? "" : " hover:scale-[1.05] hover:shadow-2xl";
           return (
             <div
               key={f.id}
-              className="group relative rounded-lg transition-all duration-500 will-change-transform hover:scale-[1.05] hover:shadow-2xl cursor-pointer"
+              className={baseCardCls + hoverEnhance}
+              style={{ pointerEvents: modalOpen ? 'none' : 'auto' }}
               onMouseEnter={(e) => onEnter(f, e)}
               onMouseLeave={onLeave}
               onClick={() => openModal(f)}
@@ -142,13 +147,19 @@ export default function ContentTypeGrid({ type, headingOverride, limit }: Conten
               pointerEvents: isActive ? 'auto' : 'none',
             }}
             className="hidden md:block transition-all duration-500 ease-out cursor-pointer"
-            onMouseEnter={() => { clearHide(); setHoveredId(f.id); }}
+            onMouseEnter={() => { if (modalOpen) return; clearHide(); setHoveredId(f.id); }}
             onMouseLeave={() => { scheduleHide(); }}
             onClick={() => openModal(f)}
           >
             <div className="bg-[#14101b]/95 border border-pink-500 rounded-2xl shadow-[0_0_40px_rgba(236,72,153,0.35)] backdrop-blur-sm overflow-hidden transition-all duration-500">
               <div className="relative w-full aspect-video bg-black">
-                {cover && <img src={cover} alt={String(f.title || f.id)} className="w-full h-full object-contain" />}
+                {cover && <img 
+                  src={cover} 
+                  alt={String(f.title || f.id)} 
+                  className="w-full h-full object-contain"
+                  onContextMenu={(e) => e.preventDefault()}
+                  draggable={false}
+                />}
               </div>
               <div className="p-3">
                 <div className="flex items-center gap-2 mb-2">

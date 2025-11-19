@@ -48,3 +48,28 @@ export function cardHasAllLanguages(card: CardDoc, langs: string[]): boolean {
   return true;
 }
 
+// Normalize spacing for CJK text commonly segmented with spaces.
+// - Removes spaces between CJK-CJK pairs
+// - Removes spaces around common JP/ZH punctuation
+// - Also removes spaces between consecutive bracketed ruby groups, e.g. 漢[かん] 字[じ]
+export function normalizeCjkSpacing(text: string): string {
+  if (!text) return text;
+  // Unicode ranges: Han 3400-9FFF (+ CJK Ext A/B in BMP/Fxx), Hiragana 3040-309F, Katakana 30A0-30FF
+  const CJK = "[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\u3040-\\u30FF]";
+  // Frequent JP/ZH punctuation used in subtitles
+  const PUNCT = "[、。．・，,。！!？?：:；;「」『』（）()［］\[\]…—\-]";
+  // Broad whitespace class: ASCII space, NBSP, and full set of Unicode spaces including IDEOGRAPHIC SPACE (\u3000)
+  const WS = "[\\s\\u00A0\\u1680\\u2000-\\u200A\\u202F\\u205F\\u3000]+";
+  let s = text;
+  // Normalize any leading/trailing exotic whitespace
+  s = s.replace(new RegExp(`^${WS}`), "").replace(new RegExp(`${WS}$`), "");
+  // 1) Collapse spaces between CJK characters
+  s = s.replace(new RegExp(`(${CJK})${WS}(${CJK})`, "g"), "$1$2");
+  // 2) Collapse spaces between ] and [ when they sandwich CJK bases (ruby bracketed groups)
+  s = s.replace(new RegExp(`(\\]|${CJK})${WS}(\\[|${CJK})`, "g"), "$1$2");
+  // 3) Remove spaces before/after CJK punctuation
+  s = s.replace(new RegExp(`(${CJK})${WS}(${PUNCT})`, "g"), "$1$2");
+  s = s.replace(new RegExp(`(${PUNCT})${WS}(${CJK})`, "g"), "$1$2");
+  return s;
+}
+

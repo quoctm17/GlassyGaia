@@ -32,7 +32,13 @@ export default function ContentDetailModal({ film, open, onClose }: Props) {
         {/* Hero section with cover */}
         <div className="relative w-full aspect-video bg-black overflow-hidden">
           {cover && (
-            <img src={cover} alt={String(film.title || film.id)} className="w-full h-full object-contain" />
+            <img 
+              src={cover} 
+              alt={String(film.title || film.id)} 
+              className="w-full h-full object-contain"
+              onContextMenu={(e) => e.preventDefault()}
+              draggable={false}
+            />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent" />
           <button

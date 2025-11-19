@@ -12,11 +12,11 @@ interface Props {
 }
 
 export default function MainLanguageSelector({ filmId = "global", optionsOverride, className, onChange }: Props) {
-  const { preferences, setMainLanguage } = useUser();
+  const { preferences, setMainLanguage, openLanguageSelector, setOpenLanguageSelector } = useUser();
   const [options, setOptions] = useState<string[]>([]);
-  const [open, setOpen] = useState(false);
   const current = preferences.main_language || "en";
   const [local, setLocal] = useState<string>(current);
+  const open = openLanguageSelector === "main";
 
   useEffect(() => {
     const load = async () => {
@@ -49,7 +49,7 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
     const lang = local || current;
     await setMainLanguage(lang);
     onChange?.(lang);
-    setOpen(false);
+    setOpenLanguageSelector(null);
   };
 
   // If the current saved main language is not in the available list (e.g., only EN exists),
@@ -67,7 +67,7 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
   return (
     <div className={"relative " + (className || "")}>
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpenLanguageSelector(open ? null : "main")}
         className="pixel-pill text-sm"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -99,7 +99,7 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
           })}
           <div className="mt-2 flex justify-end gap-2 px-2">
             <button className="pixel-btn-fav active text-xs" onClick={apply}>Apply</button>
-            <button className="pixel-btn-fav text-xs" onClick={() => { setLocal(current); setOpen(false); }}>Cancel</button>
+            <button className="pixel-btn-fav text-xs" onClick={() => { setLocal(current); setOpenLanguageSelector(null); }}>Cancel</button>
           </div>
         </div>
       )}

@@ -35,10 +35,22 @@ export default function CardDetailModal({ card, open, onClose }: Props) {
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-gray-900 border border-gray-700 rounded-lg w-[min(92vw,900px)] max-h-[90vh] overflow-auto shadow-2xl p-4">
         <div className="flex items-start gap-4">
-          <img src={card.image_url} alt={card.id} className="w-48 h-32 object-cover rounded border border-gray-700" />
+          <img 
+            src={card.image_url} 
+            alt={card.id} 
+            className="w-48 h-32 object-cover rounded border border-gray-700"
+            onContextMenu={(e) => e.preventDefault()}
+            draggable={false}
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
-              <audio controls src={card.audio_url} preload="none" />
+              <audio 
+                controls 
+                src={card.audio_url} 
+                preload="none"
+                controlsList="nodownload"
+                onContextMenu={(e) => e.preventDefault()}
+              />
               <div className="text-xs text-gray-400">ep {String(card.episode)} · {card.start.toFixed(2)}s–{card.end.toFixed(2)}s</div>
               <button className="ml-auto px-2 py-1 rounded bg-gray-700 hover:bg-gray-600" onClick={onClose}>✕</button>
             </div>
@@ -49,12 +61,16 @@ export default function CardDetailModal({ card, open, onClose }: Props) {
               <div className="mt-1 text-xs text-gray-400">CEFR: {card.CEFR_Level}</div>
             )}
             <div className="mt-3 space-y-1">
-              {ordered.map((code) => (
-                <div key={code} className="text-sm">
-                  <span className="uppercase text-gray-400 mr-2">{code}</span>
-                  <span dangerouslySetInnerHTML={{ __html: card.subtitle?.[code] ?? "" }} />
-                </div>
-              ))}
+              {ordered.map((code) => {
+                const needsRuby = ["ja", "zh", "zh_trad", "yue"].includes(canonicalizeLangCode(code) || code);
+                const rubyClass = needsRuby ? "hanzi-ruby" : "";
+                return (
+                  <div key={code} className="text-sm">
+                    <span className="uppercase text-gray-400 mr-2">{code}</span>
+                    <span className={rubyClass} dangerouslySetInnerHTML={{ __html: card.subtitle?.[code] ?? "" }} />
+                  </div>
+                );
+              })}
             </div>
             {card.words && (
               <div className="mt-4">
