@@ -5,7 +5,7 @@ import { useUser } from "../context/UserContext";
 import AudioPlayer from "./AudioPlayer";
 import { toggleFavorite } from "../services/progress";
 import { canonicalizeLangCode, countryCodeForLang } from "../utils/lang";
-import { subtitleText } from "../utils/subtitles";
+import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath } from "../services/firestore";
 
 interface Props {
@@ -117,7 +117,8 @@ export default function SearchResultCard({
   // Convert bracket furigana/pinyin/jyutping to safe ruby HTML
   function bracketToRubyHtml(text: string): string {
     if (!text) return "";
-    const re = /([^\s[]+)\[([^\]]+)\]/g; // base[reading]
+    // Treat a broad set of whitespace as token separators (includes \u3000 IDEOGRAPHIC SPACE, NBSP)
+    const re = /([^\s\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000[]+)\[([^\]]+)\]/g; // base[reading]
     let last = 0;
     let out = "";
     let m: RegExpExecArray | null;
@@ -128,6 +129,20 @@ export default function SearchResultCard({
       last = m.index + m[0].length;
     }
     out += escapeHtml(text.slice(last));
+    // As a final safety, remove any whitespace between adjacent ruby tags
+    // and around common JP/ZH punctuation that might survive upstream normalization.
+    const CJK_RANGE = "\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\u3040-\\u30FF";
+    out = out
+      // remove whitespace at very start/end
+      .replace(/^\s+/, "").replace(/\s+$/, "")
+      // close/open ruby adjacency
+      .replace(/<\/ruby>\s+<ruby>/g, "</ruby><ruby>")
+      // CJK char next to ruby start/end
+      .replace(new RegExp(`([${CJK_RANGE}])\\s+<ruby>`, "g"), "$1<ruby>")
+      .replace(new RegExp(`<\\/ruby>\\s+([${CJK_RANGE}])`, "g"), "</ruby>$1")
+      // spaces around JP/ZH punctuation
+      .replace(/\s+([、。．・，。！!？?：:；;」』）］])/g, "$1")
+      .replace(/([「『（［])\s+/g, "$1");
     return out;
   }
 
@@ -145,6 +160,17 @@ export default function SearchResultCard({
       );
     } catch {
       return escapeHtml(text);
+    }
+  }
+
+  // Highlight occurrences inside already-safe HTML (e.g., ruby markup) without escaping tags
+  function highlightInsideHtmlPreserveTags(html: string, q: string): string {
+    if (!q) return html;
+    try {
+      const re = new RegExp(escapeRegExp(q), "gi");
+      return html.replace(re, (match) => `<span class="bg-amber-400/80 text-black px-1 rounded">${match}</span>`);
+    } catch {
+      return html;
     }
   }
 
@@ -199,6 +225,8 @@ export default function SearchResultCard({
           alt={card.id}
           loading="lazy"
           className="w-28 h-20 object-cover rounded-md border-2 border-pink-500 hover:opacity-90"
+          onContextMenu={(e) => e.preventDefault()}
+          draggable={false}
         />
       </Link>
       <div className="flex-1 min-w-0 relative z-10 flex flex-col">
@@ -267,7 +295,13 @@ export default function SearchResultCard({
               }
               const canon = (canonicalizeLangCode(code) || code).toLowerCase();
               const needsRuby = canon === "ja" || canon === "zh" || canon === "zh_trad" || canon === "yue";
-              const html = needsRuby ? bracketToRubyHtml(raw) : (q ? highlightHtml(raw, q) : escapeHtml(raw));
+              let html: string;
+              if (needsRuby) {
+                const rubyHtml = bracketToRubyHtml(normalizeCjkSpacing(raw));
+                html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q) : rubyHtml;
+              } else {
+                html = q ? highlightHtml(raw, q) : escapeHtml(raw);
+              }
               const name = codeToName(code);
               const roleClass = isPrimary ? `${name}-main` : `${name}-sub`;
               const rubyClass = needsRuby ? "hanzi-ruby" : "";

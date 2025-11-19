@@ -9,6 +9,24 @@ body {
   @apply bg-gray-900 text-white;
 }
 
+/* Anti-scraping protection for media elements */
+img, audio, video {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  pointer-events: auto;
+}
+
+/* Prevent drag-and-drop for images */
+img {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+}
+
 /* Global scrollbar (Pink Pixel enhanced) */
 /* WebKit */
 ::-webkit-scrollbar {

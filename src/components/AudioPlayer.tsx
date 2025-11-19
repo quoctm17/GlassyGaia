@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
-import { Play, Pause, Volume2, VolumeX, MoreVertical, Download, FastForward } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, MoreVertical, FastForward } from "lucide-react";
+import PortalDropdown from "./PortalDropdown";
 
 interface AudioPlayerProps {
   src: string;
@@ -86,17 +87,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
     };
   }, []);
 
-  // Download handler
-  const handleDownload = () => {
-    const a = document.createElement("a");
-    a.href = src;
-    a.download = src.split("/").pop() || "audio.mp3";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setShowMenu(false);
-  };
-
   // Playback rate handler
   const handleRate = (rate: number) => {
     const audio = audioRef.current;
@@ -151,6 +141,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
       />
       <div className="relative ml-2">
         <button
+          id="audio-player-menu-btn"
           className="p-1.5 rounded-full bg-pink-200 hover:bg-pink-300 text-pink-700"
           onClick={() => setShowMenu((v) => !v)}
           aria-label="More options"
@@ -158,30 +149,42 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
           <MoreVertical size={20} />
         </button>
         {showMenu && (
-          <div className="absolute right-0 top-10 z-50 min-w-[140px] bg-white text-pink-700 rounded-lg shadow-lg border border-pink-200 py-2 px-2 flex flex-col gap-1 animate-fade-in">
-            <button
-              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-pink-100"
-              onClick={handleDownload}
-            >
-              <Download size={18} /> Download audio
-            </button>
-            <div className="flex items-center gap-2 px-2 py-1">
-              <FastForward size={18} />
-              <span className="mr-2">Speed:</span>
-              {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
-                <button
-                  key={rate}
-                  className={`px-2 py-0.5 rounded ${playbackRate === rate ? "bg-pink-200 font-bold" : "hover:bg-pink-100"}`}
-                  onClick={() => handleRate(rate)}
-                >
-                  {rate}x
-                </button>
-              ))}
+          <PortalDropdown
+            anchorEl={document.getElementById('audio-player-menu-btn')!}
+            onClose={() => setShowMenu(false)}
+            className="pixel-filter-panel p-2"
+            align="right"
+            offset={8}
+            minWidth={200}
+          >
+            <div className="flex flex-col gap-1">
+              <div className="text-[11px] text-pink-200/80 px-2 pb-1">Playback Speed</div>
+              <div className="flex items-center gap-2 px-2 py-1">
+                <FastForward size={18} className="text-pink-200" />
+                <div className="flex gap-1">
+                  {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                    <button
+                      key={rate}
+                      className={`pixel-filter-btn text-xs px-2 py-1 ${playbackRate === rate ? "active" : ""}`}
+                      onClick={() => handleRate(rate)}
+                    >
+                      {rate}x
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
+          </PortalDropdown>
         )}
       </div>
-      <audio ref={audioRef} src={src} preload="none" style={{ display: "none" }} />
+      <audio 
+        ref={audioRef} 
+        src={src} 
+        preload="none" 
+        style={{ display: "none" }}
+        controlsList="nodownload"
+        onContextMenu={(e) => e.preventDefault()}
+      />
     </div>
   );
 };

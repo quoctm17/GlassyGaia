@@ -20,6 +20,9 @@ interface CtxValue {
   setMainLanguage: (lang: string) => Promise<void>;
   favoriteIds: Set<string>;
   setFavoriteLocal: (cardId: string, val: boolean) => void;
+  // Language selector coordination: only one can be open at a time
+  openLanguageSelector: "main" | "subtitle" | null;
+  setOpenLanguageSelector: (which: "main" | "subtitle" | null) => void;
 }
 
 const defaultPrefs: UserPreferences = { subtitle_languages: ["en"], require_all_langs: false, main_language: "en" };
@@ -49,6 +52,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [adminKey, setAdminKey] = useState<string>("");
+  const [openLanguageSelector, setOpenLanguageSelector] = useState<"main" | "subtitle" | null>(null);
 
   useEffect(() => {
     // Initialize preferences from localStorage
@@ -134,7 +138,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <UserCtx.Provider
-      value={{ user, loading, signInGoogle, signOutApp, adminKey, setAdminKey, preferences, setSubtitleLanguages, setSubtitleRequireAll, favoriteIds, setFavoriteLocal, setMainLanguage }}
+      value={{ user, loading, signInGoogle, signOutApp, adminKey, setAdminKey, preferences, setSubtitleLanguages, setSubtitleRequireAll, favoriteIds, setFavoriteLocal, setMainLanguage, openLanguageSelector, setOpenLanguageSelector }}
     >
       {children}
     </UserCtx.Provider>

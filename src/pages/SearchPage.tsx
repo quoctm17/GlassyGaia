@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
 import type { CardDoc } from "../types";
 import { searchCardsGlobalClient, listAllItems } from "../services/firestore";
@@ -11,6 +12,7 @@ import { useUser } from "../context/UserContext";
 
 function SearchPage() {
   const { preferences } = useUser();
+  const location = useLocation();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   // Derive loading state from actual fetch; avoid a separate 'searching' toggle to prevent spinner flicker
@@ -54,7 +56,7 @@ function SearchPage() {
   };
 
   useEffect(() => {
-    // initial load
+    // initial load and refresh whenever user navigates to this page
     runSearch("");
     // preload film titles for facet labels
     listAllItems()
@@ -86,7 +88,7 @@ function SearchPage() {
         setFilms([]);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.pathname]); // Refresh whenever navigation occurs to this page
 
   // Listen for content updates (uploads/deletes) to refresh lists and search
   useEffect(() => {

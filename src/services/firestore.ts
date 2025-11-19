@@ -214,6 +214,8 @@ export async function searchCardsGlobalClient(
     const canonical = canonicalizeLangCode(lang) || lang.toLowerCase();
     const text = canonical ? (subtitleText(c, canonical) ?? "") : "";
     if (text) return text.toLowerCase().includes(qLower);
+    // If a main language filter is active, do NOT fall back to other subtitle languages.
+    if (selectedMainLang) return false;
     return Object.values(c.subtitle ?? {}).some((t) => (t ?? "").toLowerCase().includes(qLower));
   });
 }

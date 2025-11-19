@@ -14,11 +14,11 @@ interface Props {
 }
 
 export default function SubtitleLanguageSelector({ filmId = "global", optionsOverride, className, maxSelections = 3, onChange }: Props) {
-  const { preferences, setSubtitleLanguages } = useUser();
+  const { preferences, setSubtitleLanguages, openLanguageSelector, setOpenLanguageSelector } = useUser();
   const main = (canonicalizeLangCode(preferences.main_language || "en") || "en");
   const [options, setOptions] = useState<string[]>([]);
-  const [open, setOpen] = useState(false);
   const [local, setLocal] = useState<string[]>(preferences.subtitle_languages || []);
+  const open = openLanguageSelector === "subtitle";
 
   useEffect(() => {
     const load = async () => {
@@ -57,13 +57,13 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
     }
     await setSubtitleLanguages(local);
     onChange?.(local);
-    setOpen(false);
+    setOpenLanguageSelector(null);
   };
 
   return (
     <div className={"relative " + (className || "")}> 
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpenLanguageSelector(open ? null : "subtitle")}
         className="pixel-pill text-sm"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -101,7 +101,7 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
           </div>
           <div className="mt-2 flex justify-end gap-2 px-2">
             <button className="pixel-btn-fav active text-xs" onClick={apply}>Apply</button>
-            <button className="pixel-btn-fav text-xs" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="pixel-btn-fav text-xs" onClick={() => setOpenLanguageSelector(null)}>Cancel</button>
           </div>
         </div>
       )}
