@@ -79,10 +79,10 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
       {open && (
         <div className="absolute right-0 mt-2 w-64 z-50 pixel-filter-panel p-2">
           <div className="flex items-center justify-between px-1 pb-1">
-            <div className="text-[11px] text-pink-200/80">Chọn 1 ngôn ngữ</div>
+            <div className="text-[11px] text-pink-200/80">Select one language</div>
           </div>
           {options.length === 0 && (
-            <div className="px-2 py-1 text-sm text-pink-200/80">Không có ngôn ngữ</div>
+            <div className="px-2 py-1 text-sm text-pink-200/80">No languages</div>
           )}
           {options.map((l) => {
             const active = local === l;

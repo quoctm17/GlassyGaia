@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { CardDoc } from "../types";
-import AudioWaveformPreview from "./AudioWaveformPreview";
 import { useUser } from "../context/UserContext";
+import AudioPlayer from "./AudioPlayer";
 import { toggleFavorite } from "../services/progress";
 import { canonicalizeLangCode, countryCodeForLang } from "../utils/lang";
 import { subtitleText } from "../utils/subtitles";
+import { getCardByPath } from "../services/firestore";
 
 interface Props {
   card: CardDoc;
@@ -20,11 +21,13 @@ export default function SearchResultCard({
 }: Props) {
   const { preferences, user, signInGoogle, favoriteIds, setFavoriteLocal } =
     useUser();
-  const langs = preferences.subtitle_languages;
+  const langs = useMemo(() => preferences.subtitle_languages || [], [preferences.subtitle_languages]);
   const [favorite, setFavorite] = useState<boolean>(false);
   const ref = useRef<HTMLDivElement | null>(null);
+  const [subsOverride, setSubsOverride] = useState<Record<string, string> | null>(null);
 
   const shownLangs = useMemo(() => {
+    const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
     const ORDER = [
       "en",
       "vi",
@@ -50,7 +53,7 @@ export default function SearchResultCard({
     const primary = primaryLang
       ? canonicalizeLangCode(primaryLang) || primaryLang
       : undefined;
-    // If user didn't choose any subtitle languages, show only the Primary language
+    // Build secondary list from user's subtitle preferences
     const secondaryAll = (
       langs && langs.length ? langs : []
     ).map((c) => canonicalizeLangCode(c) || (c as string));
@@ -61,12 +64,41 @@ export default function SearchResultCard({
     const sortedSecondary = filteredSecondary.sort(
       (a, b) => orderIndex(a) - orderIndex(b)
     );
+    // Always include primary (film's audio language) first, then selected subtitle languages
     const finalOrder = (primary ? [primary] : []).concat(sortedSecondary);
-    // Keep only those that actually have text on this card
-    return finalOrder.filter((code) => !!subtitleText(card, code));
-  }, [card, langs, primaryLang]);
+    // Keep primary ALWAYS (will fallback to sentence if no subtitle), secondaries only if subtitle exists
+    return finalOrder.filter((code) => {
+      if (primary && code === primary) return true; // always show primary
+      return !!subtitleText(effectiveCard, code); // secondary needs subtitle
+    });
+  }, [card, subsOverride, langs, primaryLang]);
 
-  const onPlay = async () => {};
+  // Lazy-fixup: if subtitles are missing in the list payload, fetch per-card detail once
+  useEffect(() => {
+    const hasSubs = card.subtitle && Object.keys(card.subtitle).length > 0;
+    const film = card.film_id;
+    const epSlug = card.episode_id || (typeof card.episode === "number" ? `e${card.episode}` : String(card.episode || ""));
+    const cid = String(card.id || "");
+    if (hasSubs || !film || !epSlug || !cid) {
+      setSubsOverride(null);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const detail = await getCardByPath(film, epSlug, cid);
+        if (active && detail?.subtitle && Object.keys(detail.subtitle).length) {
+          setSubsOverride(detail.subtitle);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [card.film_id, card.episode_id, card.episode, card.id, card.subtitle]);
+
 
   // Simple HTML escaper
   function escapeHtml(s: string): string {
@@ -80,6 +112,23 @@ export default function SearchResultCard({
 
   function escapeRegExp(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // Convert bracket furigana/pinyin/jyutping to safe ruby HTML
+  function bracketToRubyHtml(text: string): string {
+    if (!text) return "";
+    const re = /([^\s[]+)\[([^\]]+)\]/g; // base[reading]
+    let last = 0;
+    let out = "";
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      out += escapeHtml(text.slice(last, m.index));
+      // Include <rb> for better styling of the base glyphs on hover
+      out += `<ruby><rb>${escapeHtml(m[1])}</rb><rt>${escapeHtml(m[2])}</rt></ruby>`;
+      last = m.index + m[0].length;
+    }
+    out += escapeHtml(text.slice(last));
+    return out;
   }
 
   // Highlight query occurrences with a styled span; case-insensitive
@@ -138,81 +187,47 @@ export default function SearchResultCard({
         }/${card.id}`
       : undefined;
 
-  // Hover audio waveform preview state
-  const [hover, setHover] = useState(false);
-  // Build preview URL: if VITE_PREVIEW_AUDIO_BASE is set, rewrite origin of card.audio_url
-  // to that base (preserving the full R2 key path). Otherwise, use card.audio_url as-is.
-  const previewBase = (import.meta.env.VITE_PREVIEW_AUDIO_BASE || "").replace(/\/$/, "");
-  const previewUrl = (() => {
-    try {
-      if (previewBase) {
-        const u = new URL(card.audio_url);
-        return `${previewBase}${u.pathname}`;
-      }
-    } catch {
-      // ignore malformed URL
-    }
-    return card.audio_url;
-  })();
-
   return (
-    <div
-      ref={ref}
-      className="pixel-result-card relative overflow-hidden"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
-      <AudioWaveformPreview
-        audioUrl={previewUrl}
-        active={hover}
-        className="absolute inset-0 pointer-events-none"
-        barColor="#f472b6"
-      />
+    <div ref={ref} className="pixel-result-card relative overflow-hidden">
       <Link
         to={detailPath || "#"}
         className="shrink-0 relative z-10"
-        onClick={(e) => {
-          if (!detailPath) e.preventDefault();
-        }}
+        onClick={(e) => { if (!detailPath) e.preventDefault(); }}
       >
         <img
           src={card.image_url}
           alt={card.id}
+          loading="lazy"
           className="w-28 h-20 object-cover rounded-md border-2 border-pink-500 hover:opacity-90"
         />
       </Link>
-      <div className="flex-1 min-w-0 relative z-10">
-        <div className="flex items-center gap-3">
-          <audio controls preload="none" src={card.audio_url} onPlay={onPlay} />
-          <div className="text-xs text-gray-400 flex items-center gap-2">
-            ep {String(card.episode)} · {card.start.toFixed(2)}s–
-            {card.end.toFixed(2)}s
-            {primaryLang && (
-              <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-700 text-gray-100 text-[10px]">
-                <span className={`fi fi-${countryCodeForLang(primaryLang)}`}></span>
-                <span>{(canonicalizeLangCode(primaryLang) || primaryLang).toUpperCase()}</span>
-              </span>
-            )}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              className={`pixel-btn-fav ${favorite ? "active" : ""}`}
-              onClick={onToggleFavorite}
-              title="Favorite"
-            >
-              ♥
-            </button>
-            {/* Deck feature deferred */}
-          </div>
+      <div className="flex-1 min-w-0 relative z-10 flex flex-col">
+        <div className="pixel-audio-container mb-2">
+          <AudioPlayer src={card.audio_url} />
         </div>
-        <div className="mt-2 space-y-1">
+        <div className="pixel-card-meta">
+          <span className="ep-tag">EP {String(card.episode)}</span>
+          <span className="time-range">{card.start.toFixed(2)}s–{card.end.toFixed(2)}s</span>
+          {primaryLang && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-700 text-gray-100 text-[10px]">
+              <span className={`fi fi-${countryCodeForLang(primaryLang)}`}></span>
+              <span>{(canonicalizeLangCode(primaryLang) || primaryLang).toUpperCase()}</span>
+            </span>
+          )}
+          <button
+            className={`ml-auto pixel-btn-fav ${favorite ? "active" : ""}`}
+            onClick={onToggleFavorite}
+            title="Favorite"
+          >
+            ♥
+          </button>
+        </div>
+        <div className="mt-3 space-y-1">
           {(() => {
             const primaryCode = primaryLang
               ? canonicalizeLangCode(primaryLang) || primaryLang
               : undefined;
-            const primaryAvailable = primaryCode
-              ? !!subtitleText(card, primaryCode)
-              : false;
+            // Primary should be shown even when no subtitle text is present (audio language)
             const codeToName = (code: string): string => {
               const c = (canonicalizeLangCode(code) || code).toLowerCase();
               const map: Record<string, string> = {
@@ -240,31 +255,30 @@ export default function SearchResultCard({
               };
               return map[c] || c;
             };
+            const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
             const items = shownLangs;
             return items.map((code) => {
-              const raw = subtitleText(card, code) ?? "";
+              let raw = subtitleText(effectiveCard, code) ?? "";
               const q = (highlightQuery ?? "").trim();
-              const html = q ? highlightHtml(raw, q) : escapeHtml(raw);
-              const isPrimary = primaryAvailable && primaryCode === code;
+              const isPrimary = primaryCode === code;
+              // If primary has no subtitle text, fallback to sentence so we can still show content
+              if (isPrimary && !raw) {
+                raw = effectiveCard.sentence ?? "";
+              }
+              const canon = (canonicalizeLangCode(code) || code).toLowerCase();
+              const needsRuby = canon === "ja" || canon === "zh" || canon === "zh_trad" || canon === "yue";
+              const html = needsRuby ? bracketToRubyHtml(raw) : (q ? highlightHtml(raw, q) : escapeHtml(raw));
               const name = codeToName(code);
               const roleClass = isPrimary ? `${name}-main` : `${name}-sub`;
-              const rubyClass = isPrimary && ["zh", "ja", "zh_trad"].includes(
-                (canonicalizeLangCode(code) || code).toLowerCase()
-              )
-                ? "hanzi-ruby"
-                : "";
+              const rubyClass = needsRuby ? "hanzi-ruby" : "";
               return (
                 <div
                   key={code}
-                  className={`${isPrimary ? "text-base sm:text-lg" : "text-sm text-gray-200"} ${roleClass} ${rubyClass}`}
+                  className={`${isPrimary ? "text-sm sm:text-base" : "text-xs text-gray-200"} ${roleClass} ${rubyClass}`}
                 >
-                  <span
-                    className={`inline-block align-middle mr-2 fi fi-${countryCodeForLang(
-                      code
-                    )}`}
-                  ></span>
+                  <span className={`inline-block align-middle mr-1.5 text-sm fi fi-${countryCodeForLang(code)}`}></span>
                   {isPrimary && (
-                    <span className="align-middle mr-2 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-400/90 text-black font-semibold">
+                    <span className="align-middle mr-1.5 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-amber-400/90 text-black font-semibold">
                       Primary
                     </span>
                   )}
@@ -277,13 +291,6 @@ export default function SearchResultCard({
             });
           })()}
         </div>
-        {detailPath && (
-          <div className="mt-2">
-            <Link to={detailPath} className="pixel-btn-fav">
-              Details
-            </Link>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -15,9 +15,17 @@ export function detectCodesFromCard(card: CardDoc): CanonicalLang[] {
 // Get subtitle string by canonical code; tries aliases present on the card
 export function subtitleText(card: CardDoc, canonicalCode: string): string | undefined {
   const aliases = expandCanonicalToAliases(canonicalCode);
-  const sub = card.subtitle ?? {} as Record<string, string>;
+  const raw = card.subtitle ?? ({} as Record<string, string>);
+  // Build a lowercase lookup map to tolerate mixed-case / hyphen variants
+  const lowerMap: Record<string, string> = {};
+  for (const k of Object.keys(raw)) {
+    lowerMap[k.toLowerCase()] = raw[k];
+  }
   for (const key of aliases) {
-    if (sub[key]) return sub[key];
+    const direct = raw[key];
+    if (direct) return direct;
+    const lowered = lowerMap[key.toLowerCase()];
+    if (lowered) return lowered;
   }
   return undefined;
 }

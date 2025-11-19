@@ -21,7 +21,11 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
   ja: "ja", jp: "ja", japanese: "ja",
   ko: "ko", kr: "ko", korean: "ko",
   zh: "zh", cn: "zh", "zh-cn": "zh", zh_cn: "zh", chinese: "zh", chinese_simplified: "zh",
+  // Simplified variants
+  "zh-hans": "zh", zh_hans: "zh", "zh-hans-cn": "zh", zh_hans_cn: "zh", "zh-simplified": "zh", zh_simplified: "zh",
+  // Traditional variants and regions
   tw: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad", "zh-hant": "zh_trad", zh_hant: "zh_trad", zh_trad: "zh_trad", "chinese traditional": "zh_trad", traditional_chinese: "zh_trad",
+  "zh-hk": "zh_trad", zh_hk: "zh_trad", "zh-mo": "zh_trad", zh_mo: "zh_trad", "zh-hant-tw": "zh_trad", zh_hant_tw: "zh_trad", "zh-hant-hk": "zh_trad", zh_hant_hk: "zh_trad",
   id: "id", "in": "id", indonesian: "id",
   th: "th", thai: "th",
   ms: "ms", my: "ms", malay: "ms",
@@ -69,11 +73,19 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
 
 const canonicalToAliases: Record<CanonicalLang, string[]> = {
   en: ["en", "us", "gb", "uk", "eng", "english"],
-  vi: ["vi", "vietnamese"],
+  vi: ["vi", "vn", "vietnamese"],
   ja: ["ja", "jp", "japanese"],
   ko: ["ko", "kr", "korean"],
-  zh: ["zh", "cn", "zh-cn", "zh_cn", "chinese", "chinese_simplified"],
-  zh_trad: ["zh_trad", "zh-tw", "zh_tw", "zh-hant", "zh_hant", "tw", "chinese traditional", "traditional_chinese"],
+  zh: [
+    "zh", "cn", "zh-cn", "zh_cn", "chinese", "chinese_simplified",
+    // Common Simplified aliases used in datasets
+    "zh-hans", "zh_hans", "zh-hans-cn", "zh_hans_cn", "zh-simplified", "zh_simplified"
+  ],
+  zh_trad: [
+    "zh_trad", "zh-tw", "zh_tw", "zh-hant", "zh_hant", "tw", "chinese traditional", "traditional_chinese",
+    // Map Hong Kong and Macau variants to Traditional
+    "zh-hk", "zh_hk", "zh-mo", "zh_mo", "zh-hant-tw", "zh_hant_tw", "zh-hant-hk", "zh_hant_hk"
+  ],
   id: ["id", "in", "indonesian"],
   th: ["th", "thai"],
   ms: ["ms", "my", "malay"],

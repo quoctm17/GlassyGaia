@@ -45,6 +45,8 @@ export interface ImportOptions {
   cardPadDigits?: number; // default auto based on total
   // Optional explicit card IDs (e.g., derived from media filenames when Infer IDs is enabled)
   cardIds?: string[];
+  // Optional: override which CSV header to use for the Main Language subtitle column
+  overrideMainSubtitleHeader?: string;
 }
 
 function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; detectedLangs: string[]; primary?: string } {
@@ -203,12 +205,22 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
   // Detect mapping if not provided
   const headerFields = parsed.meta?.fields || Object.keys(rows[0] || {});
   const auto = detectMappingFromHeaders(headerFields);
-  const mapping = opts.mapping || auto.mapping;
+  const baseMapping = opts.mapping || auto.mapping;
+  // Make a shallow-cloned mapping we can safely adjust
+  const mapping: ColumnMapping = { ...baseMapping, subtitles: { ...(baseMapping.subtitles || {}) } };
 
   // Enforce required columns: start, end (Type is optional)
 
   // Assemble film meta with detected languages and primary
   const mainLang = filmMeta.language || auto.primary || "en";
+  // If the caller specifies an override header for the main language, apply it
+  if (opts.overrideMainSubtitleHeader) {
+    const mainCanon = canonicalizeLangCode(mainLang) || mainLang;
+    // Only apply if the header actually exists in the CSV
+    if ((headerFields as string[]).includes(opts.overrideMainSubtitleHeader)) {
+      mapping.subtitles[mainCanon] = opts.overrideMainSubtitleHeader;
+    }
+  }
   const available = Array.from(new Set([...(filmMeta.available_subs || []), ...auto.detectedLangs]));
   const meta = { ...filmMeta, language: mainLang, available_subs: available, total_cards: total };
   // mainCanon retained for potential future use but not required for import generation

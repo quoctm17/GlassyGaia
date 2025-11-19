@@ -37,12 +37,12 @@ export default function NavBar() {
       <div className="flex items-center gap-8">
         <Link
           to="/"
-          className="flex items-center gap-2 font-bold text-xl tracking-wide text-pink-300 drop-shadow-[0_0_4px_rgba(236,72,153,0.6)]"
+            className="flex items-center gap-2 font-bold text-sm tracking-wider text-pink-300 drop-shadow-[0_0_4px_rgba(236,72,153,0.6)] uppercase"
         >
           <img
             src="/favicon.jpg"
             alt="logo"
-            className="w-8 h-8 rounded shadow-[0_0_6px_rgba(236,72,153,0.5)]"
+              className="w-7 h-7 rounded shadow-[0_0_6px_rgba(236,72,153,0.5)]"
           />
           GlassyGaia
         </Link>
@@ -125,7 +125,7 @@ export default function NavBar() {
               />
             </button>
             {open && (
-              <div className="absolute right-0 mt-2 w-48 bg-[#241530] border-2 border-pink-500 rounded-md shadow-xl z-50 p-1">
+              <div className="absolute right-0 mt-2 w-48 bg-[#241530] border-2 border-pink-500 rounded-md shadow-xl z-50 p-1 font-sans text-sm">
                 {showAdminLinks && (
                   <Link
                     to="/admin/content"

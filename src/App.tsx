@@ -4,7 +4,6 @@ import Footer from './components/Footer';
 import { UserProvider } from './context/UserContext';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import ContentCardsPage from './pages/ContentCardsPage';
-import CardDetailPage from './pages/CardDetailPage';
 import FavoritesPage from './pages/FavoritesPage';
 import ContentMoviePage from './pages/ContentMoviePage';
 import SeriesPage from './pages/SeriesPage';
@@ -49,7 +48,6 @@ function App() {
               <Route path="/movie/:filmId" element={<MovieToContentRedirect />} />
               <Route path="/series" element={<SeriesPage />} />
               <Route path="/book" element={<BookPage />} />
-              <Route path="/card/:filmId/:episodeId/:cardId" element={<CardDetailPage />} />
               <Route path="/favorites" element={<FavoritesPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/login" element={<LoginPage />} />

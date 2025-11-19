@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import SearchResultCard from "../components/SearchResultCard";
 import type { CardDoc } from "../types";
-import { searchCardsGlobalClient, listFilms } from "../services/firestore";
+import { searchCardsGlobalClient, listAllItems } from "../services/firestore";
+import SearchFilters from "../components/SearchFilters";
 // Removed old LanguageSelector (now in NavBar via MainLanguageSelector & SubtitleLanguageSelector)
 import SuggestionPanel from "../components/SuggestionPanel";
 import { canonicalizeLangCode } from "../utils/lang";
@@ -12,12 +13,13 @@ function SearchPage() {
   const { preferences } = useUser();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [searching, setSearching] = useState(false);
+  // Derive loading state from actual fetch; avoid a separate 'searching' toggle to prevent spinner flicker
   const [allResults, setAllResults] = useState<CardDoc[]>([]);
   const [availableLangs, setAvailableLangs] = useState<string[]>(["en"]);
   const [filmFilter, setFilmFilter] = useState<string | null>(null);
   const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
   const [films, setFilms] = useState<string[]>([]);
+  const [filmTypeMap, setFilmTypeMap] = useState<Record<string, string>>({});
   const [limit, setLimit] = useState<number>(100);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
   const [filmAvailMap, setFilmAvailMap] = useState<Record<string, string[]>>(
@@ -29,7 +31,15 @@ function SearchPage() {
   const runSearch = async (q: string) => {
     setLoading(true);
     try {
-      const data = await searchCardsGlobalClient(q, 3000, null, filmLangMap, preferences.main_language);
+      // Request a reasonably sized pool; the underlying service caches to avoid repeated fetches
+      const desiredPool = Math.min(3000, Math.max(400, limit + 300));
+      const data = await searchCardsGlobalClient(
+        q,
+        desiredPool,
+        null,
+        filmLangMap,
+        preferences.main_language
+      );
       setAllResults(data);
     } catch (e) {
       // Gracefully handle initial empty DB / 404
@@ -47,22 +57,25 @@ function SearchPage() {
     // initial load
     runSearch("");
     // preload film titles for facet labels
-    listFilms()
+    listAllItems()
       .then((fs) => {
         const titleMap: Record<string, string> = {};
         const order: string[] = [];
         const langMap: Record<string, string> = {};
         const availMap: Record<string, string[]> = {};
+        const typeMap: Record<string, string> = {};
         fs.forEach((f) => {
           titleMap[f.id] = f.title || f.id;
           order.push(f.id);
           if (f.main_language) langMap[f.id] = f.main_language;
           if (f.available_subs) availMap[f.id] = f.available_subs;
+          if (f.type) typeMap[f.id] = f.type;
         });
         setFilmTitleMap(titleMap);
         setFilms(order);
         setFilmLangMap(langMap);
         setFilmAvailMap(availMap);
+        setFilmTypeMap(typeMap);
       })
       .catch((e) => {
         console.warn(
@@ -75,6 +88,35 @@ function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Listen for content updates (uploads/deletes) to refresh lists and search
+  useEffect(() => {
+    const handler = () => {
+      runSearch(query);
+      listAllItems().then((fs) => {
+        const titleMap: Record<string, string> = {};
+        const order: string[] = [];
+        const langMap: Record<string, string> = {};
+        const availMap: Record<string, string[]> = {};
+        const typeMap: Record<string, string> = {};
+        fs.forEach((f) => {
+          titleMap[f.id] = f.title || f.id;
+          order.push(f.id);
+          if (f.main_language) langMap[f.id] = f.main_language;
+          if (f.available_subs) availMap[f.id] = f.available_subs;
+          if (f.type) typeMap[f.id] = f.type;
+        });
+        setFilmTitleMap(titleMap);
+        setFilms(order);
+        setFilmLangMap(langMap);
+        setFilmAvailMap(availMap);
+        setFilmTypeMap(typeMap);
+      }).catch(() => {});
+    };
+    window.addEventListener('content-updated', handler);
+    return () => window.removeEventListener('content-updated', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
   // When film language map loads/changes, refresh search to honor primary language-only semantics
   useEffect(() => {
     // only rerun if we already have results or query has content to avoid extra initial flicker
@@ -84,13 +126,11 @@ function SearchPage() {
 
   // Debounced live search on query changes
   useEffect(() => {
-    setSearching(true);
     const handle = setTimeout(() => {
-      runSearch(query).finally(() => setSearching(false));
+      runSearch(query);
     }, 350);
     return () => {
       clearTimeout(handle);
-      setSearching(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
@@ -123,46 +163,14 @@ function SearchPage() {
   return (
     <div className="p-6 grid grid-cols-12 gap-6">
       {/* Left column: filters */}
-      <aside className="col-span-12 md:col-span-3 space-y-4">
-        {/* Film facet based on current results */}
-        <div className="pixel-filter-panel">
-          <h5>Films</h5>
-          <button
-            className={`pixel-filter-btn ${filmFilter===null? 'active':''}`}
-            onClick={() => setFilmFilter(null)}
-          >
-            {(() => {
-              const count = allResults.length;
-              return (
-                <>
-                  All <span className="opacity-70">({count})</span>
-                </>
-              );
-            })()}
-          </button>
-          <div className="mt-2 max-h-[60vh] overflow-auto pr-1 space-y-1">
-            {films.map((id) => {
-              const count = allResults.reduce(
-                (n, c) => n + (c.film_id === id ? 1 : 0),
-                0
-              );
-              return (
-                <button
-                  key={id}
-                  className={`pixel-filter-btn ${filmFilter===id? 'active':''}`}
-                  onClick={() => {
-                    setFilmFilter(id);
-                  }}
-                  title={id}
-                >
-                  {filmTitleMap[id] || id}
-                  <span className="float-right opacity-70">{count}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </aside>
+      <SearchFilters
+        films={films}
+        filmTitleMap={filmTitleMap}
+        filmTypeMap={filmTypeMap}
+        allResults={allResults}
+        filmFilter={filmFilter}
+        onSelect={(id) => setFilmFilter(id)}
+      />
 
       {/* Right column: search + results */}
       <main className="col-span-12 md:col-span-9">
@@ -175,7 +183,7 @@ function SearchPage() {
           }}
           placeholder={`Search across all films...`}
           buttonLabel="Search by"
-          loading={searching}
+          loading={loading}
         />
 
         {/* Subtitle language selection moved to NavBar */}

@@ -63,11 +63,13 @@ export default function SearchBar({
   return (
     <div className="pixel-searchbar">
       <div className="pixel-input-wrapper">
-        {loading ? (
-          <Loader2 className="pixel-input-icon animate-spin" />
-        ) : (
-          <Search className="pixel-input-icon" />
-        )}
+        <div className="absolute inset-y-0 left-[14px] w-5 flex items-center justify-center">
+          {loading ? (
+            <Loader2 className="w-5 h-5 text-[#be185d] animate-spin" />
+          ) : (
+            <Search className="w-5 h-5 text-[#be185d]" />
+          )}
+        </div>
         <input
           value={q}
           onChange={(e) => handleChange(e.target.value)}

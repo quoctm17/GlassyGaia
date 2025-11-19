@@ -33,8 +33,10 @@ function assertApiBase() {
 
 async function getJson<T>(path: string): Promise<T> {
   assertApiBase();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const fullUrl = `${API_BASE}${path}`;
+  const res = await fetch(fullUrl, {
     headers: { Accept: "application/json" },
+    cache: "no-store", 
   });
   if (!res.ok) {
     // Treat 404 as empty data so UI can show empty-state gracefully
@@ -209,9 +211,24 @@ export async function apiFetchCardsForFilm(
   return rows.map(rowToCardDoc);
 }
 
-export async function apiFetchAllCards(max = 1000): Promise<CardDoc[]> {
+export async function apiFetchAllCards(limit = 1000): Promise<CardDoc[]> {
   const rows = await getJson<Array<Record<string, unknown>>>(
-    `/cards?limit=${max}`
+    `/cards?limit=${limit}`
+  );
+  return rows.map(rowToCardDoc);
+}
+
+// Full-text search via Worker /search (FTS5)
+export async function apiSearchCardsFTS(params: {
+  q: string;
+  limit?: number;
+  mainLanguage?: string | null;
+}): Promise<CardDoc[]> {
+  const { q } = params;
+  const limit = params.limit ?? 100;
+  const main = params.mainLanguage ? `&main=${encodeURIComponent(params.mainLanguage)}` : "";
+  const rows = await getJson<Array<Record<string, unknown>>>(
+    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}`
   );
   return rows.map(rowToCardDoc);
 }
@@ -290,25 +307,132 @@ export async function r2UploadViaSignedUrl(params: {
   bucketPath: string;
   file: File;
   contentType?: string;
+  timeoutMs?: number; // optional per-upload timeout (aborts PUT if exceeded)
 }) {
   assertApiBase();
   const { bucketPath, file } = params;
   const ct = params.contentType || file.type || "application/octet-stream";
+  // Optional short timeout for signing
+  const signController = new AbortController();
+  const signTimer = setTimeout(() => signController.abort(), 30000);
   const signRes = await fetch(`${API_BASE}/r2/sign-upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path: bucketPath, contentType: ct }),
-  });
+    signal: signController.signal,
+  }).finally(() => clearTimeout(signTimer));
   if (!signRes.ok) {
     throw new Error(`Failed to get signed URL: ${signRes.status}`);
   }
   const { url } = (await signRes.json()) as { url: string };
+  const putController = new AbortController();
+  const timeout = Math.max(10000, params.timeoutMs ?? 120000); // default 120s
+  const putTimer = setTimeout(() => putController.abort(), timeout);
   const put = await fetch(url, {
     method: "PUT",
     body: file,
     headers: { "Content-Type": ct },
-  });
+    signal: putController.signal,
+  }).finally(() => clearTimeout(putTimer));
   if (!put.ok) throw new Error(`Upload failed: ${put.status}`);
+}
+
+// Multipart upload for large files (video)
+export async function r2MultipartInit(params: { key: string; contentType?: string }) {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/r2/multipart/init`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params)
+  });
+  if (!res.ok) throw new Error(`Multipart init failed: ${res.status}`);
+  return await res.json() as { uploadId: string; key: string };
+}
+
+export async function r2MultipartUploadPart(params: { key: string; uploadId: string; partNumber: number; data: Blob }) {
+  assertApiBase();
+  const q = new URLSearchParams({ key: params.key, uploadId: params.uploadId, partNumber: String(params.partNumber) });
+  const res = await fetch(`${API_BASE}/r2/multipart/part?${q.toString()}`, { method: 'PUT', body: params.data });
+  if (!res.ok) throw new Error(`Upload part ${params.partNumber} failed: ${res.status}`);
+  return await res.json() as { etag: string; partNumber: number };
+}
+
+export async function r2MultipartComplete(params: { key: string; uploadId: string; parts: Array<{ partNumber: number; etag: string }> }) {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/r2/multipart/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
+  if (!res.ok) throw new Error(`Multipart complete failed: ${res.status}`);
+  return await res.json() as { ok: true; key: string };
+}
+
+export async function r2MultipartAbort(params: { key: string; uploadId: string }) {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/r2/multipart/abort`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
+  if (!res.ok) throw new Error(`Multipart abort failed: ${res.status}`);
+}
+
+export async function r2MultipartUpload(params: {
+  key: string; file: File; contentType?: string; partSizeBytes?: number; concurrency?: number; onProgress?: (doneBytes: number, totalBytes: number) => void;
+}) {
+  const { key, file } = params;
+  const contentType = params.contentType || file.type || 'application/octet-stream';
+  const partSize = Math.max(5 * 1024 * 1024, params.partSizeBytes ?? 8 * 1024 * 1024); // min 5MB
+  const concurrency = Math.max(1, params.concurrency ?? 3);
+  const total = file.size;
+  const totalParts = Math.ceil(total / partSize);
+  const { uploadId } = await r2MultipartInit({ key, contentType });
+  let completedBytes = 0;
+  const parts: Array<{ partNumber: number; etag: string }> = [];
+
+  const queue: Array<{ partNumber: number; start: number; end: number }> = [];
+  for (let i = 0; i < totalParts; i++) {
+    const start = i * partSize; const end = Math.min(total, start + partSize);
+    queue.push({ partNumber: i + 1, start, end });
+  }
+
+  async function worker() {
+    while (queue.length) {
+      const item = queue.shift()!;
+      const blob = file.slice(item.start, item.end);
+      // retry each part a few times for robustness
+      let attempts = 0; let lastErr: any = null;
+      while (attempts < 3) {
+        try {
+          const { etag } = await r2MultipartUploadPart({ key, uploadId, partNumber: item.partNumber, data: blob });
+          parts[item.partNumber - 1] = { partNumber: item.partNumber, etag };
+          completedBytes += blob.size;
+          params.onProgress?.(completedBytes, total);
+          break;
+        } catch (e) {
+          lastErr = e; attempts++;
+          if (attempts >= 3) throw lastErr;
+        }
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, totalParts) }, () => worker());
+  try {
+    await Promise.all(workers);
+  } catch (e) {
+    try { await r2MultipartAbort({ key, uploadId }); } catch {}
+    throw e;
+  }
+  await r2MultipartComplete({ key, uploadId, parts: parts.filter(Boolean) as Array<{ partNumber: number; etag: string }> });
+}
+
+// Batch sign upload: request multiple signed URLs in a single API call
+// Dramatically reduces round-trips for bulk uploads (1000 files: 1000 requests → ~10 batched)
+export async function r2BatchSignUpload(items: Array<{ path: string; contentType?: string }>): Promise<Array<{ path: string; url: string }>> {
+  assertApiBase();
+  if (!items.length) return [];
+  const signRes = await fetch(`${API_BASE}/r2/sign-upload-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!signRes.ok) {
+    throw new Error(`Batch sign failed: ${signRes.status}`);
+  }
+  const { urls } = (await signRes.json()) as { urls: Array<{ path: string; url: string }> };
+  return urls;
 }
 
 // Import CSV-processed payload into D1 via Worker
@@ -327,7 +451,11 @@ export async function apiImport(payload: ImportPayload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`Import failed: ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    // Surface server-side error detail for easier debugging
+    throw new Error(`Import failed: ${res.status} ${text}`);
+  }
   return await res.json().catch(() => ({}));
 }
 
@@ -393,7 +521,7 @@ export async function apiCalculateStats(params: {
 }): Promise<{ ok: true } | { error: string }> {
   assertApiBase();
   const { filmSlug, episodeNum } = params;
-  const epSlug = `${filmSlug}_${episodeNum}`;
+  const epSlug = `${filmSlug}_${String(episodeNum).padStart(3, '0')}`;
   const res = await fetch(
     `${API_BASE}/items/${encodeURIComponent(filmSlug)}/episodes/${encodeURIComponent(epSlug)}/calc-stats`,
     { method: "POST" }
@@ -475,6 +603,52 @@ export async function apiDeleteEpisode(params: {
   }
 }
 
+// R2 object listing and deletion
+export interface R2ItemApi {
+  key: string;
+  name: string;
+  type: 'directory' | 'file';
+  size?: number | string | null;
+  modified?: string | null;
+  url?: string;
+}
+
+export async function apiR2List(prefix: string = ""): Promise<R2ItemApi[]> {
+  const enc = encodeURIComponent(prefix);
+  return await getJson<R2ItemApi[]>(`/r2/list?prefix=${enc}`);
+}
+
+// Flat paginated list for recursive operations
+export interface R2FlatPage {
+  objects: Array<{ key: string; size?: number; modified?: string | null }>;
+  cursor: string | null;
+  truncated: boolean;
+}
+export async function apiR2ListFlatPage(prefix: string, cursor?: string | null, limit: number = 1000): Promise<R2FlatPage> {
+  const q = new URLSearchParams({ prefix, flat: '1', limit: String(limit) });
+  if (cursor) q.set('cursor', cursor);
+  return await getJson<R2FlatPage>(`/r2/list?${q.toString()}`);
+}
+
+export async function apiR2Delete(key: string, opts?: { recursive?: boolean; concurrency?: number }): Promise<{ ok: true } | { error: string }> {
+  assertApiBase();
+  const q = new URLSearchParams({ key });
+  if (opts?.recursive) q.set('recursive', '1');
+  if (opts?.concurrency) q.set('c', String(opts.concurrency));
+  const res = await fetch(`${API_BASE}/r2/delete?${q.toString()}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { error: `Delete failed: ${res.status} ${text}` };
+  }
+  try {
+    const body = await res.json();
+    if (body && body.ok) return { ok: true } as const;
+    return { error: 'Unexpected delete response' };
+  } catch {
+    return { error: 'Malformed delete response' };
+  }
+}
+
 // Helper to convert a normalized API row into CardDoc
 function rowToCardDoc(r: Record<string, unknown>): CardDoc {
   // Expect fields: card_id or id, episode_id, film_id?, start_time_ms, end_time_ms, audio_key, image_key, subtitles? or subtitle map.
@@ -491,7 +665,20 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
   );
   const start = startMs > 1000 ? startMs / 1000 : startMs; // convert if ms
   const end = endMs > 1000 ? endMs / 1000 : endMs;
-  const subCandidate = (get("subtitle") ?? get("subtitles")) as unknown;
+  let subCandidate = (get("subtitle") ?? get("subtitles")) as unknown;
+  // Handle common shapes:
+  // - Array of { language, text }
+  // - Object map { lang: text }
+  // - JSON string for either of the above (legacy)
+  if (typeof subCandidate === 'string') {
+    try {
+      const parsed = JSON.parse(subCandidate);
+      subCandidate = parsed as unknown;
+    } catch {
+      // if malformed string, treat as empty
+      subCandidate = {} as Record<string, string>;
+    }
+  }
   const subtitle: Record<string, string> = Array.isArray(subCandidate)
     ? (subCandidate as Array<Record<string, unknown>>).reduce(
         (acc: Record<string, string>, row: Record<string, unknown>) => {

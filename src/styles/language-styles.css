@@ -92,37 +92,78 @@
 
 /* ======================= 🈶 CHINESE ======================= */
 .chinese-main {
-  font-size: 35px;
+  font-size: 18px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;    
 }
 .chinese-type {
-  font-size: 25px;
+  font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;    
 }
 .chinese-sub {
-  font-size: 25px;
+  font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;    
   color: #9929EA;    /* Purple */ 
 }
 
-/* 🔤 ====== Pinyin Styling ====== */
+/* 🔤 ====== Pinyin/Furigana/Jyutping Styling ====== */
+/* Default ruby annotation hidden and small */
 ruby rt {
   font-family: "Times New Roman", sans-serif;
-  font-size: 0.5em;        /* smaller size */
+  font-size: 0.85em; /* Increased from 0.7em */
   user-select: none;
-  opacity: 0;              
+  opacity: 0;
   font-style: italic;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  color: inherit;
+  position: relative;
 }
 
-/* Show pinyin on hover */
-.hanzi-ruby ruby:hover rt {
+/* Enhance interactivity and readability for East Asian ruby pairs only */
+.hanzi-ruby ruby {
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
+  cursor: help;
+  /* Keep default ruby layout - rt displays above rb */
+  ruby-position: over;
+}
+
+.hanzi-ruby ruby:hover {
+  background: rgba(251, 191, 36, 0.16);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35), 0 0 8px rgba(251, 191, 36, 0.25);
+}
+
+/* For main language text - larger base and larger ruby on hover */
+.chinese-main.hanzi-ruby ruby:hover rt,
+.japanese-main.hanzi-ruby ruby:hover rt {
   opacity: 1;
+  transform: scale(2.0);
+  line-height: 1;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  text-shadow: 0 0 6px rgba(0,0,0,0.4);
+}
+
+/* For subtitle language text - make ruby MUCH larger and more readable, no extra padding */
+.chinese-sub.hanzi-ruby ruby:hover rt,
+.japanese-sub.hanzi-ruby ruby:hover rt,
+.cantonese-sub.hanzi-ruby ruby:hover rt {
+  opacity: 1;
+  transform: scale(4.0);
+  line-height: 1;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  text-shadow: 0 0 8px rgba(0,0,0,0.5);
+  font-weight: 600;
 }
 
 /* ======================= 🇰🇷 KOREAN ======================= */
@@ -165,29 +206,27 @@ ruby rt {
 
 /* ======================= 🇯🇵 JAPANESE TEXT ======================= */
 .japanese-main {
-  font-size: 30px;
+  font-size: 18px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;    
 }
 
 .japanese-type {
-  font-size: 20px;
+  font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;    
 }
 
 .japanese-sub {
-  font-size: 20px;
+  font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   color: #E45A92;    /* Pink */
   text-align: left;    
 }
-/* ruby visibility for JP */
-ruby rt { color: rgba(0, 0, 0, 0); }
-ruby:hover rt { color: inherit; text-decoration: none; }
+/* ruby visibility is controlled globally (hidden by default, show on hover) */
 
 /* ======================= 🇹🇭 THAI ======================= */
 .thai-sub {
@@ -506,13 +545,13 @@ ruby:hover rt { color: inherit; text-decoration: none; }
   text-align: left;
 }
 .cantonese-type {
-  font-size: 22px;
+  font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;
 }
 .cantonese-sub {
-  font-size: 22px;
+  font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
   margin: 10px 40px;
   text-align: left;
