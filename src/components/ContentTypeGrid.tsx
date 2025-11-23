@@ -6,20 +6,25 @@ import LanguageTag from './LanguageTag';
 import ContentDetailModal from './ContentDetailModal';
 import { Play, ChevronDown, Film, Clapperboard, Book as BookIcon, AudioLines } from 'lucide-react';
 import { CONTENT_TYPE_LABELS, type ContentType } from '../types/content';
+import { useUser } from '../context/UserContext';
+import { canonicalizeLangCode } from '../utils/lang';
 
 interface ContentTypeGridProps {
   type: ContentType; // 'movie' | 'series' | 'book' | 'audio'
   headingOverride?: string; // optional custom heading
   limit?: number; // future: limit number of items
+  onlySelectedMainLanguage?: boolean; // filter by user's selected main language
 }
 
-export default function ContentTypeGrid({ type, headingOverride, limit }: ContentTypeGridProps) {
+export default function ContentTypeGrid({ type, headingOverride, limit, onlySelectedMainLanguage }: ContentTypeGridProps) {
   const [items, setItems] = useState<FilmDoc[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedFilm, setSelectedFilm] = useState<FilmDoc | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [overlayStyle, setOverlayStyle] = useState<Record<string, React.CSSProperties>>({});
   const hideTimer = useRef<number | null>(null);
+  const { preferences } = useUser();
+  const selectedMain = preferences?.main_language || 'en';
 
   useEffect(() => {
     let mounted = true;
@@ -31,13 +36,20 @@ export default function ContentTypeGrid({ type, headingOverride, limit }: Conten
           return d ? { ...f, ...d } : f;
         }));
         if (!mounted) return;
-        setItems(limit ? detailed.slice(0, limit) : detailed);
+        const canonSelected = canonicalizeLangCode(selectedMain) || selectedMain;
+        const filtered = onlySelectedMainLanguage
+          ? detailed.filter((f) => {
+              const canon = canonicalizeLangCode(f.main_language || '');
+              return !!f.main_language && (canon || f.main_language) === canonSelected;
+            })
+          : detailed;
+        setItems(limit ? filtered.slice(0, limit) : filtered);
       } catch {
         if (mounted) setItems([]);
       }
     })();
     return () => { mounted = false; };
-  }, [type, limit]);
+  }, [type, limit, onlySelectedMainLanguage, selectedMain]);
 
   function computeOverlayPosition(rect: DOMRect, overlayWidth: number) {
     const viewportWidth = window.innerWidth;

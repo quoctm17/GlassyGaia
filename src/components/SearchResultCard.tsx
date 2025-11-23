@@ -87,6 +87,14 @@ export default function SearchResultCard({
     (async () => {
       try {
         const detail = await getCardByPath(film, epSlug, cid);
+        if (detail) {
+          try {
+            console.log('[card-detail-fetch]', { id: detail.id, film: film, episode: epSlug, subtitleKeys: Object.keys(detail.subtitle || {}), sentence: detail.sentence });
+            if (detail.subtitle && detail.subtitle['ja']) {
+              console.log('[card-detail-ja-raw]', detail.id, detail.subtitle['ja']);
+            }
+          } catch { /* ignore */ }
+        }
         if (active && detail?.subtitle && Object.keys(detail.subtitle).length) {
           setSubsOverride(detail.subtitle);
         }
@@ -114,33 +122,77 @@ export default function SearchResultCard({
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
-  // Convert bracket furigana/pinyin/jyutping to safe ruby HTML
-  function bracketToRubyHtml(text: string): string {
+  // Convert bracket furigana/pinyin/jyutping to safe HTML.
+  // For Japanese tokens: attempt to split trailing okurigana (kana after Kanji) so reading centers over Kanji only.
+  function bracketToRubyHtml(text: string, lang?: string): string {
     if (!text) return "";
-    // Treat a broad set of whitespace as token separators (includes \u3000 IDEOGRAPHIC SPACE, NBSP)
-    const re = /([^\s\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000[]+)\[([^\]]+)\]/g; // base[reading]
+    const re = /([^\s\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000[]+)\s*\[([^\]]+)\]/g;
     let last = 0;
     let out = "";
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
       out += escapeHtml(text.slice(last, m.index));
-      // Include <rb> for better styling of the base glyphs on hover
-      out += `<ruby><rb>${escapeHtml(m[1])}</rb><rt>${escapeHtml(m[2])}</rt></ruby>`;
+      const base = m[1];
+      const reading = m[2];
+      try { console.log('[ruby-token]', base, '=>', reading); } catch { /* ignore */ }
+      const hasKanji = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(base);
+      const readingIsKanaOnly = /^[\u3040-\u309F\u30A0-\u30FFー]+$/.test(reading);
+      if (lang === 'ja' && hasKanji && readingIsKanaOnly) {
+        // Pattern: optional leading kana, kanji block, optional trailing kana (simple token)
+        const simplePattern = /^([\u3040-\u309F\u30A0-\u30FFー]+)?([\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]+)([\u3040-\u309F\u30A0-\u30FFー]+)?$/;
+        const sp = base.match(simplePattern);
+        if (sp) {
+          const prefixKana = sp[1] || '';
+          const kanjiPart = sp[2];
+          const trailingKana = sp[3] || '';
+          let readingCore = reading;
+            // If reading ends with trailing kana, trim it for annotation width
+          if (trailingKana && readingCore.endsWith(trailingKana)) {
+            readingCore = readingCore.slice(0, readingCore.length - trailingKana.length);
+          }
+          // Do NOT trim prefix; prefix kana often grammatical and absent from reading
+          if (prefixKana) out += escapeHtml(prefixKana); // plain text before ruby
+          out += `<ruby><rb>${escapeHtml(kanjiPart)}</rb><rt>${escapeHtml(readingCore)}</rt></ruby>`;
+          if (trailingKana) out += `<span class="okurigana">${escapeHtml(trailingKana)}</span>`;
+        } else {
+          // Complex mixed token (punctuation / Latin / multiple kanji groups). Try heuristic: annotate last Kanji cluster near end.
+          const lastCluster = base.match(/([\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]+[\u3040-\u309F\u30A0-\u30FFー]*)$/);
+          if (lastCluster && reading.length <= lastCluster[0].length * 2) {
+            const cluster = lastCluster[0];
+            const before = base.slice(0, base.length - cluster.length);
+            // Split cluster into kanji + trailing kana if applicable
+            const clusterMatch = cluster.match(/^([\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]+)([\u3040-\u309F\u30A0-\u30FFー]+)?$/);
+            if (clusterMatch) {
+              const clusterKanji = clusterMatch[1];
+              const clusterOkurigana = clusterMatch[2] || '';
+              let readingCore = reading;
+              if (clusterOkurigana && readingCore.endsWith(clusterOkurigana)) {
+                readingCore = readingCore.slice(0, readingCore.length - clusterOkurigana.length);
+              }
+              out += escapeHtml(before);
+              out += `<ruby><rb>${escapeHtml(clusterKanji)}</rb><rt>${escapeHtml(readingCore)}</rt></ruby>`;
+              if (clusterOkurigana) out += `<span class="okurigana">${escapeHtml(clusterOkurigana)}</span>`;
+            } else {
+              // Fallback: annotate whole base
+              out += `<ruby><rb>${escapeHtml(base)}</rb><rt>${escapeHtml(reading)}</rt></ruby>`;
+            }
+          } else {
+            // Fallback simple
+            out += `<ruby><rb>${escapeHtml(base)}</rb><rt>${escapeHtml(reading)}</rt></ruby>`;
+          }
+        }
+      } else {
+        out += `<ruby><rb>${escapeHtml(base)}</rb><rt>${escapeHtml(reading)}</rt></ruby>`;
+      }
       last = m.index + m[0].length;
     }
     out += escapeHtml(text.slice(last));
-    // As a final safety, remove any whitespace between adjacent ruby tags
-    // and around common JP/ZH punctuation that might survive upstream normalization.
     const CJK_RANGE = "\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\u3040-\\u30FF";
     out = out
-      // remove whitespace at very start/end
       .replace(/^\s+/, "").replace(/\s+$/, "")
-      // close/open ruby adjacency
       .replace(/<\/ruby>\s+<ruby>/g, "</ruby><ruby>")
-      // CJK char next to ruby start/end
       .replace(new RegExp(`([${CJK_RANGE}])\\s+<ruby>`, "g"), "$1<ruby>")
       .replace(new RegExp(`<\\/ruby>\\s+([${CJK_RANGE}])`, "g"), "</ruby>$1")
-      // spaces around JP/ZH punctuation
       .replace(/\s+([、。．・，。！!？?：:；;」』）］])/g, "$1")
       .replace(/([「『（［])\s+/g, "$1");
     return out;
@@ -297,7 +349,18 @@ export default function SearchResultCard({
               const needsRuby = canon === "ja" || canon === "zh" || canon === "zh_trad" || canon === "yue";
               let html: string;
               if (needsRuby) {
-                const rubyHtml = bracketToRubyHtml(normalizeCjkSpacing(raw));
+                const normalized = normalizeCjkSpacing(raw);
+                // Debug logging for Japanese / Chinese subtitle raw + normalized + parsed HTML
+                if (canon === "ja") {
+                  try {
+                    console.log("[card-ruby-debug] id=", card.id, "raw=", raw);
+                    console.log("[card-ruby-debug] id=", card.id, "normalized=", normalized);
+                  } catch { /* ignore */ }
+                }
+                const rubyHtml = bracketToRubyHtml(normalized, canon);
+                if (canon === "ja") {
+                  try { console.log("[card-ruby-debug] id=", card.id, "finalHtml=", rubyHtml); } catch { /* ignore */ }
+                }
                 html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q) : rubyHtml;
               } else {
                 html = q ? highlightHtml(raw, q) : escapeHtml(raw);

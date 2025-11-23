@@ -10,7 +10,7 @@ import {
   uploadEpisodeFullMedia,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, apiDeleteEpisode } from "../../services/cfApi";
+import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
 import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
@@ -60,7 +60,8 @@ export default function AdminContentIngestPage() {
 
   const ALL_LANG_OPTIONS: string[] = [
     "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
-    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","tr","uk"
+    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","tr","uk",
+    "fa","ku","sl","sr","bg"
   ];
   const SORTED_LANG_OPTIONS = useMemo(() => {
     // Sort by human-friendly label A->Z
@@ -146,6 +147,26 @@ export default function AdminContentIngestPage() {
     const warnings: string[] = [];
     const headerMap: Record<string, string> = {};
     headers.forEach(h => { const l = (h || "").toLowerCase(); if (!headerMap[l]) headerMap[l] = h; });
+    // Reserved columns: these are CSV metadata/structural columns, NOT language codes
+    // Prevents false positives like "id" (Indonesian), "no" (Norwegian), "type", "end" (English partial), etc.
+    const RESERVED_COLUMNS = new Set([
+      "id", "card_id", "cardid", "card id",
+      "no", "number", "card_number", "cardnumber", "card number",
+      "start", "start_time", "starttime", "start time", "start_time_ms",
+      "end", "end_time", "endtime", "end time", "end_time_ms",
+      "duration", "length", "card_length",
+      "type", "card_type", "cardtype", "card type",
+      "sentence", "text", "content",
+      "image", "image_url", "imageurl", "image url", "image_key",
+      "audio", "audio_url", "audiourl", "audio url", "audio_key",
+      "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
+      "cefr", "cefr_level", "cefr level",
+      "jlpt", "jlpt_level", "jlpt level",
+      "hsk", "hsk_level", "hsk level",
+      "notes", "tags", "metadata",
+      // Script helper columns (ignore silently)
+      "hiragana", "katakana", "romaji"
+    ]);
     // Không cho phép cột sentence
     if (headerMap["sentence"]) {
       errors.push("Không được truyền cột 'sentence' trong CSV. Hệ thống sẽ tự động lấy subtitle của Main Language để điền vào.");
@@ -157,7 +178,7 @@ export default function AdminContentIngestPage() {
     }
     // language detection (strict variant matching)
     const recognizedSubtitleHeaders = new Set<string>();
-    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"] as const;
+    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const;
     const aliasMap: Record<string,string> = {};
     SUPPORTED_CANON.forEach(c => { expandCanonicalToAliases(c).forEach(a => { aliasMap[a.toLowerCase()] = c; }); });
     // Common misspellings / fallbacks
@@ -166,11 +187,22 @@ export default function AdminContentIngestPage() {
     aliasMap["portugese (brazil)"] = "pt_br";
     const norm = (s: string) => s.trim().toLowerCase();
     headers.forEach(h => {
-      const low = norm(h);
-      if (aliasMap[low]) { recognizedSubtitleHeaders.add(h); return; }
-      const m = low.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/); // base (Variant)
+      const rawLow = norm(h);
+      // Remove bracketed qualifiers like [CC], [SDH], [Captions] and trim again
+      const cleaned = rawLow.replace(/\s*\[[^\]]*\]\s*/g, '').trim();
+      // Skip reserved columns BEFORE language detection
+      if (RESERVED_COLUMNS.has(cleaned)) return;
+      // Direct alias match (after cleaning)
+      if (aliasMap[cleaned]) { recognizedSubtitleHeaders.add(h); return; }
+      // Parentheses variant form e.g. Chinese (Traditional), Spanish (Spain)
+      const m = cleaned.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
       if (m) {
         const base = m[1];
+        const variant = m[2];
+        if (base === 'chinese') {
+          if (/(?:trad|traditional|hant|hk|tw|mo)/.test(variant)) { recognizedSubtitleHeaders.add(h); return; }
+          if (/(?:simplified|hans|cn)/.test(variant)) { recognizedSubtitleHeaders.add(h); return; }
+        }
         if (aliasMap[base]) { recognizedSubtitleHeaders.add(h); }
       }
     });
@@ -198,13 +230,42 @@ export default function AdminContentIngestPage() {
     for (const h of headers) {
       const hStrict = normStrict(h);
       if (mainAliasesStrict.has(hStrict)) { hasMainLangColumn = true; break; }
-      const low = norm(h);
+      const rawLow = norm(h);
+      const low = rawLow.replace(/\s*\[[^\]]*\]\s*/g, '').trim();
+      // Direct canonical code match (e.g. es_es, pt_br)
       const directCanon = aliasMap[low];
       if (directCanon === mainCanon) { hasMainLangColumn = true; break; }
+      // Parentheses variant form (Spanish (Spain), Chinese (Traditional), etc.)
       const m2 = low.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
       if (m2) {
         const base = m2[1];
-        if (aliasMap[base] === mainCanon) { hasMainLangColumn = true; break; }
+        const variant = m2[2];
+        if (base === 'spanish') {
+          const isSpain = /(spain)/.test(variant);
+          const isLatAm = /(latin\s*america|latam)/.test(variant);
+          if (isSpain && mainCanon === 'es_es') { hasMainLangColumn = true; break; }
+          if (isLatAm && mainCanon === 'es_la') { hasMainLangColumn = true; break; }
+          continue; // do not allow fallback base mapping when a variant is specified
+        }
+        if (base === 'portuguese' || base === 'portugese') {
+          const isBrazil = /(brazil)/.test(variant);
+          const isPortugal = /(portugal)/.test(variant);
+          if (isBrazil && mainCanon === 'pt_br') { hasMainLangColumn = true; break; }
+          if (isPortugal && mainCanon === 'pt_pt') { hasMainLangColumn = true; break; }
+          continue;
+        }
+        if (base === 'chinese') {
+          const isTrad = /(trad|traditional|hant|hk|tw|mo)/.test(variant);
+          const isSimp = /(simplified|hans|cn)/.test(variant);
+          if (isTrad && mainCanon === 'zh_trad') { hasMainLangColumn = true; break; }
+          if (isSimp && mainCanon === 'zh') { hasMainLangColumn = true; break; }
+          continue;
+        }
+      }
+      // Ambiguous base language (no variant parentheses). Allow if base maps directly AND no parentheses form.
+      if (!/\([^)]+\)/.test(low)) {
+        const baseCanon = aliasMap[low];
+        if (baseCanon === mainCanon) { hasMainLangColumn = true; break; }
       }
     }
     if (!hasMainLangColumn) {
@@ -221,6 +282,7 @@ export default function AdminContentIngestPage() {
       const raw = (h || '').trim();
       if (!raw) continue;
       const low = raw.toLowerCase();
+      if (RESERVED_COLUMNS.has(low)) continue; // Skip reserved metadata columns
       if (knownSingles.has(low)) continue;
       if (recognizedSubtitleHeaders.has(raw)) continue;
       if (isFrameworkDynamic(raw)) continue;
@@ -265,9 +327,14 @@ export default function AdminContentIngestPage() {
       romanian: "ro", ro: "ro", russian: "ru", ru: "ru",
       spanish: "es_es", es: "es_es", es_es: "es_es", "spanish (spain)": "es_es",
       "spanish (latin america)": "es_la", es_la: "es_la", latam_spanish: "es_la",
-      swedish: "sv", sv: "sv", tamil: "ta", ta: "ta", telugu: "te", te: "te", turkish: "tr", tr: "tr", ukrainian: "uk", uk: "uk"
+      swedish: "sv", sv: "sv", tamil: "ta", ta: "ta", telugu: "te", te: "te", turkish: "tr", tr: "tr", ukrainian: "uk", uk: "uk",
+      persian: "fa", farsi: "fa", fa: "fa",
+      kurdish: "ku", ku: "ku",
+      slovenian: "sl", sl: "sl",
+      serbian: "sr", sr: "sr",
+      bulgarian: "bg", bg: "bg"
     };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
     const recognizedSubtitleHeaders = new Set<string>();
     
     // Same generalized language detection as in validateCsv
@@ -347,7 +414,7 @@ export default function AdminContentIngestPage() {
     };
     const targetCanonList = variantGroups[canon] || [canon];
     const candidateSet = new Set<string>();
-    const headerCleanMap = csvHeaders.map(h => ({ orig: h, clean: h.toLowerCase().replace(/[_\s-]/g, "") }));
+    const headerCleanMap = csvHeaders.map(h => ({ orig: h, clean: h.toLowerCase().replace(/\[[^\]]*\]/g, '').replace(/[_\s-]/g, "") }));
     targetCanonList.forEach(c => {
       const aliases = expandCanonicalToAliases(c).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
       headerCleanMap.forEach(h => { if (aliases.includes(h.clean)) candidateSet.add(h.orig); });
@@ -637,17 +704,8 @@ export default function AdminContentIngestPage() {
       if (importSucceededRef.current && createdFilmRef.current) {
         toast.loading("Đang rollback tự động...", { id: "rollback-auto" });
         try {
-          // Delete the episode (cascade cards + media)
-          if (createdEpisodeNumRef.current !== null) {
-            const res = await apiDeleteEpisode({ filmSlug: createdFilmRef.current, episodeNum: createdEpisodeNumRef.current });
-            if ("error" in res) {
-              console.error("Rollback episode failed:", res.error);
-              toast.error("Rollback episode thất bại: " + res.error, { id: "rollback-auto" });
-            } else {
-              console.log("✅ Rollback: deleted episode", res.deleted, "cards:", res.cards_deleted, "media:", res.media_deleted);
-            }
-          }
-          // Delete the film (cascade remaining episodes/cards/media)
+          // Delete the film directly (cascades ALL episodes/cards/media)
+          // Skip apiDeleteEpisode to avoid "cannot delete first episode" error
           const filmRes = await apiDeleteItem(createdFilmRef.current);
           if ("error" in filmRes) {
             console.error("Rollback film failed:", filmRes.error);
@@ -674,21 +732,13 @@ export default function AdminContentIngestPage() {
       if (confirmed) {
         toast.loading("Đang rollback...", { id: "rollback-manual" });
         try {
-          // Delete episode first
-          if (createdEpisodeNumRef.current !== null) {
-            const res = await apiDeleteEpisode({ filmSlug: createdFilmRef.current, episodeNum: createdEpisodeNumRef.current });
-            if ("error" in res) {
-              toast.error("Rollback episode thất bại: " + res.error, { id: "rollback-manual" });
-            } else {
-              console.log("✅ Manual rollback: deleted episode", res.deleted);
-            }
-          }
-          // Delete film
+          // Delete film directly (cascades ALL episodes/cards/media)
+          // Skip apiDeleteEpisode to avoid "cannot delete first episode" error
           const filmRes = await apiDeleteItem(createdFilmRef.current);
           if ("error" in filmRes) {
             toast.error("Rollback film thất bại: " + filmRes.error, { id: "rollback-manual" });
           } else {
-            console.log("✅ Manual rollback: deleted film", filmRes.deleted);
+            console.log("✅ Manual rollback: deleted film", filmRes.deleted, "episodes:", filmRes.episodes_deleted, "cards:", filmRes.cards_deleted, "media:", filmRes.media_deleted);
             toast.success("Đã rollback thành công", { id: "rollback-manual" });
           }
           // Reset slug check

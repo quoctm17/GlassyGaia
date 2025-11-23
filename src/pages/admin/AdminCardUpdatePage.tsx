@@ -30,7 +30,8 @@ export default function AdminCardUpdatePage() {
 
   const ALL_LANG_OPTIONS = useMemo(() => [
     "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
-    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","tr","uk"
+    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","tr","uk",
+    "fa","ku","sl","sr","bg"
   ], []);
   
   const SORTED_LANG_OPTIONS = useMemo(() => {

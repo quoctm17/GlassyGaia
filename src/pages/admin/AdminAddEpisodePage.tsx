@@ -9,7 +9,7 @@ import { uploadEpisodeCoverImage, uploadEpisodeFullMedia, uploadMediaBatch } fro
 import type { MediaType } from '../../services/storageUpload';
 import { canonicalizeLangCode, langLabel, countryCodeForLang } from '../../utils/lang';
 import ProgressBar from '../../components/ProgressBar';
-import { Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Loader2, CheckCircle, AlertTriangle, RefreshCcw } from 'lucide-react';
 
 // Page to add a new Episode (>=2) to an existing Content Item
 export default function AdminAddEpisodePage() {
@@ -115,12 +115,28 @@ export default function AdminAddEpisodePage() {
   function findHeaderForLang(headers: string[], lang: string): string | null {
     const langAliases: Record<string, string> = {
       english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
-      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
+      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk",
+      persian: "fa", farsi: "fa", fa: "fa", kurdish: "ku", ku: "ku", slovenian: "sl", sl: "sl", serbian: "sr", sr: "sr", bulgarian: "bg", bg: "bg"
     };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
     const target = canonicalizeLangCode(lang) || lang;
     for (const h of headers) {
-      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      const raw = (h || "").trim().toLowerCase();
+      // Strip bracketed qualifiers like [CC]
+      const noBracket = raw.replace(/\[[^\]]*\]/g, '').trim();
+      // Detect parentheses variant, e.g. Chinese (Traditional)
+      const m = noBracket.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
+      if (m) {
+        const base = m[1];
+        const variant = m[2];
+        if (base === 'chinese') {
+          const isTrad = /trad|traditional|hant|hk|tw|mo/.test(variant);
+          const isSimp = /simplified|hans|cn/.test(variant);
+            if (isTrad && target === 'zh_trad') return h;
+            if (isSimp && target === 'zh') return h;
+        }
+      }
+      const key = noBracket.replace(/\s*[([].*?[)\]]\s*/g, "");
       const alias = langAliases[key];
       const canon = alias ? alias : supported.has(key) ? key : null;
       if (canon === target) return h;
@@ -429,6 +445,10 @@ export default function AdminAddEpisodePage() {
         <div className="text-sm font-semibold">Cards CSV</div>
         <div className="flex items-center gap-2 flex-wrap">
           <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={onPickCsv} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500" />
+          <button type="button" title="Refresh / Re-import CSV" onClick={() => { if (csvRef.current) { csvRef.current.value = ''; csvRef.current.click(); } }} className="admin-btn secondary flex items-center gap-1">
+            <RefreshCcw className="w-4 h-4" />
+            <span className="text-xs">Refresh</span>
+          </button>
           <button type="button" className="admin-btn" onClick={() => {
             const mainCanon = canonicalizeLangCode(filmMainLang) || filmMainLang;
             // Updated template: sentence & type columns removed (sentence derived from main language subtitle, type optional)

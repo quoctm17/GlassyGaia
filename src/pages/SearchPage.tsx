@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
 import type { CardDoc } from "../types";
@@ -162,11 +162,29 @@ function SearchPage() {
 
   // no film/episode context in global search
 
+  // Only show films that have at least one matching result to avoid long lists of zero counts.
+  const filmsWithResults = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of allResults) {
+      const fid = String(c.film_id ?? "");
+      if (!fid) continue;
+      counts[fid] = (counts[fid] || 0) + 1;
+    }
+    return films.filter(id => counts[id] > 0);
+  }, [films, allResults]);
+
+  // Reset film filter if current selection no longer has results for active query
+  useEffect(() => {
+    if (filmFilter && !filmsWithResults.includes(filmFilter)) {
+      setFilmFilter(null);
+    }
+  }, [filmFilter, filmsWithResults]);
+
   return (
     <div className="p-6 grid grid-cols-12 gap-6">
       {/* Left column: filters */}
       <SearchFilters
-        films={films}
+        films={filmsWithResults}
         filmTitleMap={filmTitleMap}
         filmTypeMap={filmTypeMap}
         allResults={allResults}

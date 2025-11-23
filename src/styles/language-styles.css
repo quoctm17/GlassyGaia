@@ -119,24 +119,43 @@
 
 /* 🔤 ====== Pinyin/Furigana/Jyutping Styling ====== */
 /* Default ruby annotation hidden and small */
+/* Global ruby annotation styling (do NOT override display; keep UA ruby layout) */
 ruby rt {
   font-family: "Times New Roman", sans-serif;
-  font-size: 0.85em; /* Increased from 0.7em */
+  font-size: 0.85em;
   user-select: none;
-  opacity: 0;
+  opacity: 0.5;
   font-style: italic;
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition: opacity 0.16s ease;
   color: inherit;
-  position: relative;
+  text-align: center;
+  line-height: 1;
+  padding: 0;
 }
-
-/* Fix for multiple CJK characters inside single <rb> tag */
+/* Allow base to remain default ruby-base (no display override) */
 ruby rb {
-  display: inline;
   letter-spacing: 0;
   word-spacing: 0;
   white-space: nowrap;
 }
+/* Custom Japanese overlay ruby (jp-ruby) */
+.jp-ruby { position: relative; display: inline-block; vertical-align: baseline; }
+.jp-ruby .jp-base { display: inline-block; }
+.jp-ruby .jp-rt {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: -1.05em; /* adjust vertical offset above base */
+  font-size: 0.75em;
+  font-family: "Times New Roman", sans-serif;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0.5;
+  pointer-events: none;
+  font-style: italic;
+}
+/* Okurigana following a ruby Kanji cluster */
+.okurigana { display: inline-block; }
 
 /* Enhance interactivity and readability for East Asian ruby pairs only */
 .hanzi-ruby ruby {
@@ -145,43 +164,20 @@ ruby rb {
   border-radius: 4px;
   transition: background-color 0.16s ease, box-shadow 0.16s ease;
   cursor: help;
-  /* Keep default ruby layout - rt displays above rb */
-  ruby-position: over;
-  /* Fix spacing between CJK characters: reset word-spacing and letter-spacing */
+  ruby-position: over; /* force annotation above (some browsers default auto) */
+  white-space: nowrap;
   word-spacing: 0;
   letter-spacing: 0;
 }
 
-.hanzi-ruby ruby:hover {
-  background: rgba(251, 191, 36, 0.16);
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35), 0 0 8px rgba(251, 191, 36, 0.25);
-}
+/* Center annotation over full base width for ruby-fit tokens */
+/* Ensure we do not override ruby base/text display model; keep UA defaults */
+/* Remove custom block display to preserve ruby vertical layout */
 
-/* For main language text - larger base and larger ruby on hover */
-.chinese-main.hanzi-ruby ruby:hover rt,
-.japanese-main.hanzi-ruby ruby:hover rt {
-  opacity: 1;
-  transform: scale(2.0);
-  line-height: 1;
-  background: none;
-  padding: 0;
-  border-radius: 0;
-  text-shadow: 0 0 6px rgba(0,0,0,0.4);
-}
-
-/* For subtitle language text - make ruby MUCH larger and more readable, no extra padding */
-.chinese-sub.hanzi-ruby ruby:hover rt,
-.japanese-sub.hanzi-ruby ruby:hover rt,
-.cantonese-sub.hanzi-ruby ruby:hover rt {
-  opacity: 1;
-  transform: scale(4.0);
-  line-height: 1;
-  background: none;
-  padding: 0;
-  border-radius: 0;
-  text-shadow: 0 0 8px rgba(0,0,0,0.5);
-  font-weight: 600;
-}
+/* Simplified ruby hover: just reveal reading without glow/border or scaling */
+/* Keep hover neutral (no change in opacity or styling) */
+.hanzi-ruby ruby:hover { background: none; box-shadow: none; }
+.hanzi-ruby ruby:hover rt { opacity: 0.5; transform: none; background: none; padding: 0; border-radius: 0; text-shadow: none; font-weight: inherit; }
 
 /* ======================= 🇰🇷 KOREAN ======================= */
 .korean-main {
