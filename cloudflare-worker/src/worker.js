@@ -852,9 +852,9 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-      if (filmCardsMatch && request.method === 'GET') {
-  const filmSlug = filmCardsMatch[1];
-  const episodeSlug = filmCardsMatch[2];
+        if (filmCardsMatch && request.method === 'GET') {
+      const filmSlug = decodeURIComponent(filmCardsMatch[1]);
+      const episodeSlug = decodeURIComponent(filmCardsMatch[2]);
         const limit = Number(url.searchParams.get('limit') || '50');
         try {
           const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(filmSlug).first();

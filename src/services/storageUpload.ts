@@ -12,6 +12,7 @@ export interface UploadMediaParams {
   padDigits?: number; // default 3; zero-padding for cardId
   inferFromFilenames?: boolean; // if true, try to extract cardId from file name
   cardIds?: string[]; // optional explicit cardIds mapping (same length as files) overrides inference/sequence
+  signal?: AbortSignal; // optional cancel signal
 }
 
 export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (done: number, total: number) => void) {
@@ -107,6 +108,7 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   const signedUrls = new Map<string, string>();
   const uploadedInFallback = new Set<string>(); // Track files uploaded during fallback
   for (let i = 0; i < uploadPlan.length; i += signBatchSize) {
+    if (params.signal?.aborted) return; // respect cancellation before signing batches
     const chunk = uploadPlan.slice(i, i + signBatchSize);
     const signItems = chunk.map(p => ({ path: p.newPath, contentType: p.contentType }));
     try {
@@ -134,6 +136,7 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
 
   // Upload all files using pre-fetched signed URLs with concurrency control
   async function uploadOne(item: typeof uploadPlan[0]) {
+    if (params.signal?.aborted) return;
     // Skip if already uploaded during fallback
     if (uploadedInFallback.has(item.newPath)) {
       return;
@@ -149,6 +152,11 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
     try {
       // Abort long-hanging PUTs to avoid stalling the entire batch
       const controller = new AbortController();
+      const cancelListener = () => controller.abort();
+      if (params.signal) {
+        if (params.signal.aborted) controller.abort();
+        params.signal.addEventListener('abort', cancelListener);
+      }
       const timeoutMs = 120000; // 120s safety timeout per file
       const t = setTimeout(() => controller.abort(), timeoutMs);
       const put = await fetch(signedUrl, {
@@ -156,9 +164,10 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
         body: item.file,
         headers: { "Content-Type": item.contentType },
         signal: controller.signal,
-      }).finally(() => clearTimeout(t));
+      }).finally(() => { clearTimeout(t); if (params.signal) params.signal.removeEventListener('abort', cancelListener); });
       if (!put.ok) throw new Error(`Upload failed: ${put.status}`);
     } catch (e) {
+      if (params.signal?.aborted) return; // quietly stop on cancel
       console.warn(`PUT failed or timed out for ${item.newPath}. Falling back to legacy upload...`, e);
       // Try legacy path as fallback
       try {
@@ -174,7 +183,7 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   // Execute uploads with concurrency limit
   let idx = 0;
   async function runBatch() {
-    while (idx < uploadPlan.length) {
+    while (idx < uploadPlan.length && !(params.signal?.aborted)) {
       const batch = [];
       for (let j = 0; j < concurrency && idx < uploadPlan.length; j++, idx++) {
         batch.push(uploadOne(uploadPlan[idx]));

@@ -333,7 +333,7 @@ export default function AdminAddEpisodePage() {
               <li>Episode Num: chọn số tập mới (tránh trùng, sẽ hiện cảnh báo nếu trùng).</li>
               <li>CSV bắt buộc: start,end + cột phụ đề cho main language {filmMainLang} (sentence auto, type tùy chọn).</li>
               <li>Media tuỳ chọn: Cover tập, Full Audio/Video tập.</li>
-              <li>Card media: ảnh (.jpg) & audio (.mp3) cho từng card.</li>
+              <li>Card media: ảnh (.jpg) & audio (.mp3/.wav) cho từng card.</li>
             </ul>
           </div>
         </div>
@@ -404,7 +404,7 @@ export default function AdminAddEpisodePage() {
             </div>
             {addEpAudio && (
               <>
-                <input id="ep-full-audio" type="file" accept="audio/mpeg" onChange={e => setHasEpAudioFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <input id="ep-full-audio" type="file" accept="audio/mpeg,audio/wav" onChange={e => setHasEpAudioFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
                 <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug + '_' + episodeNum}/full/audio.mp3</div>
               </>
             )}
@@ -506,8 +506,8 @@ export default function AdminAddEpisodePage() {
             <input type="file" accept="image/jpeg" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
           </div>
           <div className="admin-subpanel">
-            <div className="text-xs text-gray-400 mb-2">Audio (.mp3)</div>
-            <input type="file" accept="audio/mpeg" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+            <div className="text-xs text-gray-400 mb-2">Audio (.mp3 / .wav)</div>
+            <input type="file" accept="audio/mpeg,audio/wav" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
           </div>
           <div className="flex flex-col gap-3 md:col-span-2">
             <div className="flex flex-col sm:flex-row gap-3">

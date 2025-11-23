@@ -201,12 +201,11 @@ export async function apiFetchCardsForFilm(
   episodeId?: string,
   max: number = 50
 ): Promise<CardDoc[]> {
-  // New backend path may differ; attempt first new normalized then fallback.
+  // Always encode parts to support non-ASCII slugs (e.g., Vietnamese)
+  const filmEnc = encodeURIComponent(filmId);
   const basePath = episodeId
-    ? `/items/${encodeURIComponent(filmId)}/episodes/${encodeURIComponent(
-        episodeId
-      )}/cards?limit=${max}`
-    : `/items/${encodeURIComponent(filmId)}/cards?limit=${max}`;
+    ? `/items/${filmEnc}/episodes/${encodeURIComponent(episodeId)}/cards?limit=${max}`
+    : `/items/${filmEnc}/cards?limit=${max}`;
   const rows = await getJson<Array<Record<string, unknown>>>(basePath);
   return rows.map(rowToCardDoc);
 }
