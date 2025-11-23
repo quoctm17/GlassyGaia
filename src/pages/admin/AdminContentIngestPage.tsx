@@ -10,7 +10,7 @@ import {
   uploadEpisodeFullMedia,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from "../../services/cfApi";
+import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, apiDeleteEpisode } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
 import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
@@ -121,6 +121,10 @@ export default function AdminContentIngestPage() {
   // Cancel / abort controls
   const uploadAbortRef = useRef<AbortController | null>(null);
   const cancelRequestedRef = useRef<boolean>(false);
+  // Rollback tracking: track what was created so we can clean up on error/cancel
+  const createdFilmRef = useRef<string | null>(null);
+  const createdEpisodeNumRef = useRef<number | null>(null);
+  const importSucceededRef = useRef<boolean>(false);
   // File presence flags for optional uploads (to drive validation reliably)
   const [hasCoverFile, setHasCoverFile] = useState(false);
   const [hasEpCoverFile, setHasEpCoverFile] = useState(false);
@@ -528,6 +532,10 @@ export default function AdminContentIngestPage() {
       setBusy(true); setStage("starting");
       cancelRequestedRef.current = false;
       uploadAbortRef.current = new AbortController();
+      // Reset rollback tracking
+      createdFilmRef.current = null;
+      createdEpisodeNumRef.current = null;
+      importSucceededRef.current = false;
       setCoverDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
       // 1. Upload cover for content (if any)
       const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
@@ -573,6 +581,10 @@ export default function AdminContentIngestPage() {
           cardIds,
           overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
         }, () => {});
+        // Mark as created for rollback tracking
+        createdFilmRef.current = filmId;
+        createdEpisodeNumRef.current = episodeNum;
+        importSucceededRef.current = true;
         setImportDone(true);
         toast.success("Import completed");
       } catch (importErr) {
@@ -615,15 +627,80 @@ export default function AdminContentIngestPage() {
       setSlugAvailable(film ? false : true);
     } catch (e) {
       const msg = (e as Error).message || "";
-      if (/cancelled/i.test(msg)) {
+      const wasCancelled = /cancelled/i.test(msg);
+      if (wasCancelled) {
         toast("Đã hủy tiến trình upload/import");
       } else {
-        toast.error((e as Error).message);
+        toast.error("Lỗi: " + (e as Error).message);
+      }
+      // Auto-rollback on error or cancel if import succeeded
+      if (importSucceededRef.current && createdFilmRef.current) {
+        toast.loading("Đang rollback tự động...", { id: "rollback-auto" });
+        try {
+          // Delete the episode (cascade cards + media)
+          if (createdEpisodeNumRef.current !== null) {
+            const res = await apiDeleteEpisode({ filmSlug: createdFilmRef.current, episodeNum: createdEpisodeNumRef.current });
+            if ("error" in res) {
+              console.error("Rollback episode failed:", res.error);
+              toast.error("Rollback episode thất bại: " + res.error, { id: "rollback-auto" });
+            } else {
+              console.log("✅ Rollback: deleted episode", res.deleted, "cards:", res.cards_deleted, "media:", res.media_deleted);
+            }
+          }
+          // Delete the film (cascade remaining episodes/cards/media)
+          const filmRes = await apiDeleteItem(createdFilmRef.current);
+          if ("error" in filmRes) {
+            console.error("Rollback film failed:", filmRes.error);
+            toast.error("Rollback film thất bại: " + filmRes.error, { id: "rollback-auto" });
+          } else {
+            console.log("✅ Rollback: deleted film", filmRes.deleted, "episodes:", filmRes.episodes_deleted, "cards:", filmRes.cards_deleted, "media:", filmRes.media_deleted);
+            toast.success(wasCancelled ? "Đã hủy và rollback" : "Đã rollback do lỗi", { id: "rollback-auto" });
+          }
+          // Reset slug check state so user can retry
+          setSlugChecked(false);
+          setSlugAvailable(null);
+        } catch (rollbackErr) {
+          console.error("Rollback error:", rollbackErr);
+          toast.error("Rollback thất bại: " + (rollbackErr as Error).message, { id: "rollback-auto" });
+        }
       }
     } finally { setBusy(false); }
   };
 
-  const onCancelAll = () => {
+  const onCancelAll = async () => {
+    // Confirm manual cancel if import already succeeded
+    if (importSucceededRef.current && createdFilmRef.current) {
+      const confirmed = window.confirm("Import đã hoàn thành. Bạn có muốn ROLLBACK (xóa film/episode đã tạo) không?\n\nChọn OK = Rollback\nChọn Cancel = Chỉ dừng upload");
+      if (confirmed) {
+        toast.loading("Đang rollback...", { id: "rollback-manual" });
+        try {
+          // Delete episode first
+          if (createdEpisodeNumRef.current !== null) {
+            const res = await apiDeleteEpisode({ filmSlug: createdFilmRef.current, episodeNum: createdEpisodeNumRef.current });
+            if ("error" in res) {
+              toast.error("Rollback episode thất bại: " + res.error, { id: "rollback-manual" });
+            } else {
+              console.log("✅ Manual rollback: deleted episode", res.deleted);
+            }
+          }
+          // Delete film
+          const filmRes = await apiDeleteItem(createdFilmRef.current);
+          if ("error" in filmRes) {
+            toast.error("Rollback film thất bại: " + filmRes.error, { id: "rollback-manual" });
+          } else {
+            console.log("✅ Manual rollback: deleted film", filmRes.deleted);
+            toast.success("Đã rollback thành công", { id: "rollback-manual" });
+          }
+          // Reset slug check
+          setSlugChecked(false);
+          setSlugAvailable(null);
+        } catch (err) {
+          console.error("Manual rollback error:", err);
+          toast.error("Rollback thất bại: " + (err as Error).message, { id: "rollback-manual" });
+        }
+      }
+    }
+    // Cancel ongoing uploads regardless
     cancelRequestedRef.current = true;
     try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
     setStage("idle");
@@ -632,6 +709,9 @@ export default function AdminContentIngestPage() {
     setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
     setImagesDone(0); setAudioDone(0); setImagesTotal(0); setAudioTotal(0);
     setImportDone(false); setStatsDone(false);
+    importSucceededRef.current = false;
+    createdFilmRef.current = null;
+    createdEpisodeNumRef.current = null;
     setBusy(false);
   };
 
