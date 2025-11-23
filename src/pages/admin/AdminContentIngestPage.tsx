@@ -12,10 +12,10 @@ import {
 import type { MediaType } from "../../services/storageUpload";
 import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
-import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2 } from "lucide-react";
+import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
-import { langLabel, canonicalizeLangCode } from "../../utils/lang";
+import { langLabel, canonicalizeLangCode, expandCanonicalToAliases } from "../../utils/lang";
 import ProgressBar from "../../components/ProgressBar";
 import FlagDisplay from "../../components/FlagDisplay";
 
@@ -118,6 +118,9 @@ export default function AdminContentIngestPage() {
   const [audioTotal, setAudioTotal] = useState(0);
   const [importDone, setImportDone] = useState(false);
   const [statsDone, setStatsDone] = useState(false);
+  // Cancel / abort controls
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const cancelRequestedRef = useRef<boolean>(false);
   // File presence flags for optional uploads (to drive validation reliably)
   const [hasCoverFile, setHasCoverFile] = useState(false);
   const [hasEpCoverFile, setHasEpCoverFile] = useState(false);
@@ -148,22 +151,59 @@ export default function AdminContentIngestPage() {
     if (missing.length) {
       errors.push(`Thiếu cột bắt buộc: ${missing.join(", ")}`);
     }
-    // language detection
-    const langAliases: Record<string, string> = {
-      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
-      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
-    };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
-    const detected = new Set<string>();
+    // language detection (strict variant matching)
     const recognizedSubtitleHeaders = new Set<string>();
+    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"] as const;
+    const aliasMap: Record<string,string> = {};
+    SUPPORTED_CANON.forEach(c => { expandCanonicalToAliases(c).forEach(a => { aliasMap[a.toLowerCase()] = c; }); });
+    // Common misspellings / fallbacks
+    aliasMap["portugese"] = "pt_pt";
+    aliasMap["portugese (portugal)"] = "pt_pt";
+    aliasMap["portugese (brazil)"] = "pt_br";
+    const norm = (s: string) => s.trim().toLowerCase();
     headers.forEach(h => {
-      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
-      const alias = langAliases[key];
-      const canon = alias ? alias : supported.has(key) ? key : null;
-      if (canon) { detected.add(canon); recognizedSubtitleHeaders.add(h); }
+      const low = norm(h);
+      if (aliasMap[low]) { recognizedSubtitleHeaders.add(h); return; }
+      const m = low.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/); // base (Variant)
+      if (m) {
+        const base = m[1];
+        if (aliasMap[base]) { recognizedSubtitleHeaders.add(h); }
+      }
     });
     const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
-    if (!detected.has(mainCanon)) {
+    const mainAliases = new Set(expandCanonicalToAliases(mainCanon).map(a => a.toLowerCase()));
+    // Explicit variant alias forms (with parentheses) for strict presence check
+    if (mainCanon === 'es_la') {
+      mainAliases.add('spanish (latin america)');
+      mainAliases.add('spanish latin america');
+    } else if (mainCanon === 'es_es') {
+      mainAliases.add('spanish (spain)');
+      mainAliases.add('spanish spain');
+    } else if (mainCanon === 'pt_br') {
+      mainAliases.add('portuguese (brazil)');
+      mainAliases.add('portugese (brazil)');
+      mainAliases.add('brazilian portuguese');
+    } else if (mainCanon === 'pt_pt') {
+      mainAliases.add('portuguese (portugal)');
+      mainAliases.add('portugese (portugal)');
+    }
+    // Robust presence check: normalize headers & aliases; also allow base-with-parentheses mapping.
+    const normStrict = (s: string) => s.toLowerCase().replace(/[_\s-]/g, '').trim();
+    const mainAliasesStrict = new Set(Array.from(mainAliases).map(a => normStrict(a)));
+    let hasMainLangColumn = false;
+    for (const h of headers) {
+      const hStrict = normStrict(h);
+      if (mainAliasesStrict.has(hStrict)) { hasMainLangColumn = true; break; }
+      const low = norm(h);
+      const directCanon = aliasMap[low];
+      if (directCanon === mainCanon) { hasMainLangColumn = true; break; }
+      const m2 = low.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
+      if (m2) {
+        const base = m2[1];
+        if (aliasMap[base] === mainCanon) { hasMainLangColumn = true; break; }
+      }
+    }
+    if (!hasMainLangColumn) {
       errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon}`);
     }
     // Warn for ignored/unused columns (not required, not known frameworks/difficulty, not subtitles)
@@ -206,16 +246,58 @@ export default function AdminContentIngestPage() {
   const ignoredHeaders = useMemo(() => {
     if (!csvHeaders.length) return [] as string[];
     const langAliases: Record<string, string> = {
-      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
-      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
+      english: "en", eng: "en", vietnamese: "vi", vn: "vi",
+      chinese: "zh", "chinese simplified": "zh", chinese_simplified: "zh", zh: "zh", cn: "zh", "zh-cn": "zh", zh_cn: "zh", "zh-hans": "zh", zh_hans: "zh", "zh-hans-cn": "zh", zh_hans_cn: "zh", "zh-simplified": "zh", zh_simplified: "zh",
+      "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", traditional_chinese: "zh_trad", zh_trad: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad", "zh-hant": "zh_trad", zh_hant: "zh_trad", "zh-hk": "zh_trad", zh_hk: "zh_trad", "zh-mo": "zh_trad", zh_mo: "zh_trad", "zh-hant-tw": "zh_trad", zh_hant_tw: "zh_trad", "zh-hant-hk": "zh_trad", zh_hant_hk: "zh_trad", tw: "zh_trad",
+      japanese: "ja", ja: "ja", jp: "ja", korean: "ko", ko: "ko", kr: "ko",
+      indonesian: "id", id: "id", "in": "id", thai: "th", th: "th", malay: "ms", ms: "ms", my: "ms",
+      cantonese: "yue", yue: "yue", "zh-yue": "yue", zh_yue: "yue",
+      arabic: "ar", ar: "ar", basque: "eu", eu: "eu", bengali: "bn", bn: "bn", catalan: "ca", ca: "ca", croatian: "hr", hr: "hr", czech: "cs", cs: "cs", danish: "da", da: "da", dutch: "nl", nl: "nl",
+      filipino: "fil", fil: "fil", tagalog: "fil", tl: "fil", finnish: "fi", fi: "fi",
+      french: "fr", fr: "fr", "french canadian": "fr_ca", fr_ca: "fr_ca", frcan: "fr_ca",
+      galician: "gl", gl: "gl", german: "de", de: "de", greek: "el", el: "el", hebrew: "he", he: "he", iw: "he", hindi: "hi", hi: "hi", hungarian: "hu", hu: "hu", icelandic: "is", is: "is", italian: "it", it: "it", malayalam: "ml", ml: "ml", norwegian: "no", no: "no", polish: "pl", pl: "pl",
+      portuguese: "pt_pt", pt: "pt_pt", pt_pt: "pt_pt", ptpt: "pt_pt", "portuguese (portugal)": "pt_pt",
+      "portuguese (brazil)": "pt_br", pt_br: "pt_br", ptbr: "pt_br", brazilian_portuguese: "pt_br",
+      romanian: "ro", ro: "ro", russian: "ru", ru: "ru",
+      spanish: "es_es", es: "es_es", es_es: "es_es", "spanish (spain)": "es_es",
+      "spanish (latin america)": "es_la", es_la: "es_la", latam_spanish: "es_la",
+      swedish: "sv", sv: "sv", tamil: "ta", ta: "ta", telugu: "te", te: "te", turkish: "tr", tr: "tr", ukrainian: "uk", uk: "uk"
     };
     const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
     const recognizedSubtitleHeaders = new Set<string>();
+    
+    // Same generalized language detection as in validateCsv
+    const extractBaseLang = (rawHeader: string): { base: string; variation?: string } => {
+      const trimmed = rawHeader.trim().toLowerCase();
+      const parenMatch = trimmed.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
+      if (parenMatch) {
+        return { base: parenMatch[1].trim(), variation: parenMatch[2].trim() };
+      }
+      const hyphenMatch = trimmed.match(/^([a-z]{2,3})[-_](.+)$/);
+      if (hyphenMatch) {
+        return { base: hyphenMatch[1], variation: hyphenMatch[2] };
+      }
+      return { base: trimmed };
+    };
+
     csvHeaders.forEach(h => {
       const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
       const alias = langAliases[key];
-      const canon = alias ? alias : supported.has(key) ? key : null;
-      if (canon) recognizedSubtitleHeaders.add(h);
+      if (alias) {
+        recognizedSubtitleHeaders.add(h);
+        return;
+      }
+      if (supported.has(key)) {
+        recognizedSubtitleHeaders.add(h);
+        return;
+      }
+      // Generalized pattern matching
+      const { base } = extractBaseLang(h);
+      const baseAlias = langAliases[base];
+      const baseCanon = baseAlias || (supported.has(base) ? base : null);
+      if (baseCanon) {
+        recognizedSubtitleHeaders.add(h);
+      }
     });
     const knownSingles = new Set(["start","end","type","length","cefr","cefr level","cefr_level","jlpt","jlpt level","jlpt_level","hsk","hsk level","hsk_level","difficulty score","difficulty_score","difficultyscore","score","difficulty_percent","card_difficulty"]);
     const isFrameworkDynamic = (raw: string) => {
@@ -236,52 +318,60 @@ export default function AdminContentIngestPage() {
   }, [csvHeaders]);
 
   function findHeaderForLang(headers: string[], lang: string): string | null {
-    const langAliases: Record<string, string> = {
-      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
-      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
-    };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
-    const target = canonicalizeLangCode(lang) || lang;
-    for (const h of headers) {
-      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
-      const alias = langAliases[key];
-      const canon = alias ? alias : supported.has(key) ? key : null;
-      if (canon === target) return h;
+    // Strict exact alias matching only (ignore case & separators); prefer the variant alias that includes parentheses if both exist.
+    const rawAliases = expandCanonicalToAliases(lang);
+    const normalizedAliases = rawAliases.map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
+    const variantAliases = rawAliases.filter(a => /\(.+\)/.test(a)).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
+    const headerNorms = headers.map(h => ({ orig: h, norm: h.toLowerCase().replace(/[_\s-]/g, "") }));
+    // If a variant alias exists (with parentheses) try those first
+    for (const v of variantAliases) {
+      const found = headerNorms.find(h => h.norm === v);
+      if (found) return found.orig;
+    }
+    for (const a of normalizedAliases) {
+      const found = headerNorms.find(h => h.norm === a);
+      if (found) return found.orig;
     }
     return null;
   }
   const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, mainLanguage), [csvHeaders, mainLanguage]);
   const mainLangHeaderOptions = useMemo(() => {
-    // Collect all headers that map to the selected main language canon
-    const langAliases: Record<string, string> = {
-      english: "en", vietnamese: "vi", chinese: "zh", "chinese simplified": "zh", japanese: "ja", korean: "ko", indonesian: "id", thai: "th", malay: "ms", "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", cantonese: "yue",
-      arabic: "ar", basque: "eu", bengali: "bn", catalan: "ca", croatian: "hr", czech: "cs", danish: "da", dutch: "nl", filipino: "fil", tagalog: "fil", finnish: "fi", french: "fr", "french canadian": "fr_ca", galician: "gl", german: "de", greek: "el", hebrew: "he", hindi: "hi", hungarian: "hu", icelandic: "is", italian: "it", malayalam: "ml", norwegian: "no", polish: "pl", "portuguese (brazil)": "pt_br", "portuguese (portugal)": "pt_pt", romanian: "ro", russian: "ru", "spanish (latin america)": "es_la", "spanish (spain)": "es_es", swedish: "sv", tamil: "ta", telugu: "te", turkish: "tr", ukrainian: "uk"
+    const canon = canonicalizeLangCode(mainLanguage) || mainLanguage;
+    const variantGroups: Record<string,string[]> = {
+      es_es: ["es_es","es_la"], es_la: ["es_es","es_la"],
+      pt_pt: ["pt_pt","pt_br"], pt_br: ["pt_pt","pt_br"],
     };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"]);
-    const target = canonicalizeLangCode(mainLanguage) || mainLanguage;
-    const candidates: string[] = [];
-    for (const h of csvHeaders) {
-      const key = (h || "").trim().toLowerCase().replace(/\s*\(.*?\)\s*/g, "").replace(/\s*\[.*?\]\s*/g, "");
-      const alias = (langAliases as Record<string,string>)[key];
-      const canon = alias ? alias : (supported.has(key) ? key : null);
-      if (canon === target) candidates.push(h);
-    }
-    // Prefer non-CC headers first
-    const prefer = (s: string) => (/\[(?:cc)\]/i.test(s) || /\(cc\)/i.test(s)) ? 1 : 0;
-    return candidates.sort((a, b) => prefer(a) - prefer(b));
+    const targetCanonList = variantGroups[canon] || [canon];
+    const candidateSet = new Set<string>();
+    const headerCleanMap = csvHeaders.map(h => ({ orig: h, clean: h.toLowerCase().replace(/[_\s-]/g, "") }));
+    targetCanonList.forEach(c => {
+      const aliases = expandCanonicalToAliases(c).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
+      headerCleanMap.forEach(h => { if (aliases.includes(h.clean)) candidateSet.add(h.orig); });
+    });
+    const candidates = Array.from(candidateSet);
+    // Ensure the selected main language's own variant (if present) comes first
+    const mainAliasesNorm = expandCanonicalToAliases(canon).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
+    candidates.sort((a, b) => {
+      const aIsMain = mainAliasesNorm.includes(a.toLowerCase().replace(/[_\s-]/g, "")) ? 0 : 1;
+      const bIsMain = mainAliasesNorm.includes(b.toLowerCase().replace(/[_\s-]/g, "")) ? 0 : 1;
+      if (aIsMain !== bIsMain) return aIsMain - bIsMain;
+      const aCc = /(\[(?:cc)\]|\(cc\))/i.test(a) ? 1 : 0;
+      const bCc = /(\[(?:cc)\]|\(cc\))/i.test(b) ? 1 : 0;
+      return aCc - bCc;
+    });
+    return candidates;
   }, [csvHeaders, mainLanguage]);
 
   // Keep override in sync with options (choose best default automatically)
   useEffect(() => {
-    if (mainLangHeaderOptions.length === 0) {
-      setMainLangHeaderOverride("");
-      return;
-    }
-    // If current override not in options, reset to first preferred option
-    if (!mainLangHeaderOptions.includes(mainLangHeaderOverride)) {
-      setMainLangHeaderOverride(mainLangHeaderOptions[0]);
-    }
-  }, [mainLangHeaderOptions, mainLangHeaderOverride]);
+    if (!mainLangHeaderOptions.length) { setMainLangHeaderOverride(''); return; }
+    // If user already chose a valid override, keep it.
+    if (mainLangHeaderOverride && mainLangHeaderOptions.includes(mainLangHeaderOverride)) return;
+    const canon = canonicalizeLangCode(mainLanguage) || mainLanguage;
+    const aliasNorms = new Set(expandCanonicalToAliases(canon).map(a => a.toLowerCase().replace(/[_\s-]/g, '')));
+    const matching = mainLangHeaderOptions.find(h => aliasNorms.has(h.toLowerCase().replace(/[_\s-]/g, '')));
+    setMainLangHeaderOverride(matching || mainLangHeaderOptions[0]);
+  }, [mainLangHeaderOptions, mainLanguage, mainLangHeaderOverride]);
 
   // Effects
   useEffect(() => { if (csvHeaders.length && csvRows.length) validateCsv(csvHeaders, csvRows); }, [csvHeaders, csvRows, validateCsv]);
@@ -355,6 +445,7 @@ export default function AdminContentIngestPage() {
         setCsvErrors(["CSV không có dữ liệu hàng nào."]); setCsvValid(false);
       } else { validateCsv(headers, rows); }
     } catch { setCsvErrors(["Lỗi đọc CSV."]); setCsvValid(false); }
+    // (Value clearing moved to Refresh button to preserve chosen filename display.)
   };
   const onPickImages = (e: React.ChangeEvent<HTMLInputElement>) => setImageFiles(Array.from(e.target.files || []));
   const onPickAudio = (e: React.ChangeEvent<HTMLInputElement>) => setAudioFiles(Array.from(e.target.files || []));
@@ -413,17 +504,18 @@ export default function AdminContentIngestPage() {
       }
     }
   };
-  const doUploadMedia = async (type: MediaType, files: File[]) => {
+  const doUploadMedia = async (type: MediaType, files: File[], signal?: AbortSignal) => {
     if (!files.length) return;
     setStage(type === "image" ? "images" : "audio");
     // const started = Date.now();
     // Reset visible totals to the selected file count; will be corrected by callback's total
     if (type === "image") { setImagesTotal(files.length); setImagesDone(0); } else { setAudioTotal(files.length); setAudioDone(0); }
-    await uploadMediaBatch({ filmId, episodeNum, type, files, padDigits, startIndex, inferFromFilenames: infer }, (done, total) => {
+    await uploadMediaBatch({ filmId, episodeNum, type, files, padDigits, startIndex, inferFromFilenames: infer, signal }, (done, total) => {
       if (type === "image") { setImagesDone(done); setImagesTotal(total); } else { setAudioDone(done); setAudioTotal(total); }
     });
-    // const ms = Date.now() - started; // duration available if needed
-    toast.success(type === "image" ? "Images uploaded" : "Audio uploaded");
+    if (!(signal && signal.aborted)) {
+      toast.success(type === "image" ? "Images uploaded" : "Audio uploaded");
+    }
   };
 
   const onCreateAll = async () => {
@@ -434,14 +526,17 @@ export default function AdminContentIngestPage() {
     if (!slugChecked || !slugAvailable) { toast.error("Cần kiểm tra slug trước"); return; }
     try {
       setBusy(true); setStage("starting");
+      cancelRequestedRef.current = false;
+      uploadAbortRef.current = new AbortController();
       setCoverDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
       // 1. Upload cover for content (if any)
       const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
       // 2. Upload card media (images/audio) for cards (these do not depend on episode row)
       await Promise.all([
-        doUploadMedia("image", imageFiles),
-        doUploadMedia("audio", audioFiles)
+        doUploadMedia("image", imageFiles, uploadAbortRef.current!.signal),
+        doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)
       ]);
+      if (cancelRequestedRef.current || uploadAbortRef.current?.signal.aborted) throw new Error("User cancelled");
       // 3. Import CSV to create episode 1 (must be before episode-level media upload)
       if (!csvText) { toast.error("Please select a CSV for cards"); setBusy(false); return; }
       setStage("import");
@@ -487,7 +582,9 @@ export default function AdminContentIngestPage() {
       }
       // 4. Upload episode-level media (cover, full audio, full video) AFTER episode row exists
       await doUploadEpisodeCover().catch(() => {});
+      if (cancelRequestedRef.current) throw new Error("User cancelled");
       await doUploadEpisodeFull().catch(() => {});
+      if (cancelRequestedRef.current) throw new Error("User cancelled");
       // 5. Calculate stats immediately after import
       setStage("calculating_stats");
       try {
@@ -516,7 +613,26 @@ export default function AdminContentIngestPage() {
       const film = await apiGetFilm(filmId).catch(() => null);
       setSlugChecked(true);
       setSlugAvailable(film ? false : true);
-    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+    } catch (e) {
+      const msg = (e as Error).message || "";
+      if (/cancelled/i.test(msg)) {
+        toast("Đã hủy tiến trình upload/import");
+      } else {
+        toast.error((e as Error).message);
+      }
+    } finally { setBusy(false); }
+  };
+
+  const onCancelAll = () => {
+    cancelRequestedRef.current = true;
+    try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
+    setStage("idle");
+    // reset progress counters to pre-run state
+    setCoverDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+    setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+    setImagesDone(0); setAudioDone(0); setImagesTotal(0); setAudioTotal(0);
+    setImportDone(false); setStatsDone(false);
+    setBusy(false);
   };
 
   return (
@@ -816,6 +932,10 @@ export default function AdminContentIngestPage() {
         <div className="text-sm font-semibold">Cards CSV</div>
         <div className="flex items-center gap-2 flex-wrap">
           <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={onPickCsv} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500" />
+          <button type="button" title="Refresh / Re-import CSV" onClick={() => { if (csvRef.current) { csvRef.current.value = ""; csvRef.current.click(); } }} className="admin-btn secondary flex items-center gap-1">
+            <RefreshCcw className="w-4 h-4" />
+            <span className="text-xs">Refresh</span>
+          </button>
           <button type="button" className="admin-btn" onClick={() => {
             const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
             const headers = ["start","end",mainCanon,"cefr","difficulty_score"]; // type optional
@@ -958,6 +1078,9 @@ export default function AdminContentIngestPage() {
         <div className="flex gap-2 items-center">
           {!user && <button className="admin-btn" onClick={signInGoogle}>Sign in with Google</button>}
           <button className="admin-btn primary" disabled={busy || !canCreate} onClick={onCreateAll} title={!isAdmin ? "Requires allowed admin email + key" : undefined}>{busy ? "Processing..." : "Create Content"}</button>
+          {busy && stage !== 'done' && (
+            <button type="button" className="admin-btn danger" onClick={onCancelAll} title="Cancel current upload/import">Stop</button>
+          )}
           <div className="text-xs text-gray-400">Stage: {stage}</div>
         </div>
         {(busy || stage === "done") && (
