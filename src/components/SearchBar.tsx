@@ -22,7 +22,7 @@ export default function SearchBar({
   onClear,
   placeholder = "SEARCH...",
   showClear = true,
-  buttonLabel = "Search by",
+  buttonLabel = "SEARCH",
   autoFocus = false,
   loading = false,
 }: SearchBarProps) {
@@ -65,9 +65,9 @@ export default function SearchBar({
       <div className="pixel-input-wrapper">
         <div className="absolute inset-y-0 left-[14px] w-5 flex items-center justify-center">
           {loading ? (
-            <Loader2 className="w-5 h-5 text-[#be185d] animate-spin" />
+            <Loader2 className="w-5 h-5 text-[#f1aaf0] animate-spin" />
           ) : (
-            <Search className="w-5 h-5 text-[#be185d]" />
+            <Search className="w-5 h-5 text-[#f1aaf0]" />
           )}
         </div>
         <input
@@ -77,7 +77,7 @@ export default function SearchBar({
             if (e.key === "Enter") triggerSearch();
             if (e.key === "Escape" && q && showClear) clear();
           }}
-          className="pixel-input"
+          className="pixel-input text-center"
           placeholder={placeholder}
           autoFocus={autoFocus}
         />
@@ -98,8 +98,7 @@ export default function SearchBar({
         onClick={triggerSearch}
         disabled={!q && buttonLabel.toLowerCase().includes("search")}
       >
-        <Search className="w-4 h-4" />
-        <span>{buttonLabel}</span>
+        <span>{/search\s*by/i.test(buttonLabel) ? "SEARCH" : "SEARCH"}</span>
       </button>
     </div>
   );

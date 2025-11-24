@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { apiGetEpisodeDetail, apiFetchCardsForFilm } from "../../services/cfApi";
+import { apiGetEpisodeDetail, apiFetchCardsForFilm, apiDeleteCard, apiCalculateStats } from "../../services/cfApi";
 import type { EpisodeDetailDoc, LevelFrameworkStats, CardDoc } from "../../types";
 import { sortLevelsByDifficulty } from "../../utils/levelSort";
 import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown } from "lucide-react";
 import PortalDropdown from "../../components/PortalDropdown";
 import toast from "react-hot-toast";
-import { apiDeleteCard } from "../../services/cfApi";
 
 export default function AdminEpisodeDetailPage() {
   const { contentSlug, episodeSlug } = useParams();
@@ -414,6 +413,16 @@ export default function AdminEpisodeDetailPage() {
                     setCards(prev => prev.filter(c => String(c.id).padStart(4,'0') !== confirmDelete.id));
                     toast.success(`Đã xoá card #${confirmDelete.id} (Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`);
                     setConfirmDelete(null);
+                    // Recalculate statistics after card deletion
+                    try {
+                      const episodeNum = ep?.episode_number || 1;
+                      const statsRes = await apiCalculateStats({ filmSlug: contentSlug, episodeNum });
+                      if ('error' in statsRes) {
+                        console.warn('Failed to recalculate stats after card deletion:', statsRes.error);
+                      }
+                    } catch (statsErr) {
+                      console.warn('Stats recalculation error:', statsErr);
+                    }
                   } catch (e) { toast.error((e as Error).message); }
                   finally { setDeleting(false); }
                 }}

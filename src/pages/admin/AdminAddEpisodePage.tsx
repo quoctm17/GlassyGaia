@@ -4,10 +4,10 @@ import Papa from 'papaparse';
 import toast from 'react-hot-toast';
 import { useUser } from '../../context/UserContext';
 import { importFilmFromCsv, type ImportFilmMeta } from '../../services/importer';
-import { apiGetFilm, apiListEpisodes, apiUpdateEpisodeMeta, apiCalculateStats } from '../../services/cfApi';
+import { apiGetFilm, apiListEpisodes, apiUpdateEpisodeMeta, apiCalculateStats, apiDeleteEpisode } from '../../services/cfApi';
 import { uploadEpisodeCoverImage, uploadEpisodeFullMedia, uploadMediaBatch } from '../../services/storageUpload';
 import type { MediaType } from '../../services/storageUpload';
-import { canonicalizeLangCode, langLabel, countryCodeForLang } from '../../utils/lang';
+import { canonicalizeLangCode, langLabel, countryCodeForLang, expandCanonicalToAliases } from '../../utils/lang';
 import ProgressBar from '../../components/ProgressBar';
 import { Loader2, CheckCircle, AlertTriangle, RefreshCcw } from 'lucide-react';
 
@@ -44,6 +44,8 @@ export default function AdminAddEpisodePage() {
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   // (Unused) warnings placeholder removed to satisfy lint
   const [csvValid, setCsvValid] = useState<boolean|null>(null);
+  // Allow selecting which CSV header to treat as Main Language subtitle (override auto-detected)
+  const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string | null>(null);
   const csvRef = useRef<HTMLInputElement|null>(null);
 
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -70,6 +72,18 @@ export default function AdminAddEpisodePage() {
   const [importDone, setImportDone] = useState(false);
   const [statsDone, setStatsDone] = useState(false);
   const [progress, setProgress] = useState(0); // percent progress
+  const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
+  const [epFullVideoBytesTotal, setEpFullVideoBytesTotal] = useState(0);
+  // Cancel / abort controls
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const cancelRequestedRef = useRef<boolean>(false);
+  // Rollback tracking: track episode creation for cleanup on error/cancel
+  const importSucceededRef = useRef<boolean>(false);
+  // Confirmation modal for cancel
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  // Deletion/rollback progress
+  const [deletionProgress, setDeletionProgress] = useState<{ stage: string; details: string } | null>(null);
+  const [deletionPercent, setDeletionPercent] = useState(0);
 
 
   // Load film + existing episodes
@@ -144,6 +158,48 @@ export default function AdminAddEpisodePage() {
     return null;
   }
   const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, filmMainLang), [csvHeaders, filmMainLang]);
+  // Candidate headers for main language (support simple variant pairs like es_es/es_la, pt_pt/pt_br)
+  const mainLangHeaderOptions = useMemo(() => {
+    if (!csvHeaders.length) return [] as string[];
+    const canon = canonicalizeLangCode(filmMainLang) || filmMainLang;
+    // Gather all alias forms for the canonical code (e.g. ja, jp, japanese)
+    // plus any simple variant group pairings (Spanish / Portuguese regional variants).
+    const variantGroups: Record<string,string[]> = {
+      es_es: ["es_es","es_la"], es_la: ["es_es","es_la"],
+      pt_pt: ["pt_pt","pt_br"], pt_br: ["pt_pt","pt_br"],
+    };
+    const baseAliasList = (variantGroups[canon] || [canon])
+      .flatMap(code => (expandCanonicalToAliases(code) || [code]));
+    const norm = (s: string) => s.toLowerCase()
+      .replace(/\[[^\]]*\]/g,'') // drop bracket qualifiers like [CC]
+      .replace(/[_\s-]/g,'')
+      .trim();
+    const headerClean = csvHeaders.map(h => ({ orig: h, clean: norm(h) }));
+    const aliasNorms = new Set(baseAliasList.map(a => norm(a)));
+    const candidateSet = new Set<string>();
+    // Include every header whose cleaned form matches any alias variant.
+    headerClean.forEach(h => { if (aliasNorms.has(h.clean)) candidateSet.add(h.orig); });
+    // Ensure auto-detected header present even if it didn't match (edge cases)
+    if (mainLangHeader) candidateSet.add(mainLangHeader);
+    const candidates = Array.from(candidateSet);
+    // Sort: prioritize headers without [CC], then shorter (likely code form), then alphabetical.
+    candidates.sort((a, b) => {
+      const aCc = /\[cc\]/i.test(a) ? 1 : 0;
+      const bCc = /\[cc\]/i.test(b) ? 1 : 0;
+      if (aCc !== bCc) return aCc - bCc;
+      const aLen = a.length; const bLen = b.length;
+      if (aLen !== bLen) return aLen - bLen;
+      return a.localeCompare(b);
+    });
+    return candidates;
+  }, [csvHeaders, filmMainLang, mainLangHeader]);
+  // Keep override synced when headers change (prefer auto-detected if available)
+  useEffect(() => {
+    if (!mainLangHeaderOptions.length) { setMainLangHeaderOverride(null); return; }
+    if (mainLangHeaderOverride && mainLangHeaderOptions.includes(mainLangHeaderOverride)) return;
+    if (mainLangHeader && mainLangHeaderOptions.includes(mainLangHeader)) { setMainLangHeaderOverride(mainLangHeader); return; }
+    setMainLangHeaderOverride(mainLangHeaderOptions[0]);
+  }, [mainLangHeaderOptions, mainLangHeader, mainLangHeaderOverride]);
   const lowerHeaderMap = useMemo(() => {
     const m: Record<string, string> = {};
     csvHeaders.forEach(h => { m[(h || "").toLowerCase()] = h; });
@@ -166,7 +222,8 @@ export default function AdminAddEpisodePage() {
     
     // Language detection with alias support
     const mainCanon = canonicalizeLangCode(filmMainLang) || filmMainLang;
-    const foundHeader = findHeaderForLang(headers, filmMainLang);
+    // Use user-selected override if present; otherwise auto-detect
+    const foundHeader = mainLangHeaderOverride ? headers.find(h => h === mainLangHeaderOverride) : findHeaderForLang(headers, filmMainLang);
     if (!foundHeader) {
       errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon} (có thể dùng "${mainCanon}" hoặc tên đầy đủ như "English", "Vietnamese", v.v.)`);
     }
@@ -181,9 +238,9 @@ export default function AdminAddEpisodePage() {
       if(ec>=maxErr) return;
     });
     setCsvErrors(errors); setCsvValid(errors.length===0);
-  }, [filmMainLang]);
+  }, [filmMainLang, mainLangHeaderOverride]);
 
-  useEffect(()=>{ if(csvHeaders.length && csvRows.length) validateCsv(csvHeaders,csvRows); }, [csvHeaders,csvRows,validateCsv]);
+  useEffect(()=>{ if(csvHeaders.length && csvRows.length) validateCsv(csvHeaders,csvRows); }, [csvHeaders,csvRows,filmMainLang,mainLangHeaderOverride,validateCsv]);
 
   // Reset file flags when toggles are turned off
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
@@ -265,9 +322,16 @@ export default function AdminAddEpisodePage() {
     const aFile=(document.getElementById('ep-full-audio') as HTMLInputElement)?.files?.[0];
     const vFile=(document.getElementById('ep-full-video') as HTMLInputElement)?.files?.[0];
     if(addEpAudio && aFile){ setStage('ep_full_audio'); const key=await uploadEpisodeFullMedia({ filmId: contentSlug!, episodeNum, type:'audio', file:aFile }); setEpFullAudioDone(1); try{ await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, full_audio_key: key }); }catch{ toast.error('Audio meta fail'); } }
-    if(addEpVideo && vFile){ setStage('ep_full_video'); const key=await uploadEpisodeFullMedia({ filmId: contentSlug!, episodeNum, type:'video', file:vFile }); setEpFullVideoDone(1); try{ await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, full_video_key: key }); }catch{ toast.error('Video meta fail'); } }
+    if(addEpVideo && vFile){ 
+      setStage('ep_full_video'); 
+      setEpFullVideoBytesDone(0); 
+      setEpFullVideoBytesTotal(vFile.size);
+      const key=await uploadEpisodeFullMedia({ filmId: contentSlug!, episodeNum, type:'video', file:vFile, onProgress: (done, total) => { setEpFullVideoBytesDone(done); setEpFullVideoBytesTotal(total); } }); 
+      setEpFullVideoDone(1); 
+      try{ await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, full_video_key: key }); }catch{ toast.error('Video meta fail'); } 
+    }
   };
-  const doUploadMedia = async (type: MediaType, files: File[]) => {
+  const doUploadMedia = async (type: MediaType, files: File[], signal?: AbortSignal) => {
     if (!files.length) return;
     setStage(type === 'image' ? 'images' : 'audio');
     await uploadMediaBatch({
@@ -277,12 +341,15 @@ export default function AdminAddEpisodePage() {
       files,
       padDigits,
       startIndex,
-      inferFromFilenames: infer
+      inferFromFilenames: infer,
+      signal
     }, done => {
       if (type === 'image') setImagesDone(done);
       else setAudioDone(done);
     });
-    toast.success(type === 'image' ? 'Images uploaded' : 'Audio uploaded');
+    if (!(signal && signal.aborted)) {
+      toast.success(type === 'image' ? 'Images uploaded' : 'Audio uploaded');
+    }
   };
 
   const onCreateEpisode = async () => {
@@ -290,10 +357,19 @@ export default function AdminAddEpisodePage() {
     if(!isAdmin){ toast.error('Admin access required'); return; }
     if(!contentSlug){ toast.error('Missing content slug'); return; }
     try {
-      setBusy(true); setStage('starting'); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
-      await doUploadMedia('image', imageFiles); await doUploadMedia('audio', audioFiles);
+      setBusy(true); setStage('starting');
+      cancelRequestedRef.current = false;
+      uploadAbortRef.current = new AbortController();
+      importSucceededRef.current = false;
+      setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
+      await Promise.all([
+        doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
+        doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)
+      ]);
+      if (cancelRequestedRef.current || uploadAbortRef.current?.signal.aborted) throw new Error('User cancelled');
       if(!csvText){ toast.error('CSV required'); return; }
       setStage('import');
+      if (cancelRequestedRef.current) throw new Error('User cancelled');
       const totalEpisodesDerived = existingEpisodeNums.has(episodeNum) ? existingEpisodes.length : existingEpisodes.length + 1;
       const filmMeta: ImportFilmMeta = {
         title: filmTitle,
@@ -306,12 +382,25 @@ export default function AdminAddEpisodePage() {
       };
       let cardIds: string[]|undefined = undefined;
       if(infer){ const all=[...imageFiles, ...audioFiles]; const set=new Set<string>(); all.forEach(f=>{ const m=f.name.match(/(\d+)(?=\.[^.]+$)/); if(m){ const raw=m[1]; const id= raw.length>=padDigits? raw: raw.padStart(padDigits,'0'); set.add(id);} }); if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } }
-      await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds }, () => {});
-      setImportDone(true);
+      try {
+        await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds, overrideMainSubtitleHeader: mainLangHeaderOverride || undefined }, () => {});
+        importSucceededRef.current = true;
+        setImportDone(true);
+        toast.success('Import completed');
+      } catch (importErr) {
+        console.error('❌ Import failed:', importErr);
+        toast.error('Import failed: ' + (importErr as Error).message);
+        throw importErr;
+      }
       // Upload episode-level media AFTER episode row exists
-      await doUploadEpisodeCover().catch(() => {}); await doUploadEpisodeFull().catch(() => {});
+      if (cancelRequestedRef.current) throw new Error('User cancelled');
+      await doUploadEpisodeCover().catch(() => {});
+      if (cancelRequestedRef.current) throw new Error('User cancelled');
+      await doUploadEpisodeFull().catch(() => {});
+      if (cancelRequestedRef.current) throw new Error('User cancelled');
       // Calculate stats immediately after import
       setStage('calculating_stats');
+      if (cancelRequestedRef.current) throw new Error('User cancelled');
       try {
         const res = await apiCalculateStats({ filmSlug: contentSlug!, episodeNum });
         if ("error" in res) {
@@ -328,12 +417,104 @@ export default function AdminAddEpisodePage() {
         const eps = await apiListEpisodes((contentSlug || '').trim());
         setExistingEpisodes(eps.map(r => ({ episode_number: r.episode_number, title: r.title })));
       } catch { /* ignore refresh errors */ }
-    } catch(e){ toast.error((e as Error).message); } finally { setBusy(false); }
+    } catch(e){ 
+      const msg = (e as Error).message || '';
+      const wasCancelled = /cancelled/i.test(msg);
+      if (wasCancelled) {
+        toast('Đã hủy tiến trình upload/import');
+      } else {
+        toast.error('Lỗi: ' + (e as Error).message);
+      }
+      // Note: No auto-rollback for AddEpisode (episode should persist even if optional media fails)
+      // User can manually delete episode via ContentDetailPage if needed
+    } finally { setBusy(false); }
+  };
+
+  const onCancelAll = () => {
+    // Always show confirmation modal (like AdminEpisodeUpdatePage)
+    setConfirmCancel(true);
+  };
+
+  const executeCancel = async () => {
+    // If episode was already created (import succeeded), rollback (delete it)
+    if (importSucceededRef.current) {
+      try {
+        setDeletionPercent(10);
+        
+        // Simulate deletion progress animation
+        const deleteTimer = window.setInterval(() => {
+          setDeletionPercent((p) => (p < 70 ? p + 5 : p < 90 ? p + 2 : p));
+        }, 200);
+        
+        setDeletionProgress({ stage: 'Đang xóa episode...', details: 'Rollback episode đã tạo' });
+        const deleteRes = await apiDeleteEpisode({ filmSlug: contentSlug!, episodeNum });
+        
+        if (deleteTimer) window.clearInterval(deleteTimer);
+        setDeletionPercent(100);
+        
+        if ('error' in deleteRes) {
+          toast.error('Rollback thất bại: ' + deleteRes.error);
+          setDeletionProgress(null);
+          setDeletionPercent(0);
+          setConfirmCancel(false);
+          return;
+        }
+        
+        setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xóa ${deleteRes.cards_deleted} cards, ${deleteRes.media_deleted} media files` });
+        console.log('✅ Rollback: deleted episode', deleteRes.cards_deleted, 'cards:', deleteRes.media_deleted, 'media');
+        
+        setTimeout(() => {
+          toast.success('Đã rollback thành công');
+          // Reset all state
+          cancelRequestedRef.current = true;
+          try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
+          setStage('idle');
+          setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+          setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+          setImagesDone(0); setAudioDone(0);
+          setImportDone(false); setStatsDone(false);
+          importSucceededRef.current = false;
+          setBusy(false);
+          setConfirmCancel(false);
+          setDeletionProgress(null);
+          setDeletionPercent(0);
+          // Refresh episodes list
+          apiListEpisodes(contentSlug || '').then(eps => {
+            setExistingEpisodes(eps.map(r => ({ episode_number: r.episode_number, title: r.title })));
+          }).catch(() => {});
+        }, 600);
+      } catch (err) {
+        console.error('Rollback error:', err);
+        toast.error('Rollback thất bại: ' + (err as Error).message);
+        setDeletionProgress(null);
+        setDeletionPercent(0);
+        setConfirmCancel(false);
+      }
+    } else {
+      // Episode not created yet, just cancel uploads
+      cancelRequestedRef.current = true;
+      try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
+      setStage('idle');
+      setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+      setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+      setImagesDone(0); setAudioDone(0);
+      setImportDone(false); setStatsDone(false);
+      importSucceededRef.current = false;
+      setBusy(false);
+      setConfirmCancel(false);
+      toast('Đã hủy tiến trình');
+    }
   };
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-4">
-      <div className="text-lg">Add Episode for Content: <span className="font-mono text-pink-300">{contentSlug}</span></div>
+      <div className="admin-section-header">
+        <h2 className="admin-title">Add Episode: {contentSlug}</h2>
+        <button
+          className="admin-btn secondary"
+          onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}`)}
+        >← Back</button>
+      </div>
       {!isAdmin && (
         <div className="text-xs text-red-400">
           Admin access required.{requireKey ? ' Set Admin Key in the SideNav.' : ''}
@@ -463,6 +644,19 @@ export default function AdminAddEpisodePage() {
         {csvValid !== null && (
           <div className={`flex items-start gap-2 text-sm ${csvValid? 'text-green-400':'text-red-400'}`}>{csvValid? 'CSV hợp lệ.' : <div className="space-y-1"><div>CSV cần chỉnh sửa:</div><ul className="list-disc pl-5 text-xs">{csvErrors.map((er,i)=><li key={i}>{er}</li>)}</ul></div>}</div>
         )}
+        {csvHeaders.length > 0 && mainLangHeaderOptions.length > 1 && (
+          <div className="flex items-center gap-2 text-sm">
+            <label className="text-gray-300">Main Language column ({filmMainLang}):</label>
+            <select
+              className="admin-input !py-1 !px-2 max-w-xs"
+              value={mainLangHeaderOverride || mainLangHeader || mainLangHeaderOptions[0]}
+              onChange={e => setMainLangHeaderOverride(e.target.value)}
+            >
+              {mainLangHeaderOptions.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+            <span className="text-xs text-gray-500">Chọn cột phụ đề chính</span>
+          </div>
+        )}
         {/* CSV Preview */}
         {csvHeaders.length > 0 && (
           <div className="overflow-auto border border-gray-700 rounded max-h-[480px]">
@@ -472,7 +666,8 @@ export default function AdminAddEpisodePage() {
                   <th className="border border-gray-700 px-2 py-1 text-left">#</th>
                   {csvHeaders.map((h, i) => {
                     const isRequired = requiredOriginals.includes(h);
-                    const isMainLang = mainLangHeader === h;
+                    const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
+                    const isMainLang = selectedMainHeader === h;
                     return (
                       <th
                         key={i}
@@ -494,7 +689,8 @@ export default function AdminAddEpisodePage() {
                     {csvHeaders.map((h, j) => {
                       const val = row[h] || '';
                       const isRequired = requiredOriginals.includes(h);
-                      const isMainLang = mainLangHeader === h;
+                      const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
+                      const isMainLang = selectedMainHeader === h;
                       const isEmpty = !val.trim();
                       return (
                         <td
@@ -557,8 +753,10 @@ export default function AdminAddEpisodePage() {
       {/* Actions + Progress */}
       <div className="flex flex-col gap-3">
         <div className="flex gap-2 items-center">
-          <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}`)}>← Back</button>
           <button className="admin-btn primary" disabled={busy || !canCreate} onClick={onCreateEpisode} title={!isAdmin ? 'Requires allowed admin email + key' : undefined}>{busy? 'Processing...' : 'Create Episode'}</button>
+          {busy && stage !== 'done' && (
+            <button type="button" className="admin-btn danger" onClick={onCancelAll} title="Cancel current upload/import">Stop</button>
+          )}
           <div className="text-xs text-gray-400">Stage: {stage}</div>
         </div>
         {(busy || stage === 'done') && (
@@ -569,12 +767,64 @@ export default function AdminAddEpisodePage() {
             <ProgressItem label="Episode Cover" done={epCoverDone > 0} pending={!!(document.getElementById('ep-cover-file') as HTMLInputElement)?.files?.length && epCoverDone === 0} />
             <ProgressItem label="Episode Full Audio" done={epFullAudioDone > 0} pending={!!(document.getElementById('ep-full-audio') as HTMLInputElement)?.files?.length && epFullAudioDone === 0} />
             <ProgressItem label="Episode Full Video" done={epFullVideoDone > 0} pending={!!(document.getElementById('ep-full-video') as HTMLInputElement)?.files?.length && epFullVideoDone === 0} />
+            {stage === 'ep_full_video' && epFullVideoBytesTotal > 0 && (
+              <div className="flex justify-between text-gray-400">
+                <span>Video Upload Progress</span>
+                <span>{Math.round((epFullVideoBytesDone / epFullVideoBytesTotal) * 100)}%</span>
+              </div>
+            )}
             <div className="flex justify-between"><span>Calculating Stats</span><span>{statsDone ? '✓' : stage === 'calculating_stats' ? '...' : (importDone ? 'pending' : 'skip')}</span></div>
             {/* Progress Bar at bottom */}
             <ProgressBar percent={progress} />
           </div>
         )}
       </div>
+
+      {/* Cancel Confirmation Modal */}
+      {confirmCancel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deletionProgress && setConfirmCancel(false)}>
+          <div 
+            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {deletionProgress ? (
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold text-[#f5d0fe]">Đang rollback...</h3>
+                <div className="text-sm text-[#e9d5ff] space-y-2">
+                  <div><span className="text-[#f9a8d4] font-semibold">{deletionProgress.stage}</span></div>
+                  <div className="text-xs text-gray-400">{deletionProgress.details}</div>
+                </div>
+                <ProgressBar percent={deletionPercent} />
+              </div>
+            ) : (
+              <>
+                <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận dừng quá trình</h3>
+                <p className="text-[#f5d0fe] mb-2">Bạn có muốn dừng quá trình thêm Episode?</p>
+                <p className="text-sm text-[#e9d5ff] mb-4">Stage hiện tại: <span className="text-[#f9a8d4] font-semibold">{stage}</span></p>
+                {importSucceededRef.current ? (
+                  <p className="text-sm text-[#fbbf24] mb-4">⚠️ Episode đã được tạo. Nếu dừng, hệ thống sẽ <strong>rollback (xóa episode)</strong>!</p>
+                ) : (
+                  <p className="text-sm text-[#e9d5ff] mb-4">Episode chưa được tạo. Dừng sẽ hủy quá trình upload.</p>
+                )}
+                <div className="flex gap-3 justify-end">
+                  <button
+                    className="admin-btn secondary"
+                    onClick={() => setConfirmCancel(false)}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    className="admin-btn danger"
+                    onClick={executeCancel}
+                  >
+                    {importSucceededRef.current ? 'Dừng & Rollback' : 'Dừng'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

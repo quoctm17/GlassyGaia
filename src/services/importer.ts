@@ -88,7 +88,8 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     bengali: "bn", bn: "bn",
     cantonese: "yue", yue: "yue", "zh-yue": "yue", zh_yue: "yue",
     catalan: "ca", ca: "ca",
-    "chinese traditional": "zh_trad", traditional_chinese: "zh_trad", zh_trad: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad",
+    "chinese traditional": "zh_trad", "chinese (traditional)": "zh_trad", traditional_chinese: "zh_trad", zh_trad: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad",
+    "chinese simplified": "zh", "chinese (simplified)": "zh",
     croatian: "hr", hr: "hr",
     czech: "cs", cs: "cs",
     danish: "da", da: "da",
@@ -96,7 +97,7 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     filipino: "fil", tagalog: "fil", fil: "fil", tl: "fil",
     finnish: "fi", fi: "fi",
     french: "fr", fr: "fr",
-    "french canadian": "fr_ca", fr_ca: "fr_ca",
+    "french canadian": "fr_ca", "french (canada)": "fr_ca", fr_ca: "fr_ca",
     galician: "gl", gl: "gl",
     german: "de", de: "de",
     greek: "el", el: "el",
@@ -110,6 +111,7 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     polish: "pl", pl: "pl",
     "portuguese (brazil)": "pt_br", pt_br: "pt_br",
     "portuguese (portugal)": "pt_pt", pt_pt: "pt_pt", portuguese: "pt_pt",
+    "portugese (brazil)": "pt_br", "portugese (portugal)": "pt_pt", portugese: "pt_pt",
     romanian: "ro", ro: "ro",
     russian: "ru", ru: "ru",
     "spanish (latin america)": "es_la", es_la: "es_la",
@@ -123,8 +125,35 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
 
   const subtitles: Record<string, string> = {};
   const detected: string[] = [];
+  
+  // Reserved columns: these are CSV metadata/structural columns, NOT language codes
+  // Prevents false positives like "id" (Indonesian), "no" (Norwegian), etc.
+  const RESERVED_COLUMNS = new Set([
+    "id", "card_id", "cardid", "card id",
+    "no", "number", "card_number", "cardnumber", "card number",
+    "start", "start_time", "starttime", "start time", "start_time_ms",
+    "end", "end_time", "endtime", "end time", "end_time_ms",
+    "duration", "length", "card_length",
+    "type", "card_type", "cardtype", "card type",
+    "sentence", "text", "content",
+    "image", "image_url", "imageurl", "image url", "image_key",
+    "audio", "audio_url", "audiourl", "audio url", "audio_key",
+    "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
+    "cefr", "cefr_level", "cefr level",
+    "jlpt", "jlpt_level", "jlpt level",
+    "hsk", "hsk_level", "hsk level",
+    "notes", "tags", "metadata",
+    "hiragana", "katakana", "romaji"
+  ]);
+  
   for (const h of headers) {
-    const key = h.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, ""); // strip (Simplified), [CC], etc.
+    // IMPORTANT: Only strip square brackets [CC], [SDH] etc., NOT round parentheses (Brazil), (Spain), (Traditional)
+    // Round parentheses contain variant information critical for language detection
+    const key = h.trim().toLowerCase().replace(/\s*\[[^\]]*\]\s*/g, '').trim(); // strip [CC] only, keep (Brazil)
+    
+    // Skip reserved columns BEFORE language detection
+    if (RESERVED_COLUMNS.has(key)) continue;
+    
     const canon = (langAliases[key] as string) || canonicalizeLangCode(key) || "";
     if (canon && [
       "ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"
