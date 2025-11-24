@@ -147,8 +147,16 @@ export default {
           }
         }
         const prefix = norm ? (norm.endsWith('/') ? norm : norm + '/') : '';
+        const paged = /^(1|true|yes)$/i.test(url.searchParams.get('paged') || '');
+        const cursor = url.searchParams.get('cursor') || undefined;
+        const limitRaw = url.searchParams.get('limit');
+        let limit = Number(limitRaw);
+        if (!Number.isFinite(limit)) limit = 1000; // Cloudflare default
+        limit = Math.min(1000, Math.max(1, limit));
         try {
-          const res = await env.MEDIA_BUCKET.list({ prefix, delimiter: '/' });
+          const listOpts = { prefix, delimiter: '/', cursor, limit };
+          // When not paged we omit cursor/limit so behavior identical to previous implementation
+          const res = paged ? await env.MEDIA_BUCKET.list(listOpts) : await env.MEDIA_BUCKET.list({ prefix, delimiter: '/' });
           const base = env.R2_PUBLIC_BASE || '';
           const makeUrl = (k) => base ? `${base}/${k}` : `${url.origin}/media/${k}`;
           const dirs = (res.delimitedPrefixes || []).map((p) => {
@@ -156,14 +164,17 @@ export default {
             const name = key.replace(/^.*\//, '').replace(/\/$/, '') || key;
             return { key, name, type: 'directory' };
           });
-          const files = (res.objects || []).map((o) => ({
-            key: o.key,
-            name: o.key.replace(/^.*\//, ''),
-            type: 'file',
-            size: o.size,
-            modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
-            url: makeUrl(o.key),
-          }));
+            const files = (res.objects || []).map((o) => ({
+              key: o.key,
+              name: o.key.replace(/^.*\//, ''),
+              type: 'file',
+              size: o.size,
+              modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+              url: makeUrl(o.key),
+            }));
+          if (paged) {
+            return json({ items: [...dirs, ...files], cursor: res.cursor || null, truncated: !!res.truncated });
+          }
           return json([ ...dirs, ...files ]);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });

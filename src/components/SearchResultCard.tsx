@@ -87,14 +87,7 @@ export default function SearchResultCard({
     (async () => {
       try {
         const detail = await getCardByPath(film, epSlug, cid);
-        if (detail) {
-          try {
-            console.log('[card-detail-fetch]', { id: detail.id, film: film, episode: epSlug, subtitleKeys: Object.keys(detail.subtitle || {}), sentence: detail.sentence });
-            if (detail.subtitle && detail.subtitle['ja']) {
-              console.log('[card-detail-ja-raw]', detail.id, detail.subtitle['ja']);
-            }
-          } catch { /* ignore */ }
-        }
+        // removed debug logging
         if (active && detail?.subtitle && Object.keys(detail.subtitle).length) {
           setSubsOverride(detail.subtitle);
         }
@@ -134,7 +127,7 @@ export default function SearchResultCard({
       out += escapeHtml(text.slice(last, m.index));
       const base = m[1];
       const reading = m[2];
-      try { console.log('[ruby-token]', base, '=>', reading); } catch { /* ignore */ }
+      // removed debug logging
       const hasKanji = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(base);
       const readingIsKanaOnly = /^[\u3040-\u309F\u30A0-\u30FFー]+$/.test(reading);
       if (lang === 'ja' && hasKanji && readingIsKanaOnly) {
@@ -351,16 +344,9 @@ export default function SearchResultCard({
               if (needsRuby) {
                 const normalized = normalizeCjkSpacing(raw);
                 // Debug logging for Japanese / Chinese subtitle raw + normalized + parsed HTML
-                if (canon === "ja") {
-                  try {
-                    console.log("[card-ruby-debug] id=", card.id, "raw=", raw);
-                    console.log("[card-ruby-debug] id=", card.id, "normalized=", normalized);
-                  } catch { /* ignore */ }
-                }
+                // removed debug logging
                 const rubyHtml = bracketToRubyHtml(normalized, canon);
-                if (canon === "ja") {
-                  try { console.log("[card-ruby-debug] id=", card.id, "finalHtml=", rubyHtml); } catch { /* ignore */ }
-                }
+                // removed debug logging
                 html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q) : rubyHtml;
               } else {
                 html = q ? highlightHtml(raw, q) : escapeHtml(raw);

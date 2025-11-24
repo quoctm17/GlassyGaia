@@ -617,6 +617,17 @@ export async function apiR2List(prefix: string = ""): Promise<R2ItemApi[]> {
   return await getJson<R2ItemApi[]>(`/r2/list?prefix=${enc}`);
 }
 
+export interface R2PagedListResponse {
+  items: R2ItemApi[];
+  cursor: string | null;
+  truncated: boolean;
+}
+export async function apiR2ListPaged(prefix: string = "", cursor?: string | null, limit: number = 50): Promise<R2PagedListResponse> {
+  const params = new URLSearchParams({ prefix, paged: '1', limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return await getJson<R2PagedListResponse>(`/r2/list?${params.toString()}`);
+}
+
 // Flat paginated list for recursive operations
 export interface R2FlatPage {
   objects: Array<{ key: string; size?: number; modified?: string | null }>;

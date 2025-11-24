@@ -12,6 +12,7 @@ import PortalDropdown from '../../components/PortalDropdown';
 import CustomSelect from '../../components/CustomSelect';
 import FlagDisplay from '../../components/FlagDisplay';
 import ProgressBar from '../../components/ProgressBar';
+import Pagination from '../../components/Pagination';
 
 export default function AdminContentListPage() {
   const { preferences, setMainLanguage } = useUser();
@@ -165,8 +166,19 @@ export default function AdminContentListPage() {
     }
   };
 
-  const pageSize = 20;
-  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [page, setPage] = useState(1); // 1-based
+
+  // Reset to first page whenever search or any filter changes to avoid empty page view.
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, origFilter, langFilter, typeFilter, yearFilter]);
+
+  // Clamp page if current page exceeds total pages after filtering.
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filteredRows.length / pageSize)), [filteredRows.length, pageSize]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -450,14 +462,17 @@ export default function AdminContentListPage() {
 
       {/* Pagination */}
       {!loading && filteredRows.length > 0 && (
-        <div className="flex items-center justify-between mt-2">
-          <div className="text-xs text-gray-400">
-            Showing {(page-1)*pageSize + 1}-{Math.min(page*pageSize, filteredRows.length)} of {filteredRows.length}
-          </div>
-          <div className="flex gap-2">
-            <button className="admin-btn secondary !py-1 !px-2" disabled={page<=1} onClick={() => setPage(p => Math.max(1, p-1))}>Prev</button>
-            <button className="admin-btn secondary !py-1 !px-2" disabled={page*pageSize>=filteredRows.length} onClick={() => setPage(p => (p*pageSize<filteredRows.length ? p+1 : p))}>Next</button>
-          </div>
+        <div className="mt-3">
+          <Pagination
+            mode="count"
+            page={page}
+            pageSize={pageSize}
+            total={filteredRows.length}
+            loading={loading}
+            onPageChange={(p) => setPage(p)}
+            onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+            sizes={[10,20,50,100]}
+          />
         </div>
       )}
 

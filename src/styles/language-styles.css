@@ -789,3 +789,10 @@ ruby rb {
   text-align: left;
 }
 .telugu-sub { color: #6C3483; }
+/* ===== Additional spacing for English & Vietnamese subtitles in card view ===== */
+.pixel-result-card .english-sub,
+.pixel-result-card .vietnamese-sub {
+  margin-top: 14px;
+  margin-bottom: 14px;
+  line-height: 1.6; /* improve readability */
+}
