@@ -57,7 +57,7 @@ export function normalizeCjkSpacing(text: string): string {
   // Unicode ranges: Han 3400-9FFF (+ CJK Ext A/B in BMP/Fxx), Hiragana 3040-309F, Katakana 30A0-30FF
   const CJK = "[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\u3040-\\u30FF]";
   // Frequent JP/ZH punctuation used in subtitles
-  const PUNCT = "[、。．・，,。！!？?：:；;「」『』（）()［］\[\]…—\-]";
+  const PUNCT = "[、。．・，,。！!？?：:；;「」『』（）()［］[]…—-]";
   // Broad whitespace class: ASCII space, NBSP, and full set of Unicode spaces including IDEOGRAPHIC SPACE (\u3000)
   const WS = "[\\s\\u00A0\\u1680\\u2000-\\u200A\\u202F\\u205F\\u3000]+";
   let s = text;
@@ -66,7 +66,7 @@ export function normalizeCjkSpacing(text: string): string {
   // 1) Collapse spaces between CJK characters
   s = s.replace(new RegExp(`(${CJK})${WS}(${CJK})`, "g"), "$1$2");
   // 2) Collapse spaces between ] and [ when they sandwich CJK bases (ruby bracketed groups)
-  s = s.replace(new RegExp(`(\\]|${CJK})${WS}(\\[|${CJK})`, "g"), "$1$2");
+  s = s.replace(new RegExp(`(]|${CJK})${WS}([|${CJK})`, "g"), "$1$2");
   // 3) Remove spaces before/after CJK punctuation
   s = s.replace(new RegExp(`(${CJK})${WS}(${PUNCT})`, "g"), "$1$2");
   s = s.replace(new RegExp(`(${PUNCT})${WS}(${CJK})`, "g"), "$1$2");

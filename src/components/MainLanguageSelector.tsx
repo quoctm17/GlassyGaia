@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import PortalDropdown from "./PortalDropdown";
 import { useUser } from "../context/UserContext";
 import { langLabel, countryCodeForLang } from "../utils/lang";
 import { getAvailableMainLanguages, getFilmDoc } from "../services/firestore";
@@ -15,8 +16,9 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
   const { preferences, setMainLanguage, openLanguageSelector, setOpenLanguageSelector } = useUser();
   const [options, setOptions] = useState<string[]>([]);
   const current = preferences.main_language || "en";
-  const [local, setLocal] = useState<string>(current);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
   const open = openLanguageSelector === "main";
+  const [closing, setClosing] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -30,34 +32,23 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
           langs = f?.main_language ? [f.main_language] : await getAvailableMainLanguages();
         }
       }
-      const sorted = [...(langs || ["en"])].sort((a, b) => {
-        if (a === "en" && b !== "en") return -1;
-        if (b === "en" && a !== "en") return 1;
-        return a.localeCompare(b);
-      });
+      const sorted = Array.from(new Set(langs || ["en"]))
+        .sort((a, b) => a.localeCompare(b)); // pure A-Z sort
       if (!sorted.includes(current)) sorted.unshift(current); // ensure current present
-      setOptions(Array.from(new Set(sorted)));
-      setLocal(current);
+      setOptions(sorted);
     };
     load().catch(() => {
       setOptions([current]);
-      setLocal(current);
     });
   }, [filmId, optionsOverride, current]);
 
-  const apply = async () => {
-    const lang = local || current;
-    await setMainLanguage(lang);
-    onChange?.(lang);
-    setOpenLanguageSelector(null);
-  };
+  // Immediate apply handled in option click; keep fallback logic below.
 
   // If the current saved main language is not in the available list (e.g., only EN exists),
   // automatically reset it to the first available so the search doesn’t return 0 results.
   useEffect(() => {
     if (options.length > 0 && !options.includes(current)) {
       const fallback = options[0];
-      setLocal(fallback);
       setMainLanguage(fallback);
       onChange?.(fallback);
     }
@@ -67,8 +58,17 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
   return (
     <div className={"relative " + (className || "")}>
       <button
-        onClick={() => setOpenLanguageSelector(open ? null : "main")}
-        className="pixel-pill text-sm"
+        ref={btnRef}
+        onClick={() => {
+          if (open) {
+            setClosing(true);
+            setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 200);
+          } else {
+            // open instantly (no pre-delay)
+            setOpenLanguageSelector("main");
+          }
+        }}
+        className="language-selector-btn"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
@@ -76,32 +76,41 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
         <span>{langLabel(current)}</span>
         <ChevronDown className="w-4 h-4" />
       </button>
-      {open && (
-        <div className="absolute right-0 mt-2 w-64 z-50 pixel-filter-panel p-2">
-          <div className="flex items-center justify-between px-1 pb-1">
-            <div className="text-[11px] text-pink-200/80">Select one language</div>
+      {(open || closing) && btnRef.current && (
+        <PortalDropdown
+          anchorEl={btnRef.current}
+          onClose={() => {
+            if (!closing) {
+              setClosing(true);
+              setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 200);
+            }
+          }}
+          align="center"
+          offset={10}
+          className="language-dropdown"
+          durationMs={200}
+          closing={closing}
+        >
+          <div className="language-options-header">Select language</div>
+          <div className="language-options-list">
+            {options.length === 0 && (
+              <div className="px-2 py-1 text-xs text-pink-200/80">No languages</div>
+            )}
+            {options.map((l) => {
+              const active = current === l; // highlight saved language
+              return (
+                <button
+                  key={l}
+                  onClick={() => { setMainLanguage(l); onChange?.(l); setClosing(true); setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 500); }}
+                  className={`language-option ${active ? 'active' : ''}`}
+                >
+                  <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
+                  <span>{langLabel(l)}</span>
+                </button>
+              );
+            })}
           </div>
-          {options.length === 0 && (
-            <div className="px-2 py-1 text-sm text-pink-200/80">No languages</div>
-          )}
-          {options.map((l) => {
-            const active = local === l;
-            return (
-              <button
-                key={l}
-                onClick={() => setLocal(l)}
-                className={`pixel-filter-btn flex items-center gap-2 ${active ? 'active' : ''}`}
-              >
-                <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
-                <span>{langLabel(l)}</span>
-              </button>
-            );
-          })}
-          <div className="mt-2 flex justify-end gap-2 px-2">
-            <button className="pixel-btn-fav active text-xs" onClick={apply}>Apply</button>
-            <button className="pixel-btn-fav text-xs" onClick={() => { setLocal(current); setOpenLanguageSelector(null); }}>Cancel</button>
-          </div>
-        </div>
+        </PortalDropdown>
       )}
     </div>
   );

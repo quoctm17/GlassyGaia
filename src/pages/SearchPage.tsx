@@ -3,7 +3,8 @@ import { useLocation } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
 import type { CardDoc } from "../types";
 import { searchCardsGlobalClient, listAllItems } from "../services/firestore";
-import SearchFilters from "../components/SearchFilters";
+// Replaced old SearchFilters with new FilterPanel + ContentSelector
+import FilterPanel from "../components/FilterPanel";
 // Removed old LanguageSelector (now in NavBar via MainLanguageSelector & SubtitleLanguageSelector)
 import SuggestionPanel from "../components/SuggestionPanel";
 import { canonicalizeLangCode } from "../utils/lang";
@@ -23,6 +24,10 @@ function SearchPage() {
   const [films, setFilms] = useState<string[]>([]);
   const [filmTypeMap, setFilmTypeMap] = useState<Record<string, string>>({});
   const [limit, setLimit] = useState<number>(100);
+  const [minDifficulty, setMinDifficulty] = useState<number>(0);
+  const [maxDifficulty, setMaxDifficulty] = useState<number>(100);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(300); // resizable panel width
+  const [dragging, setDragging] = useState<boolean>(false);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
   const [filmAvailMap, setFilmAvailMap] = useState<Record<string, string[]>>(
     {}
@@ -180,20 +185,50 @@ function SearchPage() {
     }
   }, [filmFilter, filmsWithResults]);
 
-  return (
-    <div className="p-6 grid grid-cols-12 gap-6">
-      {/* Left column: filters */}
-      <SearchFilters
-        films={filmsWithResults}
-        filmTitleMap={filmTitleMap}
-        filmTypeMap={filmTypeMap}
-        allResults={allResults}
-        filmFilter={filmFilter}
-        onSelect={(id) => setFilmFilter(id)}
-      />
+  // Apply difficulty filtering client-side
+  const difficultyFiltered = allResults.filter(c => {
+    const score = typeof c.difficulty_score === 'number' ? c.difficulty_score : 0;
+    return score >= minDifficulty && score <= maxDifficulty;
+  });
 
-      {/* Right column: search + results */}
-      <main className="col-span-12 md:col-span-9">
+  const displayedResults = (filmFilter
+    ? difficultyFiltered.filter(c => c.film_id === filmFilter)
+    : difficultyFiltered).slice(0, limit);
+
+  const startDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setDragging(true);
+  };
+  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    const newWidth = Math.min(600, Math.max(200, e.clientX));
+    setSidebarWidth(newWidth);
+  };
+  const stopDrag = () => setDragging(false);
+
+  return (
+    <div className={`search-layout-wrapper p-6`} onMouseMove={onMove} onMouseUp={stopDrag}>
+      <div className="search-flex-row" style={{ display: 'flex' }}>
+        <aside className="filter-panel flex-shrink-0" style={{ width: sidebarWidth }}>
+          <FilterPanel
+            filmTitleMap={filmTitleMap}
+            filmTypeMap={filmTypeMap}
+            allResults={difficultyFiltered}
+            filmFilter={filmFilter}
+            onSelectFilm={(id) => setFilmFilter(id)}
+            minDifficulty={minDifficulty}
+            maxDifficulty={maxDifficulty}
+            onDifficultyChange={(min, max) => { setMinDifficulty(min); setMaxDifficulty(max); }}
+          />
+        </aside>
+        <div
+          className={`vertical-resizer ${dragging ? 'dragging' : ''}`}
+          onMouseDown={startDrag}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize filters"
+        />
+        <main className="search-main flex-1">
         <SearchBar
           value={query}
           onChange={(v) => setQuery(v)}
@@ -202,7 +237,7 @@ function SearchPage() {
             setFilmFilter(null);
           }}
           placeholder={`Search across all films...`}
-          buttonLabel="Search by"
+          buttonLabel="SEARCH"
           loading={loading}
         />
 
@@ -232,19 +267,14 @@ function SearchPage() {
         )}
 
         <div className="mt-4 space-y-3">
-          {(filmFilter
-            ? allResults.filter((c) => c.film_id === filmFilter)
-            : allResults
-          )
-            .slice(0, limit)
-            .map((c) => (
-              <SearchResultCard
-                key={`${c.film_id}-${c.episode_id}-${c.id}`}
-                card={c}
-                highlightQuery={query}
-                primaryLang={filmLangMap[String(c.film_id ?? "")]}
-              />
-            ))}
+          {displayedResults.map((c) => (
+            <SearchResultCard
+              key={`${c.film_id}-${c.episode_id}-${c.id}`}
+              card={c}
+              highlightQuery={query}
+              primaryLang={filmLangMap[String(c.film_id ?? "")]}
+            />
+          ))}
         </div>
 
         <div className="mt-4 flex justify-center">
@@ -258,7 +288,8 @@ function SearchPage() {
             Load more
           </button>
         </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

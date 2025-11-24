@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUser } from "../context/UserContext";
 import { langLabel, countryCodeForLang, canonicalizeLangCode } from "../utils/lang";
 import { getAvailableLanguagesForFilm } from "../services/firestore";
-import { ChevronDown, Plus, Minus, Languages } from "lucide-react";
+import { ChevronDown, Languages } from "lucide-react";
+import PortalDropdown from "./PortalDropdown";
 import { toast } from "react-hot-toast";
 
 interface Props {
@@ -19,16 +20,15 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
   const [options, setOptions] = useState<string[]>([]);
   const [local, setLocal] = useState<string[]>(preferences.subtitle_languages || []);
   const open = openLanguageSelector === "subtitle";
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [closing, setClosing] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     const load = async () => {
       const langs = optionsOverride ?? (await getAvailableLanguagesForFilm(filmId));
       const filtered = (langs || []).filter(l => (canonicalizeLangCode(l) || l) !== main); // exclude main (canonical)
-      const sorted = [...filtered].sort((a,b)=>{
-        if (a === "en" && b !== "en") return -1;
-        if (b === "en" && a !== "en") return 1;
-        return a.localeCompare(b);
-      });
+      const sorted = [...filtered].sort((a,b)=> a.localeCompare(b)); // pure A-Z
       setOptions(sorted);
       // Sync local ensuring exclusion of main and within options
       const base = (preferences.subtitle_languages || []).filter(l => (canonicalizeLangCode(l) || l) !== main && sorted.includes(l));
@@ -52,58 +52,87 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
   };
 
   const apply = async () => {
-    if (local.length === 0) {
-      // allow zero selection
-    }
     await setSubtitleLanguages(local);
     onChange?.(local);
-    setOpenLanguageSelector(null);
+    setClosing(true);
+    setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 500);
   };
 
   return (
-    <div className={"relative " + (className || "")}> 
+    <div className={"relative " + (className || "")}>
       <button
-        onClick={() => setOpenLanguageSelector(open ? null : "subtitle")}
-        className="pixel-pill text-sm"
+        ref={btnRef}
+        onClick={() => {
+          if (open) {
+            setClosing(true);
+            setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 200);
+          } else {
+            setOpenLanguageSelector("subtitle");
+          }
+        }}
+        className="language-selector-btn"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
         <Languages className="w-4 h-4 opacity-80" />
-        <span>{local.length ? `${local.length} subtitle${local.length>1?'s':''}` : 'Subtitles'}</span>
+        <span>{local.length}/{maxSelections} SUBS</span>
         <ChevronDown className="w-4 h-4" />
       </button>
-      {open && (
-        <div className="absolute right-0 mt-2 w-64 z-50 pixel-filter-panel p-2">
-          <div className="flex items-center justify-between px-1 pb-1">
-            <div className="text-[11px] text-pink-200/80">Select up to {maxSelections} languages</div>
-            <div className="space-x-2">
-              <button className="text-xs text-pink-200 hover:text-white" onClick={() => setLocal([])}>Clear</button>
-            </div>
+      {(open || closing) && btnRef.current && (
+        <PortalDropdown
+          anchorEl={btnRef.current}
+          onClose={() => {
+            if (!closing) {
+              setClosing(true);
+              setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 200);
+            }
+          }}
+          align="center"
+          offset={10}
+          className="language-dropdown"
+          durationMs={200}
+          closing={closing}
+        >
+          <div className="subtitle-options-header">
+            <span>{local.length}/{maxSelections}</span>
+            <span className="subtitle-done-btn" onClick={apply}>Done</span>
           </div>
-          {options.length === 0 && (
-            <div className="px-2 py-1 text-sm text-pink-200/80">No subtitle languages available</div>
-          )}
-          <div className="max-h-[320px] overflow-y-auto pr-1">
-          {options.map((lang) => {
-            const active = local.includes(lang);
-            return (
-              <button
-                key={lang}
-                onClick={() => toggle(lang)}
-                className={`pixel-filter-btn flex items-center gap-2 ${active ? 'active' : ''}`}
-              >
-                {active ? <Minus className="w-4 h-4 text-pink-200 flex-shrink-0" /> : <Plus className="w-4 h-4 text-pink-200 flex-shrink-0" />}
-                <span className={`fi fi-${countryCodeForLang(lang)} w-6 h-4 flex-shrink-0`}></span>
-                <span className="whitespace-nowrap">{langLabel(lang)}</span>
-              </button>
-            );
-          })}
+          <div className="px-1 mb-2">
+            <input
+              type="text"
+              value={query}
+              onChange={(e)=>setQuery(e.target.value)}
+              placeholder="Search..."
+              className="language-search-input"
+            />
           </div>
-          <div className="mt-2 flex justify-end gap-2 px-2">
-            <button className="pixel-btn-fav active text-xs" onClick={apply}>Apply</button>
-            <button className="pixel-btn-fav text-xs" onClick={() => setOpenLanguageSelector(null)}>Cancel</button>
+          <div className="language-options-list">
+            {options.length === 0 && (
+              <div className="px-2 py-1 text-xs text-pink-200/80">No subtitle languages</div>
+            )}
+            {options.filter(l => {
+              const q = query.trim().toLowerCase();
+              if (!q) return true;
+              const label = langLabel(l).toLowerCase();
+              // normalize accents
+              const normalize = (s:string) => s.normalize('NFD').replace(/\p{Diacritic}/gu,'');
+              return normalize(l.toLowerCase()).includes(q) || normalize(label).includes(q);
+            })
+              .map((lang) => {
+              const active = local.includes(lang);
+              return (
+                <button
+                  key={lang}
+                  onClick={() => toggle(lang)}
+                  className={`language-option ${active ? 'active' : ''}`}
+                >
+                  <span className={`fi fi-${countryCodeForLang(lang)} w-5 h-3.5`}></span>
+                  <span>{langLabel(lang)}</span>
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </PortalDropdown>
       )}
     </div>
   );

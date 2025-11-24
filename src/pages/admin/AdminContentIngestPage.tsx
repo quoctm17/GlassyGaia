@@ -19,6 +19,25 @@ import { langLabel, canonicalizeLangCode, expandCanonicalToAliases } from "../..
 import ProgressBar from "../../components/ProgressBar";
 import FlagDisplay from "../../components/FlagDisplay";
 
+// Normalize slug: remove accents, convert to lowercase, replace spaces with underscores, keep only safe characters
+function normalizeSlug(input: string): string {
+  // Normalize unicode characters (NFD = decompose accents from base characters)
+  let normalized = input.normalize('NFD');
+  // Remove combining diacritical marks (accents)
+  normalized = normalized.replace(/[\u0300-\u036f]/g, '');
+  // Convert to lowercase
+  normalized = normalized.toLowerCase();
+  // Replace spaces and multiple underscores/hyphens with single underscore
+  normalized = normalized.replace(/\s+/g, '_');
+  // Keep only alphanumeric, underscore, and hyphen (safe for URLs and file paths)
+  normalized = normalized.replace(/[^a-z0-9_-]/g, '');
+  // Remove leading/trailing underscores or hyphens
+  normalized = normalized.replace(/^[_-]+|[_-]+$/g, '');
+  // Collapse multiple underscores/hyphens into single underscore
+  normalized = normalized.replace(/[_-]+/g, '_');
+  return normalized;
+}
+
 export default function AdminContentIngestPage() {
   const { user, signInGoogle, adminKey, preferences: globalPreferences, setMainLanguage: setGlobalMainLanguage } = useUser();
   const allowedEmails = useMemo(
@@ -185,6 +204,14 @@ export default function AdminContentIngestPage() {
     aliasMap["portugese"] = "pt_pt";
     aliasMap["portugese (portugal)"] = "pt_pt";
     aliasMap["portugese (brazil)"] = "pt_br";
+    // CRITICAL: Add explicit variant forms with parentheses for proper detection
+    aliasMap["spanish (latin america)"] = "es_la";
+    aliasMap["spanish (spain)"] = "es_es";
+    aliasMap["portuguese (brazil)"] = "pt_br";
+    aliasMap["portuguese (portugal)"] = "pt_pt";
+    aliasMap["chinese (traditional)"] = "zh_trad";
+    aliasMap["chinese (simplified)"] = "zh";
+    aliasMap["french (canada)"] = "fr_ca";
     const norm = (s: string) => s.trim().toLowerCase();
     headers.forEach(h => {
       const rawLow = norm(h);
@@ -311,6 +338,26 @@ export default function AdminContentIngestPage() {
   // Derive list for footnote display (kept in sync with validateCsv rules)
   const ignoredHeaders = useMemo(() => {
     if (!csvHeaders.length) return [] as string[];
+    
+    // Same reserved columns as validateCsv
+    const RESERVED_COLUMNS = new Set([
+      "id", "card_id", "cardid", "card id",
+      "no", "number", "card_number", "cardnumber", "card number",
+      "start", "start_time", "starttime", "start time", "start_time_ms",
+      "end", "end_time", "endtime", "end time", "end_time_ms",
+      "duration", "length", "card_length",
+      "type", "card_type", "cardtype", "card type",
+      "sentence", "text", "content",
+      "image", "image_url", "imageurl", "image url", "image_key",
+      "audio", "audio_url", "audiourl", "audio url", "audio_key",
+      "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
+      "cefr", "cefr_level", "cefr level",
+      "jlpt", "jlpt_level", "jlpt level",
+      "hsk", "hsk_level", "hsk level",
+      "notes", "tags", "metadata",
+      "hiragana", "katakana", "romaji"
+    ]);
+    
     const langAliases: Record<string, string> = {
       english: "en", eng: "en", vietnamese: "vi", vn: "vi",
       chinese: "zh", "chinese simplified": "zh", chinese_simplified: "zh", zh: "zh", cn: "zh", "zh-cn": "zh", zh_cn: "zh", "zh-hans": "zh", zh_hans: "zh", "zh-hans-cn": "zh", zh_hans_cn: "zh", "zh-simplified": "zh", zh_simplified: "zh",
@@ -320,10 +367,11 @@ export default function AdminContentIngestPage() {
       cantonese: "yue", yue: "yue", "zh-yue": "yue", zh_yue: "yue",
       arabic: "ar", ar: "ar", basque: "eu", eu: "eu", bengali: "bn", bn: "bn", catalan: "ca", ca: "ca", croatian: "hr", hr: "hr", czech: "cs", cs: "cs", danish: "da", da: "da", dutch: "nl", nl: "nl",
       filipino: "fil", fil: "fil", tagalog: "fil", tl: "fil", finnish: "fi", fi: "fi",
-      french: "fr", fr: "fr", "french canadian": "fr_ca", fr_ca: "fr_ca", frcan: "fr_ca",
+      french: "fr", fr: "fr", "french canadian": "fr_ca", "french (canada)": "fr_ca", fr_ca: "fr_ca", frcan: "fr_ca",
       galician: "gl", gl: "gl", german: "de", de: "de", greek: "el", el: "el", hebrew: "he", he: "he", iw: "he", hindi: "hi", hi: "hi", hungarian: "hu", hu: "hu", icelandic: "is", is: "is", italian: "it", it: "it", malayalam: "ml", ml: "ml", norwegian: "no", no: "no", polish: "pl", pl: "pl",
       portuguese: "pt_pt", pt: "pt_pt", pt_pt: "pt_pt", ptpt: "pt_pt", "portuguese (portugal)": "pt_pt",
       "portuguese (brazil)": "pt_br", pt_br: "pt_br", ptbr: "pt_br", brazilian_portuguese: "pt_br",
+      portugese: "pt_pt", "portugese (portugal)": "pt_pt", "portugese (brazil)": "pt_br",
       romanian: "ro", ro: "ro", russian: "ru", ru: "ru",
       spanish: "es_es", es: "es_es", es_es: "es_es", "spanish (spain)": "es_es",
       "spanish (latin america)": "es_la", es_la: "es_la", latam_spanish: "es_la",
@@ -353,6 +401,10 @@ export default function AdminContentIngestPage() {
 
     csvHeaders.forEach(h => {
       const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      
+      // Skip reserved columns BEFORE language detection (same as validateCsv)
+      if (RESERVED_COLUMNS.has(key)) return;
+      
       const alias = langAliases[key];
       if (alias) {
         recognizedSubtitleHeaders.add(h);
@@ -380,6 +432,7 @@ export default function AdminContentIngestPage() {
       const raw = (h || '').trim(); if (!raw) continue;
       const low = raw.toLowerCase();
       if (knownSingles.has(low)) continue;
+      if (RESERVED_COLUMNS.has(low)) continue; // Skip reserved columns in final list too
       if (recognizedSubtitleHeaders.has(raw)) continue;
       if (isFrameworkDynamic(raw)) continue;
       if (low === 'sentence') continue;
@@ -833,7 +886,15 @@ export default function AdminContentIngestPage() {
               <input
                 className="admin-input pr-9"
                 value={filmId}
-                onChange={e => setFilmId(e.target.value.replace(/\s+/g,'_').toLowerCase())}
+                onChange={e => {
+                  const raw = e.target.value;
+                  const normalized = normalizeSlug(raw);
+                  setFilmId(normalized);
+                  // Show toast warning if normalization changed the input
+                  if (raw !== normalized && raw.length > 0) {
+                    toast(`Slug đã được chuẩn hóa: "${raw}" → "${normalized}"`, { icon: '✨', duration: 2000 });
+                  }
+                }}
                 placeholder="cinderella"
               />
               {(slugChecking || slugChecked) && (
@@ -848,6 +909,9 @@ export default function AdminContentIngestPage() {
                 </div>
               )}
             </div>
+          </div>
+          <div className="col-span-full text-[11px] text-gray-400 italic">
+            💡 Slug tự động chuẩn hóa: bỏ dấu tiếng Việt/Unicode, chỉ giữ a-z, 0-9, _ (ví dụ: "vẽ chuyện" → "ve_chuyen")
           </div>
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Main Language</label>
@@ -1137,12 +1201,16 @@ export default function AdminContentIngestPage() {
                       const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
                       const isMainLang = selectedMainHeader === h;
                       const isEmpty = !val.trim();
+                      // Round start/end columns to integers for display (DB stores as INTEGER)
+                      const hLower = h.toLowerCase();
+                      const isTimeColumn = ['start', 'end', 'start_time', 'end_time', 'starttime', 'endtime'].includes(hLower);
+                      const displayVal = isTimeColumn && val && !isNaN(Number(val)) ? Math.round(Number(val)).toString() : val;
                       return (
                         <td
                           key={j}
                           className={`border border-gray-700 px-2 py-1 ${isEmpty && (isRequired || isMainLang) ? 'bg-red-900/20 text-red-300' : 'text-gray-300'}`}
                         >
-                          {val}
+                          {displayVal}
                         </td>
                       );
                     })}

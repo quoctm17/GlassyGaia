@@ -122,9 +122,9 @@
 /* Global ruby annotation styling (do NOT override display; keep UA ruby layout) */
 ruby rt {
   font-family: "Times New Roman", sans-serif;
-  font-size: 0.85em;
+  font-size: 0.5em;
   user-select: none;
-  opacity: 0.5;
+  opacity: 0;
   font-style: italic;
   transition: opacity 0.16s ease;
   color: inherit;
@@ -146,13 +146,14 @@ ruby rb {
   left: 50%;
   transform: translateX(-50%);
   top: -1.05em; /* adjust vertical offset above base */
-  font-size: 0.75em;
+  font-size: 0.5em;
   font-family: "Times New Roman", sans-serif;
   line-height: 1;
   white-space: nowrap;
-  opacity: 0.5;
+  opacity: 0;
   pointer-events: none;
   font-style: italic;
+  transition: opacity 0.16s ease;
 }
 /* Okurigana following a ruby Kanji cluster */
 .okurigana { display: inline-block; }
@@ -175,9 +176,11 @@ ruby rb {
 /* Remove custom block display to preserve ruby vertical layout */
 
 /* Simplified ruby hover: just reveal reading without glow/border or scaling */
-/* Keep hover neutral (no change in opacity or styling) */
+/* Show ruby annotation on hover */
 .hanzi-ruby ruby:hover { background: none; box-shadow: none; }
-.hanzi-ruby ruby:hover rt { opacity: 0.5; transform: none; background: none; padding: 0; border-radius: 0; text-shadow: none; font-weight: inherit; }
+.hanzi-ruby ruby:hover rt { opacity: 0.8; transform: none; background: none; padding: 0; border-radius: 0; text-shadow: none; font-weight: inherit; }
+/* Also reveal custom jp-ruby on hover */
+.hanzi-ruby .jp-ruby:hover .jp-rt { opacity: 0.8; }
 
 /* ======================= 🇰🇷 KOREAN ======================= */
 .korean-main {

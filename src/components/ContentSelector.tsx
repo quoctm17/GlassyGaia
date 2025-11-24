@@ -1,0 +1,171 @@
+import { useEffect, useState, useMemo } from 'react';
+import { Search, Film, Book, Tv, Music, ChevronDown, ChevronUp } from 'lucide-react';
+import { listFilms } from '../services/firestore';
+import type { FilmDoc, CardDoc } from '../types';
+import { CONTENT_TYPES, CONTENT_TYPE_LABELS, type ContentType } from '../types/content';
+
+interface ContentSelectorProps {
+  value: string | null;
+  onChange: (filmId: string | null) => void;
+  allResults: CardDoc[]; // results after query (and difficulty filtering applied upstream)
+  filmTypeMapExternal?: Record<string, string | undefined>; // optional external map to avoid refetch
+  filmTitleMapExternal?: Record<string, string>;
+}
+
+// ContentSelector replaces FilmSelector. Provides grouped listing + search box.
+export default function ContentSelector({ value, onChange, allResults, filmTypeMapExternal, filmTitleMapExternal }: ContentSelectorProps) {
+  const [films, setFilms] = useState<FilmDoc[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set<string>([...CONTENT_TYPES, 'other']));
+
+  useEffect(() => {
+    if (filmTitleMapExternal && filmTypeMapExternal) return; // parent handles fetching
+    setLoading(true);
+    listFilms().then(d => { setFilms(d); }).catch(() => setFilms([])).finally(() => setLoading(false));
+  }, [filmTitleMapExternal, filmTypeMapExternal]);
+
+  // Build maps (prefer externals)
+  const filmTitleMap: Record<string, string> = useMemo(() => {
+    if (filmTitleMapExternal) return filmTitleMapExternal;
+    const m: Record<string, string> = {};
+    films.forEach(f => { m[f.id] = f.title || f.id; });
+    return m;
+  }, [films, filmTitleMapExternal]);
+
+  const filmTypeMap: Record<string, string | undefined> = useMemo(() => {
+    if (filmTypeMapExternal) return filmTypeMapExternal;
+    const m: Record<string, string | undefined> = {};
+    films.forEach(f => { m[f.id] = f.type; });
+    return m;
+  }, [films, filmTypeMapExternal]);
+
+  // Counts from allResults
+  const counts: Record<string, number> = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const c of allResults) {
+      const fid = String(c.film_id ?? '');
+      if (!fid) continue;
+      m[fid] = (m[fid] || 0) + 1;
+    }
+    return m;
+  }, [allResults]);
+
+  // Available film ids from either external or fetched films
+  const filmIds: string[] = useMemo(() => {
+    if (filmTitleMapExternal) return Object.keys(filmTitleMapExternal);
+    return films.map(f => f.id);
+  }, [films, filmTitleMapExternal]);
+
+  // Apply search filter
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredIds = normalizedSearch ? filmIds.filter(id => {
+    const title = (filmTitleMap[id] || id).toLowerCase();
+    return title.includes(normalizedSearch) || id.toLowerCase().includes(normalizedSearch);
+  }) : filmIds;
+
+  // Grouping
+  const grouped = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const t of CONTENT_TYPES) map[t] = [];
+    const other: string[] = [];
+    for (const id of filteredIds) {
+      const raw = (filmTypeMap[id] || '').toLowerCase();
+      const t = (CONTENT_TYPES as string[]).includes(raw) ? raw : '';
+      if (t) map[t].push(id); else other.push(id);
+    }
+    return { map, other };
+  }, [filteredIds, filmTypeMap]);
+
+  const totalCount = allResults.length;
+
+  const toggleGroup = (key: string) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const typeIcon = (t: string) => {
+    switch(t){
+      case 'movie': return <Film className="type-icon"/>;
+      case 'series': return <Tv className="type-icon"/>;
+      case 'book': return <Book className="type-icon"/>;
+      case 'audio': return <Music className="type-icon"/>;
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="content-selector-panel">
+      <button className={`content-selector-header ${value===null? 'active':''}`} onClick={() => onChange(null)}>
+        <span>ALL SOURCES</span> <span className="count-pill">{totalCount}</span>
+      </button>
+      <div className="content-search-row">
+        <div className="content-search-wrapper">
+          <div className="content-search-icon"><Search className="w-4 h-4" /></div>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="SEARCH NAME"
+            className="content-search-input"
+          />
+        </div>
+      </div>
+      {CONTENT_TYPES.map(t => {
+        const list = grouped.map[t];
+        if (!list || list.length === 0) return null;
+        const label = CONTENT_TYPE_LABELS[t as ContentType] || t;
+        return (
+          <div key={t} className={`content-group ${openGroups.has(t)?'open':'closed'}`}>
+            <button type="button" className="content-group-header" onClick={() => toggleGroup(t)}>
+              {typeIcon(t)}
+              <span className="group-label-text">{label}</span>
+              {openGroups.has(t) ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
+            </button>
+            {openGroups.has(t) && (
+              <div className="content-group-list">
+                {list.map(id => (
+                  <button
+                    key={id}
+                    className={`content-item-btn ${value===id? 'active':''}`}
+                    onClick={() => onChange(id)}
+                    title={id}
+                  >
+                    {filmTitleMap[id] || id}
+                    <span className="item-count">{counts[id] || 0}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {grouped.other.length > 0 && (
+        <div className={`content-group ${openGroups.has('other')? 'open':'closed'}`}> 
+          <button type="button" className="content-group-header" onClick={() => toggleGroup('other')}>
+            <span className="group-label-text">Other</span>
+            {openGroups.has('other') ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
+          </button>
+          {openGroups.has('other') && (
+            <div className="content-group-list">
+              {grouped.other.map(id => (
+                <button
+                  key={id}
+                  className={`content-item-btn ${value===id? 'active':''}`}
+                  onClick={() => onChange(id)}
+                  title={id}
+                >
+                  {filmTitleMap[id] || id}
+                  <span className="item-count">{counts[id] || 0}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {loading && <div className="text-xs mt-2 opacity-70">Loading...</div>}
+    </div>
+  );
+}

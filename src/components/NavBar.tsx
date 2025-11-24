@@ -35,16 +35,12 @@ export default function NavBar() {
   return (
     <nav className="pixel-navbar flex justify-between items-center">
       <div className="flex items-center gap-8">
-        <Link
-          to="/"
-            className="flex items-center gap-2 font-bold text-sm tracking-wider text-pink-300 drop-shadow-[0_0_4px_rgba(236,72,153,0.6)] uppercase"
-        >
-          <img
-            src="/favicon.jpg"
-            alt="logo"
-              className="w-7 h-7 rounded shadow-[0_0_6px_rgba(236,72,153,0.5)]"
-          />
-          GlassyGaia
+        <Link to="/" className="pixel-logo-wrap">
+          <img src="/favicon.jpg" alt="logo" className="pixel-logo-img" />
+          <span className="pixel-logo-label">
+            <span>GLASSY</span>
+            <span>GAIA</span>
+          </span>
         </Link>
         <div className="pixel-tabs">
           <NavLink
@@ -156,8 +152,8 @@ export default function NavBar() {
             )}
           </div>
         ) : (
-          <button onClick={signInGoogle} className="pixel-tab text-sm">
-            Sign in
+          <button onClick={signInGoogle} className="sign-in-btn">
+            Sign In
           </button>
         )}
       </div>

@@ -1,13 +1,12 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { apiGetFilm, apiListEpisodes } from '../../services/cfApi';
+import { apiGetFilm, apiListEpisodes, apiDeleteEpisode, apiCalculateStats } from '../../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../../types';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
 import { sortLevelsByDifficulty } from '../../utils/levelSort';
 import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown, Film, Clapperboard, Book as BookIcon, AudioLines } from 'lucide-react';
 import PortalDropdown from '../../components/PortalDropdown';
 import toast from 'react-hot-toast';
-import { apiDeleteEpisode } from '../../services/cfApi';
 import { CONTENT_TYPE_LABELS, type ContentType } from '../../types/content';
 
 export default function AdminContentDetailPage() {
@@ -32,8 +31,11 @@ export default function AdminContentDetailPage() {
         const f = await apiGetFilm(contentSlug); // still film API for content item
         if (!mounted) return;
         setItem(f);
+        console.log('[AdminContentDetailPage] Film data:', f);
         const subs = Array.isArray(f?.available_subs) ? f!.available_subs.filter(Boolean) : [];
+        console.log('[AdminContentDetailPage] Available Subs from film:', subs);
         const langList = subs.length ? subs : (f?.main_language ? [f.main_language] : []);
+        console.log('[AdminContentDetailPage] Final languages list:', langList);
         setLanguages(langList);
       } catch (e) { setError((e as Error).message); }
       finally { setLoadingItem(false); }
@@ -170,8 +172,8 @@ export default function AdminContentDetailPage() {
                 ) : <span className="text-gray-200">-</span>}
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Episodes:</label>
-                <span className="text-gray-200">{Number(item.episodes) > 0 ? item.episodes : 1}</span>
+                <label className="w-32 text-sm text-gray-400">Release Year:</label>
+                <span className="text-gray-200">{item.release_year || '-'}</span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Total Episodes:</label>
@@ -182,12 +184,26 @@ export default function AdminContentDetailPage() {
               <label className="w-32 text-sm text-gray-400">Available Subs:</label>
               {languages.length ? (
                 <div className="inline-flex flex-wrap gap-2 mt-2">
-                  {languages.map(l => (
-                    <span key={l} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border-2 border-pink-500/40 bg-[#1a0f24] text-xs text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.25)] hover:border-pink-400/60 transition-colors">
-                      <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
-                      <span>{langLabel(l)}</span>
-                    </span>
-                  ))}
+                  {languages.map(l => {
+                    // Determine if this language has a variant label
+                    const baseLabel = langLabel(l);
+                    const hasVariant = l === 'es_la' || l === 'es_es' || l === 'pt_br' || l === 'pt_pt' || l === 'fr_ca' || l === 'zh_trad';
+                    const variantMap: Record<string, string> = {
+                      es_la: 'Latin America',
+                      es_es: 'Spain',
+                      pt_br: 'Brazil',
+                      pt_pt: 'Portugal',
+                      fr_ca: 'Canada',
+                      zh_trad: 'Traditional'
+                    };
+                    return (
+                      <span key={l} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border-2 border-pink-500/40 bg-[#1a0f24] text-xs text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.25)] hover:border-pink-400/60 transition-colors">
+                        <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
+                        <span>{baseLabel}</span>
+                        {hasVariant && <span className="text-[10px] text-pink-300/70">({variantMap[l]})</span>}
+                      </span>
+                    );
+                  })}
                 </div>
               ) : <span className="text-gray-200">-</span>}
             </div>
@@ -382,9 +398,27 @@ export default function AdminContentDetailPage() {
                       toast.error(res.error);
                       return;
                     }
-                    setEpisodes(prev => prev.filter(e => e.slug !== confirmDelete.slug));
+                    const remainingEpisodes = episodes.filter(e => e.slug !== confirmDelete.slug);
+                    setEpisodes(remainingEpisodes);
                     toast.success(`Đã xoá Episode (Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`);
                     setConfirmDelete(null);
+                    // Recalculate statistics for all remaining episodes
+                    if (remainingEpisodes.length > 0) {
+                      try {
+                        for (const ep of remainingEpisodes) {
+                          try {
+                            const statsRes = await apiCalculateStats({ filmSlug: contentSlug, episodeNum: ep.episode_number });
+                            if ('error' in statsRes) {
+                              console.warn(`Failed to recalculate stats for episode ${ep.episode_number}:`, statsRes.error);
+                            }
+                          } catch (epStatsErr) {
+                            console.warn(`Stats error for episode ${ep.episode_number}:`, epStatsErr);
+                          }
+                        }
+                      } catch (statsErr) {
+                        console.warn('Stats recalculation error:', statsErr);
+                      }
+                    }
                   } catch (e) {
                     toast.error((e as Error).message);
                   } finally { setDeleting(false); }
