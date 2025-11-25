@@ -28,6 +28,8 @@ export default function AdminEpisodeUpdatePage() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
+  const [saveStage, setSaveStage] = useState<'idle' | 'cover' | 'audio' | 'video' | 'metadata' | 'done'>('idle');
 
   // Card media files for full replacement workflow
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -440,18 +442,28 @@ export default function AdminEpisodeUpdatePage() {
   const handleSave = async () => {
     if (!contentSlug) return;
     setSaving(true);
+    setSaveStage('idle');
+    setSaveProgress(0);
+    
     try {
       let coverUrl = ep?.cover_url;
       let audioUrl = ep?.full_audio_url;
       let videoUrl = ep?.full_video_url;
 
+      // Calculate total steps
+      const totalSteps = (coverFile ? 1 : 0) + (audioFile ? 1 : 0) + (videoFile ? 1 : 0) + 1; // +1 for metadata
+      let completedSteps = 0;
+
       // Upload cover if selected
       if (coverFile) {
+        setSaveStage('cover');
         setUploadingCover(true);
         try {
           const key = await uploadEpisodeCoverImage({ filmId: contentSlug, episodeNum, file: coverFile });
           const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
           coverUrl = r2Base ? `${r2Base}/${key}` : `/${key}`;
+          completedSteps++;
+          setSaveProgress(Math.floor((completedSteps / totalSteps) * 100));
           toast.success('Cover uploaded');
         } catch (e) {
           toast.error(`Cover upload failed: ${(e as Error).message}`);
@@ -462,11 +474,14 @@ export default function AdminEpisodeUpdatePage() {
 
       // Upload audio if selected
       if (audioFile) {
+        setSaveStage('audio');
         setUploadingAudio(true);
         try {
           const key = await uploadEpisodeFullMedia({ filmId: contentSlug, episodeNum, type: 'audio', file: audioFile });
           const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
           audioUrl = r2Base ? `${r2Base}/${key}` : `/${key}`;
+          completedSteps++;
+          setSaveProgress(Math.floor((completedSteps / totalSteps) * 100));
           toast.success('Audio uploaded');
         } catch (e) {
           toast.error(`Audio upload failed: ${(e as Error).message}`);
@@ -477,11 +492,14 @@ export default function AdminEpisodeUpdatePage() {
 
       // Upload video if selected
       if (videoFile) {
+        setSaveStage('video');
         setUploadingVideo(true);
         try {
           const key = await uploadEpisodeFullMedia({ filmId: contentSlug, episodeNum, type: 'video', file: videoFile });
           const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
           videoUrl = r2Base ? `${r2Base}/${key}` : `/${key}`;
+          completedSteps++;
+          setSaveProgress(Math.floor((completedSteps / totalSteps) * 100));
           toast.success('Video uploaded');
         } catch (e) {
           toast.error(`Video upload failed: ${(e as Error).message}`);
@@ -491,6 +509,7 @@ export default function AdminEpisodeUpdatePage() {
       }
 
       // Update episode metadata
+      setSaveStage('metadata');
       await apiUpdateEpisodeMeta({
         filmSlug: contentSlug,
         episodeNum,
@@ -499,6 +518,10 @@ export default function AdminEpisodeUpdatePage() {
         full_audio_url: audioUrl || undefined,
         full_video_url: videoUrl || undefined,
       });
+      completedSteps++;
+      setSaveProgress(100);
+      setSaveStage('done');
+      
       toast.success('Episode updated successfully');
       // Refresh episode data to show updated values
       const refreshed = await apiGetEpisodeDetail({ filmSlug: contentSlug!, episodeNum });
@@ -508,8 +531,16 @@ export default function AdminEpisodeUpdatePage() {
       setCoverFile(null);
       setAudioFile(null);
       setVideoFile(null);
+      
+      // Reset progress after a short delay
+      setTimeout(() => {
+        setSaveStage('idle');
+        setSaveProgress(0);
+      }, 2000);
     } catch (e) {
       toast.error((e as Error).message);
+      setSaveStage('idle');
+      setSaveProgress(0);
     } finally {
       setSaving(false);
     }
@@ -638,6 +669,36 @@ export default function AdminEpisodeUpdatePage() {
               <span>{saving ? 'Saving…' : 'Save'}</span>
             </button>
           </div>
+
+          {/* Save Progress Display */}
+          {(saving || saveStage === 'done') && (
+            <div className="admin-panel text-xs space-y-2 mt-4">
+              <div className="text-sm font-semibold text-pink-300 mb-2">Upload Progress</div>
+              {coverFile && (
+                <div className="flex justify-between">
+                  <span>Cover Image</span>
+                  <span>{saveStage === 'done' || (saveStage !== 'idle' && saveStage !== 'cover') ? '✓' : saveStage === 'cover' ? '...' : 'pending'}</span>
+                </div>
+              )}
+              {audioFile && (
+                <div className="flex justify-between">
+                  <span>Full Audio</span>
+                  <span>{saveStage === 'done' || (saveStage === 'video' || saveStage === 'metadata') ? '✓' : saveStage === 'audio' ? '...' : (saveStage === 'cover' || !coverFile) ? 'waiting' : 'pending'}</span>
+                </div>
+              )}
+              {videoFile && (
+                <div className="flex justify-between">
+                  <span>Full Video</span>
+                  <span>{saveStage === 'done' || saveStage === 'metadata' ? '✓' : saveStage === 'video' ? '...' : 'waiting'}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span>Update Metadata</span>
+                <span>{saveStage === 'done' ? '✓' : saveStage === 'metadata' ? '...' : 'waiting'}</span>
+              </div>
+              <div className="mt-2"><ProgressBar percent={saveProgress} /></div>
+            </div>
+          )}
         </div>
       )}
 
