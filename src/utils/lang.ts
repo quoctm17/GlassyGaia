@@ -8,9 +8,9 @@ export type CanonicalLang =
   | "zh" | "zh_trad" | "hr" | "cs" | "da"
   | "nl" | "en" | "fil" | "fi" | "fr" | "fr_ca"
   | "gl" | "de" | "el" | "he" | "hi" | "hu" | "is"
-  | "id" | "it" | "ja" | "ko" | "ms" | "ml" | "no"
-  | "pl" | "pt_br" | "pt_pt" | "ro" | "ru"
-  | "es_la" | "es_es" | "sv" | "ta" | "te" | "th"
+  | "id" | "it" | "ja" | "ko" | "ms" | "ml" | "no" | "nb"
+  | "pl" | "pt" | "pt_br" | "pt_pt" | "ro" | "ru"
+  | "es" | "es_la" | "es_es" | "sv" | "ta" | "te" | "th"
   | "tr" | "uk" | "vi"
   | "fa" | "ku" | "sl" | "sr" | "bg"
   | "rec" | "triage"; // pseudo labels if needed
@@ -55,12 +55,15 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
   it: "it", italian: "it",
   ml: "ml", malayalam: "ml",
   no: "no", norwegian: "no",
+  nb: "nb", "norwegian bokmal": "nb", "norwegian bokmål": "nb", bokmal: "nb", bokmål: "nb",
   pl: "pl", polish: "pl",
+  pt: "pt", portuguese_base: "pt",
   pt_br: "pt_br", "portuguese (brazil)": "pt_br", ptbr: "pt_br", brazilian_portuguese: "pt_br",
   "pt-br": "pt_br",
   pt_pt: "pt_pt", "portuguese (portugal)": "pt_pt", ptpt: "pt_pt", portuguese: "pt_pt", "pt-pt": "pt_pt",
   ro: "ro", romanian: "ro",
   ru: "ru", russian: "ru",
+  es: "es", spanish_base: "es",
   es_la: "es_la", "spanish (latin america)": "es_la", latam_spanish: "es_la",
   es_es: "es_es", "spanish (spain)": "es_es", spanish: "es_es", "es-es": "es_es",
   sv: "sv", swedish: "sv",
@@ -86,12 +89,16 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   zh: [
     "zh", "cn", "zh-cn", "zh_cn", "chinese", "chinese_simplified",
     // Common Simplified aliases used in datasets
-    "zh-hans", "zh_hans", "zh-hans-cn", "zh_hans_cn", "zh-simplified", "zh_simplified"
+    "zh-hans", "zh_hans", "zh-hans-cn", "zh_hans_cn", "zh-simplified", "zh_simplified",
+    // Variant with parentheses (important for CSV header detection)
+    "chinese (simplified)"
   ],
   zh_trad: [
     "zh_trad", "zh-tw", "zh_tw", "zh-hant", "zh_hant", "tw", "chinese traditional", "traditional_chinese",
     // Map Hong Kong and Macau variants to Traditional
-    "zh-hk", "zh_hk", "zh-mo", "zh_mo", "zh-hant-tw", "zh_hant_tw", "zh-hant-hk", "zh_hant_hk"
+    "zh-hk", "zh_hk", "zh-mo", "zh_mo", "zh-hant-tw", "zh_hant_tw", "zh-hant-hk", "zh_hant_hk",
+    // Variant with parentheses (important for CSV header detection)
+    "chinese (traditional)"
   ],
   id: ["id", "in", "indonesian"],
   th: ["th", "thai"],
@@ -119,11 +126,14 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   it: ["it", "italian"],
   ml: ["ml", "malayalam"],
   no: ["no", "norwegian"],
+  nb: ["nb", "norwegian bokmal", "norwegian bokmål", "bokmal", "bokmål"],
   pl: ["pl", "polish"],
+  pt: ["pt", "portuguese_base"],
   pt_br: ["pt_br", "portuguese (brazil)", "ptbr", "brazilian_portuguese", "pt-br"],
   pt_pt: ["pt_pt", "portuguese (portugal)", "ptpt", "portuguese", "pt-pt"],
   ro: ["ro", "romanian"],
   ru: ["ru", "russian"],
+  es: ["es", "spanish_base"],
   es_la: ["es_la", "spanish (latin america)", "latam_spanish"],
   es_es: ["es_es", "spanish (spain)", "spanish", "es-es"],
   fa: ["fa", "persian", "farsi"],
@@ -180,11 +190,14 @@ export function langLabel(code: string): string {
     it: "Italian",
     ml: "Malayalam",
     no: "Norwegian",
+    nb: "Norwegian Bokmål",
     pl: "Polish",
+    pt: "Portuguese",
     pt_br: "Portuguese (Brazil)",
     pt_pt: "Portuguese (Portugal)",
     ro: "Romanian",
     ru: "Russian",
+    es: "Spanish",
     es_la: "Spanish (Latin America)",
     es_es: "Spanish (Spain)",
     fa: "Persian",
@@ -239,11 +252,14 @@ export function langFlag(code: string): string {
     it: "🇮🇹",
     ml: "🇮🇳",
     no: "🇳🇴",
+    nb: "🇳🇴",
     pl: "🇵🇱",
+    pt: "🇵🇹",
     pt_br: "🇧🇷",
     pt_pt: "🇵🇹",
     ro: "🇷🇴",
     ru: "🇷🇺",
+    es: "🇪🇸",
     es_la: "🇲🇽",
     es_es: "🇪🇸",
     fa: "🇮🇷",
@@ -302,11 +318,14 @@ export function countryCodeForLang(code: string): string {
     it: "it",
     ml: "in",
     no: "no",
+    nb: "no",
     pl: "pl",
+    pt: "pt",
     pt_br: "br",
     pt_pt: "pt",
     ro: "ro",
     ru: "ru",
+    es: "es",
     es_la: "mx",
     es_es: "es",
     fa: "ir",
@@ -365,11 +384,14 @@ export function languageCssBase(code: string): string {
     it: 'italian',
     ml: 'malayalam',
     no: 'norwegian',
+    nb: 'norwegian',
     pl: 'polish',
+    pt: 'portuguese',
     pt_br: 'portuguese-br',
     pt_pt: 'portuguese-pt',
     ro: 'romanian',
     ru: 'russian',
+    es: 'spanish',
     es_la: 'spanish-la',
     es_es: 'spanish-es',
     fa: 'persian',
@@ -410,6 +432,7 @@ export function calculateTextLength(text: string, langCode: string): number {
     "yue",      // Cantonese
     "th",       // Thai
   ]);
+  // Note: es, nb, pt are word-based languages (default)
 
   if (characterBasedLangs.has(lang)) {
     // Count characters (excluding whitespace)

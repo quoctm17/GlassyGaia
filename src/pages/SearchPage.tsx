@@ -213,12 +213,14 @@ function SearchPage() {
           <FilterPanel
             filmTitleMap={filmTitleMap}
             filmTypeMap={filmTypeMap}
+            filmLangMap={filmLangMap}
             allResults={difficultyFiltered}
             filmFilter={filmFilter}
             onSelectFilm={(id) => setFilmFilter(id)}
             minDifficulty={minDifficulty}
             maxDifficulty={maxDifficulty}
             onDifficultyChange={(min, max) => { setMinDifficulty(min); setMaxDifficulty(max); }}
+            mainLanguage={preferences.main_language || "en"}
           />
         </aside>
         <div
@@ -258,7 +260,6 @@ function SearchPage() {
         {query.trim().length === 0 && (
           <SuggestionPanel
             filmId={"all"}
-            languages={availableLangs}
             onPick={(q) => {
               setQuery(q);
               runSearch(q);

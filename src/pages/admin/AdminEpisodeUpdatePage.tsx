@@ -1,14 +1,15 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Papa from 'papaparse';
-import { apiGetEpisodeDetail, apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteEpisode } from '../../services/cfApi';
+import { apiGetEpisodeDetail, apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from '../../services/cfApi';
 import type { EpisodeDetailDoc, FilmDoc } from '../../types';
 import toast from 'react-hot-toast';
 import { uploadEpisodeCoverImage, uploadEpisodeFullMedia, uploadMediaBatch, type MediaType } from '../../services/storageUpload';
-import { Loader2, RefreshCcw, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { Loader2, RefreshCcw } from 'lucide-react';
 import { importFilmFromCsv, type ImportFilmMeta } from '../../services/importer';
-import { canonicalizeLangCode, expandCanonicalToAliases, langLabel } from '../../utils/lang';
+import { canonicalizeLangCode, expandCanonicalToAliases, langLabel, countryCodeForLang } from '../../utils/lang';
 import ProgressBar from '../../components/ProgressBar';
+import CsvPreviewPanel from '../../components/CsvPreviewPanel';
 
 export default function AdminEpisodeUpdatePage() {
   const { contentSlug, episodeSlug } = useParams();
@@ -23,13 +24,15 @@ export default function AdminEpisodeUpdatePage() {
 
   // File upload states
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverLandscapeFile, setCoverLandscapeFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [uploadingCoverLandscape, setUploadingCoverLandscape] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
-  const [saveStage, setSaveStage] = useState<'idle' | 'cover' | 'audio' | 'video' | 'metadata' | 'done'>('idle');
+  const [saveStage, setSaveStage] = useState<'idle' | 'cover' | 'cover_landscape' | 'audio' | 'video' | 'metadata' | 'done'>('idle');
 
   // Card media files for full replacement workflow
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -42,6 +45,7 @@ export default function AdminEpisodeUpdatePage() {
   const [imagesDone, setImagesDone] = useState(0);
   const [audioDone, setAudioDone] = useState(0);
   const [epCoverDone, setEpCoverDone] = useState(0);
+  const [epCoverLandscapeDone, setEpCoverLandscapeDone] = useState(0);
   const [epFullAudioDone, setEpFullAudioDone] = useState(0);
   const [epFullVideoDone, setEpFullVideoDone] = useState(0);
   const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
@@ -59,6 +63,8 @@ export default function AdminEpisodeUpdatePage() {
     return n || 1;
   }
 
+  const episodeNum = parseEpisodeNumber(episodeSlug);
+
   useEffect(() => {
     if (!contentSlug) return;
     let mounted = true;
@@ -66,9 +72,11 @@ export default function AdminEpisodeUpdatePage() {
       setLoading(true);
       try {
         const f = await apiGetFilm(contentSlug!);
-        if (mounted) { setFilm(f); if (f?.main_language) setFilmMainLang(f.main_language); }
-        const num = parseEpisodeNumber(episodeSlug);
-        const row = await apiGetEpisodeDetail({ filmSlug: contentSlug!, episodeNum: num });
+        if (mounted) { 
+          setFilm(f); 
+          if (f?.main_language) setFilmMainLang(f.main_language);
+        }
+        const row = await apiGetEpisodeDetail({ filmSlug: contentSlug!, episodeNum });
         if (!mounted) return;
         setEp(row);
         setTitle(row?.title || '');
@@ -79,9 +87,7 @@ export default function AdminEpisodeUpdatePage() {
       }
     })();
     return () => { mounted = false; };
-  }, [contentSlug, episodeSlug]);
-
-  const episodeNum = parseEpisodeNumber(episodeSlug);
+  }, [contentSlug, episodeSlug, episodeNum]);
 
   // ================= CSV Re-import (Cards) =================
   const [csvText, setCsvText] = useState('');
@@ -89,14 +95,13 @@ export default function AdminEpisodeUpdatePage() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<Record<string,string>[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
-  const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
   const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string>('');
   const csvRef = useRef<HTMLInputElement | null>(null);
-  const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const, []);
+  const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const, []);
 
   const validateCsv = useCallback((headers: string[], rows: Record<string,string>[]) => {
-    const errors: string[] = []; const warnings: string[] = [];
+    const errors: string[] = [];
     const headerMap: Record<string,string> = {}; headers.forEach(h=>{ const l=(h||'').toLowerCase(); if(!headerMap[l]) headerMap[l]=h; });
     const RESERVED_COLUMNS = new Set([
       'id','card_id','cardid','card id','no','number','card_number','cardnumber','card number',
@@ -109,6 +114,7 @@ export default function AdminEpisodeUpdatePage() {
     const required = ['start','end']; const missing = required.filter(r=>!headerMap[r]); if(missing.length) errors.push(`Thiếu cột bắt buộc: ${missing.join(', ')}`);
     const aliasMap: Record<string,string> = {}; SUPPORTED_CANON.forEach(c=>{ expandCanonicalToAliases(c).forEach(a=>{ aliasMap[a.toLowerCase()] = c; }); });
     aliasMap['portugese']='pt_pt'; aliasMap['portugese (portugal)']='pt_pt'; aliasMap['portugese (brazil)']='pt_br';
+    aliasMap['nb']='nb'; aliasMap['norwegian bokmal']='nb'; aliasMap['norwegian bokmål']='nb'; aliasMap['bokmal']='nb'; aliasMap['bokmål']='nb';
     const recognizedSubtitleHeaders = new Set<string>(); const norm=(s:string)=>s.trim().toLowerCase();
     headers.forEach(h=>{ const rawLow=norm(h); const cleaned=rawLow.replace(/\s*\[[^\]]*\]\s*/g,'').trim(); if(RESERVED_COLUMNS.has(cleaned)) return; if(aliasMap[cleaned]){ recognizedSubtitleHeaders.add(h); return; }
       const m=cleaned.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/); if(m){ const base=m[1]; const variant=m[2]; if(base==='chinese'){ if(/(trad|traditional|hant|hk|tw|mo)/.test(variant)){ recognizedSubtitleHeaders.add(h); return;} if(/(simplified|hans|cn)/.test(variant)){ recognizedSubtitleHeaders.add(h); return;} } if(aliasMap[base]) recognizedSubtitleHeaders.add(h); }
@@ -124,12 +130,8 @@ export default function AdminEpisodeUpdatePage() {
       if(!/\([^)]+\)/.test(low)){ const baseCanon=aliasMap[low]; if(baseCanon===mainCanon){ hasMain=true; break; } }
     }
     if(!hasMain) errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon}`);
-    const knownSingles=new Set(['start','end','type','length','cefr','cefr level','cefr_level','jlpt','jlpt level','jlpt_level','hsk','hsk level','hsk_level','difficulty score','difficulty_score','difficultyscore','score','difficulty_percent','card_difficulty']);
-    const isFrameworkDynamic=(raw:string)=>{ const key=raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g,''); return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key); };
-    const ignored:string[]=[]; for(const h of headers){ const raw=(h||'').trim(); if(!raw) continue; const low=raw.toLowerCase(); if(RESERVED_COLUMNS.has(low)) continue; if(knownSingles.has(low)) continue; if(recognizedSubtitleHeaders.has(raw)) continue; if(isFrameworkDynamic(raw)) continue; if(low==='sentence') continue; ignored.push(raw); }
-    if(ignored.length) warnings.push(`Các cột sẽ bị bỏ qua: ${ignored.join(', ')}`);
     let ec=0; const maxErr=50; rows.forEach((row,i)=>{ required.forEach(k=>{ const orig=headerMap[k]; const v=orig? (row[orig]||'').trim():''; if(!v){ errors.push(`Hàng ${i+2}: cột "${k}" trống.`); ec++; } }); if(ec>=maxErr) return; });
-    setCsvErrors(errors); setCsvWarnings(warnings); setCsvValid(errors.length===0);
+    setCsvErrors(errors); setCsvValid(errors.length===0);
   }, [filmMainLang, SUPPORTED_CANON]);
 
   function findHeaderForLang(headers: string[], lang: string): string | null {
@@ -139,6 +141,129 @@ export default function AdminEpisodeUpdatePage() {
     return null;
   }
   const mainLangHeader = useMemo(()=>findHeaderForLang(csvHeaders, filmMainLang), [csvHeaders, filmMainLang]);
+  
+  // Derive lists for unrecognized and reserved columns (EXACT COPY from AdminContentIngestPage)
+  const { unrecognizedHeaders, reservedHeaders } = useMemo(() => {
+    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[] };
+    
+    // Same reserved columns as validateCsv in AdminContentIngestPage
+    const RESERVED_COLUMNS = new Set([
+      "id", "card_id", "cardid", "card id",
+      "no", "number", "card_number", "cardnumber", "card number",
+      "start", "start_time", "starttime", "start time", "start_time_ms",
+      "end", "end_time", "endtime", "end time", "end_time_ms",
+      "duration", "length", "card_length",
+      "type", "card_type", "cardtype", "card type",
+      "sentence", "text", "content",
+      "image", "image_url", "imageurl", "image url", "image_key",
+      "audio", "audio_url", "audiourl", "audio url", "audio_key",
+      "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
+      "cefr", "cefr_level", "cefr level",
+      "jlpt", "jlpt_level", "jlpt level",
+      "hsk", "hsk_level", "hsk level",
+      "notes", "tags", "metadata",
+      "hiragana", "katakana", "romaji"
+    ]);
+    
+    const langAliases: Record<string, string> = {
+      english: "en", eng: "en", vietnamese: "vi", vn: "vi",
+      chinese: "zh", "chinese simplified": "zh", chinese_simplified: "zh", zh: "zh", cn: "zh", "zh-cn": "zh", zh_cn: "zh", "zh-hans": "zh", zh_hans: "zh", "zh-hans-cn": "zh", zh_hans_cn: "zh", "zh-simplified": "zh", zh_simplified: "zh",
+      "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", traditional_chinese: "zh_trad", zh_trad: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad", "zh-hant": "zh_trad", zh_hant: "zh_trad", "zh-hk": "zh_trad", zh_hk: "zh_trad", "zh-mo": "zh_trad", zh_mo: "zh_trad", "zh-hant-tw": "zh_trad", zh_hant_tw: "zh_trad", "zh-hant-hk": "zh_trad", zh_hant_hk: "zh_trad", tw: "zh_trad",
+      japanese: "ja", ja: "ja", jp: "ja", korean: "ko", ko: "ko", kr: "ko",
+      indonesian: "id", id: "id", "in": "id", thai: "th", th: "th", malay: "ms", ms: "ms", my: "ms",
+      cantonese: "yue", yue: "yue", "zh-yue": "yue", zh_yue: "yue",
+      arabic: "ar", ar: "ar", basque: "eu", eu: "eu", bengali: "bn", bn: "bn", catalan: "ca", ca: "ca", croatian: "hr", hr: "hr", czech: "cs", cs: "cs", danish: "da", da: "da", dutch: "nl", nl: "nl",
+      filipino: "fil", fil: "fil", tagalog: "fil", tl: "fil", finnish: "fi", fi: "fi",
+      french: "fr", fr: "fr", "french canadian": "fr_ca", "french (canada)": "fr_ca", fr_ca: "fr_ca", frcan: "fr_ca",
+      galician: "gl", gl: "gl", german: "de", de: "de", greek: "el", el: "el", hebrew: "he", he: "he", iw: "he", hindi: "hi", hi: "hi", hungarian: "hu", hu: "hu", icelandic: "is", is: "is", italian: "it", it: "it", malayalam: "ml", ml: "ml", norwegian: "no", no: "no", nb: "nb", "norwegian bokmal": "nb", "norwegian bokmål": "nb", bokmal: "nb", bokmål: "nb", polish: "pl", pl: "pl",
+      portuguese: "pt_pt", pt: "pt_pt", pt_pt: "pt_pt", ptpt: "pt_pt", "portuguese (portugal)": "pt_pt",
+      "portuguese (brazil)": "pt_br", pt_br: "pt_br", ptbr: "pt_br", brazilian_portuguese: "pt_br",
+      portugese: "pt_pt", "portugese (portugal)": "pt_pt", "portugese (brazil)": "pt_br",
+      romanian: "ro", ro: "ro", russian: "ru", ru: "ru",
+      spanish: "es_es", es: "es_es", es_es: "es_es", "spanish (spain)": "es_es",
+      "spanish (latin america)": "es_la", es_la: "es_la", latam_spanish: "es_la",
+      swedish: "sv", sv: "sv", tamil: "ta", ta: "ta", telugu: "te", te: "te", turkish: "tr", tr: "tr", ukrainian: "uk", uk: "uk",
+      persian: "fa", farsi: "fa", fa: "fa",
+      kurdish: "ku", ku: "ku",
+      slovenian: "sl", sl: "sl",
+      serbian: "sr", sr: "sr",
+      bulgarian: "bg", bg: "bg"
+    };
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
+    const recognizedSubtitleHeaders = new Set<string>();
+    
+    // Same generalized language detection as in AdminContentIngestPage
+    const extractBaseLang = (rawHeader: string): { base: string; variation?: string } => {
+      const trimmed = rawHeader.trim().toLowerCase();
+      const parenMatch = trimmed.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
+      if (parenMatch) {
+        return { base: parenMatch[1].trim(), variation: parenMatch[2].trim() };
+      }
+      const hyphenMatch = trimmed.match(/^([a-z]{2,3})[-_](.+)$/);
+      if (hyphenMatch) {
+        return { base: hyphenMatch[1], variation: hyphenMatch[2] };
+      }
+      return { base: trimmed };
+    };
+
+    csvHeaders.forEach(h => {
+      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      
+      // Skip reserved columns BEFORE language detection (same as validateCsv)
+      if (RESERVED_COLUMNS.has(key)) return;
+      
+      const alias = langAliases[key];
+      if (alias) {
+        recognizedSubtitleHeaders.add(h);
+        return;
+      }
+      if (supported.has(key)) {
+        recognizedSubtitleHeaders.add(h);
+        return;
+      }
+      // Generalized pattern matching
+      const { base } = extractBaseLang(h);
+      const baseAlias = langAliases[base];
+      const baseCanon = baseAlias || (supported.has(base) ? base : null);
+      if (baseCanon) {
+        recognizedSubtitleHeaders.add(h);
+      }
+    });
+    const knownSingles = new Set(["start","end","type","length","cefr","cefr level","cefr_level","jlpt","jlpt level","jlpt_level","hsk","hsk level","hsk_level","difficulty score","difficulty_score","difficultyscore","score","difficulty_percent","card_difficulty"]);
+    const isFrameworkDynamic = (raw: string) => {
+      const key = raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
+      return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key);
+    };
+    const unrecognized: string[] = [];
+    const reserved: string[] = [];
+    // Reserved columns that appear in CSV should be shown separately (ID/number cols that we actively ignore)
+    const displayableReserved = new Set(["id", "card_id", "cardid", "card id", "no", "number", "card_number", "cardnumber", "card number"]);
+    for (const h of csvHeaders) {
+      const raw = (h || '').trim(); if (!raw) continue;
+      const low = raw.toLowerCase();
+      if (knownSingles.has(low)) continue;
+      // Check if it's a displayable reserved column (actively ignored)
+      if (displayableReserved.has(low)) {
+        reserved.push(raw);
+        continue;
+      }
+      // Skip other reserved columns
+      if (RESERVED_COLUMNS.has(low)) continue;
+      if (recognizedSubtitleHeaders.has(raw)) continue;
+      if (isFrameworkDynamic(raw)) continue;
+      if (low === 'sentence') continue; // already an error above
+      unrecognized.push(raw);
+    }
+    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved };
+  }, [csvHeaders]);
+  
+  const lowerHeaderMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    csvHeaders.forEach(h => { m[(h || "").toLowerCase()] = h; });
+    return m;
+  }, [csvHeaders]);
+  const requiredOriginals = useMemo(() => ["start", "end"].map(k => lowerHeaderMap[k]).filter(Boolean) as string[], [lowerHeaderMap]);
+  
   const mainLangHeaderOptions = useMemo(()=>{
     const canon = canonicalizeLangCode(filmMainLang) || filmMainLang;
     const variantGroups: Record<string,string[]> = { es_es:['es_es','es_la'], es_la:['es_es','es_la'], pt_pt:['pt_pt','pt_br'], pt_br:['pt_pt','pt_br'] };
@@ -164,77 +289,17 @@ export default function AdminEpisodeUpdatePage() {
   const [reimportBusy, setReimportBusy] = useState(false);
   const [reimportStage, setReimportStage] = useState<'idle'|'deleting'|'uploading_media'|'uploading_episode_media'|'import'|'stats'|'done'>('idle');
   const [confirmRollback, setConfirmRollback] = useState(false);
-  const [deletionProgress, setDeletionProgress] = useState<{stage: string; details: string} | null>(null);
   const [deletionPercent, setDeletionPercent] = useState(0);
   const onCancelReimport = () => {
-    // Always show confirmation modal (like AdminContentListPage)
+    // Show confirmation modal
     setConfirmRollback(true);
-  };
-
-  const executeRollback = async () => {
-    setDeletionPercent(10);
-    let timer: number | undefined;
-    let slowTimer: number | undefined;
-    setDeletionProgress({ stage: 'Đang xóa...', details: 'Đang xử lý yêu cầu xóa episode' });
-    try {
-      // Phase 1: fast ramp to 70%
-      timer = window.setInterval(() => {
-        setDeletionPercent((p) => (p < 70 ? p + 4 : p));
-      }, 220);
-      setTimeout(() => {
-        // Phase 2: slower ramp 70% -> 85%
-        if (timer) window.clearInterval(timer);
-        timer = window.setInterval(() => {
-          setDeletionPercent((p) => (p < 85 ? p + 2 : p));
-        }, 500);
-      }, 3000);
-      // Phase 3: indeterminate finalization
-      slowTimer = window.setInterval(() => {
-        setDeletionPercent((p) => (p >= 85 && p < 95 ? p + 1 : p));
-      }, 4000);
-      
-      setDeletionProgress({ stage: 'Đang xóa database...', details: 'Xóa Cards, subtitles và metadata' });
-      const deleteRes = await apiDeleteEpisode({ filmSlug: contentSlug!, episodeNum });
-      
-      if (timer) window.clearInterval(timer);
-      if (slowTimer) window.clearInterval(slowTimer);
-      
-      if ('error' in deleteRes) {
-        toast.error("Rollback episode thất bại: " + deleteRes.error);
-        setDeletionProgress(null);
-        setDeletionPercent(0);
-        return;
-      }
-      
-      setDeletionPercent(100);
-      setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xóa ${deleteRes.cards_deleted} cards, ${deleteRes.media_deleted} media files` });
-      console.log("✅ Manual rollback: deleted episode", deleteRes.cards_deleted, "cards:", deleteRes.media_deleted, "media");
-      
-      setTimeout(() => {
-        toast.success("Đã rollback thành công");
-        setConfirmRollback(false);
-        setDeletionProgress(null);
-        setDeletionPercent(0);
-        // Reset state
-        setReimportStage('idle');
-        setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-        setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
-        setReimportBusy(false);
-      }, 600);
-    } catch (err) {
-      console.error("Manual rollback error:", err);
-      toast.error("Rollback thất bại: " + (err as Error).message);
-      setDeletionProgress(null);
-      setDeletionPercent(0);
-    } finally {
-      if (timer) window.clearInterval(timer);
-      if (slowTimer) window.clearInterval(slowTimer);
-    }
   };
 
   const handleReimportCards = async () => {
     if(!contentSlug){ toast.error('Missing content slug'); return; }
     if(!canReimport){ toast.error('CSV and card media files required'); return; }
+    
+    console.log('[handleReimportCards] Starting replace for episode:', episodeNum);
     
     try {
       setReimportBusy(true);
@@ -242,35 +307,13 @@ export default function AdminEpisodeUpdatePage() {
       uploadAbortRef.current = new AbortController();
       
       // Reset progress counters
-      setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+      setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpCoverLandscapeDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
       setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
       
-      // Step 1: Delete old episode and all its media (with progress simulation)
-      setReimportStage('deleting');
-      setDeletionPercent(10);
-      let deleteTimer: number | undefined;
-      try {
-        // Simulate deletion progress (fast ramp to 70%)
-        deleteTimer = window.setInterval(() => {
-          setDeletionPercent((p) => (p < 70 ? p + 5 : p < 90 ? p + 2 : p));
-        }, 200);
-        
-        const deleteRes = await apiDeleteEpisode({ filmSlug: contentSlug!, episodeNum });
-        
-        if (deleteTimer) window.clearInterval(deleteTimer);
-        setDeletionPercent(100);
-        
-        if ('error' in deleteRes) {
-          toast.error('Failed to delete old episode: ' + deleteRes.error);
-          setDeletionPercent(0);
-          return;
-        }
-        toast.success(`Deleted old episode (Cards: ${deleteRes.cards_deleted}, Media: ${deleteRes.media_deleted})`);
-      } catch (delErr) {
-        if (deleteTimer) window.clearInterval(deleteTimer);
-        setDeletionPercent(0);
-        throw delErr;
-      }
+      // Skip episode deletion - preserve episode and media
+      // Use mode='replace' in importFilmFromCsv to only update cards
+      setDeletionPercent(100);
+      toast('Giữ nguyên episode và media, chỉ thay thế cards', { icon: 'ℹ️' });
       
       if (cancelRequestedRef.current) throw new Error('User cancelled');
       
@@ -366,6 +409,20 @@ export default function AdminEpisodeUpdatePage() {
       
       if (cancelRequestedRef.current) throw new Error('User cancelled');
       
+      // Upload landscape cover if provided
+      if (coverLandscapeFile) {
+        try {
+          const key = await uploadEpisodeCoverImage({ filmId: contentSlug!, episodeNum, file: coverLandscapeFile, landscape: true });
+          setEpCoverLandscapeDone(1);
+          await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, cover_landscape_key: key });
+          toast.success('Episode landscape cover uploaded');
+        } catch (e) {
+          console.error('Landscape cover upload failed:', e);
+        }
+      }
+      
+      if (cancelRequestedRef.current) throw new Error('User cancelled');
+      
       // Upload full audio if provided
       if (audioFile) {
         try {
@@ -447,14 +504,15 @@ export default function AdminEpisodeUpdatePage() {
     
     try {
       let coverUrl = ep?.cover_url;
+      let coverLandscapeUrl = ep?.cover_landscape_url;
       let audioUrl = ep?.full_audio_url;
       let videoUrl = ep?.full_video_url;
 
       // Calculate total steps
-      const totalSteps = (coverFile ? 1 : 0) + (audioFile ? 1 : 0) + (videoFile ? 1 : 0) + 1; // +1 for metadata
+      const totalSteps = (coverFile ? 1 : 0) + (coverLandscapeFile ? 1 : 0) + (audioFile ? 1 : 0) + (videoFile ? 1 : 0) + 1; // +1 for metadata
       let completedSteps = 0;
 
-      // Upload cover if selected
+      // Upload portrait cover if selected
       if (coverFile) {
         setSaveStage('cover');
         setUploadingCover(true);
@@ -469,6 +527,24 @@ export default function AdminEpisodeUpdatePage() {
           toast.error(`Cover upload failed: ${(e as Error).message}`);
         } finally {
           setUploadingCover(false);
+        }
+      }
+
+      // Upload landscape cover if selected
+      if (coverLandscapeFile) {
+        setSaveStage('cover_landscape');
+        setUploadingCoverLandscape(true);
+        try {
+          const key = await uploadEpisodeCoverImage({ filmId: contentSlug, episodeNum, file: coverLandscapeFile, landscape: true });
+          const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
+          coverLandscapeUrl = r2Base ? `${r2Base}/${key}` : `/${key}`;
+          completedSteps++;
+          setSaveProgress(Math.floor((completedSteps / totalSteps) * 100));
+          toast.success('Landscape cover uploaded');
+        } catch (e) {
+          toast.error(`Landscape cover upload failed: ${(e as Error).message}`);
+        } finally {
+          setUploadingCoverLandscape(false);
         }
       }
 
@@ -515,6 +591,7 @@ export default function AdminEpisodeUpdatePage() {
         episodeNum,
         title: title || undefined,
         cover_url: coverUrl || undefined,
+        cover_landscape_url: coverLandscapeUrl || undefined,
         full_audio_url: audioUrl || undefined,
         full_video_url: videoUrl || undefined,
       });
@@ -529,6 +606,7 @@ export default function AdminEpisodeUpdatePage() {
       setTitle(refreshed?.title || '');
       // Clear file inputs
       setCoverFile(null);
+      setCoverLandscapeFile(null);
       setAudioFile(null);
       setVideoFile(null);
       
@@ -602,7 +680,7 @@ export default function AdminEpisodeUpdatePage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="w-40 text-sm">Cover Image</label>
+              <label className="w-40 text-sm">Cover Image (Portrait)</label>
               <div className="space-y-2">
                 {ep.cover_url && (
                   <div className="text-xs text-gray-400">
@@ -620,52 +698,68 @@ export default function AdminEpisodeUpdatePage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="w-40 text-sm">Full Audio</label>
+              <label className="w-40 text-sm">Cover Landscape</label>
               <div className="space-y-2">
-                {ep.full_audio_url && (
+                {ep.cover_landscape_url && (
                   <div className="text-xs text-gray-400">
-                    Current: <a href={ep.full_audio_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
+                    Current: <a href={ep.cover_landscape_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
                   </div>
                 )}
                 <input 
                   type="file" 
-                  accept="audio/mpeg,audio/wav" 
-                  onChange={(e) => setAudioFile(e.target.files?.[0] || null)} 
+                  accept="image/jpeg" 
+                  onChange={(e) => setCoverLandscapeFile(e.target.files?.[0] || null)} 
                   className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
                 />
-                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/audio.mp3</div>
-              </div>
+                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover_landscape.jpg</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex flex-col gap-2">
+            <label className="w-40 text-sm">Full Audio</label>
+            <div className="space-y-2">
+              {ep.full_audio_url && (
+                <div className="text-xs text-gray-400">
+                  Current: <a href={ep.full_audio_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
+                </div>
+              )}
+              <input 
+                type="file" 
+                accept="audio/mpeg,audio/wav" 
+                onChange={(e) => setAudioFile(e.target.files?.[0] || null)} 
+                className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
+              />
+              <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/audio.mp3</div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-2">
-              <label className="w-40 text-sm">Full Video</label>
-              <div className="space-y-2">
-                {ep.full_video_url && (
-                  <div className="text-xs text-gray-400">
-                    Current: <a href={ep.full_video_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
-                  </div>
-                )}
-                <input 
-                  type="file" 
-                  accept="video/mp4" 
-                  onChange={(e) => setVideoFile(e.target.files?.[0] || null)} 
-                  className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
-                />
-                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
-              </div>
+          <div className="flex flex-col gap-2">
+            <label className="w-40 text-sm">Full Video</label>
+            <div className="space-y-2">
+              {ep.full_video_url && (
+                <div className="text-xs text-gray-400">
+                  Current: <a href={ep.full_video_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
+                </div>
+              )}
+              <input 
+                type="file" 
+                accept="video/mp4" 
+                onChange={(e) => setVideoFile(e.target.files?.[0] || null)} 
+                className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
+              />
+              <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
             </div>
           </div>
-
-          <div className="flex items-center gap-3 justify-end">
+        </div>          <div className="flex items-center gap-3 justify-end">
             <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${episodeSlug}`)}>Cancel</button>
             <button
               className="admin-btn primary flex items-center gap-2"
-              disabled={saving || uploadingCover || uploadingAudio || uploadingVideo}
+              disabled={saving || uploadingCover || uploadingCoverLandscape || uploadingAudio || uploadingVideo}
               onClick={handleSave}
             >
-              {(saving || uploadingCover || uploadingAudio || uploadingVideo) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {(saving || uploadingCover || uploadingCoverLandscape || uploadingAudio || uploadingVideo) && <Loader2 className="w-4 h-4 animate-spin" />}
               <span>{saving ? 'Saving…' : 'Save'}</span>
             </button>
           </div>
@@ -680,10 +774,16 @@ export default function AdminEpisodeUpdatePage() {
                   <span>{saveStage === 'done' || (saveStage !== 'idle' && saveStage !== 'cover') ? '✓' : saveStage === 'cover' ? '...' : 'pending'}</span>
                 </div>
               )}
+              {coverLandscapeFile && (
+                <div className="flex justify-between">
+                  <span>Cover Landscape</span>
+                  <span>{saveStage === 'done' || (saveStage === 'audio' || saveStage === 'video' || saveStage === 'metadata') ? '✓' : saveStage === 'cover_landscape' ? '...' : 'pending'}</span>
+                </div>
+              )}
               {audioFile && (
                 <div className="flex justify-between">
                   <span>Full Audio</span>
-                  <span>{saveStage === 'done' || (saveStage === 'video' || saveStage === 'metadata') ? '✓' : saveStage === 'audio' ? '...' : (saveStage === 'cover' || !coverFile) ? 'waiting' : 'pending'}</span>
+                  <span>{saveStage === 'done' || (saveStage === 'video' || saveStage === 'metadata') ? '✓' : saveStage === 'audio' ? '...' : (saveStage === 'cover' || saveStage === 'cover_landscape' || !coverFile) ? 'waiting' : 'pending'}</span>
                 </div>
               )}
               {videoFile && (
@@ -705,10 +805,21 @@ export default function AdminEpisodeUpdatePage() {
       {/* Full Episode Replacement Section - Separate Panel */}
       {ep && (
         <div className="admin-panel space-y-4">
-          <div className="text-sm font-semibold">Replace Entire Episode (Delete + Recreate)</div>
+          <div className="text-sm font-semibold">Replace Episode Cards</div>
           <div className="text-xs text-gray-400 mb-3">
-            This will delete the current episode and all its media, then create a new episode with fresh data.
-            <br />Main Language: <span className="text-pink-300">{langLabel(filmMainLang)} ({filmMainLang})</span>
+            Hệ thống sẽ <span className="text-pink-300">giữ nguyên episode</span> và chỉ <span className="text-yellow-400">thay thế cards</span> (xóa cards cũ, import cards mới từ CSV).
+            <br />Episode media (Cover, Full Audio/Video) sẽ được <span className="text-green-400">cập nhật</span> nếu bạn chọn file mới, hoặc <span className="text-blue-400">giữ nguyên</span> nếu không upload.
+          </div>
+
+          {/* Fixed Main Language Display */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex items-center gap-2">
+              <label className="w-40 text-sm">Main Language</label>
+              <div className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none flex items-center gap-2">
+                <span className={`fi fi-${countryCodeForLang(filmMainLang)}`}></span>
+                <span>{langLabel(filmMainLang)} ({canonicalizeLangCode(filmMainLang) || filmMainLang})</span>
+              </div>
+            </div>
           </div>
 
           {/* CSV Upload */}
@@ -729,49 +840,26 @@ export default function AdminEpisodeUpdatePage() {
               }}>Download template</button>
             </div>
             {csvFileName && <div className="text-xs text-gray-500">{csvFileName}</div>}
-            {csvValid !== null && (
-              <div className={`flex items-start gap-2 text-sm ${csvValid? 'text-green-400':'text-red-400'}`}>
-                {csvValid ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                <div>{csvValid ? 'CSV hợp lệ.' : <div className="space-y-1"><div>CSV cần chỉnh sửa:</div><ul className="list-disc pl-5 text-xs">{csvErrors.map((er,i)=><li key={i}>{er}</li>)}</ul></div>}</div>
-              </div>
-            )}
-            {csvWarnings.length>0 && csvValid && (
-              <div className="flex items-start gap-2 text-xs text-yellow-400"><AlertTriangle className="w-4 h-4" /><ul className="list-disc pl-5">{csvWarnings.map((w,i)=><li key={i}>{w}</li>)}</ul></div>
-            )}
-            {csvHeaders.length>0 && mainLangHeaderOptions.length>1 && (
+            {csvHeaders.length > 0 && mainLangHeaderOptions.length > 1 && (
               <div className="flex items-center gap-2 text-sm">
-                <label className="text-gray-300">Main Language column:</label>
+                <label className="text-gray-300">Main Language column ({langLabel(filmMainLang)}):</label>
                 <select className="admin-input !py-1 !px-2 max-w-xs" value={mainLangHeaderOverride || mainLangHeaderOptions[0]} onChange={e=>setMainLangHeaderOverride(e.target.value)}>
                   {mainLangHeaderOptions.map(h=> <option key={h} value={h}>{h}</option>)}
                 </select>
-                <span className="text-xs text-gray-500">Chọn cột phụ đề chính</span>
+                <span className="text-xs text-gray-500">Prefers non-CC by default</span>
               </div>
             )}
-            {csvHeaders.length>0 && (
-              <div className="overflow-auto border border-gray-700 rounded max-h-[420px]">
-                <table className="w-full text-[12px] border-collapse">
-                  <thead className="sticky top-0 bg-[#1a0f24] z-10">
-                    <tr>
-                      <th className="border border-gray-700 px-2 py-1 text-left">#</th>
-                      {csvHeaders.map((h,i)=>{ const isRequired=['start','end'].includes(h.toLowerCase()); const selectedMain=(mainLangHeaderOverride || mainLangHeader)===h; return (
-                        <th key={i} className={`border border-gray-700 px-2 py-1 text-left ${isRequired || selectedMain ? 'bg-pink-900/30 font-semibold':''}`}>{h}{isRequired && <span className="text-red-400 ml-1">*</span>}{selectedMain && <span className="text-amber-400 ml-1">★</span>}</th>
-                      ); })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {csvRows.map((row,i)=>(
-                      <tr key={i} className="hover:bg-pink-900/10">
-                        <td className="border border-gray-700 px-2 py-1 text-gray-500">{i+1}</td>
-                        {csvHeaders.map((h,j)=>{ const val=row[h] || ''; const isRequired=['start','end'].includes(h.toLowerCase()); const selectedMain=(mainLangHeaderOverride || mainLangHeader)===h; const isEmpty=!val.trim(); return (
-                          <td key={j} className={`border border-gray-700 px-2 py-1 ${isEmpty && (isRequired || selectedMain) ? 'bg-red-900/20 text-red-300':'text-gray-300'}`}>{val}</td>
-                        ); })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="text-[10px] text-gray-500 px-2 py-1"><span className="text-red-400">*</span> Required | <span className="text-amber-400">★</span> Main Language</div>
-              </div>
-            )}
+            <CsvPreviewPanel
+              csvHeaders={csvHeaders}
+              csvRows={csvRows}
+              csvValid={csvValid}
+              csvErrors={csvErrors}
+              unrecognizedHeaders={unrecognizedHeaders}
+              reservedHeaders={reservedHeaders}
+              requiredOriginals={requiredOriginals}
+              mainLangHeader={mainLangHeader}
+              mainLangHeaderOverride={mainLangHeaderOverride}
+            />
           </div>
 
           {/* Card Media Files */}
@@ -840,12 +928,15 @@ export default function AdminEpisodeUpdatePage() {
                 {coverFile && (
                   <ProgressItem label="5. Episode Cover" done={epCoverDone > 0} pending={reimportStage === 'uploading_episode_media' && epCoverDone === 0} />
                 )}
+                {coverLandscapeFile && (
+                  <ProgressItem label="6. Episode Cover Landscape" done={epCoverLandscapeDone > 0} pending={reimportStage === 'uploading_episode_media' && epCoverLandscapeDone === 0} />
+                )}
                 {audioFile && (
-                  <ProgressItem label="6. Episode Full Audio" done={epFullAudioDone > 0} pending={reimportStage === 'uploading_episode_media' && epFullAudioDone === 0} />
+                  <ProgressItem label="7. Episode Full Audio" done={epFullAudioDone > 0} pending={reimportStage === 'uploading_episode_media' && epFullAudioDone === 0} />
                 )}
                 {videoFile && (
                   <div className="flex justify-between">
-                    <span>7. Episode Full Video</span>
+                    <span>8. Episode Full Video</span>
                     <span>
                       {epFullVideoDone > 0
                         ? '✓'
@@ -856,7 +947,7 @@ export default function AdminEpisodeUpdatePage() {
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span>8. Calculating Stats</span>
+                  <span>9. Calculating Stats</span>
                   <span>{reimportStage === 'done' ? '✓' : reimportStage === 'stats' ? '...' : (reimportStage === 'uploading_episode_media' || reimportStage === 'import' ? 'waiting' : 'pending')}</span>
                 </div>
                 {/* Progress bar */}
@@ -876,10 +967,14 @@ export default function AdminEpisodeUpdatePage() {
                   totalSteps++;
                   if (reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media') completedSteps++;
 
-                  // 5-7. Episode-level media (optional)
+                  // 5-9. Episode-level media (optional)
                   if (coverFile) {
                     totalSteps++;
                     if (epCoverDone > 0) completedSteps++;
+                  }
+                  if (coverLandscapeFile) {
+                    totalSteps++;
+                    if (epCoverLandscapeDone > 0) completedSteps++;
                   }
                   if (audioFile) {
                     totalSteps++;
@@ -893,7 +988,7 @@ export default function AdminEpisodeUpdatePage() {
                     }
                   }
 
-                  // 8. Calculate Stats (required)
+                  // 9. Calculate Stats (required)
                   totalSteps++;
                   if (reimportStage === 'done') completedSteps++;
 
@@ -913,7 +1008,7 @@ export default function AdminEpisodeUpdatePage() {
 
       {/* Custom Rollback Confirmation Modal */}
       {confirmRollback && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deletionProgress && setConfirmRollback(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setConfirmRollback(false)}>
           <div 
             className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
             onClick={(e) => e.stopPropagation()}
@@ -922,68 +1017,33 @@ export default function AdminEpisodeUpdatePage() {
             <p className="text-[#f5d0fe] mb-2">Bạn có muốn dừng quá trình Replace Episode?</p>
             <p className="text-sm text-[#e9d5ff] mb-4">Stage hiện tại: <span className="text-[#f9a8d4] font-semibold">{reimportStage}</span></p>
             {(reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media' || reimportStage === 'import') && (
-              <p className="text-sm text-[#fbbf24] mb-4">⚠️ Import đã hoàn thành hoặc đang tiến hành. Nếu Rollback, toàn bộ Cards và Media đã upload sẽ bị xóa!</p>
+              <p className="text-sm text-[#fbbf24] mb-4">⚠️ Import đã hoàn thành hoặc đang tiến hành.</p>
             )}
             <p className="text-sm text-[#e9d5ff] mb-6">
-              {(reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media' || reimportStage === 'import')
-                ? 'Chọn "Chỉ dừng upload" để giữ lại episode đã tạo, hoặc "Rollback" để xóa hoàn toàn.'
-                : 'Chọn "Dừng" để hủy quá trình upload ngay lập tức.'}
+              Rollback không khả dụng. Hãy chọn \"Hủy\" để dừng tiến trình hoặc refresh trang.
             </p>
-            {deletionProgress && (
-              <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
-                <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
-                <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
-                <ProgressBar percent={deletionPercent} />
-              </div>
-            )}
             <div className="flex gap-3 justify-end">
               <button
                 className="admin-btn secondary"
                 onClick={() => {
-                  if (!deletionProgress) {
-                    setConfirmRollback(false);
-                    // Just cancel uploads without rollback
-                    cancelRequestedRef.current = true;
-                    try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
-                    setReimportStage('idle');
-                    setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-                    setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
-                    setReimportBusy(false);
-                    toast('Đã hủy tiến trình');
-                  }
+                  setConfirmRollback(false);
+                  cancelRequestedRef.current = true;
+                  try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
+                  setReimportStage('idle');
+                  setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpCoverLandscapeDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+                  setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+                  setReimportBusy(false);
+                  toast('Đã hủy tiến trình');
                 }}
-                disabled={!!deletionProgress}
               >
-                {(reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media' || reimportStage === 'import')
-                  ? 'Chỉ dừng upload'
-                  : 'Hủy'}
+                Hủy
               </button>
-              {(reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media' || reimportStage === 'import') && (
-                <button
-                  className="admin-btn danger"
-                  disabled={!!deletionProgress}
-                  onClick={executeRollback}
-                >
-                  {deletionProgress ? 'Đang xóa...' : 'Rollback'}
-                </button>
-              )}
-              {!(reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media' || reimportStage === 'import') && (
-                <button
-                  className="admin-btn primary"
-                  onClick={() => {
-                    setConfirmRollback(false);
-                    cancelRequestedRef.current = true;
-                    try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
-                    setReimportStage('idle');
-                    setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-                    setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
-                    setReimportBusy(false);
-                    toast('Đã hủy tiến trình');
-                  }}
-                >
-                  Dừng
-                </button>
-              )}
+              <button
+                className="admin-btn primary"
+                onClick={() => setConfirmRollback(false)}
+              >
+                Đóng
+              </button>
             </div>
           </div>
         </div>

@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { canonicalizeLangCode, countryCodeForLang } from "../utils/lang";
+import { useUser } from "../context/UserContext";
 
 interface Props {
   filmId: string;
-  languages: string[]; // available_subs of film
   onPick: (query: string) => void;
 }
 
@@ -47,16 +47,16 @@ const SAMPLES: Record<string, string[]> = {
   ],
 };
 
-export default function SuggestionPanel({ filmId, languages, onPick }: Props) {
+export default function SuggestionPanel({ filmId, onPick }: Props) {
+  const { preferences } = useUser();
   const suggestions = useMemo(() => {
     const list: { lang: string; value: string }[] = [];
-    const langs = languages.length ? languages : ["en"];
-    langs.forEach((l) => {
-      const c = canonicalizeLangCode(l) || l;
-      (SAMPLES[c] || []).forEach((v) => list.push({ lang: c, value: v }));
-    });
+    // Only use main language from preferences
+    const mainLang = preferences.main_language || "en";
+    const c = canonicalizeLangCode(mainLang) || mainLang;
+    (SAMPLES[c] || []).forEach((v) => list.push({ lang: c, value: v }));
     return list.slice(0, 16);
-  }, [languages]);
+  }, [preferences.main_language]);
 
   if (suggestions.length === 0) return null;
 

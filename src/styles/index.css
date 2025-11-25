@@ -29,33 +29,30 @@ img {
 
 /* Global scrollbar (Pink Pixel enhanced) */
 /* WebKit */
+/* Unified vertical scrollbar style (matches language selector) */
 ::-webkit-scrollbar {
-  width: 18px; /* larger for visibility */
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 ::-webkit-scrollbar-track {
-  background: linear-gradient(180deg,#120d1b 0%, #0b0811 100%);
-  border: 2px solid #241530;
+  background: #6a4e7a;
   border-radius: 10px;
-  box-shadow: inset 0 0 8px rgba(236,72,153,0.15);
+  border: 2px solid #6a4e7a;
 }
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg,#f9a8d4 0%, #f472b6 45%, #ec4899 75%, #db2777 100%);
-  border: 2px solid #f472b6;
+  background: #d35f90;
+  border: 3px solid #6a4e7a;
   border-radius: 10px;
-  box-shadow: 0 0 0 2px rgba(147,51,234,0.35) inset, 0 0 10px rgba(236,72,153,0.55);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg,#fbcfe8 0%, #f9a8d4 40%, #f472b6 70%, #ec4899 100%);
-  box-shadow: 0 0 0 2px rgba(147,51,234,0.45) inset, 0 0 14px rgba(236,72,153,0.7);
+  background: #e375a3;
 }
 ::-webkit-scrollbar-thumb:active {
-  background: linear-gradient(180deg,#ec4899 0%, #db2777 60%, #be185d 100%);
-  box-shadow: 0 0 0 2px rgba(147,51,234,0.55) inset, 0 0 16px rgba(236,72,153,0.85);
+  background: #b94d79;
 }
 /* Firefox */
 html, body, * {
-  scrollbar-color: #ec4899 #120d1b;
+  scrollbar-color: #d35f90 #6a4e7a;
 }
 
 /* ================= Pixel UI (pink) ================= */
@@ -252,7 +249,7 @@ html, body, * {
   font-weight: 700;
   font-size: 14px;
   padding: 10px 14px;
-  line-height: 1.1;
+  line-height: 1.4;
   border-radius: 10px;
   letter-spacing: 1px;
   text-shadow: none;

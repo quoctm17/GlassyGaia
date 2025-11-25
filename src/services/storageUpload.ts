@@ -194,26 +194,28 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   await runBatch();
 }
 
-// Upload cover image (JPEG) to items/{filmId}/cover_image/cover.jpg
-export async function uploadCoverImage(params: { filmId: string; episodeNum: number; file: File }) {
-  const { filmId, /* episodeNum */ file } = params;
+// Upload cover image (JPEG) to items/{filmId}/cover_image/cover.jpg or cover_landscape.jpg
+export async function uploadCoverImage(params: { filmId: string; episodeNum: number; file: File; landscape?: boolean }) {
+  const { filmId, /* episodeNum */ file, landscape } = params;
   if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg') {
     throw new Error('Cover must be a JPEG image');
   }
-  const bucketPath = `items/${filmId}/cover_image/cover.jpg`;
+  const filename = landscape ? 'cover_landscape.jpg' : 'cover.jpg';
+  const bucketPath = `items/${filmId}/cover_image/${filename}`;
   await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'image/jpeg' });
 }
 
-// Upload episode cover image (JPEG) to items/{filmId}/episodes/{filmId}_{episodeNum}/cover/cover.jpg
-export async function uploadEpisodeCoverImage(params: { filmId: string; episodeNum: number; file: File }) {
-  const { filmId, episodeNum, file } = params;
+// Upload episode cover image (JPEG) to items/{filmId}/episodes/{filmId}_{episodeNum}/cover/cover.jpg or cover_landscape.jpg
+export async function uploadEpisodeCoverImage(params: { filmId: string; episodeNum: number; file: File; landscape?: boolean }) {
+  const { filmId, episodeNum, file, landscape } = params;
   if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg') {
     throw new Error('Episode cover must be a JPEG image');
   }
+  const filename = landscape ? 'cover_landscape.jpg' : 'cover.jpg';
   const epFolderPadded = `${filmId}_${String(episodeNum).padStart(3,'0')}`;
   const epFolderLegacy = `${filmId}_${episodeNum}`;
-  const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/cover/cover.jpg`;
-  const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/cover/cover.jpg`;
+  const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/cover/${filename}`;
+  const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/cover/${filename}`;
   try {
     await r2UploadViaSignedUrl({ bucketPath: bucketPathNew, file, contentType: 'image/jpeg' });
     return bucketPathNew;

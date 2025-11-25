@@ -80,6 +80,17 @@ export default function AdminEpisodeDetailPage() {
   }
   const levelStats = useMemo(() => parseLevelStats(ep?.level_framework_stats as unknown), [ep?.level_framework_stats]);
 
+  // Build landscape cover display URL with cache-busting
+  const coverLandscapeDisplayUrl = useMemo(() => {
+    if (!ep) return null;
+    // If cover_landscape_url exists in episode, use it
+    if (ep.cover_landscape_url) {
+      const url = ep.cover_landscape_url;
+      return url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    }
+    return null;
+  }, [ep]);
+
   const pageSize = 10;
   const [page, setPage] = useState(1);
 
@@ -162,38 +173,53 @@ export default function AdminEpisodeDetailPage() {
                 <span className="text-gray-200">{ep.title || '-'}</span>
               </div>
             </div>
-            {/* Cover and Video on same row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <label className="w-32 text-sm text-gray-400">Cover:</label>
-                  {ep.cover_url ? (
-                    <a href={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
-                      <ExternalLink className="w-4 h-4" />
-                      Open
-                    </a>
-                  ) : <span className="text-gray-200">-</span>}
-                </div>
+            {/* Cover images side-by-side */}
+            {(ep.cover_url || coverLandscapeDisplayUrl) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Portrait Cover */}
                 {ep.cover_url && (
-                  <img src={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} alt="cover" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-400">Cover (Portrait):</label>
+                      <a href={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
+                        <ExternalLink className="w-4 h-4" />
+                        Open
+                      </a>
+                    </div>
+                    <img src={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} alt="cover portrait" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                  </div>
+                )}
+                {/* Landscape Cover */}
+                {coverLandscapeDisplayUrl && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-400">Cover (Landscape):</label>
+                      <a href={coverLandscapeDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
+                        <ExternalLink className="w-4 h-4" />
+                        Open
+                      </a>
+                    </div>
+                    <img src={coverLandscapeDisplayUrl} alt="cover landscape" className="w-48 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                  </div>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Full Video:</label>
-                {ep.full_video_url ? (
-                  <a
-                    href={ep.full_video_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="admin-btn secondary inline-flex items-center gap-1"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open
-                  </a>
-                ) : (
-                  <span className="text-gray-200">-</span>
-                )}
-              </div>
+            )}
+            {/* Full Video */}
+            <div className="flex items-center gap-2">
+              <label className="w-32 text-sm text-gray-400">Full Video:</label>
+              {ep.full_video_url ? (
+                <a
+                  href={ep.full_video_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="admin-btn secondary inline-flex items-center gap-1"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open
+                </a>
+              ) : (
+                <span className="text-gray-200">-</span>
+              )}
             </div>
 
             {/* Full Audio below */}

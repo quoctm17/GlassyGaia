@@ -15,7 +15,8 @@ CREATE TABLE content_items (
   type TEXT NOT NULL, -- e.g., 'movie', 'series', 'book', 'audio'
   is_original INTEGER NOT NULL DEFAULT 1, -- 1 = original (source language) version, 0 = non-original (dub/alternate)
   description TEXT,
-  cover_key TEXT, -- R2 object key for content-level cover image
+  cover_key TEXT, -- R2 object key for content-level cover image (portrait/vertical)
+  cover_landscape_key TEXT, -- R2 object key for content-level cover image (landscape/horizontal)
   release_year INTEGER,
   -- Total intended episodes for this content (business metadata, can exceed currently uploaded episodes).
   total_episodes INTEGER NOT NULL DEFAULT 1,
@@ -39,7 +40,8 @@ CREATE TABLE episodes (
   episode_number INTEGER NOT NULL,
   slug TEXT, -- stable public identifier like filmSlug_1
   title TEXT,
-  cover_key TEXT, -- R2 object key for episode-level cover image (optional)
+  cover_key TEXT, -- R2 object key for episode-level cover image (portrait/vertical)
+  cover_landscape_key TEXT, -- R2 object key for episode-level cover image (landscape/horizontal)
   full_audio_key TEXT,
   full_video_key TEXT,
   -- Per-episode statistics
