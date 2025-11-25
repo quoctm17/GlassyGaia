@@ -7,7 +7,6 @@ import { searchCardsGlobalClient, listAllItems } from "../services/firestore";
 import FilterPanel from "../components/FilterPanel";
 // Removed old LanguageSelector (now in NavBar via MainLanguageSelector & SubtitleLanguageSelector)
 import SuggestionPanel from "../components/SuggestionPanel";
-import { canonicalizeLangCode } from "../utils/lang";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
 
@@ -18,7 +17,6 @@ function SearchPage() {
   const [loading, setLoading] = useState(false);
   // Derive loading state from actual fetch; avoid a separate 'searching' toggle to prevent spinner flicker
   const [allResults, setAllResults] = useState<CardDoc[]>([]);
-  const [availableLangs, setAvailableLangs] = useState<string[]>(["en"]);
   const [filmFilter, setFilmFilter] = useState<string | null>(null);
   const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
   const [films, setFilms] = useState<string[]>([]);
@@ -29,9 +27,7 @@ function SearchPage() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(300); // resizable panel width
   const [dragging, setDragging] = useState<boolean>(false);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
-  const [filmAvailMap, setFilmAvailMap] = useState<Record<string, string[]>>(
-    {}
-  );
+  // removed filmAvailMap (unused after suggestion source simplification)
 
   // LanguageSelector writes to preferences directly; no local mirror needed
 
@@ -69,19 +65,16 @@ function SearchPage() {
         const titleMap: Record<string, string> = {};
         const order: string[] = [];
         const langMap: Record<string, string> = {};
-        const availMap: Record<string, string[]> = {};
         const typeMap: Record<string, string> = {};
         fs.forEach((f) => {
           titleMap[f.id] = f.title || f.id;
           order.push(f.id);
           if (f.main_language) langMap[f.id] = f.main_language;
-          if (f.available_subs) availMap[f.id] = f.available_subs;
           if (f.type) typeMap[f.id] = f.type;
         });
         setFilmTitleMap(titleMap);
         setFilms(order);
         setFilmLangMap(langMap);
-        setFilmAvailMap(availMap);
         setFilmTypeMap(typeMap);
       })
       .catch((e) => {
@@ -103,19 +96,16 @@ function SearchPage() {
         const titleMap: Record<string, string> = {};
         const order: string[] = [];
         const langMap: Record<string, string> = {};
-        const availMap: Record<string, string[]> = {};
         const typeMap: Record<string, string> = {};
         fs.forEach((f) => {
           titleMap[f.id] = f.title || f.id;
           order.push(f.id);
           if (f.main_language) langMap[f.id] = f.main_language;
-          if (f.available_subs) availMap[f.id] = f.available_subs;
           if (f.type) typeMap[f.id] = f.type;
         });
         setFilmTitleMap(titleMap);
         setFilms(order);
         setFilmLangMap(langMap);
-        setFilmAvailMap(availMap);
         setFilmTypeMap(typeMap);
       }).catch(() => {});
     };
@@ -142,28 +132,6 @@ function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  // Recompute available languages from results so selector is dynamic like CardDetail
-  useEffect(() => {
-    // Derive available subtitle languages from the union of available_subs for films present in the (optionally filtered) results
-    const ids = new Set<string>(
-      (filmFilter
-        ? allResults.filter((c) => c.film_id === filmFilter)
-        : allResults
-      ).map((c) => String(c.film_id ?? ""))
-    );
-    const acc = new Set<string>();
-    ids.forEach((fid) => {
-      const arr = filmAvailMap[fid] || [];
-      arr.forEach((l) => acc.add(canonicalizeLangCode(l) || l));
-    });
-    const out = Array.from(acc);
-    out.sort((a, b) => {
-      if (a === "en" && b !== "en") return -1;
-      if (b === "en" && a !== "en") return 1;
-      return a.localeCompare(b);
-    });
-    if (out.length) setAvailableLangs(out);
-  }, [allResults, filmFilter, filmAvailMap]);
 
   // no film/episode context in global search
 
