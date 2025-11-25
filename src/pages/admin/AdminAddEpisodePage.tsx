@@ -69,6 +69,8 @@ export default function AdminAddEpisodePage() {
   const [epFullVideoDone, setEpFullVideoDone] = useState(0);
   const [imagesDone, setImagesDone] = useState(0);
   const [audioDone, setAudioDone] = useState(0);
+  const [imagesTotal, setImagesTotal] = useState(0);
+  const [audioTotal, setAudioTotal] = useState(0);
   const [importDone, setImportDone] = useState(false);
   const [statsDone, setStatsDone] = useState(false);
   const [progress, setProgress] = useState(0); // percent progress
@@ -262,45 +264,69 @@ export default function AdminAddEpisodePage() {
     return !!(hasUser && emailOk && keyOk && csvOk && cardMediaOk && optionalUploadsOk);
   }, [user, allowedEmails, requireKey, adminKey, pass, csvValid, imageFiles.length, audioFiles.length, addEpCover, addEpAudio, addEpVideo, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
 
-  // Overall progress computation across all tasks
+  // Overall progress computation across all tasks (matches AdminContentIngestPage logic)
   useEffect(() => {
-    const totalUnits =
-      imageFiles.length +
-      audioFiles.length +
-      (addEpCover ? 1 : 0) +
-      (addEpAudio ? 1 : 0) +
-      (addEpVideo ? 1 : 0) +
-      1 + // import
-      1;  // stats
+    let totalSteps = 0;
+    let completedSteps = 0;
 
-    const doneUnits =
-      imagesDone +
-      audioDone +
-      (addEpCover ? Math.min(epCoverDone, 1) : 0) +
-      (addEpAudio ? Math.min(epFullAudioDone, 1) : 0) +
-      (addEpVideo ? Math.min(epFullVideoDone, 1) : 0) +
-      (importDone ? 1 : 0) +
-      (statsDone ? 1 : 0);
+    // 1. Card media (images + audio) - use EFFECTIVE totals from uploader (after skips)
+    totalSteps += imagesTotal + audioTotal;
+    completedSteps += imagesDone + audioDone;
 
-    const pct = totalUnits > 0 ? Math.round((doneUnits / totalUnits) * 100) : (stage === 'done' ? 100 : 0);
+    // 2. Import CSV (required)
+    totalSteps++;
+    if (importDone) completedSteps++;
+
+    // 3. Episode Cover (optional)
+    if (addEpCover && hasEpCoverFile) {
+      totalSteps++;
+      if (epCoverDone > 0) completedSteps++;
+    }
+
+    // 4. Episode Full Audio (optional)
+    if (addEpAudio && hasEpAudioFile) {
+      totalSteps++;
+      if (epFullAudioDone > 0) completedSteps++;
+    }
+
+    // 5. Episode Full Video (optional with byte-level progress)
+    if (addEpVideo && hasEpVideoFile) {
+      totalSteps++;
+      if (epFullVideoDone > 0) completedSteps += 1;
+      else if (stage === 'ep_full_video' && epFullVideoBytesTotal > 0) {
+        completedSteps += Math.max(0, Math.min(1, epFullVideoBytesDone / epFullVideoBytesTotal));
+      }
+    }
+
+    // 6. Calculate Stats (required)
+    totalSteps++;
+    if (statsDone) completedSteps++;
+
+    // Prevent showing 100% until ALL steps are completed
+    let pct: number;
+    if (totalSteps === 0) pct = 0;
+    else if (completedSteps === totalSteps) pct = 100;
+    else pct = Math.min(99, Math.floor((completedSteps / totalSteps) * 100));
+
     if (pct !== progress) setProgress(pct);
   }, [
-    // files and their completion
-    imageFiles.length,
-    audioFiles.length,
+    imagesTotal,
+    audioTotal,
     imagesDone,
     audioDone,
-    // episode media toggles and completion
+    importDone,
     addEpCover,
     addEpAudio,
     addEpVideo,
+    hasEpCoverFile,
+    hasEpAudioFile,
+    hasEpVideoFile,
     epCoverDone,
     epFullAudioDone,
     epFullVideoDone,
-    // import and stats
-    importDone,
+    epFullVideoBytesDone,
+    epFullVideoBytesTotal,
     statsDone,
-    // allow finished state to hit 100 when no units
     stage,
     progress
   ]);
@@ -334,6 +360,9 @@ export default function AdminAddEpisodePage() {
   const doUploadMedia = async (type: MediaType, files: File[], signal?: AbortSignal) => {
     if (!files.length) return;
     setStage(type === 'image' ? 'images' : 'audio');
+    // Reset visible totals to the selected file count; will be corrected by callback's total
+    if (type === 'image') { setImagesTotal(files.length); setImagesDone(0); } 
+    else { setAudioTotal(files.length); setAudioDone(0); }
     await uploadMediaBatch({
       filmId: contentSlug!,
       episodeNum,
@@ -343,9 +372,9 @@ export default function AdminAddEpisodePage() {
       startIndex,
       inferFromFilenames: infer,
       signal
-    }, done => {
-      if (type === 'image') setImagesDone(done);
-      else setAudioDone(done);
+    }, (done, total) => {
+      if (type === 'image') { setImagesDone(done); setImagesTotal(total); } 
+      else { setAudioDone(done); setAudioTotal(total); }
     });
     if (!(signal && signal.aborted)) {
       toast.success(type === 'image' ? 'Images uploaded' : 'Audio uploaded');
@@ -761,21 +790,41 @@ export default function AdminAddEpisodePage() {
         </div>
         {(busy || stage === 'done') && (
           <div className="admin-panel text-xs space-y-2">
-            <div className="flex justify-between"><span>Images</span><span>{imagesDone}/{imageFiles.length}</span></div>
-            <div className="flex justify-between"><span>Audio</span><span>{audioDone}/{audioFiles.length}</span></div>
-            <div className="flex justify-between"><span>Import</span><span>{importDone? '✓': stage==='import'? '...' : 'pending'}</span></div>
-            <ProgressItem label="Episode Cover" done={epCoverDone > 0} pending={!!(document.getElementById('ep-cover-file') as HTMLInputElement)?.files?.length && epCoverDone === 0} />
-            <ProgressItem label="Episode Full Audio" done={epFullAudioDone > 0} pending={!!(document.getElementById('ep-full-audio') as HTMLInputElement)?.files?.length && epFullAudioDone === 0} />
-            <ProgressItem label="Episode Full Video" done={epFullVideoDone > 0} pending={!!(document.getElementById('ep-full-video') as HTMLInputElement)?.files?.length && epFullVideoDone === 0} />
-            {stage === 'ep_full_video' && epFullVideoBytesTotal > 0 && (
-              <div className="flex justify-between text-gray-400">
-                <span>Video Upload Progress</span>
-                <span>{Math.round((epFullVideoBytesDone / epFullVideoBytesTotal) * 100)}%</span>
+            {/* Progress items in actual execution order */}
+            {/* 1-2. Card Media (images + audio in parallel) */}
+            <div className="flex justify-between"><span>1. Images</span><span>{imagesDone}/{imagesTotal}</span></div>
+            <div className="flex justify-between"><span>2. Audio</span><span>{audioDone}/{audioTotal}</span></div>
+            {/* 3. Import CSV */}
+            <div className="flex justify-between">
+              <span>3. Import CSV</span>
+              <span>{importDone ? '✓' : stage === 'import' ? '...' : (imagesDone === imagesTotal && audioDone === audioTotal ? 'waiting' : 'pending')}</span>
+            </div>
+            {/* 4-6. Episode-level optional media (after import) */}
+            {addEpCover && hasEpCoverFile && (
+              <ProgressItem label="4. Episode Cover" done={epCoverDone > 0} pending={stage === 'ep_cover' || (importDone && epCoverDone === 0)} />
+            )}
+            {addEpAudio && hasEpAudioFile && (
+              <ProgressItem label="5. Episode Full Audio" done={epFullAudioDone > 0} pending={stage === 'ep_full_audio' || (importDone && epFullAudioDone === 0)} />
+            )}
+            {addEpVideo && hasEpVideoFile && (
+              <div className="flex justify-between">
+                <span>6. Episode Full Video</span>
+                <span>
+                  {epFullVideoDone > 0
+                    ? '✓'
+                    : stage === 'ep_full_video' && epFullVideoBytesTotal > 0
+                      ? `${Math.min(100, Math.round((epFullVideoBytesDone / epFullVideoBytesTotal) * 100))}%`
+                      : (importDone ? 'waiting' : 'pending')}
+                </span>
               </div>
             )}
-            <div className="flex justify-between"><span>Calculating Stats</span><span>{statsDone ? '✓' : stage === 'calculating_stats' ? '...' : (importDone ? 'pending' : 'skip')}</span></div>
-            {/* Progress Bar at bottom */}
-            <ProgressBar percent={progress} />
+            {/* 7. Calculate Stats (final step) */}
+            <div className="flex justify-between">
+              <span>7. Calculating Stats</span>
+              <span>{statsDone ? '✓' : stage === 'calculating_stats' ? '...' : (importDone ? 'waiting' : 'pending')}</span>
+            </div>
+            {/* Progress bar */}
+            <div className="mt-2"><ProgressBar percent={progress} /></div>
           </div>
         )}
       </div>
@@ -833,7 +882,7 @@ function ProgressItem({ label, done, pending }: { label: string; done: boolean; 
   return (
     <div className="flex justify-between">
       <span>{label}</span>
-      <span>{done ? "✓" : pending ? "..." : "skip"}</span>
+      <span>{done ? '✓' : pending ? '...' : 'pending'}</span>
     </div>
   );
 }
