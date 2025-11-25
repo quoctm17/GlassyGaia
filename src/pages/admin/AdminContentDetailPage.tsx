@@ -78,6 +78,20 @@ export default function AdminContentDetailPage() {
     return url;
   }, [item, r2Base]);
 
+  const coverLandscapeDisplayUrl = useMemo(() => {
+    if (!item) return '';
+    let url = (item as {cover_landscape_url?: string}).cover_landscape_url || '';
+    if (url.startsWith('/') && r2Base) url = r2Base + url;
+    if (!url && item.id) {
+      const path = `/items/${item.id}/cover_image/cover_landscape.jpg`;
+      url = r2Base ? r2Base + path : path;
+    }
+    if (url) {
+      url += (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    }
+    return url;
+  }, [item, r2Base]);
+
   function parseLevelStats(raw: unknown): LevelFrameworkStats | null {
     if (!raw) return null;
     if (Array.isArray(raw)) return raw as LevelFrameworkStats;
@@ -196,9 +210,9 @@ export default function AdminContentDetailPage() {
               </div>
             </div>
             <div>
-              <label className="w-32 text-sm text-gray-400">Available Subs:</label>
+              <label className="w-32 text-sm text-gray-400 block mb-3">Available Subs:</label>
               {languages.length ? (
-                <div className="inline-flex flex-wrap gap-2 mt-2">
+                <div className="inline-flex flex-wrap gap-2">
                   {languages.map(l => {
                     // Determine if this language has a variant label
                     const baseLabel = langLabel(l);
@@ -226,16 +240,33 @@ export default function AdminContentDetailPage() {
               <label className="w-32 text-sm text-gray-400">Description:</label>
               <div className="text-gray-200 mt-1">{item.description || '-'}</div>
             </div>
-            {coverDisplayUrl && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <label className="w-32 text-sm text-gray-400">Cover:</label>
-                  <a href={coverDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
-                    <ExternalLink className="w-4 h-4" />
-                    Open
-                  </a>
-                </div>
-                <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+            {/* Cover images side-by-side */}
+            {(coverDisplayUrl || coverLandscapeDisplayUrl) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {coverDisplayUrl && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-400">Cover (Portrait):</label>
+                      <a href={coverDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
+                        <ExternalLink className="w-4 h-4" />
+                        Open
+                      </a>
+                    </div>
+                    <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                  </div>
+                )}
+                {coverLandscapeDisplayUrl && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-400">Cover (Landscape):</label>
+                      <a href={coverLandscapeDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
+                        <ExternalLink className="w-4 h-4" />
+                        Open
+                      </a>
+                    </div>
+                    <img src={coverLandscapeDisplayUrl} alt="cover landscape" className="w-48 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                  </div>
+                )}
               </div>
             )}
           </div>

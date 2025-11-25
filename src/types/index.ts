@@ -80,6 +80,7 @@ export interface EpisodeDetailDoc {
   slug: string;
   title: string | null;
   cover_url: string | null;
+  cover_landscape_url?: string | null;
   full_audio_url: string | null;
   full_video_url: string | null;
   num_cards?: number | null;

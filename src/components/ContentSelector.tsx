@@ -10,10 +10,12 @@ interface ContentSelectorProps {
   allResults: CardDoc[]; // results after query (and difficulty filtering applied upstream)
   filmTypeMapExternal?: Record<string, string | undefined>; // optional external map to avoid refetch
   filmTitleMapExternal?: Record<string, string>;
+  filmLangMapExternal?: Record<string, string>;
+  mainLanguage?: string;
 }
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
-export default function ContentSelector({ value, onChange, allResults, filmTypeMapExternal, filmTitleMapExternal }: ContentSelectorProps) {
+export default function ContentSelector({ value, onChange, allResults, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, mainLanguage }: ContentSelectorProps) {
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -40,6 +42,13 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
     return m;
   }, [films, filmTypeMapExternal]);
 
+  const filmLangMap: Record<string, string> = useMemo(() => {
+    if (filmLangMapExternal) return filmLangMapExternal;
+    const m: Record<string, string> = {};
+    films.forEach(f => { if (f.main_language) m[f.id] = f.main_language; });
+    return m;
+  }, [films, filmLangMapExternal]);
+
   // Counts from allResults
   const counts: Record<string, number> = useMemo(() => {
     const m: Record<string, number> = {};
@@ -51,11 +60,18 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
     return m;
   }, [allResults]);
 
-  // Available film ids from either external or fetched films
+  // Available film ids from either external or fetched films, filtered by main language
   const filmIds: string[] = useMemo(() => {
-    if (filmTitleMapExternal) return Object.keys(filmTitleMapExternal);
-    return films.map(f => f.id);
-  }, [films, filmTitleMapExternal]);
+    let ids = filmTitleMapExternal ? Object.keys(filmTitleMapExternal) : films.map(f => f.id);
+    // Filter by main language if specified
+    if (mainLanguage) {
+      ids = ids.filter(id => {
+        const lang = filmLangMap[id];
+        return lang === mainLanguage;
+      });
+    }
+    return ids;
+  }, [films, filmTitleMapExternal, filmLangMap, mainLanguage]);
 
   // Apply search filter
   const normalizedSearch = search.trim().toLowerCase();

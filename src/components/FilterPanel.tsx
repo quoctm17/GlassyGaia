@@ -5,15 +5,17 @@ import ContentSelector from './ContentSelector';
 interface FilterPanelProps {
   filmTitleMap: Record<string, string>;
   filmTypeMap: Record<string, string | undefined>;
+  filmLangMap: Record<string, string>;
   allResults: CardDoc[]; // results already filtered by query (not difficulty yet)
   filmFilter: string | null;
   onSelectFilm: (filmId: string | null) => void;
   minDifficulty: number;
   maxDifficulty: number;
   onDifficultyChange: (min: number, max: number) => void;
+  mainLanguage: string;
 }
 
-export default function FilterPanel({ filmTitleMap, filmTypeMap, allResults, filmFilter, onSelectFilm, minDifficulty, maxDifficulty, onDifficultyChange }: FilterPanelProps) {
+export default function FilterPanel({ filmTitleMap, filmTypeMap, filmLangMap, allResults, filmFilter, onSelectFilm, minDifficulty, maxDifficulty, onDifficultyChange, mainLanguage }: FilterPanelProps) {
   const handleMin = (v: number) => {
     const clamped = Math.max(0, Math.min(v, maxDifficulty));
     onDifficultyChange(clamped, maxDifficulty);
@@ -72,6 +74,8 @@ export default function FilterPanel({ filmTitleMap, filmTypeMap, allResults, fil
         allResults={allResults}
         filmTypeMapExternal={filmTypeMap}
         filmTitleMapExternal={filmTitleMap}
+        filmLangMapExternal={filmLangMap}
+        mainLanguage={mainLanguage}
       />
     </div>
   );

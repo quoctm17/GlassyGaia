@@ -489,6 +489,8 @@ export async function apiUpdateEpisodeMeta(params: {
   title?: string;
   cover_url?: string;
   cover_key?: string;
+  cover_landscape_url?: string;
+  cover_landscape_key?: string;
   full_audio_url?: string;
   full_audio_key?: string;
   full_video_url?: string;

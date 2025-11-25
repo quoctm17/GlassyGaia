@@ -12,12 +12,13 @@ import {
 import type { MediaType } from "../../services/storageUpload";
 import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
-import { XCircle, CheckCircle, AlertTriangle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw } from "lucide-react";
+import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
 import { langLabel, canonicalizeLangCode, expandCanonicalToAliases } from "../../utils/lang";
 import ProgressBar from "../../components/ProgressBar";
 import FlagDisplay from "../../components/FlagDisplay";
+import CsvPreviewPanel from "../../components/CsvPreviewPanel";
 
 // Normalize slug: remove accents, convert to lowercase, replace spaces with underscores, keep only safe characters
 function normalizeSlug(input: string): string {
@@ -27,14 +28,14 @@ function normalizeSlug(input: string): string {
   normalized = normalized.replace(/[\u0300-\u036f]/g, '');
   // Convert to lowercase
   normalized = normalized.toLowerCase();
-  // Replace spaces and multiple underscores/hyphens with single underscore
+  // Replace spaces with underscores
   normalized = normalized.replace(/\s+/g, '_');
   // Keep only alphanumeric, underscore, and hyphen (safe for URLs and file paths)
   normalized = normalized.replace(/[^a-z0-9_-]/g, '');
-  // Remove leading/trailing underscores or hyphens
-  normalized = normalized.replace(/^[_-]+|[_-]+$/g, '');
   // Collapse multiple underscores/hyphens into single underscore
   normalized = normalized.replace(/[_-]+/g, '_');
+  // Remove leading/trailing underscores or hyphens (do this LAST)
+  normalized = normalized.replace(/^[_-]+|[_-]+$/g, '');
   return normalized;
 }
 
@@ -79,7 +80,7 @@ export default function AdminContentIngestPage() {
 
   const ALL_LANG_OPTIONS: string[] = [
     "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
-    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","tr","uk",
+    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","ta","te","tr","uk",
     "fa","ku","sl","sr","bg"
   ];
   const SORTED_LANG_OPTIONS = useMemo(() => {
@@ -102,7 +103,6 @@ export default function AdminContentIngestPage() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
-  const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
   const [csvFileName, setCsvFileName] = useState<string>("");
   // Allow selecting which CSV header to treat as Main Language subtitle
@@ -118,7 +118,9 @@ export default function AdminContentIngestPage() {
 
   // Optional media toggles (film-level full media removed per new schema)
   const [addCover, setAddCover] = useState(false);
+  const [addCoverLandscape, setAddCoverLandscape] = useState(false);
   const [addEpCover, setAddEpCover] = useState(false);
+  const [addEpCoverLandscape, setAddEpCoverLandscape] = useState(false);
   const [addEpAudio, setAddEpAudio] = useState(false);
   const [addEpVideo, setAddEpVideo] = useState(false);
   const [epFullAudioExt, setEpFullAudioExt] = useState<'mp3' | 'wav'>('mp3');
@@ -127,7 +129,9 @@ export default function AdminContentIngestPage() {
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("idle");
   const [coverDone, setCoverDone] = useState(0);
+  const [coverLandscapeDone, setCoverLandscapeDone] = useState(0);
   const [epCoverDone, setEpCoverDone] = useState(0);
+  const [epCoverLandscapeDone, setEpCoverLandscapeDone] = useState(0);
   const [epFullAudioDone, setEpFullAudioDone] = useState(0);
   const [epFullVideoDone, setEpFullVideoDone] = useState(0);
   const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
@@ -145,9 +149,15 @@ export default function AdminContentIngestPage() {
   const createdFilmRef = useRef<string | null>(null);
   const createdEpisodeNumRef = useRef<number | null>(null);
   const importSucceededRef = useRef<boolean>(false);
+  // Stop / rollback modal state (similar to AdminEpisodeUpdatePage)
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [deletionProgress, setDeletionProgress] = useState<{stage: string; details: string} | null>(null);
+  const [deletionPercent, setDeletionPercent] = useState(0);
   // File presence flags for optional uploads (to drive validation reliably)
   const [hasCoverFile, setHasCoverFile] = useState(false);
+  const [hasCoverLandscapeFile, setHasCoverLandscapeFile] = useState(false);
   const [hasEpCoverFile, setHasEpCoverFile] = useState(false);
+  const [hasEpCoverLandscapeFile, setHasEpCoverLandscapeFile] = useState(false);
   const [hasEpAudioFile, setHasEpAudioFile] = useState(false);
   const [hasEpVideoFile, setHasEpVideoFile] = useState(false);
 
@@ -197,7 +207,7 @@ export default function AdminContentIngestPage() {
     }
     // language detection (strict variant matching)
     const recognizedSubtitleHeaders = new Set<string>();
-    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const;
+    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const;
     const aliasMap: Record<string,string> = {};
     SUPPORTED_CANON.forEach(c => { expandCanonicalToAliases(c).forEach(a => { aliasMap[a.toLowerCase()] = c; }); });
     // Common misspellings / fallbacks
@@ -331,13 +341,13 @@ export default function AdminContentIngestPage() {
       if (ec >= maxErr) return;
     });
     setCsvErrors(errors);
-    setCsvWarnings(warnings);
     setCsvValid(errors.length === 0);
   }, [mainLanguage]);
 
-  // Derive list for footnote display (kept in sync with validateCsv rules)
-  const ignoredHeaders = useMemo(() => {
-    if (!csvHeaders.length) return [] as string[];
+  // Derive lists for footnote display (kept in sync with validateCsv rules)
+  // Two types: unrecognized (not detected) and reserved (actively ignored)
+  const { unrecognizedHeaders, reservedHeaders } = useMemo(() => {
+    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[] };
     
     // Same reserved columns as validateCsv
     const RESERVED_COLUMNS = new Set([
@@ -368,7 +378,7 @@ export default function AdminContentIngestPage() {
       arabic: "ar", ar: "ar", basque: "eu", eu: "eu", bengali: "bn", bn: "bn", catalan: "ca", ca: "ca", croatian: "hr", hr: "hr", czech: "cs", cs: "cs", danish: "da", da: "da", dutch: "nl", nl: "nl",
       filipino: "fil", fil: "fil", tagalog: "fil", tl: "fil", finnish: "fi", fi: "fi",
       french: "fr", fr: "fr", "french canadian": "fr_ca", "french (canada)": "fr_ca", fr_ca: "fr_ca", frcan: "fr_ca",
-      galician: "gl", gl: "gl", german: "de", de: "de", greek: "el", el: "el", hebrew: "he", he: "he", iw: "he", hindi: "hi", hi: "hi", hungarian: "hu", hu: "hu", icelandic: "is", is: "is", italian: "it", it: "it", malayalam: "ml", ml: "ml", norwegian: "no", no: "no", polish: "pl", pl: "pl",
+      galician: "gl", gl: "gl", german: "de", de: "de", greek: "el", el: "el", hebrew: "he", he: "he", iw: "he", hindi: "hi", hi: "hi", hungarian: "hu", hu: "hu", icelandic: "is", is: "is", italian: "it", it: "it", malayalam: "ml", ml: "ml", norwegian: "no", no: "no", nb: "nb", "norwegian bokmal": "nb", "norwegian bokmål": "nb", bokmal: "nb", bokmål: "nb", polish: "pl", pl: "pl",
       portuguese: "pt_pt", pt: "pt_pt", pt_pt: "pt_pt", ptpt: "pt_pt", "portuguese (portugal)": "pt_pt",
       "portuguese (brazil)": "pt_br", pt_br: "pt_br", ptbr: "pt_br", brazilian_portuguese: "pt_br",
       portugese: "pt_pt", "portugese (portugal)": "pt_pt", "portugese (brazil)": "pt_br",
@@ -382,7 +392,7 @@ export default function AdminContentIngestPage() {
       serbian: "sr", sr: "sr",
       bulgarian: "bg", bg: "bg"
     };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
     const recognizedSubtitleHeaders = new Set<string>();
     
     // Same generalized language detection as in validateCsv
@@ -427,18 +437,28 @@ export default function AdminContentIngestPage() {
       const key = raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
       return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key);
     };
-    const ignored: string[] = [];
+    const unrecognized: string[] = [];
+    const reserved: string[] = [];
+    // Reserved columns that appear in CSV should be shown separately (ID/number cols that we actively ignore)
+    const displayableReserved = new Set(["id", "card_id", "cardid", "card id", "no", "number", "card_number", "cardnumber", "card number"]);
     for (const h of csvHeaders) {
       const raw = (h || '').trim(); if (!raw) continue;
       const low = raw.toLowerCase();
       if (knownSingles.has(low)) continue;
-      if (RESERVED_COLUMNS.has(low)) continue; // Skip reserved columns in final list too
+      // Check if it's a displayable reserved column (actively ignored)
+      if (displayableReserved.has(low)) {
+        reserved.push(raw);
+        continue;
+      }
+      // Skip other reserved columns
+      if (RESERVED_COLUMNS.has(low)) continue;
       if (recognizedSubtitleHeaders.has(raw)) continue;
       if (isFrameworkDynamic(raw)) continue;
       if (low === 'sentence') continue;
-      ignored.push(raw);
+      // If we got here, it's unrecognized
+      unrecognized.push(raw);
     }
-    return ignored;
+    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved };
   }, [csvHeaders]);
 
   function findHeaderForLang(headers: string[], lang: string): string | null {
@@ -512,7 +532,9 @@ export default function AdminContentIngestPage() {
 
   // Reset file flags when toggles are turned off
   useEffect(() => { if (!addCover) setHasCoverFile(false); }, [addCover]);
+  useEffect(() => { if (!addCoverLandscape) setHasCoverLandscapeFile(false); }, [addCoverLandscape]);
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
+  useEffect(() => { if (!addEpCoverLandscape) setHasEpCoverLandscapeFile(false); }, [addEpCoverLandscape]);
   useEffect(() => { if (!addEpAudio) setHasEpAudioFile(false); }, [addEpAudio]);
   useEffect(() => { if (!addEpVideo) setHasEpVideoFile(false); }, [addEpVideo]);
 
@@ -545,12 +567,14 @@ export default function AdminContentIngestPage() {
     const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
     // Optional toggles: if checked, require a file chosen for that input (use reactive flags)
     const coverOk = !addCover || hasCoverFile;
+    const coverLandscapeOk = !addCoverLandscape || hasCoverLandscapeFile;
     const epCoverOk = !addEpCover || hasEpCoverFile;
+    const epCoverLandscapeOk = !addEpCoverLandscape || hasEpCoverLandscapeFile;
     const epAudioOk = !addEpAudio || hasEpAudioFile;
     const epVideoOk = !addEpVideo || hasEpVideoFile;
-    const optionalUploadsOk = coverOk && epCoverOk && epAudioOk && epVideoOk;
+    const optionalUploadsOk = coverOk && coverLandscapeOk && epCoverOk && epCoverLandscapeOk && epAudioOk && epVideoOk;
     return !!(hasUser && emailOk && keyOk && slugOk && csvOk && titleOk && typeOk && cardMediaOk && optionalUploadsOk);
-  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addEpCover, addEpAudio, addEpVideo, hasCoverFile, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
+  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, addEpCoverLandscape, addEpAudio, addEpVideo, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile, hasEpCoverLandscapeFile, hasEpAudioFile, hasEpVideoFile]);
 
   // Handlers
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -586,6 +610,17 @@ export default function AdminContentIngestPage() {
     toast.success("Cover uploaded");
     return url;
   };
+  const doUploadCoverLandscape = async (): Promise<string | undefined> => {
+    if (!addCoverLandscape) return undefined;
+    const file = (document.getElementById("cover-landscape-file") as HTMLInputElement)?.files?.[0];
+    if (!file) return undefined;
+    setStage("cover_landscape");
+    await uploadCoverImage({ filmId, episodeNum, file, landscape: true });
+    const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover_landscape.jpg` : `/items/${filmId}/cover_image/cover_landscape.jpg`;
+    setCoverLandscapeDone(1);
+    toast.success("Cover landscape uploaded");
+    return url;
+  };
   const doUploadEpisodeCover = async () => {
     if (!addEpCover) return;
     const file = (document.getElementById("ep-cover-file") as HTMLInputElement)?.files?.[0];
@@ -599,6 +634,30 @@ export default function AdminContentIngestPage() {
     } catch (e) {
       console.error("Episode cover meta update failed", e);
       toast.error("Không cập nhật được episode cover meta (có thể do schema cũ)");
+    }
+  };
+  const doUploadEpisodeCoverLandscape = async () => {
+    if (!addEpCoverLandscape) return;
+    const file = (document.getElementById("ep-cover-landscape-file") as HTMLInputElement)?.files?.[0];
+    if (!file) return;
+    setStage("ep_cover_landscape");
+    const key = await uploadEpisodeCoverImage({ filmId, episodeNum, file, landscape: true });
+    setEpCoverLandscapeDone(1);
+    try {
+      // Try updating with both key + derived public URL (backend may only accept one depending on version)
+      const url = r2Base ? `${r2Base}/${key}` : `/${key}`;
+      await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, cover_landscape_key: key, cover_landscape_url: url });
+      toast.success("Episode cover landscape uploaded");
+    } catch (e) {
+      console.error("Episode cover landscape meta update failed", e);
+      // Fallback: try URL only if first attempt failed (older backend might not support *_key field yet)
+      try {
+        const urlOnly = r2Base ? `${r2Base}/${key}` : `/${key}`;
+        await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, cover_landscape_url: urlOnly });
+        toast.success("Episode cover landscape (URL) updated (fallback)");
+      } catch {
+        toast.error("Không cập nhật được episode cover landscape meta");
+      }
     }
   };
   const doUploadEpisodeFull = async () => {
@@ -656,9 +715,10 @@ export default function AdminContentIngestPage() {
       createdFilmRef.current = null;
       createdEpisodeNumRef.current = null;
       importSucceededRef.current = false;
-      setCoverDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
+      setCoverDone(0); setCoverLandscapeDone(0); setEpCoverDone(0); setEpCoverLandscapeDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
       // 1. Upload cover for content (if any)
       const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
+      await doUploadCoverLandscape().catch(() => undefined);
       // 2. Upload card media (images/audio) for cards (these do not depend on episode row)
       await Promise.all([
         doUploadMedia("image", imageFiles, uploadAbortRef.current!.signal),
@@ -714,6 +774,7 @@ export default function AdminContentIngestPage() {
       }
       // 4. Upload episode-level media (cover, full audio, full video) AFTER episode row exists
       await doUploadEpisodeCover().catch(() => {});
+      await doUploadEpisodeCoverLandscape().catch(() => {});
       if (cancelRequestedRef.current) throw new Error("User cancelled");
       await doUploadEpisodeFull().catch(() => {});
       if (cancelRequestedRef.current) throw new Error("User cancelled");
@@ -778,44 +839,71 @@ export default function AdminContentIngestPage() {
     } finally { setBusy(false); }
   };
 
-  const onCancelAll = async () => {
-    // Confirm manual cancel if import already succeeded
-    if (importSucceededRef.current && createdFilmRef.current) {
-      const confirmed = window.confirm("Import đã hoàn thành. Bạn có muốn ROLLBACK (xóa film/episode đã tạo) không?\n\nChọn OK = Rollback\nChọn Cancel = Chỉ dừng upload");
-      if (confirmed) {
-        toast.loading("Đang rollback...", { id: "rollback-manual" });
-        try {
-          // Delete film directly (cascades ALL episodes/cards/media)
-          // Skip apiDeleteEpisode to avoid "cannot delete first episode" error
-          const filmRes = await apiDeleteItem(createdFilmRef.current);
-          if ("error" in filmRes) {
-            toast.error("Rollback film thất bại: " + filmRes.error, { id: "rollback-manual" });
-          } else {
-            console.log("✅ Manual rollback: deleted film", filmRes.deleted, "episodes:", filmRes.episodes_deleted, "cards:", filmRes.cards_deleted, "media:", filmRes.media_deleted);
-            toast.success("Đã rollback thành công", { id: "rollback-manual" });
-          }
-          // Reset slug check
-          setSlugChecked(false);
-          setSlugAvailable(null);
-        } catch (err) {
-          console.error("Manual rollback error:", err);
-          toast.error("Rollback thất bại: " + (err as Error).message, { id: "rollback-manual" });
-        }
-      }
+  const requestStop = () => {
+    setConfirmStop(true);
+  };
+
+  const executeRollback = async () => {
+    if (!(importSucceededRef.current && createdFilmRef.current)) {
+      // Nothing created; just abort uploads
+      performSimpleCancel();
+      return;
     }
-    // Cancel ongoing uploads regardless
     cancelRequestedRef.current = true;
-    try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
-    setStage("idle");
-    // reset progress counters to pre-run state
-    setCoverDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+    try { uploadAbortRef.current?.abort(); } catch { /* ignore abort errors */ }
+    setDeletionPercent(5);
+    setDeletionProgress({ stage: 'Đang bắt đầu rollback...', details: 'Chuẩn bị xóa content & episode' });
+    let fastTimer: number | undefined;
+    let slowTimer: number | undefined;
+    try {
+      fastTimer = window.setInterval(() => {
+        setDeletionPercent(p => (p < 65 ? p + 5 : p));
+      }, 180);
+      // Perform deletion
+      const filmRes = await apiDeleteItem(createdFilmRef.current!);
+      if (fastTimer) window.clearInterval(fastTimer);
+      setDeletionProgress({ stage: 'Đang xóa media...', details: 'Xóa cards & files liên quan' });
+      slowTimer = window.setInterval(() => {
+        setDeletionPercent(p => (p < 90 ? p + 2 : p));
+      }, 600);
+      if ('error' in filmRes) {
+        setDeletionProgress({ stage: 'Rollback lỗi', details: filmRes.error });
+        toast.error('Rollback thất bại: ' + filmRes.error);
+      } else {
+        setDeletionPercent(100);
+        setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xóa ${filmRes.cards_deleted} cards, ${filmRes.media_deleted} media files` });
+        toast.success('Đã rollback thành công');
+      }
+      // Reset slug check state so user can retry
+      setSlugChecked(false); setSlugAvailable(null);
+    } catch (err) {
+      if (fastTimer) window.clearInterval(fastTimer);
+      if (slowTimer) window.clearInterval(slowTimer);
+      console.error('Rollback error:', err);
+      toast.error('Rollback lỗi: ' + (err as Error).message);
+    } finally {
+      if (fastTimer) window.clearInterval(fastTimer);
+      if (slowTimer) window.clearInterval(slowTimer);
+      // Final cleanup
+      performSimpleCancel(true); // keep confirmStop open until user closes manually
+    }
+  };
+
+  const performSimpleCancel = (keepModal?: boolean) => {
+    cancelRequestedRef.current = true;
+    try { uploadAbortRef.current?.abort(); } catch { /* ignore abort errors */ }
+    setStage('idle');
+    setCoverDone(0); setCoverLandscapeDone(0); setEpCoverDone(0); setEpCoverLandscapeDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
     setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
     setImagesDone(0); setAudioDone(0); setImagesTotal(0); setAudioTotal(0);
     setImportDone(false); setStatsDone(false);
     importSucceededRef.current = false;
-    createdFilmRef.current = null;
-    createdEpisodeNumRef.current = null;
+    createdFilmRef.current = null; createdEpisodeNumRef.current = null;
     setBusy(false);
+    if (!keepModal) {
+      setConfirmStop(false);
+      setDeletionProgress(null); setDeletionPercent(0);
+    }
   };
 
   return (
@@ -887,11 +975,17 @@ export default function AdminContentIngestPage() {
                 className="admin-input pr-9"
                 value={filmId}
                 onChange={e => {
+                  // Allow free typing, only convert spaces to underscores in real-time
+                  const raw = e.target.value;
+                  const withUnderscores = raw.replace(/ /g, '_');
+                  setFilmId(withUnderscores);
+                }}
+                onBlur={e => {
+                  // Normalize when user leaves the field
                   const raw = e.target.value;
                   const normalized = normalizeSlug(raw);
-                  setFilmId(normalized);
-                  // Show toast warning if normalization changed the input
                   if (raw !== normalized && raw.length > 0) {
+                    setFilmId(normalized);
                     toast(`Slug đã được chuẩn hóa: "${raw}" → "${normalized}"`, { icon: '✨', duration: 2000 });
                   }
                 }}
@@ -1017,16 +1111,32 @@ export default function AdminContentIngestPage() {
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <input id="chk-cover" type="checkbox" checked={addCover} onChange={e => setAddCover(e.target.checked)} />
-              <label htmlFor="chk-cover" className="cursor-pointer">Add Cover (jpg)</label>
+              <label htmlFor="chk-cover" className="cursor-pointer">Add Cover Portrait (jpg)</label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa chính (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover.jpg</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa dọc (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover.jpg</span>
               </span>
             </div>
             {addCover && (
               <>
                 <input id="cover-file" type="file" accept="image/jpeg" onChange={e => setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/cover_image/cover.jpg</div>
+                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/cover_image/cover.jpg</div>
+              </>
+            )}
+          </div>
+          <div className="admin-subpanel space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <input id="chk-cover-landscape" type="checkbox" checked={addCoverLandscape} onChange={e => setAddCoverLandscape(e.target.checked)} />
+              <label htmlFor="chk-cover-landscape" className="cursor-pointer">Add Cover Landscape (jpg)</label>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa ngang (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover_landscape.jpg</span>
+              </span>
+            </div>
+            {addCoverLandscape && (
+              <>
+                <input id="cover-landscape-file" type="file" accept="image/jpeg" onChange={e => setHasCoverLandscapeFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/cover_image/cover_landscape.jpg</div>
               </>
             )}
           </div>
@@ -1058,19 +1168,37 @@ export default function AdminContentIngestPage() {
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} />
-              <label htmlFor="chk-ep-cover" className="cursor-pointer">Add Cover (Episode)</label>
+              <label htmlFor="chk-ep-cover" className="cursor-pointer">Add Cover Portrait (Episode)</label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa dọc cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
               </span>
             </div>
             {addEpCover && (
               <>
                 <input id="ep-cover-file" type="file" accept="image/jpeg" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
+                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
               </>
             )}
           </div>
+          <div className="admin-subpanel space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-300">
+              <input id="chk-ep-cover-landscape" type="checkbox" checked={addEpCoverLandscape} onChange={e => setAddEpCoverLandscape(e.target.checked)} />
+              <label htmlFor="chk-ep-cover-landscape" className="cursor-pointer">Add Cover Landscape (Episode)</label>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa ngang cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover_landscape.jpg</span>
+              </span>
+            </div>
+            {addEpCoverLandscape && (
+              <>
+                <input id="ep-cover-landscape-file" type="file" accept="image/jpeg" onChange={e => setHasEpCoverLandscapeFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover_landscape.jpg</div>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <input id="chk-ep-audio" type="checkbox" checked={addEpAudio} onChange={e => setAddEpAudio(e.target.checked)} />
@@ -1098,7 +1226,7 @@ export default function AdminContentIngestPage() {
                   }}
                   className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full"
                 />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/audio.{epFullAudioExt}</div>
+                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/audio.{epFullAudioExt}</div>
               </>
             )}
           </div>
@@ -1114,7 +1242,7 @@ export default function AdminContentIngestPage() {
             {addEpVideo && (
               <>
                 <input id="ep-full-video" type="file" accept="video/mp4" onChange={e => setHasEpVideoFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
+                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
               </>
             )}
           </div>
@@ -1143,15 +1271,6 @@ export default function AdminContentIngestPage() {
           }}>Download template</button>
         </div>
         {csvFileName && <div className="text-xs text-gray-500">{csvFileName}</div>}
-        {csvValid !== null && (
-          <div className={`flex items-start gap-2 text-sm ${csvValid ? "text-green-400" : "text-red-400"}`}>
-            {csvValid ? <CheckCircle className="w-4 h-4 mt-0.5" /> : <XCircle className="w-4 h-4 mt-0.5" />}
-            <div>{csvValid ? <span>CSV hợp lệ.</span> : <div className="space-y-1"><div>CSV cần chỉnh sửa:</div><ul className="list-disc pl-5 text-xs">{csvErrors.map((er,i)=><li key={i}>{er}</li>)}</ul></div>}</div>
-          </div>
-        )}
-        {csvWarnings.length > 0 && csvValid && (
-          <div className="flex items-start gap-2 text-xs text-yellow-400"><AlertTriangle className="w-4 h-4 mt-0.5" /><ul className="list-disc pl-5">{csvWarnings.map((w,i)=><li key={i}>{w}</li>)}</ul></div>
-        )}
         {csvHeaders.length > 0 && mainLangHeaderOptions.length > 1 && (
           <div className="flex items-center gap-2 text-sm">
             <label className="text-gray-300">Main Language column ({langLabel(mainLanguage)}):</label>
@@ -1167,68 +1286,17 @@ export default function AdminContentIngestPage() {
             <span className="text-xs text-gray-500">Prefers non-CC by default</span>
           </div>
         )}
-        {csvHeaders.length > 0 && (
-          <div className="overflow-auto border border-gray-700 rounded max-h-[480px]">
-            <table className="w-full text-[12px] border-collapse">
-              <thead className="sticky top-0 bg-[#1a0f24] z-10">
-                <tr>
-                  <th className="border border-gray-700 px-2 py-1 text-left">#</th>
-                  {csvHeaders.map((h, i) => {
-                    const isRequired = requiredOriginals.includes(h);
-                    const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
-                    const isMainLang = selectedMainHeader === h;
-                    return (
-                      <th
-                        key={i}
-                        className={`border border-gray-700 px-2 py-1 text-left ${isRequired || isMainLang ? 'bg-pink-900/30 font-semibold' : ''}`}
-                        title={isRequired ? 'Required' : isMainLang ? 'Main Language' : ''}
-                      >
-                        {h}
-                        {isRequired && <span className="text-red-400 ml-1">*</span>}
-                        {isMainLang && <span className="text-amber-400 ml-1">★</span>}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {csvRows.map((row, i) => (
-                  <tr key={i} className="hover:bg-pink-900/10">
-                    <td className="border border-gray-700 px-2 py-1 text-gray-500">{i + 1}</td>
-                    {csvHeaders.map((h, j) => {
-                      const val = row[h] || '';
-                      const isRequired = requiredOriginals.includes(h);
-                      const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
-                      const isMainLang = selectedMainHeader === h;
-                      const isEmpty = !val.trim();
-                      // Round start/end columns to integers for display (DB stores as INTEGER)
-                      const hLower = h.toLowerCase();
-                      const isTimeColumn = ['start', 'end', 'start_time', 'end_time', 'starttime', 'endtime'].includes(hLower);
-                      const displayVal = isTimeColumn && val && !isNaN(Number(val)) ? Math.round(Number(val)).toString() : val;
-                      return (
-                        <td
-                          key={j}
-                          className={`border border-gray-700 px-2 py-1 ${isEmpty && (isRequired || isMainLang) ? 'bg-red-900/20 text-red-300' : 'text-gray-300'}`}
-                        >
-                          {displayVal}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="text-[10px] text-gray-500 px-2 py-1">
-              <span className="text-red-400">*</span> = Required column |{' '}
-              <span className="text-amber-400">★</span> = Main Language column
-              {ignoredHeaders.length > 0 && (
-                <>
-                  {' '}| <span className="text-yellow-400">⚠</span> Ignored columns: {ignoredHeaders.join(', ')}
-                </>
-              )}
-            </div>
-          </div>
-        )}
+        <CsvPreviewPanel
+          csvHeaders={csvHeaders}
+          csvRows={csvRows}
+          csvValid={csvValid}
+          csvErrors={csvErrors}
+          unrecognizedHeaders={unrecognizedHeaders}
+          reservedHeaders={reservedHeaders}
+          requiredOriginals={requiredOriginals}
+          mainLangHeader={mainLangHeader}
+          mainLangHeaderOverride={mainLangHeaderOverride}
+        />
       </div>
 
       {/* Card Media */}
@@ -1277,7 +1345,7 @@ export default function AdminContentIngestPage() {
           {!user && <button className="admin-btn" onClick={signInGoogle}>Sign in with Google</button>}
           <button className="admin-btn primary" disabled={busy || !canCreate} onClick={onCreateAll} title={!isAdmin ? "Requires allowed admin email + key" : undefined}>{busy ? "Processing..." : "Create Content"}</button>
           {busy && stage !== 'done' && (
-            <button type="button" className="admin-btn danger" onClick={onCancelAll} title="Cancel current upload/import">Stop</button>
+            <button type="button" className="admin-btn danger" onClick={requestStop} title="Cancel current upload/import">Stop</button>
           )}
           <div className="text-xs text-gray-400">Stage: {stage}</div>
         </div>
@@ -1286,26 +1354,32 @@ export default function AdminContentIngestPage() {
             {/* Progress items in actual execution order */}
             {/* 1. Cover (optional) */}
             {addCover && hasCoverFile && (
-              <ProgressItem label="1. Cover" done={coverDone > 0} pending={stage === "cover" || (busy && coverDone === 0)} />
+              <ProgressItem label="1. Cover Portrait" done={coverDone > 0} pending={stage === "cover" || (busy && coverDone === 0)} />
+            )}
+            {addCoverLandscape && hasCoverLandscapeFile && (
+              <ProgressItem label="2. Cover Landscape" done={coverLandscapeDone > 0} pending={stage === "cover_landscape" || (busy && coverLandscapeDone === 0)} />
             )}
             {/* 2. Card Media (images + audio in parallel) */}
-            <div className="flex justify-between"><span>2. Images</span><span>{imagesDone}/{imagesTotal}</span></div>
-            <div className="flex justify-between"><span>3. Audio</span><span>{audioDone}/{audioTotal}</span></div>
+            <div className="flex justify-between"><span>3. Images</span><span>{imagesDone}/{imagesTotal}</span></div>
+            <div className="flex justify-between"><span>4. Audio</span><span>{audioDone}/{audioTotal}</span></div>
             {/* 3. Import CSV */}
             <div className="flex justify-between">
-              <span>4. Import CSV</span>
+              <span>5. Import CSV</span>
               <span>{importDone ? "✓" : stage === "import" ? "..." : (imagesDone === imageFiles.length && audioDone === audioFiles.length ? "waiting" : "pending")}</span>
             </div>
             {/* 4. Episode-level optional media (after import) */}
             {addEpCover && hasEpCoverFile && (
-              <ProgressItem label="5. Episode Cover" done={epCoverDone > 0} pending={stage === "ep_cover" || (importDone && epCoverDone === 0)} />
+              <ProgressItem label="6. Episode Cover Portrait" done={epCoverDone > 0} pending={stage === "ep_cover" || (importDone && epCoverDone === 0)} />
+            )}
+            {addEpCoverLandscape && hasEpCoverLandscapeFile && (
+              <ProgressItem label="7. Episode Cover Landscape" done={epCoverLandscapeDone > 0} pending={stage === "ep_cover_landscape" || (importDone && epCoverLandscapeDone === 0)} />
             )}
             {addEpAudio && hasEpAudioFile && (
-              <ProgressItem label="6. Episode Full Audio" done={epFullAudioDone > 0} pending={stage === "ep_full_audio" || (importDone && epFullAudioDone === 0)} />
+              <ProgressItem label="8. Episode Full Audio" done={epFullAudioDone > 0} pending={stage === "ep_full_audio" || (importDone && epFullAudioDone === 0)} />
             )}
             {addEpVideo && hasEpVideoFile && (
               <div className="flex justify-between">
-                <span>7. Episode Full Video</span>
+                <span>9. Episode Full Video</span>
                 <span>
                   {epFullVideoDone > 0
                     ? "✓"
@@ -1317,7 +1391,7 @@ export default function AdminContentIngestPage() {
             )}
             {/* 5. Calculate Stats (final step) */}
             <div className="flex justify-between">
-              <span>8. Calculating Stats</span>
+              <span>10. Calculating Stats</span>
               <span>{statsDone ? "✓" : stage === "calculating_stats" ? "..." : (importDone ? "waiting" : "pending")}</span>
             </div>
             {/* Progress bar */}
@@ -1372,6 +1446,49 @@ export default function AdminContentIngestPage() {
           </div>
         )}
       </div>
+      {confirmStop && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deletionProgress && setConfirmStop(false)}>
+        <div className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" onClick={e => e.stopPropagation()}>
+          <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận dừng quá trình</h3>
+          <p className="text-[#f5d0fe] mb-2">Bạn có muốn dừng quá trình tạo nội dung?</p>
+          <p className="text-sm text-[#e9d5ff] mb-4">Stage hiện tại: <span className="text-[#f9a8d4] font-semibold">{stage}</span></p>
+          {(importSucceededRef.current && createdFilmRef.current) && (
+            <p className="text-sm text-[#fbbf24] mb-4">⚠️ Import đã hoàn thành. Nếu Rollback, toàn bộ Content + Episode + Media đã upload sẽ bị xóa!</p>
+          )}
+          <p className="text-sm text-[#e9d5ff] mb-6">
+            {(importSucceededRef.current && createdFilmRef.current)
+              ? 'Chọn "Chỉ dừng upload" để giữ lại nội dung đã tạo, hoặc "Rollback" để xóa hoàn toàn.'
+              : 'Chọn "Dừng" để hủy tiến trình upload ngay lập tức.'}
+          </p>
+          {deletionProgress && (
+            <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
+              <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
+              <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
+              <ProgressBar percent={deletionPercent} />
+            </div>
+          )}
+          <div className="flex gap-3 justify-end">
+            <button
+              className="admin-btn secondary"
+              onClick={() => { if (!deletionProgress) { performSimpleCancel(); } }}
+              disabled={!!deletionProgress}
+            >
+              {(importSucceededRef.current && createdFilmRef.current) ? 'Chỉ dừng upload' : 'Hủy'}
+            </button>
+            {(importSucceededRef.current && createdFilmRef.current) && (
+              <button className="admin-btn danger" disabled={!!deletionProgress} onClick={executeRollback}>
+                {deletionProgress ? 'Đang rollback...' : 'Rollback'}
+              </button>
+            )}
+            {!(importSucceededRef.current && createdFilmRef.current) && (
+              <button className="admin-btn primary" onClick={() => performSimpleCancel()}>
+                Dừng
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      )}
     </div>
   );
 }

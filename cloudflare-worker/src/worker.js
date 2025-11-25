@@ -286,10 +286,10 @@ export default {
         const filmSlug = decodeURIComponent(filmMatch[1]);
         try {
           // Case-insensitive slug matching for stability
-          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,total_episodes,is_original,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
+          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
           if (!film) {
             // Fallback: allow direct UUID id lookup in case caller still uses internal id
-            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,total_episodes,is_original,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE id=?').bind(filmSlug).first();
+            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE id=?').bind(filmSlug).first();
           }
           if (!film) return new Response('Not found', { status: 404, headers: withCors() });
           // Languages and episodes are optional; if the table is missing, default gracefully
@@ -303,6 +303,7 @@ export default {
             episodes = epCountRow ? epCountRow.cnt : 0;
           } catch {}
           let cover_url = null;
+          let cover_landscape_url = null;
           // Prefer explicit cover_key when present
           if (film.cover_key) {
             const base = env.R2_PUBLIC_BASE || '';
@@ -341,11 +342,16 @@ export default {
               // Ignore probe errors; leave null if not resolvable
             }
           }
+          // Build cover_landscape_url from cover_landscape_key if present
+          if (film.cover_landscape_key) {
+            const base = env.R2_PUBLIC_BASE || '';
+            cover_landscape_url = base ? `${base}/${film.cover_landscape_key}` : `/${film.cover_landscape_key}`;
+          }
           const episodesMetaRaw = (film.total_episodes != null ? Number(film.total_episodes) : null);
           const episodesMeta = (Number.isFinite(episodesMetaRaw) && episodesMetaRaw > 0) ? episodesMetaRaw : null;
           const episodesOut = episodesMeta !== null ? episodesMeta : episodes;
           const isOriginal = (film.is_original == null) ? 1 : film.is_original; // default true when absent
-          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: film.level_framework_stats ?? null });
+          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: film.level_framework_stats ?? null });
         } catch (e) {
           return new Response('Not found', { status: 404, headers: withCors() });
         }
@@ -409,6 +415,17 @@ export default {
             setClauses.push('cover_key=?'); values.push(coverKey);
           }
 
+          if (has('cover_landscape_key') || has('cover_landscape_url')) {
+            let coverLandscapeKey = null;
+            if (body.cover_landscape_key === null || body.cover_landscape_url === null) {
+              coverLandscapeKey = null;
+            } else {
+              const raw = body.cover_landscape_key || body.cover_landscape_url;
+              if (raw) coverLandscapeKey = String(raw).replace(/^https?:\/\/[^/]+\//, '');
+            }
+            setClauses.push('cover_landscape_key=?'); values.push(coverLandscapeKey);
+          }
+
 
           if (has('total_episodes')) {
             let totalEpisodes = null;
@@ -470,7 +487,7 @@ export default {
       if (filmMatch && request.method === 'DELETE') {
         const filmSlug = decodeURIComponent(filmMatch[1]);
         try {
-          const filmRow = await env.DB.prepare('SELECT id, slug, cover_key FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
+          const filmRow = await env.DB.prepare('SELECT id, slug, cover_key, cover_landscape_key FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
           if (!filmRow) return json({ error: 'Not found' }, { status: 404 });
 
           // Gather related media keys BEFORE deleting DB rows so we can construct expected paths.
@@ -479,13 +496,15 @@ export default {
           const normalizeKey = (k) => (k ? String(k).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '') : null);
 
           if (filmRow.cover_key) mediaKeys.add(normalizeKey(filmRow.cover_key));
+          if (filmRow.cover_landscape_key) mediaKeys.add(normalizeKey(filmRow.cover_landscape_key));
           // Standard film-level conventional paths (may or may not exist)
           mediaKeys.add(`items/${filmRow.slug}/cover_image/cover.jpg`);
+          mediaKeys.add(`items/${filmRow.slug}/cover_image/cover_landscape.jpg`);
           mediaKeys.add(`items/${filmRow.slug}/full/audio.mp3`);
           mediaKeys.add(`items/${filmRow.slug}/full/video.mp4`);
 
           // Episodes + cards keys
-          const episodeRows = await env.DB.prepare('SELECT id, episode_number, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=?').bind(filmRow.id).all().catch(() => ({ results: [] }));
+          const episodeRows = await env.DB.prepare('SELECT id, episode_number, cover_key, cover_landscape_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=?').bind(filmRow.id).all().catch(() => ({ results: [] }));
           const episodesResults = episodeRows.results || [];
           const episodeIds = episodesResults.map(r => r.id);
           let cardsResults = [];
@@ -499,14 +518,17 @@ export default {
             const epFolderLegacy = `${filmRow.slug}_${epNum}`;
             const epFolderPadded = `${filmRow.slug}_${String(epNum).padStart(3,'0')}`;
             if (ep.cover_key) mediaKeys.add(normalizeKey(ep.cover_key));
+            if (ep.cover_landscape_key) mediaKeys.add(normalizeKey(ep.cover_landscape_key));
             if (ep.full_audio_key) mediaKeys.add(normalizeKey(ep.full_audio_key));
             if (ep.full_video_key) mediaKeys.add(normalizeKey(ep.full_video_key));
             // Conventional episode-level paths
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover.jpg`);
+            mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover_landscape.jpg`);
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/audio.mp3`);
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/video.mp4`);
             // New padded variants
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/cover/cover.jpg`);
+            mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/cover/cover_landscape.jpg`);
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/audio.mp3`);
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/video.mp4`);
           }
@@ -796,11 +818,11 @@ export default {
           }
           let episode;
           try {
-            episode = await env.DB.prepare('SELECT id, title, slug, cover_key, full_audio_key, full_video_key, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+            episode = await env.DB.prepare('SELECT id, title, slug, cover_key, cover_landscape_key, full_audio_key, full_video_key, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
           } catch (e) {
             // Fallback older schema
             try {
-              episode = await env.DB.prepare('SELECT id, title, slug, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
+              episode = await env.DB.prepare('SELECT id, title, slug, cover_key, cover_landscape_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
             } catch {}
           }
           if (!episode) return json({ error: 'Not found' }, { status: 404 });
@@ -813,6 +835,7 @@ export default {
               title: episode.title || null,
               slug: episode.slug || `${filmSlug}_${epNum}`,
               cover_url: episode.cover_key ? (base ? `${base}/${episode.cover_key}` : `/${episode.cover_key}`) : null,
+              cover_landscape_url: episode.cover_landscape_key ? (base ? `${base}/${episode.cover_landscape_key}` : `/${episode.cover_landscape_key}`) : null,
               full_audio_url: episode.full_audio_key ? (base ? `${base}/${episode.full_audio_key}` : `/${episode.full_audio_key}`) : null,
               full_video_url: episode.full_video_key ? (base ? `${base}/${episode.full_video_key}` : `/${episode.full_video_key}`) : null,
               display_id: `e${padded}`,
@@ -835,6 +858,12 @@ export default {
             const coverKey = String(coverKeyRaw).replace(/^https?:\/\/[^/]+\//, '');
             setClauses.push('cover_key=?');
             values.push(coverKey);
+          }
+          const coverLandscapeKeyRaw = body.cover_landscape_key || body.cover_landscape_url;
+          if (typeof coverLandscapeKeyRaw === 'string' && coverLandscapeKeyRaw.trim() !== '') {
+            const coverLandscapeKey = String(coverLandscapeKeyRaw).replace(/^https?:\/\/[^/]+\//, '');
+            setClauses.push('cover_landscape_key=?');
+            values.push(coverLandscapeKey);
           }
           const fullAudioKeyRaw = body.full_audio_key || body.full_audio_url;
           if (typeof fullAudioKeyRaw === 'string' && fullAudioKeyRaw.trim() !== '') {

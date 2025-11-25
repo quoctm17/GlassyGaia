@@ -108,12 +108,15 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     italian: "it", it: "it",
     malayalam: "ml", ml: "ml",
     norwegian: "no", no: "no",
+    "norwegian bokmal": "nb", "norwegian bokmål": "nb", nb: "nb", bokmal: "nb", bokmål: "nb",
     polish: "pl", pl: "pl",
+    pt: "pt", portuguese_base: "pt",
     "portuguese (brazil)": "pt_br", pt_br: "pt_br",
     "portuguese (portugal)": "pt_pt", pt_pt: "pt_pt", portuguese: "pt_pt",
     "portugese (brazil)": "pt_br", "portugese (portugal)": "pt_pt", portugese: "pt_pt",
     romanian: "ro", ro: "ro",
     russian: "ru", ru: "ru",
+    es: "es", spanish_base: "es",
     "spanish (latin america)": "es_la", es_la: "es_la",
     "spanish (spain)": "es_es", es_es: "es_es", spanish: "es_es",
     swedish: "sv", sv: "sv",
@@ -156,7 +159,7 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     
     const canon = (langAliases[key] as string) || canonicalizeLangCode(key) || "";
     if (canon && [
-      "ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi"
+      "ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","ta","te","th","tr","uk","vi"
     ].includes(canon)) {
       subtitles[canon] = h; detected.push(canon);
     }

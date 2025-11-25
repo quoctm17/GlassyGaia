@@ -190,8 +190,17 @@ export async function searchCardsGlobalClient(
     try {
       const main = selectedMainLang ? (canonicalizeLangCode(selectedMainLang) || selectedMainLang.toLowerCase()) : null;
       const rows = await apiSearchCardsFTS({ q, limit: max, mainLanguage: main });
-      // Optional client-side narrowing by film filter if provided
-      return filmFilter ? rows.filter(r => r.film_id === filmFilter) : rows;
+      const filteredServer = filmFilter ? rows.filter(r => r.film_id === filmFilter) : rows;
+      // If server FTS returns results, use them directly.
+      if (filteredServer.length > 0) return filteredServer;
+      // Fallback condition: zero results for short or single-token query -> attempt client substring match (prefix behavior)
+      const tokenCount = q.split(/\s+/).filter(Boolean).length;
+      const isShort = q.length < 4 || tokenCount === 1;
+      if (!isShort) {
+        // For multi-token longer queries, keep empty result (more precise intent)
+        return filteredServer; // empty
+      }
+      // Proceed to client-side fallback below
     } catch {
       // fall through to client filtering
     }
@@ -212,9 +221,10 @@ export async function searchCardsGlobalClient(
   return pool2.filter((c) => {
     const lang = filmLanguageMap?.[String(c.film_id ?? "")] ?? "";
     const canonical = canonicalizeLangCode(lang) || lang.toLowerCase();
-    const text = canonical ? (subtitleText(c, canonical) ?? "") : "";
-    if (text) return text.toLowerCase().includes(qLower);
-    // If a main language filter is active, do NOT fall back to other subtitle languages.
+    // Prefer main-language subtitle; fallback to sentence when absent.
+    const primaryText = canonical ? (subtitleText(c, canonical) || c.sentence || "") : (c.sentence || "");
+    if (primaryText) return primaryText.toLowerCase().includes(qLower);
+    // If a main language filter is active, do NOT fall back to other subtitle languages beyond sentence.
     if (selectedMainLang) return false;
     return Object.values(c.subtitle ?? {}).some((t) => (t ?? "").toLowerCase().includes(qLower));
   });
