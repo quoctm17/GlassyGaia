@@ -85,6 +85,14 @@ export default function AdminContentDetailPage() {
   }
   const levelStats = useMemo(() => parseLevelStats(item?.level_framework_stats as unknown), [item?.level_framework_stats]);
 
+  // Calculate total languages: main_language + available_subs (deduplicated)
+  const totalLanguages = useMemo(() => {
+    const langs = new Set<string>();
+    if (item?.main_language) langs.add(item.main_language);
+    languages.forEach(lang => langs.add(lang));
+    return langs.size;
+  }, [item?.main_language, languages]);
+
   const pageSize = 10;
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -178,6 +186,10 @@ export default function AdminContentDetailPage() {
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Total Episodes:</label>
                 <span className="text-gray-200">{Number(item.total_episodes) > 0 ? item.total_episodes : '-'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Total Languages:</label>
+                <span className="text-gray-200">{totalLanguages}</span>
               </div>
             </div>
             <div>
