@@ -31,6 +31,7 @@ export interface FilmDoc {
   title?: string;
   description?: string;
   cover_url?: string; // derived from cover_key (R2 URL) if present
+  cover_landscape_url?: string; // derived from cover_landscape_key (R2 URL) if present
   episodes?: number; // total episodes count
   total_episodes?: number; // business-intended total episodes (may exceed uploaded)
   main_language?: string; // new normalized schema primary language
@@ -80,7 +81,6 @@ export interface EpisodeDetailDoc {
   slug: string;
   title: string | null;
   cover_url: string | null;
-  cover_landscape_url?: string | null;
   full_audio_url: string | null;
   full_video_url: string | null;
   num_cards?: number | null;

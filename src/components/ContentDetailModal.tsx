@@ -16,7 +16,28 @@ export default function ContentDetailModal({ film, open, onClose }: Props) {
   const asContentType = (rawType && ['movie','series','book','audio'].includes(rawType)) ? (rawType as ContentType) : undefined;
   const typeLabel = (asContentType && CONTENT_TYPE_LABELS[asContentType]) || rawType || 'Content';
   const TypeIcon = film.type === 'movie' ? Film : film.type === 'series' ? Clapperboard : film.type === 'book' ? BookIcon : film.type === 'audio' ? AudioLines : null;
-  const cover = film.cover_url || '';
+  
+  // Use landscape cover if available, fallback to portrait cover
+  const R2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
+  
+  // Landscape cover with proper URL construction (same logic as AdminContentDetailPage)
+  let coverLandscape = film.cover_landscape_url || '';
+  if (coverLandscape.startsWith('/') && R2Base) coverLandscape = R2Base + coverLandscape;
+  if (!coverLandscape && film.id) {
+    const path = `/items/${film.id}/cover_image/cover_landscape.jpg`;
+    coverLandscape = R2Base ? R2Base + path : path;
+  }
+  
+  // Portrait cover fallback
+  let coverPortrait = film.cover_url || '';
+  if (coverPortrait.startsWith('/') && R2Base) coverPortrait = R2Base + coverPortrait;
+  if (!coverPortrait && film.id) {
+    const path = `/items/${film.id}/cover_image/cover.jpg`;
+    coverPortrait = R2Base ? R2Base + path : path;
+  }
+  
+  const cover = coverLandscape || coverPortrait;
+  
   return (
     <div 
       className={`fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-500 ${

@@ -27,6 +27,7 @@ export default function AdminContentUpdatePage() {
 	const [title, setTitle] = useState('');
 	const [description, setDescription] = useState('');
 	const [coverUrl, setCoverUrl] = useState('');
+	const [coverLandscapeUrl, setCoverLandscapeUrl] = useState('');
 	// New optional fields (tri-state): undefined = unchanged, string/number = set, null = clear
 	const [contentType, setContentType] = useState<string | null | undefined>(undefined);
 	const [releaseYear, setReleaseYear] = useState<number | null | undefined>(undefined);
@@ -38,8 +39,9 @@ export default function AdminContentUpdatePage() {
 	const yearRef = useRef<HTMLDivElement | null>(null);
 
 	const [busy, setBusy] = useState(false);
-	const [stage, setStage] = useState<'idle' | 'uploading-cover' | 'updating-meta' | 'done'>('idle');
+	const [stage, setStage] = useState<'idle' | 'uploading-cover' | 'uploading-cover-landscape' | 'updating-meta' | 'done'>('idle');
 	const [coverUploaded, setCoverUploaded] = useState(false);
+	const [coverLandscapeUploaded, setCoverLandscapeUploaded] = useState(false);
 
 	const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
 
@@ -62,6 +64,18 @@ export default function AdminContentUpdatePage() {
 		toast.success('Cover uploaded');
 	}
 
+	async function handleUploadCoverLandscapeIfAny() {
+		const input = document.getElementById('update-cover-landscape-file') as HTMLInputElement | null;
+		const file = input?.files?.[0];
+		if (!file) return; // optional
+		setStage('uploading-cover-landscape');
+		await uploadCoverImage({ filmId: contentSlug, episodeNum: 1, file, landscape: true });
+		const url = r2Base ? `${r2Base}/items/${contentSlug}/cover_image/cover_landscape.jpg` : `/items/${contentSlug}/cover_image/cover_landscape.jpg`;
+		setCoverLandscapeUrl(url);
+		setCoverLandscapeUploaded(true);
+		toast.success('Cover landscape uploaded');
+	}
+
 	async function onUpdateMeta() {
 		if (!user) { toast.error('Sign in required'); return; }
 		if (!isAdmin) { toast.error('Admin access required'); return; }
@@ -70,13 +84,16 @@ export default function AdminContentUpdatePage() {
 			setBusy(true);
 			setStage('idle');
 			setCoverUploaded(false);
+			setCoverLandscapeUploaded(false);
 			await handleUploadCoverIfAny();
+			await handleUploadCoverLandscapeIfAny();
 			setStage('updating-meta');
 			const payload: {
 				filmSlug: string;
 				title?: string | null;
 				description?: string | null;
 				cover_url?: string | null;
+				cover_landscape_url?: string | null;
 				type?: string | null;
 				release_year?: number | null;
 			} = {
@@ -84,6 +101,7 @@ export default function AdminContentUpdatePage() {
 				title: title || undefined,
 				description: description || undefined,
 				cover_url: coverUrl || undefined,
+				cover_landscape_url: coverLandscapeUrl || undefined,
 			};
 			if (contentType !== undefined) payload.type = contentType;
 			if (releaseYear !== undefined) payload.release_year = releaseYear;
@@ -112,7 +130,7 @@ export default function AdminContentUpdatePage() {
 		<div className="p-6 max-w-5xl mx-auto space-y-4">
 			<div className="admin-section-header">
 				<h2 className="admin-title">Update Content Metadata</h2>
-				<button className="admin-btn secondary" onClick={() => window.location.href = '/admin/content'}>← Back</button>
+				<button className="admin-btn secondary" onClick={() => window.location.href = `/admin/content/${contentSlug}`}>← Back</button>
 			</div>
 
 			{!user && (
@@ -137,8 +155,9 @@ export default function AdminContentUpdatePage() {
 				<div className="admin-panel space-y-4">
 					<div className="text-sm font-semibold">Hướng dẫn</div>
 					<div className="text-xs space-y-2 text-gray-300">
-						<p>Có thể sửa các trường metadata: <code>Title</code>, <code>Description</code>, <code>Cover</code>, <code>Type</code> (tùy chọn), <code>Release Year</code> (tùy chọn). Không đổi slug để tránh mất liên kết tới media/cards.</p>
-						<p>Ảnh bìa mới sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover.jpg</code>.</p>
+						<p>Có thể sửa các trường metadata: <code>Title</code>, <code>Description</code>, <code>Cover (Portrait)</code>, <code>Cover Landscape</code>, <code>Type</code> (tùy chọn), <code>Release Year</code> (tùy chọn). Không đổi slug để tránh mất liên kết tới media/cards.</p>
+						<p>Ảnh bìa portrait sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover.jpg</code>.</p>
+						<p>Ảnh bìa landscape sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover_landscape.jpg</code>.</p>
 						<p>Nếu để trống Title/Description sẽ giữ nguyên giá trị cũ. Với Type/Release Year: không chọn = giữ nguyên; chọn Clear = xóa khỏi metadata.</p>
 					</div>
 
@@ -232,8 +251,13 @@ export default function AdminContentUpdatePage() {
 						</div>
 
 						<div className="flex items-center gap-2">
-							<label className="w-40 text-sm">Cover (jpg)</label>
+							<label className="w-40 text-sm">Cover Portrait (jpg)</label>
 							<input id="update-cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+						</div>
+
+						<div className="flex items-center gap-2">
+							<label className="w-40 text-sm">Cover Landscape (jpg)</label>
+							<input id="update-cover-landscape-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
 						</div>
 
 						<div className="flex items-start gap-2 md:col-span-2">
@@ -259,8 +283,11 @@ export default function AdminContentUpdatePage() {
 						</button>
 						<div className="text-xs text-gray-400">Stage: {stage}</div>
 					</div>
-					{(stage === 'done') && coverUploaded && (
-						<div className="text-xs text-green-400">Cover updated. URL: {coverUrl}</div>
+					{(stage === 'done') && (
+						<div className="text-xs space-y-1">
+							{coverUploaded && <div className="text-green-400">Cover portrait updated. URL: {coverUrl}</div>}
+							{coverLandscapeUploaded && <div className="text-green-400">Cover landscape updated. URL: {coverLandscapeUrl}</div>}
+						</div>
 					)}
 				</div>
 			)}

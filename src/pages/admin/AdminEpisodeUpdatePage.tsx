@@ -24,11 +24,9 @@ export default function AdminEpisodeUpdatePage() {
 
   // File upload states
   const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverLandscapeFile, setCoverLandscapeFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
-  const [uploadingCoverLandscape, setUploadingCoverLandscape] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
@@ -45,7 +43,6 @@ export default function AdminEpisodeUpdatePage() {
   const [imagesDone, setImagesDone] = useState(0);
   const [audioDone, setAudioDone] = useState(0);
   const [epCoverDone, setEpCoverDone] = useState(0);
-  const [epCoverLandscapeDone, setEpCoverLandscapeDone] = useState(0);
   const [epFullAudioDone, setEpFullAudioDone] = useState(0);
   const [epFullVideoDone, setEpFullVideoDone] = useState(0);
   const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
@@ -97,6 +94,8 @@ export default function AdminEpisodeUpdatePage() {
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
   const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string>('');
+  // Reserved column confirmation state (for ambiguous columns like 'id' which could be Indonesian)
+  const [confirmedAsLanguage, setConfirmedAsLanguage] = useState<Set<string>>(new Set());
   const csvRef = useRef<HTMLInputElement | null>(null);
   const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const, []);
 
@@ -143,8 +142,8 @@ export default function AdminEpisodeUpdatePage() {
   const mainLangHeader = useMemo(()=>findHeaderForLang(csvHeaders, filmMainLang), [csvHeaders, filmMainLang]);
   
   // Derive lists for unrecognized and reserved columns (EXACT COPY from AdminContentIngestPage)
-  const { unrecognizedHeaders, reservedHeaders } = useMemo(() => {
-    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[] };
+  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders } = useMemo(() => {
+    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[] };
     
     // Same reserved columns as validateCsv in AdminContentIngestPage
     const RESERVED_COLUMNS = new Set([
@@ -191,6 +190,7 @@ export default function AdminEpisodeUpdatePage() {
     };
     const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
     const recognizedSubtitleHeaders = new Set<string>();
+    const AMBIGUOUS_COLS = new Set(["id", "in"]); // These could be Indonesian language codes OR reserved columns
     
     // Same generalized language detection as in AdminContentIngestPage
     const extractBaseLang = (rawHeader: string): { base: string; variation?: string } => {
@@ -209,8 +209,14 @@ export default function AdminEpisodeUpdatePage() {
     csvHeaders.forEach(h => {
       const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
       
-      // Skip reserved columns BEFORE language detection (same as validateCsv)
-      if (RESERVED_COLUMNS.has(key)) return;
+      // If user confirmed this column is a language, treat it as language
+      if (confirmedAsLanguage.has(h)) {
+        recognizedSubtitleHeaders.add(h);
+        return;
+      }
+      
+      // Skip reserved columns BEFORE language detection (but not ambiguous ones - let user decide)
+      if (RESERVED_COLUMNS.has(key) && !AMBIGUOUS_COLS.has(key)) return;
       
       const alias = langAliases[key];
       if (alias) {
@@ -236,12 +242,23 @@ export default function AdminEpisodeUpdatePage() {
     };
     const unrecognized: string[] = [];
     const reserved: string[] = [];
+    const ambiguous: string[] = [];
     // Reserved columns that appear in CSV should be shown separately (ID/number cols that we actively ignore)
     const displayableReserved = new Set(["id", "card_id", "cardid", "card id", "no", "number", "card_number", "cardnumber", "card number"]);
     for (const h of csvHeaders) {
       const raw = (h || '').trim(); if (!raw) continue;
       const low = raw.toLowerCase();
       if (knownSingles.has(low)) continue;
+      
+      // If user confirmed this column is a language, don't treat as reserved
+      if (confirmedAsLanguage.has(raw)) continue;
+      
+      // Check if it's an ambiguous column that needs user confirmation
+      if (AMBIGUOUS_COLS.has(low) && displayableReserved.has(low)) {
+        ambiguous.push(raw);
+        continue;
+      }
+      
       // Check if it's a displayable reserved column (actively ignored)
       if (displayableReserved.has(low)) {
         reserved.push(raw);
@@ -254,8 +271,8 @@ export default function AdminEpisodeUpdatePage() {
       if (low === 'sentence') continue; // already an error above
       unrecognized.push(raw);
     }
-    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved };
-  }, [csvHeaders]);
+    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous };
+  }, [csvHeaders, confirmedAsLanguage]);
   
   const lowerHeaderMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -279,6 +296,8 @@ export default function AdminEpisodeUpdatePage() {
 
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if(!f) return; const text = await f.text(); setCsvText(text); setCsvFileName(f.name);
+    // Reset confirmed language columns when new file is loaded
+    setConfirmedAsLanguage(new Set());
     try { const parsed = Papa.parse<Record<string,string>>(text,{header:true,skipEmptyLines:'greedy'}); const headers=(parsed.meta.fields||[]).map(h=>(h||'').trim()); const rows=(parsed.data||[]) as Record<string,string>[]; setCsvHeaders(headers); setCsvRows(rows); if(!rows.length){ setCsvErrors(['CSV không có dữ liệu hàng nào.']); setCsvValid(false); } else { validateCsv(headers, rows); } } catch { setCsvErrors(['Lỗi đọc CSV.']); setCsvValid(false); }
   };
   const canReimport = useMemo(() => {
@@ -307,7 +326,7 @@ export default function AdminEpisodeUpdatePage() {
       uploadAbortRef.current = new AbortController();
       
       // Reset progress counters
-      setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpCoverLandscapeDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+      setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
       setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
       
       // Skip episode deletion - preserve episode and media
@@ -409,20 +428,6 @@ export default function AdminEpisodeUpdatePage() {
       
       if (cancelRequestedRef.current) throw new Error('User cancelled');
       
-      // Upload landscape cover if provided
-      if (coverLandscapeFile) {
-        try {
-          const key = await uploadEpisodeCoverImage({ filmId: contentSlug!, episodeNum, file: coverLandscapeFile, landscape: true });
-          setEpCoverLandscapeDone(1);
-          await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, cover_landscape_key: key });
-          toast.success('Episode landscape cover uploaded');
-        } catch (e) {
-          console.error('Landscape cover upload failed:', e);
-        }
-      }
-      
-      if (cancelRequestedRef.current) throw new Error('User cancelled');
-      
       // Upload full audio if provided
       if (audioFile) {
         try {
@@ -504,12 +509,11 @@ export default function AdminEpisodeUpdatePage() {
     
     try {
       let coverUrl = ep?.cover_url;
-      let coverLandscapeUrl = ep?.cover_landscape_url;
       let audioUrl = ep?.full_audio_url;
       let videoUrl = ep?.full_video_url;
 
       // Calculate total steps
-      const totalSteps = (coverFile ? 1 : 0) + (coverLandscapeFile ? 1 : 0) + (audioFile ? 1 : 0) + (videoFile ? 1 : 0) + 1; // +1 for metadata
+      const totalSteps = (coverFile ? 1 : 0) + (audioFile ? 1 : 0) + (videoFile ? 1 : 0) + 1; // +1 for metadata
       let completedSteps = 0;
 
       // Upload portrait cover if selected
@@ -527,24 +531,6 @@ export default function AdminEpisodeUpdatePage() {
           toast.error(`Cover upload failed: ${(e as Error).message}`);
         } finally {
           setUploadingCover(false);
-        }
-      }
-
-      // Upload landscape cover if selected
-      if (coverLandscapeFile) {
-        setSaveStage('cover_landscape');
-        setUploadingCoverLandscape(true);
-        try {
-          const key = await uploadEpisodeCoverImage({ filmId: contentSlug, episodeNum, file: coverLandscapeFile, landscape: true });
-          const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
-          coverLandscapeUrl = r2Base ? `${r2Base}/${key}` : `/${key}`;
-          completedSteps++;
-          setSaveProgress(Math.floor((completedSteps / totalSteps) * 100));
-          toast.success('Landscape cover uploaded');
-        } catch (e) {
-          toast.error(`Landscape cover upload failed: ${(e as Error).message}`);
-        } finally {
-          setUploadingCoverLandscape(false);
         }
       }
 
@@ -591,7 +577,6 @@ export default function AdminEpisodeUpdatePage() {
         episodeNum,
         title: title || undefined,
         cover_url: coverUrl || undefined,
-        cover_landscape_url: coverLandscapeUrl || undefined,
         full_audio_url: audioUrl || undefined,
         full_video_url: videoUrl || undefined,
       });
@@ -606,7 +591,6 @@ export default function AdminEpisodeUpdatePage() {
       setTitle(refreshed?.title || '');
       // Clear file inputs
       setCoverFile(null);
-      setCoverLandscapeFile(null);
       setAudioFile(null);
       setVideoFile(null);
       
@@ -696,29 +680,11 @@ export default function AdminEpisodeUpdatePage() {
                 <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
               </div>
             </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="w-40 text-sm">Cover Landscape</label>
-              <div className="space-y-2">
-                {ep.cover_landscape_url && (
-                  <div className="text-xs text-gray-400">
-                    Current: <a href={ep.cover_landscape_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
-                  </div>
-                )}
-                <input 
-                  type="file" 
-                  accept="image/jpeg" 
-                  onChange={(e) => setCoverLandscapeFile(e.target.files?.[0] || null)} 
-                  className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
-                />
-                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover_landscape.jpg</div>
-            </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="flex flex-col gap-2">
-            <label className="w-40 text-sm">Full Audio</label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-2">
+              <label className="w-40 text-sm">Full Audio</label>
             <div className="space-y-2">
               {ep.full_audio_url && (
                 <div className="text-xs text-gray-400">
@@ -756,10 +722,10 @@ export default function AdminEpisodeUpdatePage() {
             <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${episodeSlug}`)}>Cancel</button>
             <button
               className="admin-btn primary flex items-center gap-2"
-              disabled={saving || uploadingCover || uploadingCoverLandscape || uploadingAudio || uploadingVideo}
+              disabled={saving || uploadingCover || uploadingAudio || uploadingVideo}
               onClick={handleSave}
             >
-              {(saving || uploadingCover || uploadingCoverLandscape || uploadingAudio || uploadingVideo) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {(saving || uploadingCover || uploadingAudio || uploadingVideo) && <Loader2 className="w-4 h-4 animate-spin" />}
               <span>{saving ? 'Saving…' : 'Save'}</span>
             </button>
           </div>
@@ -772,12 +738,6 @@ export default function AdminEpisodeUpdatePage() {
                 <div className="flex justify-between">
                   <span>Cover Image</span>
                   <span>{saveStage === 'done' || (saveStage !== 'idle' && saveStage !== 'cover') ? '✓' : saveStage === 'cover' ? '...' : 'pending'}</span>
-                </div>
-              )}
-              {coverLandscapeFile && (
-                <div className="flex justify-between">
-                  <span>Cover Landscape</span>
-                  <span>{saveStage === 'done' || (saveStage === 'audio' || saveStage === 'video' || saveStage === 'metadata') ? '✓' : saveStage === 'cover_landscape' ? '...' : 'pending'}</span>
                 </div>
               )}
               {audioFile && (
@@ -856,10 +816,55 @@ export default function AdminEpisodeUpdatePage() {
               csvErrors={csvErrors}
               unrecognizedHeaders={unrecognizedHeaders}
               reservedHeaders={reservedHeaders}
+              ambiguousHeaders={ambiguousHeaders}
+              confirmedAsLanguage={confirmedAsLanguage}
               requiredOriginals={requiredOriginals}
               mainLangHeader={mainLangHeader}
               mainLangHeaderOverride={mainLangHeaderOverride}
             />
+            
+            {/* Ambiguous column checkboxes */}
+            {ambiguousHeaders.length > 0 && (
+              <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg space-y-2">
+                <div className="text-sm font-semibold text-yellow-300">⚠️ Xác nhận cột có thể là ngôn ngữ hoặc cột hệ thống:</div>
+                {ambiguousHeaders.map(col => {
+                  const isId = col.toLowerCase() === 'id';
+                  const isIn = col.toLowerCase() === 'in';
+                  const isConfirmed = confirmedAsLanguage.has(col);
+                  return (
+                    <div key={col} className="flex items-start gap-3 text-sm p-2 bg-black/20 rounded">
+                      <input
+                        id={`ambiguous-${col}`}
+                        type="checkbox"
+                        checked={isConfirmed}
+                        onChange={(e) => {
+                          const newSet = new Set(confirmedAsLanguage);
+                          if (e.target.checked) {
+                            newSet.add(col);
+                          } else {
+                            newSet.delete(col);
+                          }
+                          setConfirmedAsLanguage(newSet);
+                        }}
+                        className="mt-0.5"
+                      />
+                      <label htmlFor={`ambiguous-${col}`} className="cursor-pointer select-none flex-1">
+                        <span className="text-yellow-200 font-semibold">"{col}"</span>
+                        {isConfirmed ? (
+                          <span className="text-green-300"> ✓ Được dùng như ngôn ngữ Indonesian</span>
+                        ) : (
+                          <span className="text-gray-400"> → Sẽ bị bỏ qua (cột hệ thống)</span>
+                        )}
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {isId && "Tick để dùng như ngôn ngữ Indonesian (id), bỏ trống để ignore như cột ID."}
+                          {isIn && "Tick để dùng như ngôn ngữ Indonesian (in), bỏ trống để ignore như cột hệ thống."}
+                        </div>
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Card Media Files */}
@@ -928,15 +933,12 @@ export default function AdminEpisodeUpdatePage() {
                 {coverFile && (
                   <ProgressItem label="5. Episode Cover" done={epCoverDone > 0} pending={reimportStage === 'uploading_episode_media' && epCoverDone === 0} />
                 )}
-                {coverLandscapeFile && (
-                  <ProgressItem label="6. Episode Cover Landscape" done={epCoverLandscapeDone > 0} pending={reimportStage === 'uploading_episode_media' && epCoverLandscapeDone === 0} />
-                )}
                 {audioFile && (
-                  <ProgressItem label="7. Episode Full Audio" done={epFullAudioDone > 0} pending={reimportStage === 'uploading_episode_media' && epFullAudioDone === 0} />
+                  <ProgressItem label="6. Episode Full Audio" done={epFullAudioDone > 0} pending={reimportStage === 'uploading_episode_media' && epFullAudioDone === 0} />
                 )}
                 {videoFile && (
                   <div className="flex justify-between">
-                    <span>8. Episode Full Video</span>
+                    <span>7. Episode Full Video</span>
                     <span>
                       {epFullVideoDone > 0
                         ? '✓'
@@ -947,7 +949,7 @@ export default function AdminEpisodeUpdatePage() {
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span>9. Calculating Stats</span>
+                  <span>8. Calculating Stats</span>
                   <span>{reimportStage === 'done' ? '✓' : reimportStage === 'stats' ? '...' : (reimportStage === 'uploading_episode_media' || reimportStage === 'import' ? 'waiting' : 'pending')}</span>
                 </div>
                 {/* Progress bar */}
@@ -967,14 +969,10 @@ export default function AdminEpisodeUpdatePage() {
                   totalSteps++;
                   if (reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media') completedSteps++;
 
-                  // 5-9. Episode-level media (optional)
+                  // 5-8. Episode-level media (optional)
                   if (coverFile) {
                     totalSteps++;
                     if (epCoverDone > 0) completedSteps++;
-                  }
-                  if (coverLandscapeFile) {
-                    totalSteps++;
-                    if (epCoverLandscapeDone > 0) completedSteps++;
                   }
                   if (audioFile) {
                     totalSteps++;
@@ -988,7 +986,7 @@ export default function AdminEpisodeUpdatePage() {
                     }
                   }
 
-                  // 9. Calculate Stats (required)
+                  // 8. Calculate Stats (required)
                   totalSteps++;
                   if (reimportStage === 'done') completedSteps++;
 
@@ -1030,7 +1028,7 @@ export default function AdminEpisodeUpdatePage() {
                   cancelRequestedRef.current = true;
                   try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
                   setReimportStage('idle');
-                  setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpCoverLandscapeDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
+                  setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
                   setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
                   setReimportBusy(false);
                   toast('Đã hủy tiến trình');
