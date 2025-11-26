@@ -544,7 +544,13 @@ export default function AdminAddEpisodePage() {
       let cardIds: string[]|undefined = undefined;
       if(infer){ const all=[...imageFiles, ...audioFiles]; const set=new Set<string>(); all.forEach(f=>{ const m=f.name.match(/(\d+)(?=\.[^.]+$)/); if(m){ const raw=m[1]; const id= raw.length>=padDigits? raw: raw.padStart(padDigits,'0'); set.add(id);} }); if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } }
       try {
-        await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds, overrideMainSubtitleHeader: mainLangHeaderOverride || undefined }, () => {});
+        // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian)
+        const confirmedMap: Record<string, string> = {};
+        confirmedAsLanguage.forEach((hdr) => {
+          const low = hdr.trim().toLowerCase();
+          if (low === 'id' || low === 'in') confirmedMap['id'] = hdr;
+        });
+        await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds, overrideMainSubtitleHeader: mainLangHeaderOverride || undefined, confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined }, () => {});
         importSucceededRef.current = true;
         setImportDone(true);
         toast.success('Import completed');
@@ -877,6 +883,69 @@ export default function AdminAddEpisodePage() {
       {/* Card Media */}
       <div className="admin-panel space-y-3">
         <div className="text-sm font-semibold">Card Media Files</div>
+        {/* File count validation warnings */}
+        {csvRows.length > 0 && (imageFiles.length > 0 || audioFiles.length > 0) && (
+          <div className="space-y-2">
+            {imageFiles.length !== csvRows.length && (
+              <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
+                <span className="text-yellow-400 text-lg">⚠️</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-yellow-300 mb-1">Số lượng ảnh không khớp với số cards</div>
+                  <div className="text-yellow-200/90 space-y-1">
+                    <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
+                    <div>• Ảnh đã chọn: <span className="font-semibold text-yellow-100">{imageFiles.length}</span></div>
+                    <div className="text-xs text-yellow-200/70 mt-2">
+                      💡 Nên upload đúng {csvRows.length} file ảnh để khớp với số cards.
+                      {imageFiles.length < csvRows.length && ' Một số cards sẽ thiếu ảnh.'}
+                      {imageFiles.length > csvRows.length && ' Một số ảnh sẽ bị bỏ qua.'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {audioFiles.length !== csvRows.length && (
+              <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
+                <span className="text-yellow-400 text-lg">⚠️</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-yellow-300 mb-1">Số lượng audio không khớp với số cards</div>
+                  <div className="text-yellow-200/90 space-y-1">
+                    <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
+                    <div>• Audio đã chọn: <span className="font-semibold text-yellow-100">{audioFiles.length}</span></div>
+                    <div className="text-xs text-yellow-200/70 mt-2">
+                      💡 Nên upload đúng {csvRows.length} file audio để khớp với số cards.
+                      {audioFiles.length < csvRows.length && ' Một số cards sẽ thiếu audio.'}
+                      {audioFiles.length > csvRows.length && ' Một số audio sẽ bị bỏ qua.'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {imageFiles.length !== audioFiles.length && imageFiles.length > 0 && audioFiles.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-orange-900/20 border border-orange-600/40 rounded-lg">
+                <span className="text-orange-400 text-lg">⚠️</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-orange-300 mb-1">Số lượng ảnh và audio không bằng nhau</div>
+                  <div className="text-orange-200/90 space-y-1">
+                    <div>• Ảnh: <span className="font-semibold text-orange-100">{imageFiles.length}</span></div>
+                    <div>• Audio: <span className="font-semibold text-orange-100">{audioFiles.length}</span></div>
+                    <div className="text-xs text-orange-200/70 mt-2">
+                      💡 Số lượng ảnh và audio nên bằng nhau để mỗi card có đủ media.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {imageFiles.length === csvRows.length && audioFiles.length === csvRows.length && imageFiles.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-green-900/20 border border-green-600/40 rounded-lg">
+                <span className="text-green-400 text-lg">✓</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-green-300">Số lượng files khớp hoàn hảo!</div>
+                  <div className="text-green-200/90 text-xs mt-1">{csvRows.length} cards = {imageFiles.length} ảnh = {audioFiles.length} audio</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid gap-3 md:grid-cols-2">
           <div className="admin-subpanel">
             <div className="text-xs text-gray-400 mb-2">Images (.jpg)</div>

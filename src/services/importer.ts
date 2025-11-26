@@ -47,6 +47,9 @@ export interface ImportOptions {
   cardIds?: string[];
   // Optional: override which CSV header to use for the Main Language subtitle column
   overrideMainSubtitleHeader?: string;
+  // Optional: user-confirmed ambiguous headers mapped to language codes
+  // e.g., { id: 'id' } when the CSV uses an 'id' column for Indonesian
+  confirmedLanguageHeaders?: Record<string, string>;
 }
 
 function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; detectedLangs: string[]; primary?: string } {
@@ -253,7 +256,17 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
       mapping.subtitles[mainCanon] = opts.overrideMainSubtitleHeader;
     }
   }
-  const available = Array.from(new Set([...(filmMeta.available_subs || []), ...auto.detectedLangs]));
+  // Apply confirmed ambiguous language headers (e.g., 'id' → Indonesian)
+  if (opts.confirmedLanguageHeaders) {
+    for (const [lang, header] of Object.entries(opts.confirmedLanguageHeaders)) {
+      const canon = canonicalizeLangCode(lang) || lang.toLowerCase();
+      if ((headerFields as string[]).includes(header)) {
+        mapping.subtitles[canon] = header;
+      }
+    }
+  }
+  const extraConfirmed = opts.confirmedLanguageHeaders ? Object.keys(opts.confirmedLanguageHeaders).map(l => canonicalizeLangCode(l) || l.toLowerCase()) : [];
+  const available = Array.from(new Set([...(filmMeta.available_subs || []), ...auto.detectedLangs, ...extraConfirmed]));
   const meta = { ...filmMeta, language: mainLang, available_subs: available, total_cards: total };
   // mainCanon retained for potential future use but not required for import generation
 

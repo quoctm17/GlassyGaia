@@ -391,7 +391,7 @@ export async function r2MultipartUpload(params: {
       const item = queue.shift()!;
       const blob = file.slice(item.start, item.end);
       // retry each part a few times for robustness
-      let attempts = 0; let lastErr: any = null;
+      let attempts = 0; let lastErr: unknown = null;
       while (attempts < 3) {
         try {
           const { etag } = await r2MultipartUploadPart({ key, uploadId, partNumber: item.partNumber, data: blob });
@@ -411,7 +411,7 @@ export async function r2MultipartUpload(params: {
   try {
     await Promise.all(workers);
   } catch (e) {
-    try { await r2MultipartAbort({ key, uploadId }); } catch {}
+    try { await r2MultipartAbort({ key, uploadId }); } catch (abortErr) { void abortErr; }
     throw e;
   }
   await r2MultipartComplete({ key, uploadId, parts: parts.filter(Boolean) as Array<{ partNumber: number; etag: string }> });
