@@ -6,9 +6,9 @@ import { searchCardsGlobalClient, listAllItems } from "../services/firestore";
 // Replaced old SearchFilters with new FilterPanel + ContentSelector
 import FilterPanel from "../components/FilterPanel";
 // Removed old LanguageSelector (now in NavBar via MainLanguageSelector & SubtitleLanguageSelector)
-import SuggestionPanel from "../components/SuggestionPanel";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
+import { Filter } from "lucide-react";
 
 function SearchPage() {
   const { preferences } = useUser();
@@ -218,22 +218,17 @@ function SearchPage() {
             ? allResults.filter((c) => c.film_id === filmFilter)
             : allResults;
           return (
-            <div className="mt-4 text-sm text-pink-200/80">
-              {loading ? "Đang tìm..." : `Tổng ${filtered.length} kết quả`}
+            <div className="mt-4 flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 bg-[#c75485] rounded-full">
+                <Filter className="w-4 h-4 text-[#1a0f26]" />
+              </div>
+              <span className="text-pink-500 text-2xl font-['Press_Start_2P']">›</span>
+              <span className="text-pink-200 font-['Press_Start_2P'] text-xs">
+                {loading ? "Searching..." : `${filtered.length} Results`}
+              </span>
             </div>
           );
         })()}
-
-        {/* Suggestions when no query */}
-        {query.trim().length === 0 && (
-          <SuggestionPanel
-            filmId={"all"}
-            onPick={(q) => {
-              setQuery(q);
-              runSearch(q);
-            }}
-          />
-        )}
 
         <div className="mt-4 space-y-3">
           {displayedResults.map((c) => (

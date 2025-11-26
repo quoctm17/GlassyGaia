@@ -133,14 +133,15 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
         const list = grouped.map[t];
         if (!list || list.length === 0) return null;
         const label = CONTENT_TYPE_LABELS[t as ContentType] || t;
+        const isOpen = openGroups.has(t);
         return (
-          <div key={t} className={`content-group ${openGroups.has(t)?'open':'closed'}`}>
+          <div key={t} className={`content-group ${isOpen?'open':'closed'}`}>
             <button type="button" className="content-group-header" onClick={() => toggleGroup(t)}>
               {typeIcon(t)}
               <span className="group-label-text">{label}</span>
-              {openGroups.has(t) ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
+              {isOpen ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
             </button>
-            {openGroups.has(t) && (
+            <div className={`content-group-list-wrapper ${isOpen ? 'open' : 'closed'}`}>
               <div className="content-group-list">
                 {list.map(id => (
                   <button
@@ -154,7 +155,7 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
                   </button>
                 ))}
               </div>
-            )}
+            </div>
           </div>
         );
       })}
@@ -164,7 +165,7 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
             <span className="group-label-text">Other</span>
             {openGroups.has('other') ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
           </button>
-          {openGroups.has('other') && (
+          <div className={`content-group-list-wrapper ${openGroups.has('other') ? 'open' : 'closed'}`}>
             <div className="content-group-list">
               {grouped.other.map(id => (
                 <button
@@ -178,7 +179,7 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
                 </button>
               ))}
             </div>
-          )}
+          </div>
         </div>
       )}
       {loading && <div className="text-xs mt-2 opacity-70">Loading...</div>}
