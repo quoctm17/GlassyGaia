@@ -1,6 +1,7 @@
 
 import type { CardDoc } from '../types';
 import ContentSelector from './ContentSelector';
+import DifficultyFilter from './DifficultyFilter';
 
 interface FilterPanelProps {
   filmTitleMap: Record<string, string>;
@@ -16,58 +17,13 @@ interface FilterPanelProps {
 }
 
 export default function FilterPanel({ filmTitleMap, filmTypeMap, filmLangMap, allResults, filmFilter, onSelectFilm, minDifficulty, maxDifficulty, onDifficultyChange, mainLanguage }: FilterPanelProps) {
-  const handleMin = (v: number) => {
-    const clamped = Math.max(0, Math.min(v, maxDifficulty));
-    onDifficultyChange(clamped, maxDifficulty);
-  };
-  const handleMax = (v: number) => {
-    const clamped = Math.min(100, Math.max(v, minDifficulty));
-    onDifficultyChange(minDifficulty, clamped);
-  };
-
   return (
     <div className="filter-panel-wrapper">
-      <div className="difficulty-block">
-        <div className="difficulty-title">DIFFICULT SCORE</div>
-        <div className="difficulty-range-row">
-          <div className="difficulty-input">
-            <label className="diff-label">MIN</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={minDifficulty}
-              onChange={e => handleMin(Number(e.target.value))}
-            />
-          </div>
-          <div className="difficulty-input">
-            <label className="diff-label">MAX</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={maxDifficulty}
-              onChange={e => handleMax(Number(e.target.value))}
-            />
-          </div>
-        </div>
-        <div className="difficulty-slider-row">
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={minDifficulty}
-            onChange={e => handleMin(Number(e.target.value))}
-          />
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={maxDifficulty}
-            onChange={e => handleMax(Number(e.target.value))}
-          />
-        </div>
-      </div>
+      <DifficultyFilter
+        minDifficulty={minDifficulty}
+        maxDifficulty={maxDifficulty}
+        onDifficultyChange={onDifficultyChange}
+      />
       <ContentSelector
         value={filmFilter}
         onChange={onSelectFilm}
