@@ -1162,10 +1162,10 @@ export default function AdminContentIngestPage() {
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs text-gray-300">
               <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} />
-              <label htmlFor="chk-ep-cover" className="cursor-pointer">Add Cover Portrait (Episode)</label>
+              <label htmlFor="chk-ep-cover" className="cursor-pointer">Add Cover Landscape (Episode)</label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa dọc cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa ngang cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
               </span>
             </div>
             {addEpCover && (
@@ -1393,7 +1393,7 @@ export default function AdminContentIngestPage() {
             </div>
             {/* 4. Episode-level optional media (after import) */}
             {addEpCover && hasEpCoverFile && (
-              <ProgressItem label="6. Episode Cover Portrait" done={epCoverDone > 0} pending={stage === "ep_cover" || (importDone && epCoverDone === 0)} />
+              <ProgressItem label="6. Episode Cover Landscape" done={epCoverDone > 0} pending={stage === "ep_cover" || (importDone && epCoverDone === 0)} />
             )}
             {addEpAudio && hasEpAudioFile && (
               <ProgressItem label="7. Episode Full Audio" done={epFullAudioDone > 0} pending={stage === "ep_full_audio" || (importDone && epFullAudioDone === 0)} />
