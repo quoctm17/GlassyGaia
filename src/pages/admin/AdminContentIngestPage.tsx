@@ -75,9 +75,7 @@ export default function AdminContentIngestPage() {
   const langDropdownRef = useRef<HTMLDivElement | null>(null);
   const typeDropdownRef = useRef<HTMLDivElement | null>(null);
   const yearDropdownRef = useRef<HTMLDivElement | null>(null);
-  // Language dropdown helpers
   const [langQuery, setLangQuery] = useState("");
-
   const ALL_LANG_OPTIONS: string[] = [
     "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
     "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","ta","te","tr","uk",
@@ -226,6 +224,8 @@ export default function AdminContentIngestPage() {
       const rawLow = norm(h);
       // Remove bracketed qualifiers like [CC], [SDH], [Captions] and trim again
       const cleaned = rawLow.replace(/\s*\[[^\]]*\]\s*/g, '').trim();
+      // Manual confirmation: allow ambiguous headers to be treated as language (e.g., 'id' → Indonesian)
+      if (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(cleaned)) { recognizedSubtitleHeaders.add(h); return; }
       // Skip reserved columns BEFORE language detection
       if (RESERVED_COLUMNS.has(cleaned)) return;
       // Direct alias match (after cleaning)
@@ -341,7 +341,7 @@ export default function AdminContentIngestPage() {
     });
     setCsvErrors(errors);
     setCsvValid(errors.length === 0);
-  }, [mainLanguage]);
+  }, [mainLanguage, confirmedAsLanguage]);
 
   // Derive lists for footnote display (kept in sync with validateCsv rules)
   // Two types: unrecognized (not detected) and reserved (actively ignored)
@@ -479,12 +479,17 @@ export default function AdminContentIngestPage() {
     return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous };
   }, [csvHeaders, confirmedAsLanguage]);
 
-  function findHeaderForLang(headers: string[], lang: string): string | null {
+  const findHeaderForLang = useCallback((headers: string[], lang: string): string | null => {
     // Strict exact alias matching only (ignore case & separators); prefer the variant alias that includes parentheses if both exist.
     const rawAliases = expandCanonicalToAliases(lang);
     const normalizedAliases = rawAliases.map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
     const variantAliases = rawAliases.filter(a => /\(.+\)/.test(a)).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
     const headerNorms = headers.map(h => ({ orig: h, norm: h.toLowerCase().replace(/[_\s-]/g, "") }));
+    // Prefer confirmed ambiguous Indonesian 'id' header if present
+    if (lang.toLowerCase() === 'id') {
+      const confirmedId = headers.find(h => (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(h.toLowerCase())) && h.trim().toLowerCase() === 'id');
+      if (confirmedId) return confirmedId;
+    }
     // If a variant alias exists (with parentheses) try those first
     for (const v of variantAliases) {
       const found = headerNorms.find(h => h.norm === v);
@@ -495,8 +500,8 @@ export default function AdminContentIngestPage() {
       if (found) return found.orig;
     }
     return null;
-  }
-  const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, mainLanguage), [csvHeaders, mainLanguage]);
+  }, [confirmedAsLanguage]);
+  const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, mainLanguage), [csvHeaders, mainLanguage, findHeaderForLang]);
   const mainLangHeaderOptions = useMemo(() => {
     const canon = canonicalizeLangCode(mainLanguage) || mainLanguage;
     const variantGroups: Record<string,string[]> = {
@@ -613,8 +618,14 @@ export default function AdminContentIngestPage() {
     } catch { setCsvErrors(["Lỗi đọc CSV."]); setCsvValid(false); }
     // (Value clearing moved to Refresh button to preserve chosen filename display.)
   };
-  const onPickImages = (e: React.ChangeEvent<HTMLInputElement>) => setImageFiles(Array.from(e.target.files || []));
-  const onPickAudio = (e: React.ChangeEvent<HTMLInputElement>) => setAudioFiles(Array.from(e.target.files || []));
+  const onPickImages = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setImageFiles(files);
+  };
+  const onPickAudio = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setAudioFiles(files);
+  };
 
   const doUploadCover = async (): Promise<string | undefined> => {
     if (!addCover) return undefined;
@@ -745,6 +756,12 @@ export default function AdminContentIngestPage() {
         if (set.size) { cardIds = Array.from(set).sort((a,b)=>parseInt(a,10)-parseInt(b,10)); }
       }
       try {
+        // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian)
+        const confirmedMap: Record<string, string> = {};
+        confirmedAsLanguage.forEach((hdr) => {
+          const low = hdr.trim().toLowerCase();
+          if (low === 'id' || low === 'in') confirmedMap['id'] = hdr;
+        });
         await importFilmFromCsv({
           filmSlug: filmId,
           episodeNum,
@@ -755,6 +772,7 @@ export default function AdminContentIngestPage() {
           cardPadDigits: padDigits,
           cardIds,
           overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
+          confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined,
         }, () => {});
         // Mark as created for rollback tracking
         createdFilmRef.current = filmId;
@@ -1037,7 +1055,7 @@ export default function AdminContentIngestPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Title</label>
+            <label className="w-40 text-sm">Title <span className="text-red-500">*</span></label>
             <input className="admin-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" />
           </div>
                     <div className="flex items-center gap-2">
@@ -1058,7 +1076,7 @@ export default function AdminContentIngestPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Type</label>
+            <label className="w-40 text-sm">Type <span className="text-red-500">*</span></label>
             <div className="relative w-full" ref={typeDropdownRef}>
               <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setTypeOpen(v => !v); }}>
                 <span className="inline-flex items-center gap-2">
@@ -1326,6 +1344,79 @@ export default function AdminContentIngestPage() {
       {/* Card Media */}
       <div className="admin-panel space-y-3">
         <div className="text-sm font-semibold">Card Media Files</div>
+        {/* File count validation warnings */}
+        {csvRows.length > 0 && (imageFiles.length > 0 || audioFiles.length > 0) && (
+          <div className="space-y-2">
+            {imageFiles.length !== csvRows.length && (
+              <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
+                <span className="text-yellow-400 text-lg">⚠️</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-yellow-300 mb-1">
+                    Số lượng ảnh không khớp với số cards
+                  </div>
+                  <div className="text-yellow-200/90 space-y-1">
+                    <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
+                    <div>• Ảnh đã chọn: <span className="font-semibold text-yellow-100">{imageFiles.length}</span></div>
+                    <div className="text-xs text-yellow-200/70 mt-2">
+                      💡 Nên upload đúng {csvRows.length} file ảnh để khớp với số cards.
+                      {imageFiles.length < csvRows.length && ' Một số cards sẽ thiếu ảnh.'}
+                      {imageFiles.length > csvRows.length && ' Một số ảnh sẽ bị bỏ qua.'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {audioFiles.length !== csvRows.length && (
+              <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
+                <span className="text-yellow-400 text-lg">⚠️</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-yellow-300 mb-1">
+                    Số lượng audio không khớp với số cards
+                  </div>
+                  <div className="text-yellow-200/90 space-y-1">
+                    <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
+                    <div>• Audio đã chọn: <span className="font-semibold text-yellow-100">{audioFiles.length}</span></div>
+                    <div className="text-xs text-yellow-200/70 mt-2">
+                      💡 Nên upload đúng {csvRows.length} file audio để khớp với số cards.
+                      {audioFiles.length < csvRows.length && ' Một số cards sẽ thiếu audio.'}
+                      {audioFiles.length > csvRows.length && ' Một số audio sẽ bị bỏ qua.'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {imageFiles.length !== audioFiles.length && imageFiles.length > 0 && audioFiles.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-orange-900/20 border border-orange-600/40 rounded-lg">
+                <span className="text-orange-400 text-lg">⚠️</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-orange-300 mb-1">
+                    Số lượng ảnh và audio không bằng nhau
+                  </div>
+                  <div className="text-orange-200/90 space-y-1">
+                    <div>• Ảnh: <span className="font-semibold text-orange-100">{imageFiles.length}</span></div>
+                    <div>• Audio: <span className="font-semibold text-orange-100">{audioFiles.length}</span></div>
+                    <div className="text-xs text-orange-200/70 mt-2">
+                      💡 Số lượng ảnh và audio nên bằng nhau để mỗi card có đủ media.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {imageFiles.length === csvRows.length && audioFiles.length === csvRows.length && imageFiles.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-green-900/20 border border-green-600/40 rounded-lg">
+                <span className="text-green-400 text-lg">✓</span>
+                <div className="flex-1 text-sm">
+                  <div className="font-semibold text-green-300">
+                    Số lượng files khớp hoàn hảo!
+                  </div>
+                  <div className="text-green-200/90 text-xs mt-1">
+                    {csvRows.length} cards = {imageFiles.length} ảnh = {audioFiles.length} audio
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid gap-3 md:grid-cols-2">
           <div className="admin-subpanel">
             <div className="text-xs text-gray-400 mb-2">Images (.jpg)</div>
