@@ -5,7 +5,7 @@ import { getAvailableMainLanguages } from "../../services/firestore";
 import type { FilmDoc } from '../../types';
 import { useNavigate } from 'react-router-dom';
 import { canonicalizeLangCode, countryCodeForLang, langLabel } from '../../utils/lang';
-import { PlusCircle, Eye, Pencil, Trash2, ChevronDown, MoreHorizontal, Filter, Search, ChevronUp, Film, Music, Book, Tv } from 'lucide-react';
+import { PlusCircle, Eye, Pencil, Trash2, ChevronDown, MoreHorizontal, Filter, Search, ChevronUp, Film, Music, Book, Tv, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LanguageTag from '../../components/LanguageTag';
 import PortalDropdown from '../../components/PortalDropdown';
@@ -27,6 +27,11 @@ export default function AdminContentListPage() {
   const [deleting, setDeleting] = useState(false);
   const [deletionProgress, setDeletionProgress] = useState<{ stage: string; details: string } | null>(null);
   const [deletionPercent, setDeletionPercent] = useState(0);
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState<{ items: Array<{ slug: string; title: string }> } | null>(null);
+  const [adminKeyInput, setAdminKeyInput] = useState('');
+  const [showAdminKeyPrompt, setShowAdminKeyPrompt] = useState(false);
   // Filters dropdown (portal) state
   const [filterDropdown, setFilterDropdown] = useState<{ anchor: HTMLElement; closing?: boolean } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -179,6 +184,123 @@ export default function AdminContentListPage() {
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [totalPages, page]);
+
+  // Bulk selection handlers
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredRows.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredRows.map(f => f.id)));
+    }
+  };
+
+  const toggleSelectId = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  const handleBulkDelete = () => {
+    const items = Array.from(selectedIds).map(id => {
+      const film = rows.find(r => r.id === id);
+      return { slug: id, title: film?.title || id };
+    });
+    setConfirmBulkDelete({ items });
+  };
+
+  const executeBulkDelete = async () => {
+    if (!confirmBulkDelete) return;
+    
+    // Verify admin key
+    const expectedKey = import.meta.env.VITE_ADMIN_KEY || '';
+    if (!expectedKey || adminKeyInput !== expectedKey) {
+      toast.error('Admin key không đúng!');
+      setAdminKeyInput('');
+      return;
+    }
+
+    setShowAdminKeyPrompt(false);
+    setAdminKeyInput('');
+    setDeleting(true);
+    setDeletionPercent(0);
+    setDeletionProgress({ stage: 'Đang xóa hàng loạt...', details: `Chuẩn bị xóa ${confirmBulkDelete.items.length} content` });
+    
+    const results: Array<{ slug: string; success: boolean; error?: string }> = [];
+    let totalEpisodes = 0;
+    let totalCards = 0;
+    let totalMedia = 0;
+
+    try {
+      for (let i = 0; i < confirmBulkDelete.items.length; i++) {
+        const item = confirmBulkDelete.items[i];
+        const progress = Math.floor(((i + 1) / confirmBulkDelete.items.length) * 95);
+        setDeletionPercent(progress);
+        setDeletionProgress({ 
+          stage: `Đang xóa ${i + 1}/${confirmBulkDelete.items.length}`, 
+          details: `Xóa: ${item.title}` 
+        });
+
+        try {
+          const res = await apiDeleteItem(item.slug);
+          if ('error' in res) {
+            results.push({ slug: item.slug, success: false, error: res.error });
+          } else {
+            results.push({ slug: item.slug, success: true });
+            totalEpisodes += res.episodes_deleted || 0;
+            totalCards += res.cards_deleted || 0;
+            totalMedia += res.media_deleted || 0;
+          }
+        } catch (e) {
+          results.push({ slug: item.slug, success: false, error: (e as Error).message });
+        }
+      }
+
+      setDeletionPercent(100);
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+      
+      setDeletionProgress({ 
+        stage: 'Hoàn tất', 
+        details: `Thành công: ${successCount}, Thất bại: ${failCount} (Episodes: ${totalEpisodes}, Cards: ${totalCards}, Media: ${totalMedia})` 
+      });
+
+      // Remove successfully deleted items from rows
+      const deletedSlugs = results.filter(r => r.success).map(r => r.slug);
+      setRows(prev => prev.filter(r => !deletedSlugs.includes(r.id)));
+      setSelectedIds(new Set());
+
+      // Refresh global main-language options
+      try {
+        const langs = await getAvailableMainLanguages();
+        const current = preferences.main_language || 'en';
+        if (!langs.includes(current) && langs.length) {
+          await setMainLanguage(langs[0]);
+        }
+      } catch {/* ignore refresh errors */}
+
+      setTimeout(() => {
+        if (failCount > 0) {
+          toast.error(`Xóa xong! Thành công: ${successCount}, Thất bại: ${failCount}`);
+        } else {
+          toast.success(`Đã xóa ${successCount} content (Episodes: ${totalEpisodes}, Cards: ${totalCards}, Media: ${totalMedia})`);
+        }
+        setConfirmBulkDelete(null);
+        setDeletionProgress(null);
+        setDeletionPercent(0);
+      }, 600);
+    } catch (e) {
+      toast.error((e as Error).message);
+      setDeletionProgress(null);
+      setDeletionPercent(0);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -197,8 +319,19 @@ export default function AdminContentListPage() {
               />
             </div>
           </div>
-          {/* Right: Filters then Create aligned to right */}
+          {/* Right: Bulk actions, Filters, Create aligned to right */}
           <div className="flex items-center gap-2">
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                className="admin-btn primary flex items-center gap-2 bg-red-600 hover:bg-red-700"
+                onClick={handleBulkDelete}
+                title={`Delete ${selectedIds.size} selected items`}
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete ({selectedIds.size})</span>
+              </button>
+            )}
             <button
               type="button"
               className="admin-btn secondary flex items-center gap-2"
@@ -290,6 +423,22 @@ export default function AdminContentListPage() {
         <table className="admin-table">
           <thead>
             <tr>
+              <th className="w-12">
+                <button
+                  type="button"
+                  className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors ${
+                    selectedIds.size === filteredRows.length && filteredRows.length > 0
+                      ? 'bg-pink-500 border-pink-500'
+                      : selectedIds.size > 0
+                      ? 'bg-pink-500/50 border-pink-500'
+                      : 'border-gray-600 hover:border-pink-500'
+                  }`}
+                  onClick={toggleSelectAll}
+                  title={selectedIds.size === filteredRows.length ? 'Deselect all' : 'Select all'}
+                >
+                  {selectedIds.size > 0 && <Check className="w-3 h-3 text-white" />}
+                </button>
+              </th>
               <th className="w-12">#</th>
               <th className="cursor-pointer hover:bg-gray-800/60" onClick={() => handleSort('slug')}>
                 <div className="flex items-center gap-1">
@@ -328,7 +477,7 @@ export default function AdminContentListPage() {
           <tbody>
             {filteredRows.length === 0 && !loading && !error && (
               <tr>
-                <td colSpan={8} className="admin-empty">No content found</td>
+                <td colSpan={9} className="admin-empty">No content found</td>
               </tr>
             )}
             {filteredRows.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map((f, idx) => {
@@ -340,8 +489,30 @@ export default function AdminContentListPage() {
                     .filter((s) => s && s !== mainCanon)
                 )
               );
+              const isSelected = selectedIds.has(f.id);
               return (
-                <tr key={f.id} onClick={() => navigate(`/admin/content/${encodeURIComponent(f.id)}`)} style={{ cursor:'pointer' }}>
+                <tr 
+                  key={f.id} 
+                  onClick={() => navigate(`/admin/content/${encodeURIComponent(f.id)}`)} 
+                  style={{ cursor:'pointer' }}
+                  className={isSelected ? 'bg-pink-500/10' : ''}
+                >
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors ${
+                        isSelected
+                          ? 'bg-pink-500 border-pink-500'
+                          : 'border-gray-600 hover:border-pink-500'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSelectId(f.id);
+                      }}
+                    >
+                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                    </button>
+                  </td>
                   <td className="text-gray-400">{(page-1)*pageSize + idx + 1}</td>
                   <td className="admin-cell-ellipsis" title={f.id}>{f.id}</td>
                   <td className="admin-cell-ellipsis" title={f.title || ''}>{f.title || '-'}</td>
@@ -569,6 +740,101 @@ export default function AdminContentListPage() {
                 }}
               >
                 {deleting ? 'Đang xoá...' : 'Xoá'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {confirmBulkDelete && !showAdminKeyPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmBulkDelete(null)}>
+          <div 
+            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-2xl w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)] max-h-[80vh] overflow-y-auto" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xóa hàng loạt</h3>
+            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xóa <span className="text-[#f9a8d4] font-semibold">{confirmBulkDelete.items.length}</span> nội dung sau:</p>
+            <div className="max-h-48 overflow-y-auto mb-4 bg-[#241530] border-2 border-[#f472b6] rounded-lg p-3">
+              <ul className="text-sm text-[#e9d5ff] space-y-1">
+                {confirmBulkDelete.items.map((item, idx) => (
+                  <li key={item.slug} className="flex items-start gap-2">
+                    <span className="text-[#f9a8d4] font-mono">{idx + 1}.</span>
+                    <span className="flex-1">
+                      <span className="font-semibold text-[#f9a8d4]">{item.title}</span>
+                      <span className="text-xs text-[#e9d5ff] ml-2">({item.slug})</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xóa toàn bộ Episodes, Cards và Media thuộc các nội dung này. Không thể hoàn tác!</p>
+            {deletionProgress && (
+              <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
+                <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
+                <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
+                <ProgressBar percent={deletionPercent} />
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                className="admin-btn secondary"
+                onClick={() => setConfirmBulkDelete(null)}
+                disabled={deleting}
+              >
+                Huỷ
+              </button>
+              <button
+                className="admin-btn primary bg-red-600 hover:bg-red-700"
+                disabled={deleting}
+                onClick={() => setShowAdminKeyPrompt(true)}
+              >
+                Tiếp tục
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Key Verification Modal */}
+      {showAdminKeyPrompt && confirmBulkDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setShowAdminKeyPrompt(false)}>
+          <div 
+            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác thực Admin Key</h3>
+            <p className="text-[#f5d0fe] mb-2">Nhập Admin Key để xác nhận xóa <span className="text-[#f9a8d4] font-semibold">{confirmBulkDelete.items.length}</span> nội dung:</p>
+            <input
+              type="password"
+              className="admin-input w-full mb-6"
+              placeholder="Nhập Admin Key..."
+              value={adminKeyInput}
+              onChange={(e) => setAdminKeyInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  executeBulkDelete();
+                }
+              }}
+              autoFocus
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                className="admin-btn secondary"
+                onClick={() => {
+                  setShowAdminKeyPrompt(false);
+                  setAdminKeyInput('');
+                }}
+                disabled={deleting}
+              >
+                Huỷ
+              </button>
+              <button
+                className="admin-btn primary bg-red-600 hover:bg-red-700"
+                disabled={deleting || !adminKeyInput.trim()}
+                onClick={executeBulkDelete}
+              >
+                {deleting ? 'Đang xóa...' : `Xóa ${confirmBulkDelete.items.length} nội dung`}
               </button>
             </div>
           </div>

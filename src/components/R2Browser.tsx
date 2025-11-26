@@ -6,6 +6,7 @@ import {
   Loader2,
   Eye,
   MoreHorizontal,
+  Check,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -342,19 +343,26 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
             <tr>
               <th className="w-10">#</th>
               {(Array.isArray(items) && items.some((i) => i.type === "file")) && (
-                <th className="w-10 text-center">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all files"
-                    checked={
+                <th className="w-12">
+                  <button
+                    type="button"
+                    className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors ${
                       items.filter((i) => i.type === "file").length > 0 &&
-                      items
-                        .filter((i) => i.type === "file")
-                        .every((i) => selected.has(i.key))
-                    }
-                    onChange={(e) => toggleAll(e.currentTarget.checked)}
-                    className="accent-pink-500"
-                  />
+                      items.filter((i) => i.type === "file").every((i) => selected.has(i.key))
+                        ? 'bg-pink-500 border-pink-500'
+                        : selected.size > 0
+                        ? 'bg-pink-500/50 border-pink-500'
+                        : 'border-gray-600 hover:border-pink-500'
+                    }`}
+                    onClick={() => {
+                      const allFiles = items.filter((i) => i.type === "file");
+                      const allSelected = allFiles.length > 0 && allFiles.every((i) => selected.has(i.key));
+                      toggleAll(!allSelected);
+                    }}
+                    title={selected.size > 0 ? 'Deselect all' : 'Select all'}
+                  >
+                    {selected.size > 0 && <Check className="w-3 h-3 text-white" />}
+                  </button>
                 </th>
               )}
               <th>Name</th>
@@ -365,21 +373,25 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
             </tr>
           </thead>
           <tbody>
-            {items.map((item, idx) => (
-              <tr key={item.key}>
+            {items.map((item, idx) => {
+              const isSelected = selected.has(item.key);
+              return (
+              <tr key={item.key} className={isSelected && item.type === 'file' ? 'bg-pink-500/10' : ''}>
                 <td className="text-gray-400">{idx + 1}</td>
                 {(Array.isArray(items) && items.some((i) => i.type === "file")) && (
-                  <td className="text-center">
+                  <td>
                     {item.type === "file" ? (
-                      <input
-                        type="checkbox"
-                        checked={selected.has(item.key)}
-                        onChange={(e) =>
-                          toggleOne(item.key, e.currentTarget.checked)
-                        }
-                        aria-label={`Select ${item.name}`}
-                        className="accent-pink-500"
-                      />
+                      <button
+                        type="button"
+                        className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors ${
+                          isSelected
+                            ? 'bg-pink-500 border-pink-500'
+                            : 'border-gray-600 hover:border-pink-500'
+                        }`}
+                        onClick={() => toggleOne(item.key, !isSelected)}
+                      >
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                      </button>
                     ) : null}
                   </td>
                 )}
@@ -473,7 +485,8 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                   )}
                 </td>
               </tr>
-            ))}
+            );
+            })}
             {Array.isArray(items) && items.length === 0 && !loading && (
               <tr>
                 <td
