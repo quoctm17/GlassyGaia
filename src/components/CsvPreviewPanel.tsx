@@ -7,6 +7,8 @@ interface CsvPreviewPanelProps {
   csvErrors: string[];
   unrecognizedHeaders: string[];
   reservedHeaders: string[];
+  ambiguousHeaders: string[];
+  confirmedAsLanguage: Set<string>;
   requiredOriginals: string[];
   mainLangHeader: string | null;
   mainLangHeaderOverride: string | null;
@@ -19,10 +21,17 @@ export default function CsvPreviewPanel({
   csvErrors,
   unrecognizedHeaders,
   reservedHeaders,
+  ambiguousHeaders,
+  confirmedAsLanguage,
   requiredOriginals,
   mainLangHeader,
   mainLangHeaderOverride,
 }: CsvPreviewPanelProps) {
+  // Compute effective reserved headers: include ambiguous columns that are NOT confirmed as language
+  const effectiveReservedHeaders = [
+    ...reservedHeaders,
+    ...(ambiguousHeaders || []).filter(col => !confirmedAsLanguage.has(col))
+  ];
   if (csvHeaders.length === 0) return null;
 
   return (
@@ -57,10 +66,10 @@ export default function CsvPreviewPanel({
       )}
 
       {/* Reserved Headers Info */}
-      {reservedHeaders.length > 0 && (
+      {effectiveReservedHeaders.length > 0 && (
         <div className="flex items-start gap-2 text-xs text-purple-400">
           <span className="mt-0.5">◆</span>
-          <div>Các cột hệ thống (chủ động bỏ qua): {reservedHeaders.join(', ')}</div>
+          <div>Các cột hệ thống (chủ động bỏ qua): {effectiveReservedHeaders.join(', ')}</div>
         </div>
       )}
 
@@ -75,7 +84,7 @@ export default function CsvPreviewPanel({
                 const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
                 const isMainLang = selectedMainHeader === h;
                 const isUnrecognized = unrecognizedHeaders.includes(h);
-                const isReserved = reservedHeaders.includes(h);
+                const isReserved = effectiveReservedHeaders.includes(h);
                 return (
                   <th
                     key={i}
