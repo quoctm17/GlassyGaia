@@ -1503,10 +1503,12 @@ export default {
           const normalizeKey = (u) => (u ? String(u).replace(/^https?:\/\/[^/]+\//, '') : null);
 
           const cardIds = []; // keep generated uuids in order for debugging if needed
+          let seqCounter = 1; // safe fallback when card_number is missing/invalid
           for (const c of cards) {
             const cardUuid = crypto.randomUUID();
             cardIds.push(cardUuid);
-            const cardNum = c.card_number != null ? Number(c.card_number) : (c.id ? Number(String(c.id).replace(/^0+/, '')) : null);
+            const rawNum = (c.card_number != null) ? Number(c.card_number) : (c.id ? Number(String(c.id).replace(/^0+/, '')) : NaN);
+            const cardNum = Number.isFinite(rawNum) ? rawNum : seqCounter++;
             let diffScoreVal = null;
             if (typeof c.difficulty_score === 'number') diffScoreVal = c.difficulty_score;
             else if (typeof c.difficulty === 'number') diffScoreVal = c.difficulty <= 5 ? (c.difficulty / 5) * 100 : c.difficulty;
@@ -1560,8 +1562,20 @@ export default {
           try {
             await runImport(false);
           } catch (e1) {
-            // Fallback once using legacy ms columns
-            await runImport(true);
+            const msg = (e1 && e1.message) ? String(e1.message) : String(e1);
+            const isNewSchemaMissing = /no\s+such\s+column\s*:.*start_time\b/i.test(msg) || /no\s+such\s+column\s*:.*end_time\b/i.test(msg) || /no\s+column\s+named\s+start_time\b/i.test(msg);
+            // Only attempt legacy fallback if the error indicates old ms-columns schema
+            if (isNewSchemaMissing) {
+              try {
+                await runImport(true);
+              } catch (e2) {
+                const m2 = (e2 && e2.message) ? String(e2.message) : String(e2);
+                return json({ error: `Import failed (legacy fallback also failed): new-schema error='${msg}', legacy error='${m2}'` }, { status: 500 });
+              }
+            } else {
+              // Surface the original error to the client for accurate diagnosis
+              return json({ error: msg }, { status: 500 });
+            }
           }
 
           return json({ ok: true, inserted: cards.length, mode });
