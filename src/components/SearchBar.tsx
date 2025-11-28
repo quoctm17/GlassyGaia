@@ -12,6 +12,7 @@ export interface SearchBarProps {
   buttonLabel?: string; // override 'Search by'
   autoFocus?: boolean;
   loading?: boolean; // show loading indicator
+  debounceMs?: number; // auto-search debounce
 }
 
 export default function SearchBar({
@@ -25,6 +26,7 @@ export default function SearchBar({
   buttonLabel = "SEARCH",
   autoFocus = false,
   loading = false,
+  debounceMs = 400,
 }: SearchBarProps) {
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
@@ -35,6 +37,16 @@ export default function SearchBar({
   }, [value, controlled]);
 
   const q = controlled ? (value as string) : internalQuery;
+
+  // Auto-trigger debounced search on input changes
+  useEffect(() => {
+    const ms = Math.max(0, debounceMs || 0);
+    const handle = setTimeout(() => {
+      onSearch?.(q);
+    }, ms);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, debounceMs]);
 
   const handleChange = (v: string) => {
     if (controlled) {

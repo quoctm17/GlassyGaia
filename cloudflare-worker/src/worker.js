@@ -10,6 +10,37 @@ function withCors(headers = {}) {
   };
 }
 
+function buildFtsQuery(q) {
+  const cleaned = (q || '').trim();
+  if (!cleaned) return '';
+  // If the user wraps text in quotes, treat it as an exact phrase
+  const quotedMatch = cleaned.match(/^\s*"([\s\S]+)"\s*$/);
+  if (quotedMatch) {
+    const phrase = quotedMatch[1].replace(/["']/g, '').replace(/[^\p{L}\p{N}\s]+/gu, ' ').trim().replace(/\s+/g, ' ');
+    return phrase ? `"${phrase}"` : '';
+  }
+  // Otherwise, build an exact phrase from tokens (not OR). Strip punctuation.
+  const tokens = cleaned
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8); // allow a few more words for phrases
+  if (!tokens.length) return '';
+  if (tokens.length === 1) {
+    // Single word: allow prefix expansion
+    const t = escapeFtsToken(tokens[0]);
+    return t ? `${t}*` : '';
+  }
+  // Multi-word: exact phrase matching
+  const phrase = tokens.map(escapeFtsToken).join(' ');
+  return phrase ? `"${phrase}"` : '';
+}
+
+function escapeFtsToken(t) {
+  // Remove quotes and stray punctuation that might slip through
+  return String(t).replace(/["'.,;:!?()\[\]{}]/g, '');
+}
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) });
 }
@@ -22,6 +53,329 @@ export default {
     try {
       if (request.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: withCors() });
+      }
+
+      // Search API: FTS-backed card subtitles with caching + main_language filtering + fallback listing
+      if (path === '/api/search' && request.method === 'GET') {
+        const cache = caches.default;
+        const cacheKey = new Request(request.url, request);
+        const cached = await cache.match(cacheKey);
+        if (cached) return cached;
+
+        const q = url.searchParams.get('q') || '';
+        const mainLanguage = url.searchParams.get('main_language');
+        const type = url.searchParams.get('type');
+        const contentSlug = url.searchParams.get('content_slug');
+        const minDifficulty = url.searchParams.get('minDifficulty');
+        const maxDifficulty = url.searchParams.get('maxDifficulty');
+        const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
+        const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '100', 10), 1), 500);
+        const offset = (page - 1) * size;
+
+        const ftsQuery = buildFtsQuery(q);
+        const basePublic = env.R2_PUBLIC_BASE || '';
+        const makeMediaUrl = (k) => {
+          if (!k) return null;
+          return basePublic ? `${basePublic}/${k}` : `${url.origin}/media/${k}`;
+        };
+        const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || url.searchParams.get('subtitle_language') || null;
+        const subtitleLangsArr = subtitleLanguagesCsv ? Array.from(new Set(String(subtitleLanguagesCsv).split(',').map(s => s.trim()).filter(Boolean))) : [];
+        const subtitleLangsCount = subtitleLangsArr.length;
+
+        if (!ftsQuery) {
+          // Fallback listing (latest cards) filtered by content main_language & type & difficulty
+          // Distribute results across contents dynamically so total ~= page size
+          const stmtFallback = `
+            WITH contents AS (
+              SELECT id FROM content_items
+              WHERE (?1 IS NULL OR main_language = ?1)
+                AND (?2 IS NULL OR type = ?2)
+            ),
+            req AS (
+              SELECT card_id, COUNT(DISTINCT language) AS cnt
+              FROM card_subtitles
+              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
+              GROUP BY card_id
+            ),
+            ranked AS (
+              SELECT
+                c.id AS card_id,
+                c.episode_id,
+                c.card_number,
+                c.start_time,
+                c.end_time,
+                c.image_key,
+                c.audio_key,
+                c.difficulty_score,
+                e.slug AS episode_slug,
+                e.episode_number AS episode_number,
+                ci.id AS content_id,
+                ci.slug AS content_slug,
+                ci.title AS content_title,
+                ci.cover_key AS content_cover_key,
+                ci.cover_landscape_key AS content_cover_landscape_key,
+                ci.main_language AS content_main_language,
+                ROW_NUMBER() OVER (PARTITION BY ci.id ORDER BY c.updated_at DESC, c.card_number ASC) AS rn
+              FROM cards c
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE ci.id IN (SELECT id FROM contents)
+                AND (?3 IS NULL OR c.difficulty_score >= ?3)
+                AND (?4 IS NULL OR c.difficulty_score <= ?4)
+            )
+            SELECT r.*,
+                   cs_main.text AS text,
+                   cs_main.language AS language,
+                   subs.subs_json AS subs_json
+            FROM ranked r
+            LEFT JOIN card_subtitles cs_main ON cs_main.card_id = r.card_id AND cs_main.language = r.content_main_language
+            LEFT JOIN (
+              SELECT card_id, json_group_object(language, text) AS subs_json
+              FROM card_subtitles
+              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
+              GROUP BY card_id
+            ) subs ON subs.card_id = r.card_id
+            LEFT JOIN req ON req.card_id = r.card_id
+            WHERE (?8 = 0 OR req.cnt = ?8)
+              AND (?10 IS NULL OR r.content_slug = ?10)
+              AND (?9 IS NULL OR 1=1)
+            ORDER BY r.rn ASC, r.content_slug ASC, r.card_number ASC
+            LIMIT ?5 OFFSET ?6;
+          `;
+          const stmtCountFallback = `
+            WITH contents AS (
+              SELECT id FROM content_items
+              WHERE (?1 IS NULL OR main_language = ?1)
+                AND (?2 IS NULL OR type = ?2)
+            ),
+            cards_in_scope AS (
+              SELECT c.id AS card_id, ci.slug AS content_slug
+              FROM cards c
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE ci.id IN (SELECT id FROM contents)
+                AND (?3 IS NULL OR c.difficulty_score >= ?3)
+                AND (?4 IS NULL OR c.difficulty_score <= ?4)
+                AND (?10 IS NULL OR 1=1)
+            ),
+            req AS (
+              SELECT card_id, COUNT(DISTINCT language) AS cnt
+              FROM card_subtitles
+              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
+              GROUP BY card_id
+            )
+            SELECT content_slug, COUNT(*) AS cnt
+            FROM cards_in_scope cis
+            LEFT JOIN req ON req.card_id = cis.card_id
+            WHERE (?8 = 0 OR req.cnt = ?8)
+            GROUP BY content_slug;
+          `;
+          const stmtTotalFallback = `
+            WITH contents AS (
+              SELECT id FROM content_items
+              WHERE (?1 IS NULL OR main_language = ?1)
+                AND (?2 IS NULL OR type = ?2)
+            ),
+            cards_in_scope AS (
+              SELECT c.id AS card_id
+              FROM cards c
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE ci.id IN (SELECT id FROM contents)
+                AND (?3 IS NULL OR c.difficulty_score >= ?3)
+                AND (?4 IS NULL OR c.difficulty_score <= ?4)
+                AND (?10 IS NULL OR 1=1)
+            ),
+            req AS (
+              SELECT card_id, COUNT(DISTINCT language) AS cnt
+              FROM card_subtitles
+              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
+              GROUP BY card_id
+            )
+            SELECT COUNT(*) AS total
+            FROM cards_in_scope cis
+            LEFT JOIN req ON req.card_id = cis.card_id
+            WHERE (?8 = 0 OR req.cnt = ?8);
+          `;
+          try {
+            const { results } = await env.DB.prepare(stmtFallback)
+              .bind(mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, page, contentSlug)
+              .all();
+            const countsRes = await env.DB.prepare(stmtCountFallback)
+              .bind(
+                mainLanguage, // ?1
+                type,         // ?2
+                minDifficulty, // ?3
+                maxDifficulty, // ?4
+                size,          // ?5 (unused filler)
+                offset,        // ?6 (unused filler)
+                subtitleLanguagesCsv, // ?7
+                subtitleLangsCount,   // ?8
+                page,                  // ?9 (unused filler)
+                contentSlug            // ?10
+              )
+              .all();
+            const totalRes = await env.DB.prepare(stmtTotalFallback)
+              .bind(
+                mainLanguage, // ?1
+                type,         // ?2
+                minDifficulty, // ?3
+                maxDifficulty, // ?4
+                size,          // ?5 (unused filler)
+                offset,        // ?6 (unused filler)
+                subtitleLanguagesCsv, // ?7
+                subtitleLangsCount,   // ?8
+                page,                  // ?9 (unused filler)
+                contentSlug            // ?10
+              )
+              .all();
+            const mapped = (results || []).map(r => ({
+              ...r,
+              image_url: makeMediaUrl(r.image_key),
+              audio_url: makeMediaUrl(r.audio_key)
+            }));
+            const perContent = {};
+            for (const row of (countsRes.results || [])) {
+              if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
+            }
+            const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
+            const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
+            await cache.put(cacheKey, resp.clone());
+            return resp;
+          } catch (e) {
+            return json({ error: 'search_failed', message: String(e) }, { status: 500 });
+          }
+        }
+
+        const stmt = `
+          SELECT
+            cs.card_id,
+            bm25(card_subtitles_fts, 10.0, 1.0, 0.0) AS rank,
+            cs.language,
+            cs.text,
+            c.episode_id,
+            c.card_number,
+            c.start_time,
+            c.end_time,
+            c.image_key,
+            c.audio_key,
+            c.difficulty_score,
+            e.slug AS episode_slug,
+            e.episode_number AS episode_number,
+            e.title AS episode_title,
+            ci.slug AS content_slug,
+            ci.title AS content_title,
+            ci.cover_key AS content_cover_key,
+            ci.cover_landscape_key AS content_cover_landscape_key,
+            ci.main_language AS content_main_language,
+            subs.subs_json AS subs_json
+          FROM card_subtitles_fts
+          JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
+          JOIN cards c ON c.id = cs.card_id
+          JOIN episodes e ON e.id = c.episode_id
+          JOIN content_items ci ON ci.id = e.content_item_id
+          LEFT JOIN (
+            SELECT card_id, COUNT(DISTINCT language) AS cnt
+            FROM card_subtitles
+            WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
+            GROUP BY card_id
+          ) req ON req.card_id = cs.card_id
+          LEFT JOIN (
+            SELECT card_id, json_group_object(language, text) AS subs_json
+            FROM card_subtitles
+            WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
+            GROUP BY card_id
+          ) subs ON subs.card_id = cs.card_id
+          WHERE card_subtitles_fts MATCH ?1
+            AND card_subtitles_fts.language = ci.main_language
+            AND cs.language = ci.main_language
+            AND (?2 IS NULL OR ci.main_language = ?2)
+            AND (?3 IS NULL OR ci.type = ?3)
+            AND (?10 IS NULL OR ci.slug = ?10)
+            AND (?4 IS NULL OR c.difficulty_score >= ?4)
+            AND (?5 IS NULL OR c.difficulty_score <= ?5)
+            AND (?9 = 0 OR req.cnt = ?9)
+          ORDER BY rank ASC, c.card_number ASC
+          LIMIT ?6 OFFSET ?7;
+        `;
+        try {
+          const { results } = await env.DB.prepare(stmt)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug)
+            .all();
+          const countStmt = `
+            WITH matches AS (
+              SELECT DISTINCT cs.card_id, ci.slug AS content_slug
+              FROM card_subtitles_fts
+              JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
+              JOIN cards c ON c.id = cs.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              LEFT JOIN (
+                SELECT card_id, COUNT(DISTINCT language) AS cnt
+                FROM card_subtitles
+                WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
+                GROUP BY card_id
+              ) req ON req.card_id = cs.card_id
+              WHERE card_subtitles_fts MATCH ?1
+                AND card_subtitles_fts.language = ci.main_language
+                AND cs.language = ci.main_language
+                AND (?2 IS NULL OR ci.main_language = ?2)
+                AND (?3 IS NULL OR ci.type = ?3)
+                AND (?10 IS NULL OR 1=1)
+                AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (?9 = 0 OR req.cnt = ?9)
+            )
+            SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
+          `;
+          const totalStmt = `
+            WITH matches AS (
+              SELECT DISTINCT cs.card_id
+              FROM card_subtitles_fts
+              JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
+              JOIN cards c ON c.id = cs.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              LEFT JOIN (
+                SELECT card_id, COUNT(DISTINCT language) AS cnt
+                FROM card_subtitles
+                WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
+                GROUP BY card_id
+              ) req ON req.card_id = cs.card_id
+              WHERE card_subtitles_fts MATCH ?1
+                AND card_subtitles_fts.language = ci.main_language
+                AND cs.language = ci.main_language
+                AND (?2 IS NULL OR ci.main_language = ?2)
+                AND (?3 IS NULL OR ci.type = ?3)
+                AND (?10 IS NULL OR 1=1)
+                AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (?9 = 0 OR req.cnt = ?9)
+            )
+            SELECT COUNT(*) AS total FROM matches;
+          `;
+          const countsRes = await env.DB.prepare(countStmt)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug)
+            .all();
+          const totalRes = await env.DB.prepare(totalStmt)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug)
+            .all();
+          const mapped = (results || []).map(r => ({
+            ...r,
+            image_url: makeMediaUrl(r.image_key),
+            audio_url: makeMediaUrl(r.audio_key)
+          }));
+          const perContent = {};
+          for (const row of (countsRes.results || [])) {
+            if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
+          }
+          const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
+          const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
+          await cache.put(cacheKey, resp.clone());
+          return resp;
+        } catch (e) {
+          return json({ error: 'search_failed', message: String(e) }, { status: 500 });
+        }
       }
 
       // 1) Sign upload: returns URL to this same Worker which will write to R2
