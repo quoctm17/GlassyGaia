@@ -12,6 +12,7 @@ interface CsvPreviewPanelProps {
   requiredOriginals: string[];
   mainLangHeader: string | null;
   mainLangHeaderOverride: string | null;
+  recognizedSubtitleHeaders: Set<string>;
 }
 
 export default function CsvPreviewPanel({
@@ -26,6 +27,7 @@ export default function CsvPreviewPanel({
   requiredOriginals,
   mainLangHeader,
   mainLangHeaderOverride,
+  recognizedSubtitleHeaders,
 }: CsvPreviewPanelProps) {
   // Compute effective reserved headers: include ambiguous columns that are NOT confirmed as language
   const effectiveReservedHeaders = [
@@ -85,12 +87,16 @@ export default function CsvPreviewPanel({
                 const isMainLang = selectedMainHeader === h;
                 const isUnrecognized = unrecognizedHeaders.includes(h);
                 const isReserved = effectiveReservedHeaders.includes(h);
+                // Only show subtitle indicator if it's a recognized subtitle AND not reserved/ambiguous
+                const isSubtitle = recognizedSubtitleHeaders.has(h) && !isReserved && !isUnrecognized;
                 return (
                   <th
                     key={i}
                     className={`border border-gray-700 px-2 py-1 text-left ${
                       isRequired || isMainLang
                         ? 'bg-pink-900/30 font-semibold'
+                        : isSubtitle
+                        ? 'bg-blue-900/20'
                         : isUnrecognized
                         ? 'bg-yellow-900/20'
                         : isReserved
@@ -102,6 +108,8 @@ export default function CsvPreviewPanel({
                         ? 'Required'
                         : isMainLang
                         ? 'Main Language'
+                        : isSubtitle
+                        ? 'Subtitle column'
                         : isUnrecognized
                         ? 'Unrecognized column (will be ignored)'
                         : isReserved
@@ -112,6 +120,7 @@ export default function CsvPreviewPanel({
                     {h}
                     {isRequired && <span className="text-red-400 ml-1">*</span>}
                     {isMainLang && <span className="text-amber-400 ml-1">★</span>}
+                    {isSubtitle && !isMainLang && <span className="text-blue-400 ml-1">§</span>}
                     {isUnrecognized && <span className="text-yellow-400 ml-1">⚠</span>}
                     {isReserved && <span className="text-purple-400 ml-1">◆</span>}
                   </th>
@@ -128,6 +137,10 @@ export default function CsvPreviewPanel({
                   const isRequired = requiredOriginals.includes(h);
                   const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
                   const isMainLang = selectedMainHeader === h;
+                  const isReserved = effectiveReservedHeaders.includes(h);
+                  const isUnrecognized = unrecognizedHeaders.includes(h);
+                  // Only treat as subtitle if recognized AND not reserved/unrecognized
+                  const isSubtitle = recognizedSubtitleHeaders.has(h) && !isReserved && !isUnrecognized;
                   const isEmpty = !val.trim();
                   // Round start/end columns to integers for display (DB stores as INTEGER)
                   const hLower = h.toLowerCase();
@@ -137,8 +150,9 @@ export default function CsvPreviewPanel({
                     <td
                       key={j}
                       className={`border border-gray-700 px-2 py-1 ${
-                        isEmpty && (isRequired || isMainLang) ? 'bg-red-900/20 text-red-300' : 'text-gray-300'
+                        isEmpty && (isRequired || isMainLang || isSubtitle) ? 'bg-red-900/30 text-red-300' : 'text-gray-300'
                       }`}
+                      title={isEmpty && (isRequired || isMainLang || isSubtitle) ? 'Ô trống - cần điền' : ''}
                     >
                       {displayVal}
                     </td>
@@ -151,8 +165,10 @@ export default function CsvPreviewPanel({
         <div className="text-[10px] text-gray-500 px-2 py-1">
           <span className="text-red-400">*</span> = Required column |{' '}
           <span className="text-amber-400">★</span> = Main Language column |{' '}
+          <span className="text-blue-400">§</span> = Subtitle column |{' '}
           <span className="text-yellow-400">⚠</span> = Unrecognized column |{' '}
-          <span className="text-purple-400">◆</span> = Reserved column (actively ignored)
+          <span className="text-purple-400">◆</span> = Reserved column (actively ignored) |{' '}
+          <span className="bg-red-900/30 text-red-300 px-1">Ô đỏ</span> = Ô trống cần điền
         </div>
       </div>
     </div>

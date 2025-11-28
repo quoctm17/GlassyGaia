@@ -18,6 +18,7 @@ export default function AdminEpisodeUpdatePage() {
   const [saving, setSaving] = useState(false);
   const [ep, setEp] = useState<EpisodeDetailDoc | null>(null);
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [film, setFilm] = useState<FilmDoc | null>(null);
   const [filmMainLang, setFilmMainLang] = useState<string>('en');
@@ -77,6 +78,7 @@ export default function AdminEpisodeUpdatePage() {
         if (!mounted) return;
         setEp(row);
         setTitle(row?.title || '');
+        setDescription(row?.description || '');
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -97,7 +99,7 @@ export default function AdminEpisodeUpdatePage() {
   // Reserved column confirmation state (for ambiguous columns like 'id' which could be Indonesian)
   const [confirmedAsLanguage, setConfirmedAsLanguage] = useState<Set<string>>(new Set());
   const csvRef = useRef<HTMLInputElement | null>(null);
-  const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const, []);
+  const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const, []);
 
   const validateCsv = useCallback((headers: string[], rows: Record<string,string>[]) => {
     const errors: string[] = [];
@@ -114,6 +116,9 @@ export default function AdminEpisodeUpdatePage() {
     const aliasMap: Record<string,string> = {}; SUPPORTED_CANON.forEach(c=>{ expandCanonicalToAliases(c).forEach(a=>{ aliasMap[a.toLowerCase()] = c; }); });
     aliasMap['portugese']='pt_pt'; aliasMap['portugese (portugal)']='pt_pt'; aliasMap['portugese (brazil)']='pt_br';
     aliasMap['nb']='nb'; aliasMap['norwegian bokmal']='nb'; aliasMap['norwegian bokmål']='nb'; aliasMap['bokmal']='nb'; aliasMap['bokmål']='nb';
+    // Northern Sami and Bulgarian aliases
+    aliasMap['northern sami']='se'; aliasMap['sami (northern)']='se'; aliasMap['sami']='se'; aliasMap['se']='se'; aliasMap['sme']='se';
+    aliasMap['bulgarian']='bg'; aliasMap['bg']='bg';
     const recognizedSubtitleHeaders = new Set<string>(); const norm=(s:string)=>s.trim().toLowerCase();
     headers.forEach(h=>{ const rawLow=norm(h); const cleaned=rawLow.replace(/\s*\[[^\]]*\]\s*/g,'').trim(); if(RESERVED_COLUMNS.has(cleaned)) return; if(aliasMap[cleaned]){ recognizedSubtitleHeaders.add(h); return; }
       const m=cleaned.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/); if(m){ const base=m[1]; const variant=m[2]; if(base==='chinese'){ if(/(trad|traditional|hant|hk|tw|mo)/.test(variant)){ recognizedSubtitleHeaders.add(h); return;} if(/(simplified|hans|cn)/.test(variant)){ recognizedSubtitleHeaders.add(h); return;} } if(aliasMap[base]) recognizedSubtitleHeaders.add(h); }
@@ -129,7 +134,22 @@ export default function AdminEpisodeUpdatePage() {
       if(!/\([^)]+\)/.test(low)){ const baseCanon=aliasMap[low]; if(baseCanon===mainCanon){ hasMain=true; break; } }
     }
     if(!hasMain) errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon}`);
-    let ec=0; const maxErr=50; rows.forEach((row,i)=>{ required.forEach(k=>{ const orig=headerMap[k]; const v=orig? (row[orig]||'').trim():''; if(!v){ errors.push(`Hàng ${i+2}: cột "${k}" trống.`); ec++; } }); if(ec>=maxErr) return; });
+    let ec=0; const maxErr=50; 
+    rows.forEach((row,i)=>{ 
+      required.forEach(k=>{ 
+        const orig=headerMap[k]; 
+        const v=orig? (row[orig]||'').trim():''; 
+        if(!v){ errors.push(`Hàng ${i+1}: cột "${k}" trống.`); ec++; } 
+      }); 
+      // Flag empty subtitle cells for recognized subtitle columns
+      if (ec < maxErr) {
+        recognizedSubtitleHeaders.forEach((hdr) => {
+          const val = (row[hdr] || "").toString().trim();
+          if (!val) { errors.push(`Hàng ${i + 1}: cột phụ đề "${hdr}" trống.`); ec++; }
+        });
+      }
+      if(ec>=maxErr) return; 
+    });
     setCsvErrors(errors); setCsvValid(errors.length===0);
   }, [filmMainLang, SUPPORTED_CANON]);
 
@@ -142,8 +162,8 @@ export default function AdminEpisodeUpdatePage() {
   const mainLangHeader = useMemo(()=>findHeaderForLang(csvHeaders, filmMainLang), [csvHeaders, filmMainLang]);
   
   // Derive lists for unrecognized and reserved columns (EXACT COPY from AdminContentIngestPage)
-  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders } = useMemo(() => {
-    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[] };
+  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders, recognizedSubtitleHeaders } = useMemo(() => {
+    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[], recognizedSubtitleHeaders: new Set<string>() };
     
     // Same reserved columns as validateCsv in AdminContentIngestPage
     const RESERVED_COLUMNS = new Set([
@@ -186,9 +206,11 @@ export default function AdminEpisodeUpdatePage() {
       kurdish: "ku", ku: "ku",
       slovenian: "sl", sl: "sl",
       serbian: "sr", sr: "sr",
-      bulgarian: "bg", bg: "bg"
+      bulgarian: "bg", bg: "bg",
+      // Northern Sami aliases
+      "northern sami": "se", "sami (northern)": "se", "sami": "se", se: "se", sme: "se"
     };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
     const recognizedSubtitleHeaders = new Set<string>();
     const AMBIGUOUS_COLS = new Set(["id", "in"]); // These could be Indonesian language codes OR reserved columns
     
@@ -271,7 +293,7 @@ export default function AdminEpisodeUpdatePage() {
       if (low === 'sentence') continue; // already an error above
       unrecognized.push(raw);
     }
-    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous };
+    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous, recognizedSubtitleHeaders };
   }, [csvHeaders, confirmedAsLanguage]);
   
   const lowerHeaderMap = useMemo(() => {
@@ -583,6 +605,7 @@ export default function AdminEpisodeUpdatePage() {
         filmSlug: contentSlug,
         episodeNum,
         title: title || undefined,
+        description: description || undefined,
         cover_url: coverUrl || undefined,
         full_audio_url: audioUrl || undefined,
         full_video_url: videoUrl || undefined,
@@ -596,6 +619,7 @@ export default function AdminEpisodeUpdatePage() {
       const refreshed = await apiGetEpisodeDetail({ filmSlug: contentSlug!, episodeNum });
       setEp(refreshed);
       setTitle(refreshed?.title || '');
+      setDescription(refreshed?.description || '');
       // Clear file inputs
       setCoverFile(null);
       setAudioFile(null);
@@ -668,6 +692,15 @@ export default function AdminEpisodeUpdatePage() {
             <div className="flex items-center gap-2">
               <label className="w-40 text-sm">Title</label>
               <input className="admin-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Episode title" />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="w-40 text-sm">Description</label>
+              <input 
+                className="admin-input" 
+                value={description} 
+                onChange={(e) => setDescription(e.target.value)} 
+                placeholder="Episode description"
+              />
             </div>
 
             <div className="flex flex-col gap-2">
@@ -828,6 +861,7 @@ export default function AdminEpisodeUpdatePage() {
               requiredOriginals={requiredOriginals}
               mainLangHeader={mainLangHeader}
               mainLangHeaderOverride={mainLangHeaderOverride}
+              recognizedSubtitleHeaders={recognizedSubtitleHeaders}
             />
             
             {/* Ambiguous column checkboxes */}

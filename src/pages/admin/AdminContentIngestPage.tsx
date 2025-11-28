@@ -57,6 +57,7 @@ export default function AdminContentIngestPage() {
   const [episodeNum] = useState<number>(1);
   const [title, setTitle] = useState("");
   const [episodeTitle, setEpisodeTitle] = useState("");
+  const [episodeDescription, setEpisodeDescription] = useState("");
   const [description, setDescription] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   // Slug uniqueness check state
@@ -78,7 +79,7 @@ export default function AdminContentIngestPage() {
   const [langQuery, setLangQuery] = useState("");
   const ALL_LANG_OPTIONS: string[] = [
     "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
-    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","ta","te","tr","uk",
+    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","se","ta","te","tr","uk",
     "fa","ku","sl","sr","bg"
   ];
   const SORTED_LANG_OPTIONS = useMemo(() => {
@@ -204,7 +205,7 @@ export default function AdminContentIngestPage() {
     }
     // language detection (strict variant matching)
     const recognizedSubtitleHeaders = new Set<string>();
-    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const;
+    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const;
     const aliasMap: Record<string,string> = {};
     SUPPORTED_CANON.forEach(c => { expandCanonicalToAliases(c).forEach(a => { aliasMap[a.toLowerCase()] = c; }); });
     // Common misspellings / fallbacks
@@ -335,8 +336,15 @@ export default function AdminContentIngestPage() {
       required.forEach(k => {
         const orig = headerMap[k];
         const v = orig ? (row[orig] || "").toString().trim() : "";
-        if (!v) { errors.push(`Hàng ${i + 2}: cột "${k}" trống.`); ec++; }
+        if (!v) { errors.push(`Hàng ${i + 1}: cột "${k}" trống.`); ec++; }
       });
+      // Flag empty subtitle cells for recognized subtitle columns
+      if (ec < maxErr) {
+        recognizedSubtitleHeaders.forEach((hdr) => {
+          const val = (row[hdr] || "").toString().trim();
+          if (!val) { errors.push(`Hàng ${i + 1}: cột phụ đề "${hdr}" trống.`); ec++; }
+        });
+      }
       if (ec >= maxErr) return;
     });
     setCsvErrors(errors);
@@ -345,8 +353,8 @@ export default function AdminContentIngestPage() {
 
   // Derive lists for footnote display (kept in sync with validateCsv rules)
   // Two types: unrecognized (not detected) and reserved (actively ignored)
-  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders } = useMemo(() => {
-    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[] };
+  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders, recognizedSubtitleHeaders } = useMemo(() => {
+    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[], recognizedSubtitleHeaders: new Set<string>() };
     
     // Same reserved columns as validateCsv
     const RESERVED_COLUMNS = new Set([
@@ -389,9 +397,11 @@ export default function AdminContentIngestPage() {
       kurdish: "ku", ku: "ku",
       slovenian: "sl", sl: "sl",
       serbian: "sr", sr: "sr",
-      bulgarian: "bg", bg: "bg"
+      bulgarian: "bg", bg: "bg",
+      // Northern Sami aliases
+      "northern sami": "se", "sami (northern)": "se", "sami": "se", se: "se", sme: "se"
     };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
     const recognizedSubtitleHeaders = new Set<string>();
     const AMBIGUOUS_COLS = new Set(["id", "in"]); // These could be Indonesian language codes OR reserved columns
     
@@ -476,7 +486,7 @@ export default function AdminContentIngestPage() {
       // If we got here, it's unrecognized
       unrecognized.push(raw);
     }
-    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous };
+    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous, recognizedSubtitleHeaders };
   }, [csvHeaders, confirmedAsLanguage]);
 
   const findHeaderForLang = useCallback((headers: string[], lang: string): string | null => {
@@ -743,6 +753,7 @@ export default function AdminContentIngestPage() {
         episodes: 1,
         total_episodes: 1,
         episode_title: episodeTitle || undefined,
+        episode_description: episodeDescription || undefined,
         ...(contentType ? { type: contentType } : {}),
         ...(releaseYear !== "" ? { release_year: releaseYear } : {}),
         is_original: isOriginal,
@@ -1175,6 +1186,15 @@ export default function AdminContentIngestPage() {
             <label className="w-40 text-sm">Episode Title</label>
             <input className="admin-input" value={episodeTitle} onChange={e => setEpisodeTitle(e.target.value)} placeholder="Optional episode title" />
           </div>
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Episode Description</label>
+            <input 
+              className="admin-input" 
+              value={episodeDescription} 
+              onChange={e => setEpisodeDescription(e.target.value)} 
+              placeholder="Optional episode description"
+            />
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
@@ -1295,6 +1315,7 @@ export default function AdminContentIngestPage() {
           requiredOriginals={requiredOriginals}
           mainLangHeader={mainLangHeader}
           mainLangHeaderOverride={mainLangHeaderOverride}
+          recognizedSubtitleHeaders={recognizedSubtitleHeaders}
         />
         
         {/* Ambiguous column checkboxes */}

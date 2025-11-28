@@ -10,7 +10,7 @@ export type CanonicalLang =
   | "gl" | "de" | "el" | "he" | "hi" | "hu" | "is"
   | "id" | "it" | "ja" | "ko" | "ms" | "ml" | "no" | "nb"
   | "pl" | "pt" | "pt_br" | "pt_pt" | "ro" | "ru"
-  | "es" | "es_la" | "es_es" | "sv" | "ta" | "te" | "th"
+  | "es" | "es_la" | "es_es" | "sv" | "se" | "ta" | "te" | "th"
   | "tr" | "uk" | "vi"
   | "fa" | "ku" | "sl" | "sr" | "bg"
   | "rec" | "triage"; // pseudo labels if needed
@@ -21,6 +21,8 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
   vi: "vi", vietnamese: "vi",
   ja: "ja", jp: "ja", japanese: "ja",
   ko: "ko", kr: "ko", korean: "ko",
+  // Northern Sami
+  se: "se", sme: "se", "northern sami": "se", "sami (northern)": "se",
   zh: "zh", cn: "zh", "zh-cn": "zh", zh_cn: "zh", chinese: "zh", chinese_simplified: "zh",
   // Simplified variants
   "zh-hans": "zh", zh_hans: "zh", "zh-hans-cn": "zh", zh_hans_cn: "zh", "zh-simplified": "zh", zh_simplified: "zh",
@@ -142,6 +144,7 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   sr: ["sr", "serbian"],
   bg: ["bg", "bulgarian"],
   sv: ["sv", "swedish"],
+  se: ["se", "sme", "northern sami", "sami (northern)"],
   ta: ["ta", "tamil"],
   te: ["te", "telugu"],
   tr: ["tr", "turkish"],
@@ -164,6 +167,7 @@ export function langLabel(code: string): string {
     ko: "Korean",
     zh: "Chinese (Simplified)",
     zh_trad: "Chinese (Traditional)",
+    se: "Northern Sami",
     id: "Indonesian",
     th: "Thai",
     ms: "Malay",
@@ -226,6 +230,7 @@ export function langFlag(code: string): string {
     ko: "🇰🇷",
     zh: "🇨🇳",
     zh_trad: "🇹🇼",
+    se: "🇳🇴",
     id: "🇮🇩",
     th: "🇹🇭",
     ms: "🇲🇾",
@@ -292,6 +297,7 @@ export function countryCodeForLang(code: string): string {
     ko: "kr",
     zh: "cn",
     zh_trad: "tw",
+    se: "no",
     id: "id",
     th: "th",
     ms: "my",
@@ -358,6 +364,7 @@ export function languageCssBase(code: string): string {
     ko: 'korean',
     zh: 'chinese',
     zh_trad: 'chinese',
+    se: 'sami',
     id: 'indonesian',
     th: 'thai',
     ms: 'malay',
