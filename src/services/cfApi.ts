@@ -178,6 +178,7 @@ export interface EpisodeMetaApi {
   episode_number: number;
   title: string | null;
   slug: string;
+  description: string | null;
   cover_url: string | null;
   full_audio_url: string | null;
   full_video_url: string | null;
@@ -487,6 +488,7 @@ export async function apiUpdateEpisodeMeta(params: {
   filmSlug: string;
   episodeNum: number;
   title?: string;
+  description?: string;
   cover_url?: string;
   cover_key?: string;
   full_audio_url?: string;

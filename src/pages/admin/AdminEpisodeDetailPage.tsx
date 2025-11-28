@@ -162,6 +162,10 @@ export default function AdminEpisodeDetailPage() {
                 <span className="text-gray-200">{ep.title || '-'}</span>
               </div>
             </div>
+            <div>
+              <label className="w-32 text-sm text-gray-400">Description:</label>
+              <div className="text-gray-200 mt-1">{ep.description || '-'}</div>
+            </div>
             {/* Episode Cover (Landscape) */}
             {ep.cover_url && (
               <div className="space-y-2">

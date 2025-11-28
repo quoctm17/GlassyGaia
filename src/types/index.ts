@@ -81,6 +81,7 @@ export interface EpisodeDetailDoc {
   episode_number: number;
   slug: string;
   title: string | null;
+  description?: string | null;
   cover_url: string | null;
   full_audio_url: string | null;
   full_video_url: string | null;

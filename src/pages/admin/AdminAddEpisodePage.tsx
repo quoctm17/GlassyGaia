@@ -33,6 +33,7 @@ export default function AdminAddEpisodePage() {
   // Episode form state
   const [episodeNum, setEpisodeNum] = useState<number>(2); // default next
   const [episodeTitle, setEpisodeTitle] = useState('');
+  const [episodeDescription, setEpisodeDescription] = useState('');
   const [addEpCover, setAddEpCover] = useState(false);
   const [addEpAudio, setAddEpAudio] = useState(false);
   const [addEpVideo, setAddEpVideo] = useState(false);
@@ -151,8 +152,8 @@ export default function AdminAddEpisodePage() {
   const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, filmMainLang), [csvHeaders, filmMainLang]);
   
   // Derive lists for unrecognized and reserved columns (EXACT COPY from AdminContentIngestPage)
-  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders } = useMemo(() => {
-    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[] };
+  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders, recognizedSubtitleHeaders } = useMemo(() => {
+    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[], recognizedSubtitleHeaders: new Set<string>() };
     
     // Same reserved columns as validateCsv in AdminContentIngestPage
     const RESERVED_COLUMNS = new Set([
@@ -195,9 +196,11 @@ export default function AdminAddEpisodePage() {
       kurdish: "ku", ku: "ku",
       slovenian: "sl", sl: "sl",
       serbian: "sr", sr: "sr",
-      bulgarian: "bg", bg: "bg"
+      bulgarian: "bg", bg: "bg",
+      // Northern Sami aliases
+      "northern sami": "se", "sami (northern)": "se", "sami": "se", se: "se", sme: "se"
     };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
+    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
     const recognizedSubtitleHeaders = new Set<string>();
     const AMBIGUOUS_COLS = new Set(["id", "in"]); // These could be Indonesian language codes OR reserved columns
     
@@ -280,7 +283,7 @@ export default function AdminAddEpisodePage() {
       if (low === 'sentence') continue; // already an error above
       unrecognized.push(raw);
     }
-    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous };
+    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous, recognizedSubtitleHeaders };
   }, [csvHeaders, confirmedAsLanguage]);
   
   // Candidate headers for main language (support simple variant pairs like es_es/es_la, pt_pt/pt_br)
@@ -358,12 +361,19 @@ export default function AdminAddEpisodePage() {
       required.forEach(k=>{
         const orig=headerMap[k];
         const v=orig? (row[orig]||'').trim() : '';
-        if(!v){ errors.push(`Hàng ${i+2}: cột "${k}" trống.`); ec++; }
+        if(!v){ errors.push(`Hàng ${i+1}: cột "${k}" trống.`); ec++; }
       });
+      // Flag empty subtitle cells for recognized subtitle columns
+      if (ec < maxErr) {
+        recognizedSubtitleHeaders.forEach((hdr) => {
+          const val = (row[hdr] || "").toString().trim();
+          if (!val) { errors.push(`Hàng ${i + 1}: cột phụ đề "${hdr}" trống.`); ec++; }
+        });
+      }
       if(ec>=maxErr) return;
     });
     setCsvErrors(errors); setCsvValid(errors.length===0);
-  }, [filmMainLang, mainLangHeaderOverride]);
+  }, [filmMainLang, mainLangHeaderOverride, recognizedSubtitleHeaders]);
 
   useEffect(()=>{ if(csvHeaders.length && csvRows.length) validateCsv(csvHeaders,csvRows); }, [csvHeaders,csvRows,filmMainLang,mainLangHeaderOverride,validateCsv]);
 
@@ -540,6 +550,7 @@ export default function AdminAddEpisodePage() {
         total_episodes: totalEpisodesDerived,
         episodes: 1,
         episode_title: episodeTitle || undefined,
+        episode_description: episodeDescription || undefined,
       };
       let cardIds: string[]|undefined = undefined;
       if(infer){ const all=[...imageFiles, ...audioFiles]; const set=new Set<string>(); all.forEach(f=>{ const m=f.name.match(/(\d+)(?=\.[^.]+$)/); if(m){ const raw=m[1]; const id= raw.length>=padDigits? raw: raw.padStart(padDigits,'0'); set.add(id);} }); if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } }
@@ -747,6 +758,15 @@ export default function AdminAddEpisodePage() {
             <label className="w-40 text-sm">Episode Title</label>
             <input className="admin-input" value={episodeTitle} onChange={e => setEpisodeTitle(e.target.value)} placeholder="Optional episode title" />
           </div>
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Episode Description</label>
+            <input 
+              className="admin-input" 
+              value={episodeDescription} 
+              onChange={e => setEpisodeDescription(e.target.value)} 
+              placeholder="Optional episode description"
+            />
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
@@ -834,6 +854,7 @@ export default function AdminAddEpisodePage() {
           requiredOriginals={requiredOriginals}
           mainLangHeader={mainLangHeader}
           mainLangHeaderOverride={mainLangHeaderOverride}
+          recognizedSubtitleHeaders={recognizedSubtitleHeaders}
         />
         
         {/* Ambiguous column checkboxes */}

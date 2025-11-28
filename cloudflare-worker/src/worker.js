@@ -1000,7 +1000,7 @@ export default {
           let rows;
           try {
             // New schema (episode_number)
-            rows = await env.DB.prepare('SELECT episode_number,title,slug,cover_key,full_audio_key,full_video_key FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
+            rows = await env.DB.prepare('SELECT episode_number,title,slug,description,cover_key,full_audio_key,full_video_key FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
           } catch (e) {
             // Backward compatibility: older column name episode_num
             try {
@@ -1014,6 +1014,7 @@ export default {
             episode_number: r.episode_number,
             title: r.title || null,
             slug: r.slug || `${filmSlug}_${r.episode_number}`,
+            description: r.description || null,
             cover_url: r.cover_key ? (base ? `${base}/${r.cover_key}` : `/${r.cover_key}`) : null,
             full_audio_url: r.full_audio_key ? (base ? `${base}/${r.full_audio_key}` : `/${r.full_audio_key}`) : null,
             full_video_url: r.full_video_key ? (base ? `${base}/${r.full_video_key}` : `/${r.full_video_key}`) : null,
@@ -1449,7 +1450,7 @@ export default {
           }
           let episode;
           try {
-            episode = await env.DB.prepare('SELECT id, title, slug, cover_key, full_audio_key, full_video_key, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+            episode = await env.DB.prepare('SELECT id, title, slug, description, cover_key, full_audio_key, full_video_key, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
           } catch (e) {
             // Fallback older schema
             try {
@@ -1465,6 +1466,7 @@ export default {
               episode_number: epNum,
               title: episode.title || null,
               slug: episode.slug || `${filmSlug}_${epNum}`,
+              description: episode.description || null,
               cover_url: episode.cover_key ? (base ? `${base}/${episode.cover_key}` : `/${episode.cover_key}`) : null,
               full_audio_url: episode.full_audio_key ? (base ? `${base}/${episode.full_audio_key}` : `/${episode.full_audio_key}`) : null,
               full_video_url: episode.full_video_key ? (base ? `${base}/${episode.full_video_key}` : `/${episode.full_video_key}`) : null,
@@ -1482,6 +1484,10 @@ export default {
           if (typeof body.title === 'string' && body.title.trim() !== '') {
             setClauses.push('title=?');
             values.push(body.title.trim());
+          }
+          if (typeof body.description === 'string' && body.description.trim() !== '') {
+            setClauses.push('description=?');
+            values.push(body.description.trim());
           }
           const coverKeyRaw = body.cover_key || body.cover_url;
           if (typeof coverKeyRaw === 'string' && coverKeyRaw.trim() !== '') {
@@ -2062,32 +2068,36 @@ export default {
             const epUuid = crypto.randomUUID();
             const epPadded = String(episodeNumber).padStart(3, '0');
             const episodeTitle = (film.episode_title && String(film.episode_title).trim()) ? String(film.episode_title).trim() : `e${epPadded}`;
+            const episodeDescription = (film.episode_description && String(film.episode_description).trim()) ? String(film.episode_description).trim() : null;
             const episodeSlug = `${filmSlug}_${epPadded}`;
             // Insert with slug column if available; fallback without slug on older schema
             try {
-              await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_number,title,slug) VALUES (?,?,?,?,?)').bind(
+              await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_number,title,slug,description) VALUES (?,?,?,?,?,?)').bind(
                 epUuid,
                 filmRow.id,
                 episodeNumber,
                 episodeTitle,
-                episodeSlug
+                episodeSlug,
+                episodeDescription
               ).run();
             } catch (e) {
               // Fallback older schema with episode_num
               try {
-                await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_num,title,slug) VALUES (?,?,?,?,?)').bind(
+                await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_num,title,slug,description) VALUES (?,?,?,?,?,?)').bind(
                   epUuid,
                   filmRow.id,
                   episodeNumber,
                   episodeTitle,
-                  episodeSlug
+                  episodeSlug,
+                  episodeDescription
                 ).run();
               } catch (e2) {
-                await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_num,title) VALUES (?,?,?,?)').bind(
+                await env.DB.prepare('INSERT INTO episodes (id,content_item_id,episode_num,title,description) VALUES (?,?,?,?)').bind(
                   epUuid,
                   filmRow.id,
                   episodeNumber,
-                  episodeTitle
+                  episodeTitle,
+                  episodeDescription
                 ).run();
               }
             }
