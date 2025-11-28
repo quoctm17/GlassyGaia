@@ -83,55 +83,74 @@
 }
 
 /* ================= HSK Level Colors (Chinese) ================= */
-.level-badge.level-1 {
+/* Accept both numeric-only and prefixed classes (level-1, level-hsk1, etc.) */
+.level-badge.level-1,
+.level-badge.level-hsk1,
+.level-badge.level-hsk-1 {
   background: #86efac;
   color: #065f46;
   border-color: #10b981;
 }
 
-.level-badge.level-2 {
+.level-badge.level-2,
+.level-badge.level-hsk2,
+.level-badge.level-hsk-2 {
   background: #7dd3fc;
   color: #0c4a6e;
   border-color: #0ea5e9;
 }
 
-.level-badge.level-3 {
+.level-badge.level-3,
+.level-badge.level-hsk3,
+.level-badge.level-hsk-3 {
   background: #bfdbfe;
   color: #1e3a8a;
   border-color: #3b82f6;
 }
 
-.level-badge.level-4 {
+.level-badge.level-4,
+.level-badge.level-hsk4,
+.level-badge.level-hsk-4 {
   background: #fde047;
   color: #713f12;
   border-color: #eab308;
 }
 
-.level-badge.level-5 {
+.level-badge.level-5,
+.level-badge.level-hsk5,
+.level-badge.level-hsk-5 {
   background: #fcd34d;
   color: #78350f;
   border-color: #f59e0b;
 }
 
-.level-badge.level-6 {
+.level-badge.level-6,
+.level-badge.level-hsk6,
+.level-badge.level-hsk-6 {
   background: #f7a45e;
   color: #7c2d12;
   border-color: #ea580c;
 }
 
-.level-badge.level-7 {
+.level-badge.level-7,
+.level-badge.level-hsk7,
+.level-badge.level-hsk-7 {
   background: #fb923c;
   color: #7c2d12;
   border-color: #f97316;
 }
 
-.level-badge.level-8 {
+.level-badge.level-8,
+.level-badge.level-hsk8,
+.level-badge.level-hsk-8 {
   background: #fca5a5;
   color: #7f1d1d;
   border-color: #ef4444;
 }
 
-.level-badge.level-9 {
+.level-badge.level-9,
+.level-badge.level-hsk9,
+.level-badge.level-hsk-9 {
   background: #f87171;
   color: #7f1d1d;
   border-color: #dc2626;
