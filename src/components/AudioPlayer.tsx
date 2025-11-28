@@ -121,7 +121,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
         value={current}
         onChange={onSeek}
         className="mx-2 flex-1 accent-pink-400 h-1 bg-pink-100 rounded-lg outline-none transition-all"
-        style={{ background: `linear-gradient(90deg,#f9a8d4 ${(current/(duration||1))*100}%,#2d193a ${(current/(duration||1))*100}%)` }}
+        style={{ background: `linear-gradient(90deg,#c75485 ${(current/(duration||1))*100}%,#aee0e7 ${(current/(duration||1))*100}%)` }}
       />
       <button
         className="ml-2 p-1.5 rounded-full bg-pink-200 hover:bg-pink-300 text-pink-700"

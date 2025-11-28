@@ -10,6 +10,7 @@ export default function FavoritesPage() {
   const [loading, setLoading] = useState(false);
   const [cards, setCards] = useState<CardDoc[]>([]);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
+  const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -31,11 +32,19 @@ export default function FavoritesPage() {
     // Build film -> primary language map for primary subtitle highlighting
     listFilms()
       .then((fs) => {
-        const map: Record<string, string> = {};
-  fs.forEach((f) => { if (f.main_language) map[f.id] = f.main_language; });
-        setFilmLangMap(map);
+        const langMap: Record<string, string> = {};
+        const titleMap: Record<string, string> = {};
+        fs.forEach((f) => {
+          if (f.main_language) langMap[f.id] = f.main_language;
+          titleMap[f.id] = f.title || f.id;
+        });
+        setFilmLangMap(langMap);
+        setFilmTitleMap(titleMap);
       })
-      .catch(() => setFilmLangMap({}));
+      .catch(() => {
+        setFilmLangMap({});
+        setFilmTitleMap({});
+      });
   }, []);
 
   if (!user) {
@@ -57,7 +66,12 @@ export default function FavoritesPage() {
       <div className="text-sm text-gray-400 mb-4">{loading ? "Loading..." : `${cards.length} favorite cards`}</div>
       <div className="space-y-3">
         {cards.map((c) => (
-          <SearchResultCard key={`${c.film_id}-${c.episode_id}-${c.id}`} card={c} primaryLang={filmLangMap[String(c.film_id ?? '')]} />
+          <SearchResultCard 
+            key={`${c.film_id}-${c.episode_id}-${c.id}`} 
+            card={c} 
+            primaryLang={filmLangMap[String(c.film_id ?? '')]} 
+            filmTitle={filmTitleMap[String(c.film_id ?? '')]}
+          />
         ))}
       </div>
     </div>

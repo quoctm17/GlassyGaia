@@ -13,10 +13,14 @@ export default function ContentCardsPage() {
   const [cards, setCards] = useState<CardDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [primaryLang, setPrimaryLang] = useState<string | undefined>(undefined);
+  const [filmTitle, setFilmTitle] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!contentId) return;
-    getFilmDoc(contentId).then((f) => setPrimaryLang(f?.main_language));
+    getFilmDoc(contentId).then((f) => {
+      setPrimaryLang(f?.main_language);
+      setFilmTitle(f?.title || contentId);
+    });
   }, [contentId]);
 
   useEffect(() => {
@@ -55,7 +59,7 @@ export default function ContentCardsPage() {
         </div>
         <div className="mt-4 space-y-3">
           {cards.map((c) => (
-            <SearchResultCard key={c.id + c.film_id} card={c} primaryLang={primaryLang} />
+            <SearchResultCard key={c.id + c.film_id} card={c} primaryLang={primaryLang} filmTitle={filmTitle} />
           ))}
         </div>
       </main>

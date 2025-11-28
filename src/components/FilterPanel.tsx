@@ -2,6 +2,7 @@
 import type { CardDoc } from '../types';
 import ContentSelector from './ContentSelector';
 import DifficultyFilter from './DifficultyFilter';
+import LevelFrameworkFilter from './LevelFrameworkFilter';
 
 interface FilterPanelProps {
   filmTitleMap: Record<string, string>;
@@ -15,12 +16,37 @@ interface FilterPanelProps {
   minDifficulty: number;
   maxDifficulty: number;
   onDifficultyChange: (min: number, max: number) => void;
+  minLevel: string | null;
+  maxLevel: string | null;
+  onLevelChange: (min: string | null, max: string | null) => void;
   mainLanguage: string;
 }
 
-export default function FilterPanel({ filmTitleMap, filmTypeMap, filmLangMap, allResults, contentCounts, totalCount, filmFilter, onSelectFilm, minDifficulty, maxDifficulty, onDifficultyChange, mainLanguage }: FilterPanelProps) {
+export default function FilterPanel({ 
+  filmTitleMap, 
+  filmTypeMap, 
+  filmLangMap, 
+  allResults, 
+  contentCounts, 
+  totalCount, 
+  filmFilter, 
+  onSelectFilm, 
+  minDifficulty, 
+  maxDifficulty, 
+  onDifficultyChange,
+  minLevel,
+  maxLevel,
+  onLevelChange,
+  mainLanguage 
+}: FilterPanelProps) {
   return (
     <div className="filter-panel-wrapper">
+      <LevelFrameworkFilter
+        mainLanguage={mainLanguage}
+        minLevel={minLevel}
+        maxLevel={maxLevel}
+        onLevelChange={onLevelChange}
+      />
       <DifficultyFilter
         minDifficulty={minDifficulty}
         maxDifficulty={maxDifficulty}

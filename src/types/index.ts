@@ -14,7 +14,8 @@ export interface CardDoc {
   subtitle: SubtitleMap; // aggregated subtitles keyed by language
   film_id?: string; // parent film id
   sentence?: string; // optional descriptive sentence
-  CEFR_Level?: string; // proficiency level
+  CEFR_Level?: string; // proficiency level (legacy, prefer levels array)
+  levels?: Array<{ framework: string; level: string; language?: string }>; // difficulty levels from various frameworks
   words?: Record<string, string>; // optional word breakdown
   card_type?: string; // normalized type text (cleaned sentence)
   length?: number; // length of card_type for matching/scoring
