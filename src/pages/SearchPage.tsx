@@ -5,7 +5,6 @@ import type { CardDoc } from "../types";
 import { listAllItems } from "../services/firestore";
 // Replaced old SearchFilters with new FilterPanel + ContentSelector
 import FilterPanel from "../components/FilterPanel";
-// Removed old LanguageSelector (now in NavBar via MainLanguageSelector & SubtitleLanguageSelector)
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
 import { Filter } from "lucide-react";
@@ -30,6 +29,8 @@ function SearchPage() {
   const [filmTypeMap, setFilmTypeMap] = useState<Record<string, string>>({});
   const [minDifficulty, setMinDifficulty] = useState<number>(0);
   const [maxDifficulty, setMaxDifficulty] = useState<number>(100);
+  const [minLevel, setMinLevel] = useState<string | null>(null);
+  const [maxLevel, setMaxLevel] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(300); // resizable panel width
   const [dragging, setDragging] = useState<boolean>(false);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
@@ -46,6 +47,9 @@ function SearchPage() {
       // Backend filters
       params.set('minDifficulty', String(minDifficulty));
       params.set('maxDifficulty', String(maxDifficulty));
+      // Level framework filters
+      if (minLevel) params.set('minLevel', minLevel);
+      if (maxLevel) params.set('maxLevel', maxLevel);
       // Do NOT pass content type when a specific film is selected.
       // We want server totals/per-content counts to remain global across all contents.
       // Pass all selected subtitle languages (CSV) up to 3
@@ -93,6 +97,16 @@ function SearchPage() {
         const startTime = typeof r.start_time === 'number' ? r.start_time : Number.isFinite(Number(r.start_time)) ? Number(r.start_time) : 0;
         const endTime = typeof r.end_time === 'number' ? r.end_time : Number.isFinite(Number(r.end_time)) ? Number(r.end_time) : 0;
         const difficulty = typeof r.difficulty_score === 'number' ? r.difficulty_score : Number.isFinite(Number(r.difficulty_score)) ? Number(r.difficulty_score) : undefined;
+        // Parse levels array
+        let levels: Array<{ framework: string; level: string; language?: string }> | undefined = undefined;
+        if (Array.isArray(r.levels)) {
+          levels = r.levels as Array<{ framework: string; level: string; language?: string }>;
+        } else if (typeof r.levels_json === 'string' && r.levels_json) {
+          try {
+            const parsed = JSON.parse(r.levels_json as string);
+            if (Array.isArray(parsed)) levels = parsed;
+          } catch { /* ignore */ }
+        }
         return {
           id: String(cardId),
           film_id: String(contentSlug),
@@ -105,6 +119,7 @@ function SearchPage() {
           difficulty_score: difficulty,
           sentence: typeof r.text === 'string' ? (r.text as string) : undefined,
           subtitle: subs,
+          levels,
         };
       });
       const perContent = payload.per_content || {};
@@ -215,11 +230,11 @@ function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.subtitle_languages]);
 
-  // Re-run when difficulty or film filter changes
+  // Re-run when difficulty, level framework, or film filter changes
   useEffect(() => {
     runSearch(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minDifficulty, maxDifficulty, filmFilter]);
+  }, [minDifficulty, maxDifficulty, minLevel, maxLevel, filmFilter]);
 
 
   // no film/episode context in global search
@@ -267,6 +282,9 @@ function SearchPage() {
             minDifficulty={minDifficulty}
             maxDifficulty={maxDifficulty}
             onDifficultyChange={(min, max) => { setMinDifficulty(min); setMaxDifficulty(max); }}
+            minLevel={minLevel}
+            maxLevel={maxLevel}
+            onLevelChange={(min, max) => { setMinLevel(min); setMaxLevel(max); }}
             mainLanguage={preferences.main_language || "en"}
           />
         </aside>
@@ -309,6 +327,7 @@ function SearchPage() {
               card={c}
               highlightQuery={query}
               primaryLang={filmLangMap[String(c.film_id ?? "")]}
+              filmTitle={filmTitleMap[String(c.film_id ?? "")]}
             />
           ))}
         </div>

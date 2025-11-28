@@ -12,12 +12,14 @@ interface Props {
   card: CardDoc;
   highlightQuery?: string; // optional search keyword to highlight in subtitles
   primaryLang?: string; // film's primary (audio) language to show first
+  filmTitle?: string; // content title to display
 }
 
 export default function SearchResultCard({
   card,
   highlightQuery,
   primaryLang,
+  filmTitle,
 }: Props) {
   const { preferences, user, signInGoogle, favoriteIds, setFavoriteLocal } =
     useUser();
@@ -259,43 +261,72 @@ export default function SearchResultCard({
       : undefined;
 
   return (
-    <div ref={ref} className="pixel-result-card relative overflow-hidden">
-      <Link
-        to={detailPath || "#"}
-        className="shrink-0 relative z-10"
-        onClick={(e) => { if (!detailPath) e.preventDefault(); }}
-      >
-        <img
-          src={card.image_url}
-          alt={card.id}
-          loading="lazy"
-          className="w-28 h-20 object-cover rounded-md border-2 border-pink-500 hover:opacity-90"
-          onContextMenu={(e) => e.preventDefault()}
-          draggable={false}
-        />
-      </Link>
-      <div className="flex-1 min-w-0 relative z-10 flex flex-col">
-        <div className="pixel-audio-container mb-2">
-          <AudioPlayer src={card.audio_url} />
-        </div>
-        <div className="pixel-card-meta">
-          <span className="ep-tag">EP {String(card.episode)}</span>
-          <span className="time-range">{card.start.toFixed(2)}s–{card.end.toFixed(2)}s</span>
-          {primaryLang && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-700 text-gray-100 text-[10px]">
-              <span className={`fi fi-${countryCodeForLang(primaryLang)}`}></span>
-              <span>{(canonicalizeLangCode(primaryLang) || primaryLang).toUpperCase()}</span>
-            </span>
-          )}
-          <button
-            className={`ml-auto pixel-btn-fav ${favorite ? "active" : ""}`}
-            onClick={onToggleFavorite}
-            title="Favorite"
+    <div ref={ref} className="pixel-result-card-new">
+      <div className="card-main-content">
+        {/* Left side: Image + Title */}
+        <div className="card-left-section">
+          <Link
+            to={detailPath || "#"}
+            className="block relative"
+            onClick={(e) => { if (!detailPath) e.preventDefault(); }}
           >
-            ♥
-          </button>
+            <img
+              src={card.image_url}
+              alt={card.id}
+              loading="lazy"
+              className="card-image"
+              onContextMenu={(e) => e.preventDefault()}
+              draggable={false}
+            />
+          </Link>
+          <div className="card-info-box">
+            <div className="card-info-row">
+              {filmTitle && (
+                <div className="card-title">{filmTitle}</div>
+              )}
+              {/* Level badges from card.levels array */}
+              {card.levels && Array.isArray(card.levels) && card.levels.length > 0 && (
+                <div className="level-badges-container">
+                  {card.levels.map((lvl: { framework: string; level: string; language?: string }, idx: number) => (
+                    <span key={idx} className={`level-badge level-${(lvl.level || '').toLowerCase()}`}>
+                      {lvl.level}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="pixel-card-meta">
+              <span className="ep-tag">EP {String(card.episode)}</span>
+              {import.meta.env.VITE_LINK_ANKI && (
+                <a 
+                  href={import.meta.env.VITE_LINK_ANKI} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="pixel-btn-anki"
+                  title="Add to Anki"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                  </svg>
+                  Anki
+                </a>
+              )}
+              <button
+                className={`pixel-btn-fav ${favorite ? "active" : ""}`}
+                onClick={onToggleFavorite}
+                title="Favorite"
+              >
+                ♥
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="mt-3 space-y-1">
+
+        {/* Right side: Subtitles */}
+        <div className="card-right-section">
+        <div className="card-subtitles">
           {(() => {
             const primaryCode = primaryLang
               ? canonicalizeLangCode(primaryLang) || primaryLang
@@ -373,6 +404,15 @@ export default function SearchResultCard({
               );
             });
           })()}
+        </div>
+      </div>
+      </div>
+
+      {/* Audio Player - Full width at bottom */}
+      <div className="card-audio-section">
+        <AudioPlayer src={card.audio_url} />
+        <div className="audio-time-range">
+          {card.start.toFixed(2)}s – {card.end.toFixed(2)}s
         </div>
       </div>
     </div>

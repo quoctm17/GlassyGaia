@@ -18,12 +18,14 @@ export default function FilmCardsPage() {
   const [cards, setCards] = useState<CardDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [primaryLang, setPrimaryLang] = useState<string | undefined>(undefined);
+  const [filmTitle, setFilmTitle] = useState<string | undefined>(undefined);
   // Subtitle language selection moved to NavBar; available subs no longer needed here
 
   useEffect(() => {
     if (!filmId) return;
     getFilmDoc(filmId).then((f) => {
       setPrimaryLang(f?.main_language);
+      setFilmTitle(f?.title || filmId);
     });
   }, [filmId]);
 
@@ -70,6 +72,7 @@ export default function FilmCardsPage() {
               key={c.id + c.film_id}
               card={c}
               primaryLang={primaryLang}
+              filmTitle={filmTitle}
             />
           ))}
         </div>

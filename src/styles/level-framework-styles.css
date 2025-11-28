@@ -1,0 +1,138 @@
+/* Level Framework Badge Styles */
+
+.level-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border: 2px solid;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  text-transform: uppercase;
+}
+
+/* ================= CEFR Level Colors (English) ================= */
+.level-badge.level-a1 {
+  background: #86efac;
+  color: #065f46;
+  border-color: #10b981;
+}
+
+.level-badge.level-a2 {
+  background: #7dd3fc;
+  color: #0c4a6e;
+  border-color: #0ea5e9;
+}
+
+.level-badge.level-b1 {
+  background: #fde047;
+  color: #713f12;
+  border-color: #eab308;
+}
+
+.level-badge.level-b2 {
+  background: #f7a45e;
+  color: #7c2d12;
+  border-color: #ea580c;
+}
+
+.level-badge.level-c1 {
+  background: #fb923c;
+  color: #7c2d12;
+  border-color: #f97316;
+}
+
+.level-badge.level-c2 {
+  background: #f87171;
+  color: #7f1d1d;
+  border-color: #dc2626;
+}
+
+/* ================= JLPT Level Colors (Japanese) ================= */
+.level-badge.level-n5 {
+  background: #86efac;
+  color: #065f46;
+  border-color: #10b981;
+}
+
+.level-badge.level-n4 {
+  background: #7dd3fc;
+  color: #0c4a6e;
+  border-color: #0ea5e9;
+}
+
+.level-badge.level-n3 {
+  background: #fde047;
+  color: #713f12;
+  border-color: #eab308;
+}
+
+.level-badge.level-n2 {
+  background: #fb923c;
+  color: #7c2d12;
+  border-color: #f97316;
+}
+
+.level-badge.level-n1 {
+  background: #f87171;
+  color: #7f1d1d;
+  border-color: #dc2626;
+}
+
+/* ================= HSK Level Colors (Chinese) ================= */
+.level-badge.level-1 {
+  background: #86efac;
+  color: #065f46;
+  border-color: #10b981;
+}
+
+.level-badge.level-2 {
+  background: #7dd3fc;
+  color: #0c4a6e;
+  border-color: #0ea5e9;
+}
+
+.level-badge.level-3 {
+  background: #bfdbfe;
+  color: #1e3a8a;
+  border-color: #3b82f6;
+}
+
+.level-badge.level-4 {
+  background: #fde047;
+  color: #713f12;
+  border-color: #eab308;
+}
+
+.level-badge.level-5 {
+  background: #fcd34d;
+  color: #78350f;
+  border-color: #f59e0b;
+}
+
+.level-badge.level-6 {
+  background: #f7a45e;
+  color: #7c2d12;
+  border-color: #ea580c;
+}
+
+.level-badge.level-7 {
+  background: #fb923c;
+  color: #7c2d12;
+  border-color: #f97316;
+}
+
+.level-badge.level-8 {
+  background: #fca5a5;
+  color: #7f1d1d;
+  border-color: #ef4444;
+}
+
+.level-badge.level-9 {
+  background: #f87171;
+  color: #7f1d1d;
+  border-color: #dc2626;
+}

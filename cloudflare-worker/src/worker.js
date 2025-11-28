@@ -45,6 +45,30 @@ function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) });
 }
 
+// Map level to numeric index for range filtering
+function getLevelIndex(level, language) {
+  const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
+  const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  
+  if (!level) return -1;
+  const upper = level.toUpperCase();
+  
+  // Try CEFR first
+  const cefrIdx = CEFR.indexOf(upper);
+  if (cefrIdx >= 0) return cefrIdx;
+  
+  // Try JLPT
+  const jlptIdx = JLPT.indexOf(upper);
+  if (jlptIdx >= 0) return jlptIdx;
+  
+  // Try HSK (numeric)
+  const hskIdx = HSK.indexOf(level);
+  if (hskIdx >= 0) return hskIdx;
+  
+  return -1;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -68,6 +92,8 @@ export default {
         const contentSlug = url.searchParams.get('content_slug');
         const minDifficulty = url.searchParams.get('minDifficulty');
         const maxDifficulty = url.searchParams.get('maxDifficulty');
+        const minLevel = url.searchParams.get('minLevel');
+        const maxLevel = url.searchParams.get('maxLevel');
         const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
         const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '100', 10), 1), 500);
         const offset = (page - 1) * size;
@@ -81,6 +107,13 @@ export default {
         const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || url.searchParams.get('subtitle_language') || null;
         const subtitleLangsArr = subtitleLanguagesCsv ? Array.from(new Set(String(subtitleLanguagesCsv).split(',').map(s => s.trim()).filter(Boolean))) : [];
         const subtitleLangsCount = subtitleLangsArr.length;
+
+        // Framework-level filtering params -> numeric indices
+        const framework = (mainLanguage === 'ja') ? 'JLPT' : ((mainLanguage || '').startsWith('zh') ? 'HSK' : 'CEFR');
+        const applyLevel = (minLevel || maxLevel) ? 1 : 0;
+        const maxIndexByFw = framework === 'HSK' ? 8 : (framework === 'JLPT' ? 4 : 5);
+        const minIdxEff = applyLevel ? (minLevel ? getLevelIndex(minLevel, mainLanguage) : 0) : null;
+        const maxIdxEff = applyLevel ? (maxLevel ? getLevelIndex(maxLevel, mainLanguage) : maxIndexByFw) : null;
 
         if (!ftsQuery) {
           // Fallback listing (latest cards) filtered by content main_language & type & difficulty
@@ -122,11 +155,33 @@ export default {
               WHERE ci.id IN (SELECT id FROM contents)
                 AND (?3 IS NULL OR c.difficulty_score >= ?3)
                 AND (?4 IS NULL OR c.difficulty_score <= ?4)
+                AND (
+                  ?11 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?13
+                      AND (
+                        CASE ?13
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?11 AND ?12
+                  )
+                )
             )
             SELECT r.*,
                    cs_main.text AS text,
                    cs_main.language AS language,
-                   subs.subs_json AS subs_json
+                   subs.subs_json AS subs_json,
+                   levels.levels_json AS levels_json
             FROM ranked r
             LEFT JOIN card_subtitles cs_main ON cs_main.card_id = r.card_id AND cs_main.language = r.content_main_language
             LEFT JOIN (
@@ -135,6 +190,11 @@ export default {
               WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
               GROUP BY card_id
             ) subs ON subs.card_id = r.card_id
+            LEFT JOIN (
+              SELECT card_id, json_group_array(json_object('framework', framework, 'level', level, 'language', language)) AS levels_json
+              FROM card_difficulty_levels
+              GROUP BY card_id
+            ) levels ON levels.card_id = r.card_id
             LEFT JOIN req ON req.card_id = r.card_id
             WHERE (?8 = 0 OR req.cnt = ?8)
               AND (?10 IS NULL OR r.content_slug = ?10)
@@ -157,6 +217,27 @@ export default {
                 AND (?3 IS NULL OR c.difficulty_score >= ?3)
                 AND (?4 IS NULL OR c.difficulty_score <= ?4)
                 AND (?10 IS NULL OR 1=1)
+                AND (
+                  ?11 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?13
+                      AND (
+                        CASE ?13
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?11 AND ?12
+                  )
+                )
             ),
             req AS (
               SELECT card_id, COUNT(DISTINCT language) AS cnt
@@ -185,6 +266,27 @@ export default {
                 AND (?3 IS NULL OR c.difficulty_score >= ?3)
                 AND (?4 IS NULL OR c.difficulty_score <= ?4)
                 AND (?10 IS NULL OR 1=1)
+                AND (
+                  ?11 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?13
+                      AND (
+                        CASE ?13
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?11 AND ?12
+                  )
+                )
             ),
             req AS (
               SELECT card_id, COUNT(DISTINCT language) AS cnt
@@ -199,7 +301,7 @@ export default {
           `;
           try {
             const { results } = await env.DB.prepare(stmtFallback)
-              .bind(mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, page, contentSlug)
+              .bind(mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, page, contentSlug, minIdxEff, maxIdxEff, framework)
               .all();
             const countsRes = await env.DB.prepare(stmtCountFallback)
               .bind(
@@ -212,7 +314,10 @@ export default {
                 subtitleLanguagesCsv, // ?7
                 subtitleLangsCount,   // ?8
                 page,                  // ?9 (unused filler)
-                contentSlug            // ?10
+                contentSlug,            // ?10
+                minIdxEff,             // ?11
+                maxIdxEff,             // ?12
+                framework              // ?13
               )
               .all();
             const totalRes = await env.DB.prepare(stmtTotalFallback)
@@ -226,14 +331,26 @@ export default {
                 subtitleLanguagesCsv, // ?7
                 subtitleLangsCount,   // ?8
                 page,                  // ?9 (unused filler)
-                contentSlug            // ?10
+                contentSlug,            // ?10
+                minIdxEff,             // ?11
+                maxIdxEff,             // ?12
+                framework              // ?13
               )
               .all();
-            const mapped = (results || []).map(r => ({
-              ...r,
-              image_url: makeMediaUrl(r.image_key),
-              audio_url: makeMediaUrl(r.audio_key)
-            }));
+            const mapped = (results || []).map(r => {
+              let levels = null;
+              if (r.levels_json) {
+                try {
+                  levels = JSON.parse(r.levels_json);
+                } catch {}
+              }
+              return {
+                ...r,
+                image_url: makeMediaUrl(r.image_key),
+                audio_url: makeMediaUrl(r.audio_key),
+                levels
+              };
+            });
             const perContent = {};
             for (const row of (countsRes.results || [])) {
               if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
@@ -268,7 +385,8 @@ export default {
             ci.cover_key AS content_cover_key,
             ci.cover_landscape_key AS content_cover_landscape_key,
             ci.main_language AS content_main_language,
-            subs.subs_json AS subs_json
+            subs.subs_json AS subs_json,
+            levels.levels_json AS levels_json
           FROM card_subtitles_fts
           JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
           JOIN cards c ON c.id = cs.card_id
@@ -286,6 +404,11 @@ export default {
             WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
             GROUP BY card_id
           ) subs ON subs.card_id = cs.card_id
+          LEFT JOIN (
+            SELECT card_id, json_group_array(json_object('framework', framework, 'level', level, 'language', language)) AS levels_json
+            FROM card_difficulty_levels
+            GROUP BY card_id
+          ) levels ON levels.card_id = cs.card_id
           WHERE card_subtitles_fts MATCH ?1
             AND card_subtitles_fts.language = ci.main_language
             AND cs.language = ci.main_language
@@ -294,13 +417,34 @@ export default {
             AND (?10 IS NULL OR ci.slug = ?10)
             AND (?4 IS NULL OR c.difficulty_score >= ?4)
             AND (?5 IS NULL OR c.difficulty_score <= ?5)
+            AND (
+              ?11 IS NULL OR EXISTS (
+                SELECT 1 FROM card_difficulty_levels dl
+                WHERE dl.card_id = c.id
+                  AND dl.framework = ?13
+                  AND (
+                    CASE ?13
+                      WHEN 'CEFR' THEN (
+                        CASE dl.level
+                          WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                      )
+                      WHEN 'JLPT' THEN (
+                        CASE dl.level
+                          WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                      )
+                      WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                      ELSE NULL
+                    END
+                  ) BETWEEN ?11 AND ?12
+              )
+            )
             AND (?9 = 0 OR req.cnt = ?9)
           ORDER BY rank ASC, c.card_number ASC
           LIMIT ?6 OFFSET ?7;
         `;
         try {
           const { results } = await env.DB.prepare(stmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework)
             .all();
           const countStmt = `
             WITH matches AS (
@@ -324,6 +468,27 @@ export default {
                 AND (?10 IS NULL OR 1=1)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (
+                  ?11 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?13
+                      AND (
+                        CASE ?13
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?11 AND ?12
+                  )
+                )
                 AND (?9 = 0 OR req.cnt = ?9)
             )
             SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
@@ -350,21 +515,52 @@ export default {
                 AND (?10 IS NULL OR 1=1)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (
+                  ?11 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?13
+                      AND (
+                        CASE ?13
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?11 AND ?12
+                  )
+                )
                 AND (?9 = 0 OR req.cnt = ?9)
             )
             SELECT COUNT(*) AS total FROM matches;
           `;
           const countsRes = await env.DB.prepare(countStmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework)
             .all();
           const totalRes = await env.DB.prepare(totalStmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework)
             .all();
-          const mapped = (results || []).map(r => ({
-            ...r,
-            image_url: makeMediaUrl(r.image_key),
-            audio_url: makeMediaUrl(r.audio_key)
-          }));
+          const mapped = (results || []).map(r => {
+            let levels = null;
+            if (r.levels_json) {
+              try {
+                levels = JSON.parse(r.levels_json);
+              } catch {}
+            }
+            return {
+              ...r,
+              image_url: makeMediaUrl(r.image_key),
+              audio_url: makeMediaUrl(r.audio_key),
+              levels
+            };
+          });
+          
           const perContent = {};
           for (const row of (countsRes.results || [])) {
             if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
