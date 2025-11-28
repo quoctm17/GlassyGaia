@@ -41,6 +41,56 @@ function escapeFtsToken(t) {
   // Remove quotes and stray punctuation that might slip through
   return String(t).replace(/["'.,;:!?()\[\]{}]/g, '');
 }
+
+// Japanese helpers: normalize Katakana to Hiragana and full-width forms
+function kataToHira(s) {
+  return String(s).replace(/[\u30A1-\u30F6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+}
+function normalizeJaInput(s) {
+  try {
+    // NFKC to normalize width; then convert Katakana to Hiragana
+    return kataToHira(String(s).normalize('NFKC'));
+  } catch {
+    return kataToHira(String(s));
+  }
+}
+
+function hasHanAndKana(s) {
+  return /\p{Script=Han}/u.test(s) && /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(s);
+}
+
+function kanaOnlyString(s) {
+  // Keep only Hiragana/Katakana and ASCII letters/numbers for safety
+  return String(s).replace(/[^\p{Script=Hiragana}\p{Script=Katakana}\p{L}\p{N}\s]/gu, '').trim();
+}
+
+// Expand Japanese index text by adding mixed kanji/kana tokens from bracketed furigana: 例) 黒川[くろかわ]
+function expandJaIndexText(text) {
+  const src = String(text || '');
+  const extra = [];
+  const re = /(\p{Script=Han}+[\p{Script=Han}・・]*)\[([\p{Script=Hiragana}\p{Script=Katakana}]+)\]/gu;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const kan = m[1];
+    const rawKana = m[2];
+    const hira = normalizeJaInput(rawKana);
+    if (!kan || !hira) continue;
+    extra.push(kan);
+    extra.push(hira);
+    const firstKan = kan[0];
+    const lastKan = kan[kan.length - 1];
+    for (let i = 1; i < hira.length; i++) {
+      const pref = hira.slice(0, i);
+      const suff = hira.slice(i);
+      extra.push(pref + lastKan);
+      extra.push(firstKan + suff);
+    }
+  }
+  if (!extra.length) return src;
+  // Deduplicate extras to keep FTS text compact
+  const uniq = Array.from(new Set(extra.filter(Boolean)));
+  return `${src} ${uniq.join(' ')}`;
+}
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) });
 }
@@ -98,7 +148,26 @@ export default {
         const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '100', 10), 1), 500);
         const offset = (page - 1) * size;
 
-        const ftsQuery = buildFtsQuery(q);
+        // Build FTS query. For Japanese with mixed Kanji+Kana, expand with kana-only OR and post-filter kanji presence.
+        let ftsQuery = buildFtsQuery(q);
+        const isJa = (mainLanguage === 'ja');
+        const qNormJa = isJa ? normalizeJaInput(q) : q;
+        const isMixedJa = isJa && hasHanAndKana(qNormJa);
+        let kanjiChars = [];
+        if (isMixedJa) {
+          // Extract unique Kanji characters from query for precise filtering
+          const ks = qNormJa.match(/[\p{Script=Han}]/gu) || [];
+          kanjiChars = Array.from(new Set(ks));
+          // Build kana-only expansion and OR it with the main FTS query to ensure hits
+          const kanaOnly = kanaOnlyString(qNormJa).replace(/[\p{Script=Katakana}]/gu, (ch) => kataToHira(ch));
+          if (kanaOnly) {
+            // Tokenize kana-only and add prefix wildcard to each term for inclusive match
+            const kanaTokens = kanaOnly.split(/\s+/).filter(Boolean).map(t => escapeFtsToken(kataToHira(t)) + '*');
+            const kanaExpr = kanaTokens.join(' '); // default AND
+            // Prefer kana expansion for mixed JA to guarantee hits, rely on kanji filter for precision
+            ftsQuery = kanaExpr || ftsQuery;
+          }
+        }
         const basePublic = env.R2_PUBLIC_BASE || '';
         const makeMediaUrl = (k) => {
           if (!k) return null;
@@ -114,6 +183,10 @@ export default {
         const maxIndexByFw = framework === 'HSK' ? 8 : (framework === 'JLPT' ? 4 : 5);
         const minIdxEff = applyLevel ? (minLevel ? getLevelIndex(minLevel, mainLanguage) : 0) : null;
         const maxIdxEff = applyLevel ? (maxLevel ? getLevelIndex(maxLevel, mainLanguage) : maxIndexByFw) : null;
+        // Expand Chinese main language into a group to include Traditional/Cantonese content
+        const mainLower = (mainLanguage || '').toLowerCase();
+        const altMain1 = (mainLower === 'zh') ? 'zh_trad' : (mainLower === 'zh_trad' ? 'zh' : null);
+        const altMain2 = (mainLower === 'zh' || mainLower === 'zh_trad') ? 'yue' : null;
 
         if (!ftsQuery) {
           // Fallback listing (latest cards) filtered by content main_language & type & difficulty
@@ -121,7 +194,7 @@ export default {
           const stmtFallback = `
             WITH contents AS (
               SELECT id FROM content_items
-              WHERE (?1 IS NULL OR main_language = ?1)
+              WHERE (?1 IS NULL OR main_language IN (?1, COALESCE(?14, ?1), COALESCE(?15, ?1)))
                 AND (?2 IS NULL OR type = ?2)
             ),
             req AS (
@@ -170,7 +243,7 @@ export default {
                             CASE dl.level
                               WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
                           )
-                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                           ELSE NULL
                         END
                       ) BETWEEN ?11 AND ?12
@@ -205,7 +278,7 @@ export default {
           const stmtCountFallback = `
             WITH contents AS (
               SELECT id FROM content_items
-              WHERE (?1 IS NULL OR main_language = ?1)
+              WHERE (?1 IS NULL OR main_language IN (?1, COALESCE(?14, ?1), COALESCE(?15, ?1)))
                 AND (?2 IS NULL OR type = ?2)
             ),
             cards_in_scope AS (
@@ -232,7 +305,7 @@ export default {
                             CASE dl.level
                               WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
                           )
-                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                           ELSE NULL
                         END
                       ) BETWEEN ?11 AND ?12
@@ -254,7 +327,7 @@ export default {
           const stmtTotalFallback = `
             WITH contents AS (
               SELECT id FROM content_items
-              WHERE (?1 IS NULL OR main_language = ?1)
+              WHERE (?1 IS NULL OR main_language IN (?1, COALESCE(?14, ?1), COALESCE(?15, ?1)))
                 AND (?2 IS NULL OR type = ?2)
             ),
             cards_in_scope AS (
@@ -281,7 +354,7 @@ export default {
                             CASE dl.level
                               WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
                           )
-                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                           ELSE NULL
                         END
                       ) BETWEEN ?11 AND ?12
@@ -301,7 +374,7 @@ export default {
           `;
           try {
             const { results } = await env.DB.prepare(stmtFallback)
-              .bind(mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, page, contentSlug, minIdxEff, maxIdxEff, framework)
+              .bind(mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, page, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2)
               .all();
             const countsRes = await env.DB.prepare(stmtCountFallback)
               .bind(
@@ -317,7 +390,9 @@ export default {
                 contentSlug,            // ?10
                 minIdxEff,             // ?11
                 maxIdxEff,             // ?12
-                framework              // ?13
+                framework,              // ?13
+                altMain1,              // ?14
+                altMain2               // ?15
               )
               .all();
             const totalRes = await env.DB.prepare(stmtTotalFallback)
@@ -334,7 +409,9 @@ export default {
                 contentSlug,            // ?10
                 minIdxEff,             // ?11
                 maxIdxEff,             // ?12
-                framework              // ?13
+                framework,              // ?13
+                altMain1,              // ?14
+                altMain2               // ?15
               )
               .all();
             const mapped = (results || []).map(r => {
@@ -364,6 +441,9 @@ export default {
           }
         }
 
+        const kanjiFilterSql = (isMixedJa && kanjiChars.length)
+          ? kanjiChars.map(() => " AND (cs.text LIKE '%' || ? || '%')").join('')
+          : '';
         const stmt = `
           SELECT
             cs.card_id,
@@ -412,7 +492,7 @@ export default {
           WHERE card_subtitles_fts MATCH ?1
             AND card_subtitles_fts.language = ci.main_language
             AND cs.language = ci.main_language
-            AND (?2 IS NULL OR ci.main_language = ?2)
+            AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
             AND (?3 IS NULL OR ci.type = ?3)
             AND (?10 IS NULL OR ci.slug = ?10)
             AND (?4 IS NULL OR c.difficulty_score >= ?4)
@@ -432,19 +512,20 @@ export default {
                         CASE dl.level
                           WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
                       )
-                      WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                      WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                       ELSE NULL
                     END
                   ) BETWEEN ?11 AND ?12
               )
             )
             AND (?9 = 0 OR req.cnt = ?9)
+            ${kanjiFilterSql}
           ORDER BY rank ASC, c.card_number ASC
           LIMIT ?6 OFFSET ?7;
         `;
         try {
           const { results } = await env.DB.prepare(stmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars)
             .all();
           const countStmt = `
             WITH matches AS (
@@ -463,7 +544,7 @@ export default {
               WHERE card_subtitles_fts MATCH ?1
                 AND card_subtitles_fts.language = ci.main_language
                 AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language = ?2)
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
                 AND (?10 IS NULL OR 1=1)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
@@ -483,13 +564,14 @@ export default {
                             CASE dl.level
                               WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
                           )
-                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                           ELSE NULL
                         END
                       ) BETWEEN ?11 AND ?12
                   )
                 )
                 AND (?9 = 0 OR req.cnt = ?9)
+                ${kanjiFilterSql}
             )
             SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
           `;
@@ -510,7 +592,7 @@ export default {
               WHERE card_subtitles_fts MATCH ?1
                 AND card_subtitles_fts.language = ci.main_language
                 AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language = ?2)
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
                 AND (?10 IS NULL OR 1=1)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
@@ -530,21 +612,22 @@ export default {
                             CASE dl.level
                               WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
                           )
-                          WHEN 'HSK' THEN (CAST(dl.level AS INTEGER) - 1)
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                           ELSE NULL
                         END
                       ) BETWEEN ?11 AND ?12
                   )
                 )
                 AND (?9 = 0 OR req.cnt = ?9)
+                ${kanjiFilterSql}
             )
             SELECT COUNT(*) AS total FROM matches;
           `;
           const countsRes = await env.DB.prepare(countStmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars)
             .all();
           const totalRes = await env.DB.prepare(totalStmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework)
+            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars)
             .all();
           const mapped = (results || []).map(r => {
             let levels = null;
@@ -1815,7 +1898,8 @@ export default {
               for (const [lang, text] of Object.entries(body.subtitle)) {
                 if (text && String(text).trim()) {
                   await env.DB.prepare('INSERT INTO card_subtitles (card_id, language, text) VALUES (?, ?, ?)').bind(row.id, lang, text).run();
-                  await env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(String(text), lang, row.id).run();
+                  const idxText = (String(lang).toLowerCase() === 'ja') ? expandJaIndexText(String(text)) : String(text);
+                  await env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(idxText, lang, row.id).run();
                 }
               }
             }
@@ -2079,7 +2163,8 @@ export default {
               for (const [lang, text] of Object.entries(c.subtitle)) {
                 if (!text) continue;
                 subStmts.push(env.DB.prepare('INSERT OR IGNORE INTO card_subtitles (card_id,language,text) VALUES (?,?,?)').bind(cardUuid, lang, text));
-                ftsStmts.push(env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(String(text), lang, cardUuid));
+                const idxText = (String(lang).toLowerCase() === 'ja') ? expandJaIndexText(String(text)) : String(text);
+                ftsStmts.push(env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(idxText, lang, cardUuid));
               }
             }
             if (Array.isArray(c.difficulty_levels)) {
@@ -2131,6 +2216,42 @@ export default {
           return json({ ok: true, inserted: cards.length, mode });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Admin: Reindex FTS (ja) with mixed kanji/kana expansions from stored subtitles
+      if (path === '/admin/reindex-fts-ja' && request.method === 'POST') {
+        // Lightweight guard: require explicit confirm=1 query param
+        if (url.searchParams.get('confirm') !== '1') {
+          return json({ error: 'confirm=1 required' }, { status: 400 });
+        }
+        try {
+          // Fetch all JA subtitles and rebuild corresponding FTS rows
+          const rows = await env.DB.prepare('SELECT card_id, language, text FROM card_subtitles WHERE LOWER(language)=?').bind('ja').all();
+          const items = rows.results || [];
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
+          try {
+            // Clear existing JA entries in FTS
+            try { await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE LOWER(language)=?').bind('ja').run(); } catch {}
+            // Insert rebuilt entries in batches
+            const stmts = [];
+            for (const r of items) {
+              const idxText = expandJaIndexText(r.text);
+              stmts.push(env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(idxText, r.language, r.card_id));
+            }
+            // Batch inserts to avoid exceeding limits
+            for (let i = 0; i < stmts.length; i += 300) {
+              const slice = stmts.slice(i, i + 300);
+              if (slice.length) await env.DB.batch(slice);
+            }
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
+          } catch (e) {
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
+            throw e;
+          }
+          return json({ ok: true, rebuilt: items.length });
+        } catch (e) {
+          return json({ error: String(e) }, { status: 500 });
         }
       }
 

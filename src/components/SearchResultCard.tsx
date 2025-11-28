@@ -200,10 +200,7 @@ export default function SearchResultCard({
       const re = new RegExp(escapeRegExp(q), "gi");
       return escapeHtml(text).replace(
         re,
-        (match) =>
-          `<span class="bg-amber-400/80 text-black px-1 rounded">${escapeHtml(
-            match
-          )}</span>`
+        (match) => `<span class="text-[#f3a1d6]">${escapeHtml(match)}</span>`
       );
     } catch {
       return escapeHtml(text);
@@ -215,7 +212,7 @@ export default function SearchResultCard({
     if (!q) return html;
     try {
       const re = new RegExp(escapeRegExp(q), "gi");
-      return html.replace(re, (match) => `<span class="bg-amber-400/80 text-black px-1 rounded">${match}</span>`);
+      return html.replace(re, (match) => `<span class="text-[#f3a1d6]">${match}</span>`);
     } catch {
       return html;
     }
