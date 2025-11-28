@@ -2,13 +2,14 @@ import { useEffect, useState, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
 import type { CardDoc } from "../types";
-import { searchCardsGlobalClient, listAllItems } from "../services/firestore";
+import { listAllItems } from "../services/firestore";
 // Replaced old SearchFilters with new FilterPanel + ContentSelector
 import FilterPanel from "../components/FilterPanel";
 // Removed old LanguageSelector (now in NavBar via MainLanguageSelector & SubtitleLanguageSelector)
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
 import { Filter } from "lucide-react";
+import Pagination from "../components/Pagination";
 
 function SearchPage() {
   const { preferences } = useUser();
@@ -17,11 +18,16 @@ function SearchPage() {
   const [loading, setLoading] = useState(false);
   // Derive loading state from actual fetch; avoid a separate 'searching' toggle to prevent spinner flicker
   const [allResults, setAllResults] = useState<CardDoc[]>([]);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(20);
+  // hasMore no longer used with numbered pagination
+  const [total, setTotal] = useState<number>(0); // paginator total (scoped when film selected)
+  const [globalTotal, setGlobalTotal] = useState<number>(0); // always global All Sources total
+  const [contentCounts, setContentCounts] = useState<Record<string, number>>({});
   const [filmFilter, setFilmFilter] = useState<string | null>(null);
   const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
   const [films, setFilms] = useState<string[]>([]);
   const [filmTypeMap, setFilmTypeMap] = useState<Record<string, string>>({});
-  const [limit, setLimit] = useState<number>(100);
   const [minDifficulty, setMinDifficulty] = useState<number>(0);
   const [maxDifficulty, setMaxDifficulty] = useState<number>(100);
   const [sidebarWidth, setSidebarWidth] = useState<number>(300); // resizable panel width
@@ -31,19 +37,86 @@ function SearchPage() {
 
   // LanguageSelector writes to preferences directly; no local mirror needed
 
-  const runSearch = async (q: string) => {
+  const fetchPage = async (q: string, pageNum: number, sizeOverride?: number) => {
     setLoading(true);
     try {
-      // Request a reasonably sized pool; the underlying service caches to avoid repeated fetches
-      const desiredPool = Math.min(3000, Math.max(400, limit + 300));
-      const data = await searchCardsGlobalClient(
-        q,
-        desiredPool,
-        null,
-        filmLangMap,
-        preferences.main_language
-      );
-      setAllResults(data);
+      const params = new URLSearchParams();
+      params.set('q', q || '');
+      if (preferences.main_language) params.set('main_language', preferences.main_language);
+      // Backend filters
+      params.set('minDifficulty', String(minDifficulty));
+      params.set('maxDifficulty', String(maxDifficulty));
+      // Do NOT pass content type when a specific film is selected.
+      // We want server totals/per-content counts to remain global across all contents.
+      // Pass all selected subtitle languages (CSV) up to 3
+      const subsArr = Array.isArray(preferences.subtitle_languages) ? preferences.subtitle_languages : [];
+      if (subsArr.length) params.set('subtitle_languages', subsArr.join(','));
+      // Scope to a specific content when selected so pagination is per-content
+      if (filmFilter) params.set('content_slug', filmFilter);
+      params.set('page', String(pageNum));
+      params.set('size', String(sizeOverride ?? pageSize));
+      const base = ((import.meta as unknown) as { env?: Record<string, string | undefined> }).env?.VITE_WORKER_BASE || '';
+      const apiUrl = base ? `${base.replace(/\/$/, '')}/api/search?${params.toString()}` : `/api/search?${params.toString()}`;
+      const res = await fetch(apiUrl, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const ct = res.headers.get('content-type') || '';
+      if (!/application\/json/i.test(ct)) {
+        const text = await res.text();
+        throw new Error(`Non-JSON response: ${text.slice(0, 120)}...`);
+      }
+      const payload = await res.json();
+      // Legacy mapper removed; worker now returns full media URLs
+      const mapped: CardDoc[] = (payload.items || []).map((r: Record<string, unknown>) => {
+        const imgKey = typeof r.image_key === 'string' ? r.image_key : '';
+        const audKey = typeof r.audio_key === 'string' ? r.audio_key : '';
+        const imgUrl = typeof r.image_url === 'string' ? r.image_url : '';
+        const audUrl = typeof r.audio_url === 'string' ? r.audio_url : '';
+        const img = imgUrl || (imgKey ? `/media/${imgKey}` : '');
+        const aud = audUrl || (audKey ? `/media/${audKey}` : '');
+        const lang = typeof r.language === 'string' ? r.language : '';
+        const subs: Record<string, string> = {};
+        if (lang && typeof r.text === 'string') subs[lang] = r.text as string;
+        if (typeof r.subs_json === 'string' && r.subs_json) {
+          try {
+            const extra = JSON.parse(r.subs_json as string);
+            if (extra && typeof extra === 'object') {
+              for (const k of Object.keys(extra)) {
+                if (typeof (extra as Record<string, unknown>)[k] === 'string') subs[k] = (extra as Record<string, string>)[k];
+              }
+            }
+          } catch { /* ignore parse error */ }
+        }
+        const cardId = typeof r.card_id === 'string' ? r.card_id : (typeof r.card_id === 'number' ? String(r.card_id) : '');
+        const contentSlug = typeof r.content_slug === 'string' ? r.content_slug : '';
+        const episodeSlug = typeof r.episode_slug === 'string' ? r.episode_slug : '';
+        const episodeNum = typeof r.episode_number === 'number' ? r.episode_number : Number.isFinite(Number(r.episode_number)) ? Number(r.episode_number) : 0;
+        const startTime = typeof r.start_time === 'number' ? r.start_time : Number.isFinite(Number(r.start_time)) ? Number(r.start_time) : 0;
+        const endTime = typeof r.end_time === 'number' ? r.end_time : Number.isFinite(Number(r.end_time)) ? Number(r.end_time) : 0;
+        const difficulty = typeof r.difficulty_score === 'number' ? r.difficulty_score : Number.isFinite(Number(r.difficulty_score)) ? Number(r.difficulty_score) : undefined;
+        return {
+          id: String(cardId),
+          film_id: String(contentSlug),
+          episode_id: String(episodeSlug || (episodeNum ? `e${episodeNum}` : '')),
+          episode: Number(episodeNum ?? 0),
+          image_url: img,
+          audio_url: aud,
+          start: Number(startTime ?? 0),
+          end: Number(endTime ?? 0),
+          difficulty_score: difficulty,
+          sentence: typeof r.text === 'string' ? (r.text as string) : undefined,
+          subtitle: subs,
+        };
+      });
+      const perContent = payload.per_content || {};
+      setContentCounts(perContent);
+      const totalVal = filmFilter
+        ? Number(perContent?.[filmFilter] ?? 0)
+        : Number(payload.total ?? 0);
+      setTotal(totalVal);
+      // Keep global total regardless of current film selection
+      setGlobalTotal(Number(payload.total ?? 0));
+      // In pagination mode we replace the list on each fetch
+      setAllResults(mapped);
     } catch (e) {
       // Gracefully handle initial empty DB / 404
       console.warn(
@@ -56,8 +129,12 @@ function SearchPage() {
     }
   };
 
+  const runSearch = async (q: string) => {
+    setPage(1);
+    await fetchPage(q, 1);
+  };
+
   useEffect(() => {
-    // initial load and refresh whenever user navigates to this page
     runSearch("");
     // preload film titles for facet labels
     listAllItems()
@@ -132,19 +209,26 @@ function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
+  // Re-run when subtitle language preference changes (after Done in selector)
+  useEffect(() => {
+    runSearch(query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferences.subtitle_languages]);
+
+  // Re-run when difficulty or film filter changes
+  useEffect(() => {
+    runSearch(query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minDifficulty, maxDifficulty, filmFilter]);
+
 
   // no film/episode context in global search
 
   // Only show films that have at least one matching result to avoid long lists of zero counts.
   const filmsWithResults = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const c of allResults) {
-      const fid = String(c.film_id ?? "");
-      if (!fid) continue;
-      counts[fid] = (counts[fid] || 0) + 1;
-    }
-    return films.filter(id => counts[id] > 0);
-  }, [films, allResults]);
+    const counts = contentCounts;
+    return films.filter(id => (counts[id] || 0) > 0);
+  }, [films, contentCounts]);
 
   // Reset film filter if current selection no longer has results for active query
   useEffect(() => {
@@ -153,15 +237,8 @@ function SearchPage() {
     }
   }, [filmFilter, filmsWithResults]);
 
-  // Apply difficulty filtering client-side
-  const difficultyFiltered = allResults.filter(c => {
-    const score = typeof c.difficulty_score === 'number' ? c.difficulty_score : 0;
-    return score >= minDifficulty && score <= maxDifficulty;
-  });
-
-  const displayedResults = (filmFilter
-    ? difficultyFiltered.filter(c => c.film_id === filmFilter)
-    : difficultyFiltered).slice(0, limit);
+  // Rely on server-side filters for difficulty and content scoping.
+  const displayedResults = allResults;
 
   const startDrag = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -182,7 +259,9 @@ function SearchPage() {
             filmTitleMap={filmTitleMap}
             filmTypeMap={filmTypeMap}
             filmLangMap={filmLangMap}
-            allResults={difficultyFiltered}
+            allResults={allResults}
+            contentCounts={contentCounts}
+            totalCount={globalTotal}
             filmFilter={filmFilter}
             onSelectFilm={(id) => setFilmFilter(id)}
             minDifficulty={minDifficulty}
@@ -213,27 +292,20 @@ function SearchPage() {
 
         {/* Subtitle language selection moved to NavBar */}
 
-        {(() => {
-          const filtered = filmFilter
-            ? allResults.filter((c) => c.film_id === filmFilter)
-            : allResults;
-          return (
-            <div className="mt-4 flex items-center gap-3">
-              <div className="flex items-center justify-center w-10 h-10 bg-[#c75485] rounded-full">
-                <Filter className="w-4 h-4 text-[#1a0f26]" />
-              </div>
-              <span className="text-pink-500 text-2xl font-['Press_Start_2P']">›</span>
-              <span className="text-pink-200 font-['Press_Start_2P'] text-xs">
-                {loading ? "Searching..." : `${filtered.length} Results`}
-              </span>
-            </div>
-          );
-        })()}
+        <div className="mt-4 flex items-center gap-3">
+          <div className="flex items-center justify-center w-10 h-10 bg-[#c75485] rounded-full">
+            <Filter className="w-4 h-4 text-[#1a0f26]" />
+          </div>
+          <span className="text-pink-500 text-2xl font-['Press_Start_2P']">›</span>
+          <span className="text-pink-200 font-['Press_Start_2P'] text-xs">
+            {loading ? "Searching..." : `${total} Results`}
+          </span>
+        </div>
 
         <div className="mt-4 space-y-3">
           {displayedResults.map((c) => (
             <SearchResultCard
-              key={`${c.film_id}-${c.episode_id}-${c.id}`}
+              key={String(c.id)}
               card={c}
               highlightQuery={query}
               primaryLang={filmLangMap[String(c.film_id ?? "")]}
@@ -241,16 +313,21 @@ function SearchPage() {
           ))}
         </div>
 
-        <div className="mt-4 flex justify-center">
-          <button
-            className="pixel-load-more"
-            onClick={() => {
-              const next = limit + 100;
-              setLimit(next);
+        <div className="mt-6">
+          <Pagination
+            mode="count"
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            loading={loading}
+            onPageChange={(p: number) => { setPage(p); fetchPage(query, p); }}
+            onPageSizeChange={(s) => {
+              setPageSize(s);
+              setPage(1);
+              // Ensure server returns correct page size immediately
+              fetchPage(query, 1, s);
             }}
-          >
-            Load more
-          </button>
+          />
         </div>
         </main>
       </div>

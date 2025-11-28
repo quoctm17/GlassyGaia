@@ -436,6 +436,20 @@ body,
   cursor: pointer;
 }
 
+/* Clear button styled like Done */
+.subtitle-clear-btn {
+  font-size: 10px;
+  color: #f3a1d6;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-right: 10px;
+}
+
+.subtitle-clear-btn:hover,
+.subtitle-done-btn:hover {
+  color: #ffffff;
+}
+
 /* Scroll container (shared) limited to 4 items height */
 .language-options-list {
   max-height: 168px;

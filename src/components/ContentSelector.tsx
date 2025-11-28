@@ -8,6 +8,8 @@ interface ContentSelectorProps {
   value: string | null;
   onChange: (filmId: string | null) => void;
   allResults: CardDoc[]; // results after query (and difficulty filtering applied upstream)
+  contentCounts?: Record<string, number>; // server-side counts across all results
+  totalCount?: number; // server-side total count
   filmTypeMapExternal?: Record<string, string | undefined>; // optional external map to avoid refetch
   filmTitleMapExternal?: Record<string, string>;
   filmLangMapExternal?: Record<string, string>;
@@ -15,7 +17,7 @@ interface ContentSelectorProps {
 }
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
-export default function ContentSelector({ value, onChange, allResults, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, mainLanguage }: ContentSelectorProps) {
+export default function ContentSelector({ value, onChange, allResults, contentCounts, totalCount, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, mainLanguage }: ContentSelectorProps) {
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -51,6 +53,7 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
 
   // Counts from allResults
   const counts: Record<string, number> = useMemo(() => {
+    if (contentCounts) return contentCounts;
     const m: Record<string, number> = {};
     for (const c of allResults) {
       const fid = String(c.film_id ?? '');
@@ -58,7 +61,7 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
       m[fid] = (m[fid] || 0) + 1;
     }
     return m;
-  }, [allResults]);
+  }, [contentCounts, allResults]);
 
   // Available film ids from either external or fetched films, filtered by main language
   const filmIds: string[] = useMemo(() => {
@@ -80,20 +83,26 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
     return title.includes(normalizedSearch) || id.toLowerCase().includes(normalizedSearch);
   }) : filmIds;
 
+  // Hide contents with zero matching cards
+  const visibleIds = useMemo(() => filteredIds.filter(id => (counts[id] || 0) > 0), [filteredIds, counts]);
+
   // Grouping
   const grouped = useMemo(() => {
     const map: Record<string, string[]> = {};
     for (const t of CONTENT_TYPES) map[t] = [];
     const other: string[] = [];
-    for (const id of filteredIds) {
+    for (const id of visibleIds) {
       const raw = (filmTypeMap[id] || '').toLowerCase();
       const t = (CONTENT_TYPES as string[]).includes(raw) ? raw : '';
       if (t) map[t].push(id); else other.push(id);
     }
     return { map, other };
-  }, [filteredIds, filmTypeMap]);
+  }, [visibleIds, filmTypeMap]);
 
-  const totalCount = allResults.length;
+  const totalCountComputed = useMemo(() => {
+    if (typeof totalCount === 'number') return totalCount;
+    return allResults.length;
+  }, [totalCount, allResults.length]);
 
   const toggleGroup = (key: string) => {
     setOpenGroups(prev => {
@@ -116,7 +125,7 @@ export default function ContentSelector({ value, onChange, allResults, filmTypeM
   return (
     <div className="content-selector-panel">
       <button className={`content-selector-header ${value===null? 'active':''}`} onClick={() => onChange(null)}>
-        <span>ALL SOURCES</span> <span className="count-pill">{totalCount}</span>
+        <span>ALL SOURCES</span> <span className="count-pill">{totalCountComputed}</span>
       </button>
       <div className="content-search-row">
         <div className="content-search-wrapper">

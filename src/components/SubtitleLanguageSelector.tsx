@@ -58,6 +58,12 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
     setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 500);
   };
 
+  const clearAll = async () => {
+    setLocal([]);
+    await setSubtitleLanguages([]);
+    onChange?.([]);
+  };
+
   return (
     <div className={"relative " + (className || "")}>
       <button
@@ -95,6 +101,7 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
         >
           <div className="subtitle-options-header">
             <span>{local.length}/{maxSelections}</span>
+            <span className="subtitle-clear-btn" onClick={clearAll}>Clear</span>
             <span className="subtitle-done-btn" onClick={apply}>Done</span>
           </div>
           <div className="px-1 mb-2">

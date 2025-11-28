@@ -8,6 +8,8 @@ interface FilterPanelProps {
   filmTypeMap: Record<string, string | undefined>;
   filmLangMap: Record<string, string>;
   allResults: CardDoc[]; // results already filtered by query (not difficulty yet)
+  contentCounts?: Record<string, number>; // server-side counts across full result set
+  totalCount?: number; // server-side total across all contents
   filmFilter: string | null;
   onSelectFilm: (filmId: string | null) => void;
   minDifficulty: number;
@@ -16,7 +18,7 @@ interface FilterPanelProps {
   mainLanguage: string;
 }
 
-export default function FilterPanel({ filmTitleMap, filmTypeMap, filmLangMap, allResults, filmFilter, onSelectFilm, minDifficulty, maxDifficulty, onDifficultyChange, mainLanguage }: FilterPanelProps) {
+export default function FilterPanel({ filmTitleMap, filmTypeMap, filmLangMap, allResults, contentCounts, totalCount, filmFilter, onSelectFilm, minDifficulty, maxDifficulty, onDifficultyChange, mainLanguage }: FilterPanelProps) {
   return (
     <div className="filter-panel-wrapper">
       <DifficultyFilter
@@ -28,6 +30,8 @@ export default function FilterPanel({ filmTitleMap, filmTypeMap, filmLangMap, al
         value={filmFilter}
         onChange={onSelectFilm}
         allResults={allResults}
+        contentCounts={contentCounts}
+        totalCount={totalCount}
         filmTypeMapExternal={filmTypeMap}
         filmTitleMapExternal={filmTitleMap}
         filmLangMapExternal={filmLangMap}
