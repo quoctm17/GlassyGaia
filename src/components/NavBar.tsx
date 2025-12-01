@@ -42,7 +42,7 @@ export default function NavBar() {
             <span>GAIA</span>
           </span>
         </Link>
-        <div className="pixel-tabs">
+        <div className="pixel-tabs pixel-tabs-desktop">
           <NavLink
             to="/search"
             className={({ isActive }) =>

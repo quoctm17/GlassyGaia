@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import '../../styles/admin/admin.css';
 import toast from 'react-hot-toast';
+import { Menu, Layers, HardDrive } from 'lucide-react';
 
 export default function AdminLayout() {
   const { user, loading, signInGoogle, adminKey, setAdminKey } = useUser();
@@ -29,13 +30,33 @@ export default function AdminLayout() {
     }
   }, [loading, user, isAdminEmail, navigate]);
 
+  const [isSidenavOpen, setIsSidenavOpen] = useState(true);
+
   return (
-    <div className="admin-layout">
+    <div
+      className="admin-layout"
+      style={{
+        "--admin-sidenav-width": isSidenavOpen ? '260px' : '0px',
+        gridTemplateColumns: isSidenavOpen ? 'var(--admin-sidenav-width) auto 1fr' : '1fr'
+      } as React.CSSProperties}
+    >
+      {isSidenavOpen && (
       <aside className="admin-sidenav">
-        <div className="admin-sidenav-header">Admin</div>
+        <div className="admin-sidenav-header flex items-center justify-between">
+          <span>Admin</span>
+          <button className="admin-btn secondary !py-1 !px-2" title="Toggle sidenav" onClick={() => setIsSidenavOpen(o => !o)}>
+            <Menu className="w-4 h-4" />
+          </button>
+        </div>
         <nav className="admin-sidenav-links">
-          <NavLink to="/admin/content" className={({isActive})=> 'admin-nav-link'+((isActive || isContentSection)?' active':'')}>Content</NavLink>
-          <NavLink to="/admin/media" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>Media</NavLink>
+          <NavLink to="/admin/content" className={({isActive})=> 'admin-nav-link'+((isActive || isContentSection)?' active':'')}>
+            <Layers className="w-4 h-4 mr-2" />
+            <span>Content</span>
+          </NavLink>
+          <NavLink to="/admin/media" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <HardDrive className="w-4 h-4 mr-2" />
+            <span>Media</span>
+          </NavLink>
         </nav>
         {!user && (
           <button className="admin-btn" onClick={signInGoogle}>Sign in</button>
@@ -62,7 +83,35 @@ export default function AdminLayout() {
           <button className="admin-btn secondary" onClick={()=>navigate('/search')}>← Back</button>
         </div>
       </aside>
+      )}
+      {isSidenavOpen && (
+        <div
+          className="admin-resizer"
+          onMouseDown={(e) => {
+            const startX = e.clientX;
+            const layoutEl = document.querySelector('.admin-layout') as HTMLElement | null;
+            const currentWidthVar = layoutEl?.style.getPropertyValue('--admin-sidenav-width');
+            const startWidth = Number((currentWidthVar || getComputedStyle(layoutEl || document.documentElement).getPropertyValue('--admin-sidenav-width')).replace('px','')) || 260;
+            function onMove(ev: MouseEvent) {
+              const dx = ev.clientX - startX;
+              const next = Math.max(180, Math.min(480, startWidth + dx));
+              layoutEl?.style.setProperty('--admin-sidenav-width', `${next}px`);
+            }
+            function onUp() {
+              window.removeEventListener('mousemove', onMove);
+              window.removeEventListener('mouseup', onUp);
+            }
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+          }}
+        />
+      )}
       <main className="admin-content">
+        {!isSidenavOpen && (
+          <button className="admin-sidenav-toggle" title="Open sidenav" onClick={() => setIsSidenavOpen(true)}>
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
         <Outlet />
       </main>
     </div>

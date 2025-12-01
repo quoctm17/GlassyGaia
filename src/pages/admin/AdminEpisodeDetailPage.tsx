@@ -396,6 +396,118 @@ export default function AdminEpisodeDetailPage() {
         </table>
       </div>
 
+      {/* Card View for Mobile/Tablet */}
+      <div className="admin-cards-view">
+        {loadingCards &&
+          Array.from({ length: pageSize }).map((_, i) => (
+            <div key={`sk-${i}`} className="admin-card-skeleton">
+              <div className="h-6 w-24 bg-gray-700/40 rounded mb-2"></div>
+              <div className="h-4 w-32 bg-gray-700/40 rounded mb-2"></div>
+              <div className="h-4 w-40 bg-gray-700/40 rounded"></div>
+            </div>
+          ))
+        }
+        {filteredCards.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map((c) => {
+          const idPadded = String(c.id).padStart(4,'0');
+          const numericIds = cards.map(x => Number(String(x.id).replace(/^0+/,'')) || 0);
+          const minNum = Math.min(...numericIds);
+          const cNum = Number(String(c.id).replace(/^0+/,'')) || 0;
+          const isFirstCard = cNum === minNum;
+          const available = (c.is_available ?? true) ? true : false;
+          const duration = typeof c.duration === 'number' ? c.duration : Math.max(0, (c.end || 0) - (c.start || 0));
+          
+          return (
+            <div 
+              key={c.id} 
+              className="admin-card"
+              onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/${encodeURIComponent(episodeSlug || '')}/${idPadded}`)}
+            >
+              <div className="admin-card-header">
+                <div className="flex items-center gap-2">
+                  <span className="text-pink-500 font-bold">#{idPadded}</span>
+                  <span className="text-xs text-gray-400">
+                    {c.start} → {c.end} ({duration}s)
+                  </span>
+                </div>
+                <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}>
+                  {available ? 'Available' : 'Unavailable'}
+                </span>
+              </div>
+              
+              <div className="admin-card-body">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Image:</span>
+                  {c.image_url ? (
+                    <a 
+                      href={c.image_url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="admin-btn secondary !px-2 !py-1 flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Open</span>
+                    </a>
+                  ) : <span className="text-sm text-gray-400">-</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Audio:</span>
+                  {c.audio_url ? (
+                    <a 
+                      href={c.audio_url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="admin-btn secondary !px-2 !py-1 flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Open</span>
+                    </a>
+                  ) : <span className="text-sm text-gray-400">-</span>}
+                </div>
+              </div>
+              
+              <div className="admin-card-actions">
+                <button
+                  className="admin-btn primary flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/${encodeURIComponent(episodeSlug || '')}/${idPadded}`);
+                  }}
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>View</span>
+                </button>
+                <button
+                  className="admin-btn secondary flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/${encodeURIComponent(episodeSlug || '')}/${idPadded}/update`);
+                  }}
+                >
+                  <Pencil className="w-4 h-4" />
+                  <span>Edit</span>
+                </button>
+                {!isFirstCard && (
+                  <button
+                    className="admin-btn secondary !px-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete({ id: idPadded });
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {filteredCards.length === 0 && !loadingCards && (
+          <div className="admin-empty">No cards found</div>
+        )}
+      </div>
+
       {/* Pagination */}
       {!loadingCards && filteredCards.length > 0 && (
         <div className="flex items-center justify-between mt-2">

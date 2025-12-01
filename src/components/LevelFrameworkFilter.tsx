@@ -183,6 +183,10 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
             className="difficulty-handle"
             style={{ left: `${minPercent}%` }}
             onMouseDown={() => setDragging('min')}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              setDragging('min');
+            }}
           >
             <Flame className="w-4 h-4 text-pink-400" fill="currentColor" />
           </div>
@@ -192,13 +196,17 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
             className="difficulty-handle"
             style={{ left: `${maxPercent}%` }}
             onMouseDown={() => setDragging('max')}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              setDragging('max');
+            }}
           >
             <Flame className="w-4 h-4 text-pink-400" fill="currentColor" />
           </div>
         </div>
       </div>
 
-      {/* Mouse tracking for drag */}
+      {/* Mouse and touch tracking for drag */}
       {dragging && (
         <div
           className="fixed inset-0 z-50 cursor-grabbing"
@@ -206,6 +214,11 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
             handleSliderMove(e.clientX, dragging);
           }}
           onMouseUp={() => setDragging(null)}
+          onTouchMove={(e) => {
+            const touch = e.touches[0];
+            handleSliderMove(touch.clientX, dragging);
+          }}
+          onTouchEnd={() => setDragging(null)}
         />
       )}
     </div>

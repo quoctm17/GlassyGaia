@@ -27,12 +27,38 @@ export default function PortalDropdown(props: PortalDropdownProps) {
     const rect = anchorEl.getBoundingClientRect();
     const next: React.CSSProperties = { position: 'fixed', top: Math.round(rect.bottom + offset) };
     const baseX = align === 'center' ? 'translateX(-50%) ' : '';
+    
+    // Mobile viewport constraint: prevent overflow
+    const isMobile = window.innerWidth <= 768;
+    const padding = 16; // px from edge
+    
     if (align === 'right') {
       next.right = Math.round(window.innerWidth - rect.right);
+      // Ensure minimum right padding on mobile
+      if (isMobile && (next.right as number) < padding) {
+        next.right = padding;
+      }
     } else if (align === 'left') {
       next.left = Math.round(rect.left);
+      // Ensure minimum left padding on mobile
+      if (isMobile && (next.left as number) < padding) {
+        next.left = padding;
+      }
     } else {
-      next.left = Math.round(rect.left + rect.width / 2);
+      let centerX = Math.round(rect.left + rect.width / 2);
+      // On mobile, constrain center-aligned dropdowns to viewport
+      if (isMobile) {
+        const dropdownWidth = panelRef.current?.offsetWidth || 200;
+        const leftEdge = centerX - dropdownWidth / 2;
+        const rightEdge = centerX + dropdownWidth / 2;
+        
+        if (leftEdge < padding) {
+          centerX = padding + dropdownWidth / 2;
+        } else if (rightEdge > window.innerWidth - padding) {
+          centerX = window.innerWidth - padding - dropdownWidth / 2;
+        }
+      }
+      next.left = centerX;
     }
     if (minWidth) next.minWidth = typeof minWidth === 'number' ? `${minWidth}px` : String(minWidth);
 
