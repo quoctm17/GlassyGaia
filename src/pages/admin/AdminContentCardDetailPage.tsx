@@ -4,6 +4,7 @@ import { apiGetCardByPath } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
 import { ExternalLink, Pencil } from 'lucide-react';
 import { langLabel, countryCodeForLang, languageCssBase } from '../../utils/lang';
+import AudioPlayer from '../../components/AudioPlayer';
 
 export default function AdminContentCardDetailPage() {
   const { contentSlug, episodeId, cardId } = useParams();
@@ -61,6 +62,14 @@ export default function AdminContentCardDetailPage() {
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Card ID:</label>
                 <span className="text-gray-200">{cardId}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Status:</label>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  (card.is_available ?? true) ? 'bg-green-500/20 text-green-300 border border-green-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40'
+                }`}>
+                  {(card.is_available ?? true) ? 'Available' : 'Unavailable'}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Start:</label>
@@ -164,9 +173,7 @@ export default function AdminContentCardDetailPage() {
                   )}
                 </div>
                 {card.audio_url ? (
-                  <div className="audio-container">
-                    <audio controls src={card.audio_url} />
-                  </div>
+                  <AudioPlayer src={card.audio_url} />
                 ) : (
                   <div className="text-xs text-gray-500 italic p-4 bg-[#1a0f24] rounded-lg border-2 border-pink-500/30 text-center">No audio</div>
                 )}

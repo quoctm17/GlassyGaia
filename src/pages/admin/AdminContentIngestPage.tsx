@@ -103,6 +103,7 @@ export default function AdminContentIngestPage() {
   const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
+    const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [csvFileName, setCsvFileName] = useState<string>("");
   // Allow selecting which CSV header to treat as Main Language subtitle
   const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string>("");
@@ -171,7 +172,6 @@ export default function AdminContentIngestPage() {
 
   const validateCsv = useCallback((headers: string[], rows: Record<string, string>[]) => {
     const errors: string[] = [];
-    const warnings: string[] = [];
     const headerMap: Record<string, string> = {};
     headers.forEach(h => { const l = (h || "").toLowerCase(); if (!headerMap[l]) headerMap[l] = h; });
     // Reserved columns: these are CSV metadata/structural columns, NOT language codes
@@ -326,28 +326,39 @@ export default function AdminContentIngestPage() {
       if (low === 'sentence') continue; // already an error above
       ignored.push(raw);
     }
-    if (ignored.length) {
-      warnings.push(`Các cột sẽ bị bỏ qua: ${ignored.join(', ')}`);
-    }
     // row required cell checks (limit to 50 errors)
     let ec = 0;
     const maxErr = 50;
+    const emptySubtitleRows: number[] = [];
     rows.forEach((row, i) => {
       required.forEach(k => {
         const orig = headerMap[k];
         const v = orig ? (row[orig] || "").toString().trim() : "";
         if (!v) { errors.push(`Hàng ${i + 1}: cột "${k}" trống.`); ec++; }
       });
-      // Flag empty subtitle cells for recognized subtitle columns
+      // Check for empty subtitle cells (now a warning, not error)
       if (ec < maxErr) {
+        let hasEmptySubtitle = false;
         recognizedSubtitleHeaders.forEach((hdr) => {
           const val = (row[hdr] || "").toString().trim();
-          if (!val) { errors.push(`Hàng ${i + 1}: cột phụ đề "${hdr}" trống.`); ec++; }
+          if (!val) { hasEmptySubtitle = true; }
         });
+        if (hasEmptySubtitle) {
+          emptySubtitleRows.push(i + 1);
+        }
       }
       if (ec >= maxErr) return;
     });
-    setCsvErrors(errors);
+    
+      // Build warnings separately (non-blocking issues)
+      const warnings: string[] = [];
+    if (emptySubtitleRows.length > 0) {
+      const rowList = emptySubtitleRows.slice(0, 10).join(', ') + (emptySubtitleRows.length > 10 ? '...' : '');
+      warnings.push(`${emptySubtitleRows.length} cards có subtitle trống (hàng: ${rowList}). Các cards này sẽ mặc định unavailable.`);
+    }
+    
+      setCsvErrors(errors);
+      setCsvWarnings(warnings);
     setCsvValid(errors.length === 0);
   }, [mainLanguage, confirmedAsLanguage]);
 
@@ -1308,6 +1319,7 @@ export default function AdminContentIngestPage() {
           csvRows={csvRows}
           csvValid={csvValid}
           csvErrors={csvErrors}
+            csvWarnings={csvWarnings}
           unrecognizedHeaders={unrecognizedHeaders}
           reservedHeaders={reservedHeaders}
           ambiguousHeaders={ambiguousHeaders}

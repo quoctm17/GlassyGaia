@@ -15,7 +15,7 @@ export default function AdminContentDetailPage() {
   const navigate = useNavigate();
   const [item, setItem] = useState<FilmDoc | null>(null);
   const [languages, setLanguages] = useState<string[]>([]);
-  const [episodes, setEpisodes] = useState<Array<{ episode_number: number; title: string | null; slug: string; cover_url: string | null; full_audio_url: string | null; full_video_url: string | null }>>([]);
+  const [episodes, setEpisodes] = useState<Array<{ episode_number: number; title: string | null; slug: string; cover_url: string | null; full_audio_url: string | null; full_video_url: string | null; is_available?: boolean }>>([]);
   const [loadingItem, setLoadingItem] = useState(false);
   const [loadingEpisodes, setLoadingEpisodes] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +172,14 @@ export default function AdminContentDetailPage() {
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Title:</label>
                 <span className="text-gray-200">{item.title || '-'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Status:</label>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  (item.is_available ?? true) ? 'bg-green-500/20 text-green-300 border border-green-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40'
+                }`}>
+                  {(item.is_available ?? true) ? 'Available' : 'Unavailable'}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Type:</label>
@@ -341,6 +349,7 @@ export default function AdminContentDetailPage() {
               <th>Cover</th>
               <th>Full Audio</th>
               <th>Full Video</th>
+              <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -352,6 +361,16 @@ export default function AdminContentDetailPage() {
                 <td>{ep.cover_url ? <a href={ep.cover_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
                 <td>{ep.full_audio_url ? <a href={ep.full_audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
                 <td>{ep.full_video_url ? <a href={ep.full_video_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
+                <td>
+                  {(() => {
+                    const available = (ep.is_available ?? true) ? true : false;
+                    return (
+                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}>
+                        {available ? 'Available' : 'Unavailable'}
+                      </span>
+                    );
+                  })()}
+                </td>
                 <td onMouseDown={(e)=>e.stopPropagation()}>
                   <button
                     className="admin-btn secondary !px-2 !py-1"
@@ -400,7 +419,7 @@ export default function AdminContentDetailPage() {
               </tr>
             ))}
             {filteredEpisodes.length === 0 && !loadingEpisodes && (
-              <tr><td colSpan={6} className="admin-empty">No episodes found</td></tr>
+              <tr><td colSpan={7} className="admin-empty">No episodes found</td></tr>
             )}
           </tbody>
         </table>

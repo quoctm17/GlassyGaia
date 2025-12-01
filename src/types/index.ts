@@ -20,6 +20,7 @@ export interface CardDoc {
   card_type?: string; // normalized type text (cleaned sentence)
   length?: number; // length of card_type for matching/scoring
   difficulty_score?: number; // 0-100 fine-grained difficulty
+  is_available?: boolean; // visibility flag (default: true)
 }
 
 export interface EpisodeDoc {
@@ -44,6 +45,7 @@ export interface FilmDoc {
   num_cards?: number | null;
   avg_difficulty_score?: number | null;
   level_framework_stats?: string | LevelFrameworkStats[] | null;
+  is_available?: boolean; // visibility flag (default: true)
 }
 
 export interface UserPreferences {
@@ -88,4 +90,5 @@ export interface EpisodeDetailDoc {
   num_cards?: number | null;
   avg_difficulty_score?: number | null;
   level_framework_stats?: string | LevelFrameworkStats[] | null;
+  is_available?: boolean; // visibility flag (default: true)
 }

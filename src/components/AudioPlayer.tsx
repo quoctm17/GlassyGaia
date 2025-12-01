@@ -1,10 +1,16 @@
-import React, { useRef, useState, useEffect } from "react";
-import { Play, Pause, Volume2, VolumeX, MoreVertical, FastForward } from "lucide-react";
-import PortalDropdown from "./PortalDropdown";
+import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { Play, Pause } from "lucide-react";
 
 interface AudioPlayerProps {
   src: string;
   className?: string;
+  onTimeUpdate?: (currentTime: number) => void;
+}
+
+export interface AudioPlayerHandle {
+  currentTime: number;
+  play: () => void;
+  pause: () => void;
 }
 
 function formatTime(sec: number) {
@@ -14,28 +20,55 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
+// Global registry to ensure only one audio plays at a time
+const activeAudioInstances = new Set<HTMLAudioElement>();
+
+const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, className, onTimeUpdate }, ref) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [muted, setMuted] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
+
+  // Expose methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    get currentTime() {
+      return audioRef.current?.currentTime || 0;
+    },
+    set currentTime(value: number) {
+      if (audioRef.current) {
+        audioRef.current.currentTime = value;
+      }
+    },
+    play: () => {
+      audioRef.current?.play();
+    },
+    pause: () => {
+      audioRef.current?.pause();
+    }
+  }));
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onTime = () => setCurrent(audio.currentTime);
+    
+    // Register this instance
+    activeAudioInstances.add(audio);
+    
+    const onTime = () => {
+      const time = audio.currentTime;
+      setCurrent(time);
+      onTimeUpdate?.(time);
+    };
     const onLoaded = () => setDuration(audio.duration || 0);
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("loadedmetadata", onLoaded);
+    
     return () => {
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("loadedmetadata", onLoaded);
+      activeAudioInstances.delete(audio);
     };
-  }, []);
+  }, [onTimeUpdate]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -44,6 +77,12 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
       audio.pause();
       setPlaying(false);
     } else {
+      // Pause all other audio instances
+      activeAudioInstances.forEach((otherAudio) => {
+        if (otherAudio !== audio) {
+          otherAudio.pause();
+        }
+      });
       audio.play();
       setPlaying(true);
     }
@@ -57,27 +96,19 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
     setCurrent(val);
   };
 
-  const onVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const val = Number(e.target.value);
-    audio.volume = val;
-    setVolume(val);
-    setMuted(val === 0);
-  };
-
-  const toggleMute = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.muted = !muted;
-    setMuted(!muted);
-  };
-
   // Sync play/pause state if user uses native controls
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onPlay = () => setPlaying(true);
+    const onPlay = () => {
+      // Pause all other instances when this one plays
+      activeAudioInstances.forEach((otherAudio) => {
+        if (otherAudio !== audio) {
+          otherAudio.pause();
+        }
+      });
+      setPlaying(true);
+    };
     const onPause = () => setPlaying(false);
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
@@ -86,14 +117,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
       audio.removeEventListener("pause", onPause);
     };
   }, []);
-
-  // Playback rate handler
-  const handleRate = (rate: number) => {
-    const audio = audioRef.current;
-    if (audio) audio.playbackRate = rate;
-    setPlaybackRate(rate);
-    setShowMenu(false);
-  };
 
   return (
     <div
@@ -111,7 +134,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
         {playing ? <Pause size={22} /> : <Play size={22} />}
       </button>
       <span className="text-xs font-bold text-pink-200 min-w-[48px] text-right">
-        {formatTime(current)} / {formatTime(duration)}
+        {formatTime(current)}
       </span>
       <input
         type="range"
@@ -123,60 +146,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
         className="mx-2 flex-1 accent-pink-400 h-1 bg-pink-100 rounded-lg outline-none transition-all"
         style={{ background: `linear-gradient(90deg,#c75485 ${(current/(duration||1))*100}%,#aee0e7 ${(current/(duration||1))*100}%)` }}
       />
-      <button
-        className="ml-2 p-1.5 rounded-full bg-pink-200 hover:bg-pink-300 text-pink-700"
-        onClick={toggleMute}
-        aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
-      >
-        {muted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
-      </button>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.01}
-        value={muted ? 0 : volume}
-        onChange={onVolume}
-        className="w-16 accent-pink-400 h-1 bg-pink-100 rounded-lg outline-none"
-      />
-      <div className="relative ml-2">
-        <button
-          id="audio-player-menu-btn"
-          className="p-1.5 rounded-full bg-pink-200 hover:bg-pink-300 text-pink-700"
-          onClick={() => setShowMenu((v) => !v)}
-          aria-label="More options"
-        >
-          <MoreVertical size={20} />
-        </button>
-        {showMenu && (
-          <PortalDropdown
-            anchorEl={document.getElementById('audio-player-menu-btn')!}
-            onClose={() => setShowMenu(false)}
-            className="pixel-filter-panel p-2"
-            align="right"
-            offset={8}
-            minWidth={200}
-          >
-            <div className="flex flex-col gap-1">
-              <div className="text-[11px] text-pink-200/80 px-2 pb-1">Playback Speed</div>
-              <div className="flex items-center gap-2 px-2 py-1">
-                <FastForward size={18} className="text-pink-200" />
-                <div className="flex gap-1">
-                  {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
-                    <button
-                      key={rate}
-                      className={`pixel-filter-btn text-xs px-2 py-1 ${playbackRate === rate ? "active" : ""}`}
-                      onClick={() => handleRate(rate)}
-                    >
-                      {rate}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </PortalDropdown>
-        )}
-      </div>
+      <span className="text-xs font-bold text-pink-200 min-w-[48px]">
+        {formatTime(duration)}
+      </span>
       <audio 
         ref={audioRef} 
         src={src} 
@@ -187,6 +159,8 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, className }) => {
       />
     </div>
   );
-};
+});
+
+AudioPlayer.displayName = 'AudioPlayer';
 
 export default AudioPlayer;

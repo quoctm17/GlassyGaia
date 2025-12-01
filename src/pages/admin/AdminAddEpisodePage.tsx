@@ -44,6 +44,7 @@ export default function AdminAddEpisodePage() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<Record<string,string>[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   // (Unused) warnings placeholder removed to satisfy lint
   const [csvValid, setCsvValid] = useState<boolean|null>(null);
   // Allow selecting which CSV header to treat as Main Language subtitle (override auto-detected)
@@ -357,22 +358,34 @@ export default function AdminAddEpisodePage() {
     }
     
     let ec=0; const maxErr=50;
+    const emptySubtitleRows: number[] = [];
     rows.forEach((row,i)=>{
       required.forEach(k=>{
         const orig=headerMap[k];
         const v=orig? (row[orig]||'').trim() : '';
         if(!v){ errors.push(`Hàng ${i+1}: cột "${k}" trống.`); ec++; }
       });
-      // Flag empty subtitle cells for recognized subtitle columns
+      // Track empty subtitle cells as non-blocking warning
       if (ec < maxErr) {
+        let hasEmptySubtitle = false;
         recognizedSubtitleHeaders.forEach((hdr) => {
           const val = (row[hdr] || "").toString().trim();
-          if (!val) { errors.push(`Hàng ${i + 1}: cột phụ đề "${hdr}" trống.`); ec++; }
+          if (!val) { hasEmptySubtitle = true; }
         });
+        if (hasEmptySubtitle) {
+          emptySubtitleRows.push(i + 1);
+        }
       }
       if(ec>=maxErr) return;
     });
-    setCsvErrors(errors); setCsvValid(errors.length===0);
+    const warnings: string[] = [];
+    if (emptySubtitleRows.length > 0) {
+      const rowList = emptySubtitleRows.slice(0, 10).join(', ') + (emptySubtitleRows.length > 10 ? '...' : '');
+      warnings.push(`${emptySubtitleRows.length} cards có subtitle trống (hàng: ${rowList}). Các cards này sẽ mặc định unavailable.`);
+    }
+    setCsvErrors(errors);
+    setCsvWarnings(warnings);
+    setCsvValid(errors.length===0);
   }, [filmMainLang, mainLangHeaderOverride, recognizedSubtitleHeaders]);
 
   useEffect(()=>{ if(csvHeaders.length && csvRows.length) validateCsv(csvHeaders,csvRows); }, [csvHeaders,csvRows,filmMainLang,mainLangHeaderOverride,validateCsv]);
@@ -847,6 +860,7 @@ export default function AdminAddEpisodePage() {
           csvRows={csvRows}
           csvValid={csvValid}
           csvErrors={csvErrors}
+          csvWarnings={csvWarnings}
           unrecognizedHeaders={unrecognizedHeaders}
           reservedHeaders={reservedHeaders}
           ambiguousHeaders={ambiguousHeaders}

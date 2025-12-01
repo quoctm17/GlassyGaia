@@ -470,6 +470,7 @@ export default function AdminContentListPage() {
                   {sortColumn === 'release_year' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
                 </div>
               </th>
+              <th>Status</th>
               <th>Subs</th>
               <th>Action</th>
             </tr>
@@ -477,7 +478,7 @@ export default function AdminContentListPage() {
           <tbody>
             {filteredRows.length === 0 && !loading && !error && (
               <tr>
-                <td colSpan={9} className="admin-empty">No content found</td>
+                <td colSpan={10} className="admin-empty">No content found</td>
               </tr>
             )}
             {filteredRows.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map((f, idx) => {
@@ -524,6 +525,18 @@ export default function AdminContentListPage() {
                   </td>
                   <td>{f.main_language ? <LanguageTag code={f.main_language} /> : '-'}</td>
                   <td>{f.release_year || '-'}</td>
+                  <td>
+                    {(() => {
+                      const available = ((f as unknown as { is_available?: boolean }).is_available ?? true) ? true : false;
+                      return (
+                        <span
+                          className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}
+                        >
+                          {available ? 'Available' : 'Unavailable'}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td>
                     {subs.length > 0 ? (
                       <div className="inline-flex items-center gap-2" onMouseDown={(e)=>e.stopPropagation()}>

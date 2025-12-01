@@ -10,6 +10,7 @@ import SeriesPage from './pages/SeriesPage';
 import BookPage from './pages/BookPage';
 import AboutPage from './pages/AboutPage';
 import LoginPage from './pages/LoginPage';
+import WatchPage from './pages/WatchPage';
 import AdminContentIngestPage from './pages/admin/AdminContentIngestPage';
 import AdminContentUpdatePage from './pages/admin/AdminContentUpdatePage';
 import AdminLayout from './layouts/admin/AdminLayout';
@@ -43,6 +44,7 @@ function App() {
               {/* New canonical content routes */}
               <Route path="/content" element={<ContentMoviePage />} />
               <Route path="/content/:contentId" element={<ContentCardsPage />} />
+              <Route path="/watch/:contentId" element={<WatchPage />} />
               {/* Backward compat redirects */}
               <Route path="/movie" element={<Navigate to="/content" replace />} />
               <Route path="/movie/:filmId" element={<MovieToContentRedirect />} />

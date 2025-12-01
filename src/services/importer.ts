@@ -316,6 +316,10 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
     const mainCanon = canonicalizeLangCode(mainLang) || mainLang;
     const sentence = subtitle[mainCanon] || "";
 
+    // Availability rule: a card is Available only if ALL mapped subtitle columns are non-empty
+    // If any subtitle column (including main language) is empty -> Unavailable
+    const allSubtitlesFilled = Object.values(subtitle).every(text => !!(text && text.trim()));
+
     const difficulty_levels: Array<{ framework: string; level: string; language?: string }> = [];
     const cefrLevel = mapping.cefr ? (row[mapping.cefr] || "").toString().trim() : "";
     if (cefrLevel) difficulty_levels.push({ framework: "CEFR", level: cefrLevel, language: "en" });
@@ -376,6 +380,7 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
       difficulty_score: Number.isFinite(difficultyScoreNum) ? difficultyScoreNum : undefined,
       image_url,
       audio_url,
+      is_available: allSubtitlesFilled, // false if any subtitle is empty
     };
   });
 

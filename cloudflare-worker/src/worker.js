@@ -919,10 +919,10 @@ export default {
         const filmSlug = decodeURIComponent(filmMatch[1]);
         try {
           // Case-insensitive slug matching for stability
-          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
+          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
           if (!film) {
             // Fallback: allow direct UUID id lookup in case caller still uses internal id
-            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE id=?').bind(filmSlug).first();
+            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE id=?').bind(filmSlug).first();
           }
           if (!film) return new Response('Not found', { status: 404, headers: withCors() });
           // Languages and episodes are optional; if the table is missing, default gracefully
@@ -984,7 +984,7 @@ export default {
           const episodesMeta = (Number.isFinite(episodesMetaRaw) && episodesMetaRaw > 0) ? episodesMetaRaw : null;
           const episodesOut = episodesMeta !== null ? episodesMeta : episodes;
           const isOriginal = (film.is_original == null) ? 1 : film.is_original; // default true when absent
-          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: film.level_framework_stats ?? null });
+          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: film.level_framework_stats ?? null, is_available: film.is_available ?? 1 });
         } catch (e) {
           return new Response('Not found', { status: 404, headers: withCors() });
         }
@@ -1000,11 +1000,11 @@ export default {
           let rows;
           try {
             // New schema (episode_number)
-            rows = await env.DB.prepare('SELECT episode_number,title,slug,description,cover_key,full_audio_key,full_video_key FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
+            rows = await env.DB.prepare('SELECT episode_number,title,slug,description,cover_key,full_audio_key,full_video_key,is_available FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
           } catch (e) {
             // Backward compatibility: older column name episode_num
             try {
-              rows = await env.DB.prepare('SELECT episode_num AS episode_number,title,slug,cover_key,full_audio_key,full_video_key FROM episodes WHERE content_item_id=? ORDER BY episode_num ASC').bind(filmRow.id).all();
+              rows = await env.DB.prepare('SELECT episode_num AS episode_number,title,slug,cover_key,full_audio_key,full_video_key,is_available FROM episodes WHERE content_item_id=? ORDER BY episode_num ASC').bind(filmRow.id).all();
             } catch (e2) {
               rows = { results: [] };
             }
@@ -1018,6 +1018,7 @@ export default {
             cover_url: r.cover_key ? (base ? `${base}/${r.cover_key}` : `/${r.cover_key}`) : null,
             full_audio_url: r.full_audio_key ? (base ? `${base}/${r.full_audio_key}` : `/${r.full_audio_key}`) : null,
             full_video_url: r.full_video_key ? (base ? `${base}/${r.full_video_key}` : `/${r.full_video_key}`) : null,
+            is_available: r.is_available ?? 1,
           }));
           return json(out);
         } catch (e) {
@@ -1450,11 +1451,11 @@ export default {
           }
           let episode;
           try {
-            episode = await env.DB.prepare('SELECT id, title, slug, description, cover_key, full_audio_key, full_video_key, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+            episode = await env.DB.prepare('SELECT id, title, slug, description, cover_key, full_audio_key, full_video_key, is_available, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
           } catch (e) {
             // Fallback older schema
             try {
-              episode = await env.DB.prepare('SELECT id, title, slug, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
+              episode = await env.DB.prepare('SELECT id, title, slug, cover_key, full_audio_key, full_video_key, is_available FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
             } catch {}
           }
           if (!episode) return json({ error: 'Not found' }, { status: 404 });
@@ -1474,6 +1475,7 @@ export default {
               num_cards: episode.num_cards ?? null,
               avg_difficulty_score: episode.avg_difficulty_score ?? null,
               level_framework_stats: episode.level_framework_stats ?? null,
+              is_available: episode.is_available ?? 1,
             };
             return json(out);
           }
@@ -1525,7 +1527,11 @@ export default {
         if (filmCardsMatch && request.method === 'GET') {
       const filmSlug = decodeURIComponent(filmCardsMatch[1]);
       const episodeSlug = decodeURIComponent(filmCardsMatch[2]);
-        const limit = Number(url.searchParams.get('limit') || '50');
+        // Allow higher limits for admin pages, but cap at 5000 to prevent overload
+        const limitRaw = Number(url.searchParams.get('limit') || '50');
+        const limit = Math.min(5000, Math.max(1, limitRaw));
+        const startFromRaw = url.searchParams.get('start_from');
+        const startFrom = startFromRaw != null ? Number(startFromRaw) : null;
         try {
           const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(filmSlug).first();
           if (!filmRow) return json([]);
@@ -1544,31 +1550,116 @@ export default {
           if (!ep) return json([]);
           let res;
           try {
-            const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.id as internal_id FROM cards c WHERE c.episode_id=? ORDER BY c.card_number ASC, c.start_time ASC LIMIT ?`;
-            res = await env.DB.prepare(sql).bind(ep.id, limit).all();
+            if (startFrom != null && Number.isFinite(startFrom)) {
+              const sql = `SELECT c.card_number,
+                                  c.start_time AS start_time,
+                                  c.end_time AS end_time,
+                                  c.duration,
+                                  c.image_key,
+                                  c.audio_key,
+                                  c.sentence,
+                                  c.card_type,
+                                  c.length,
+                                  c.difficulty_score,
+                                  c.is_available,
+                                  c.id as internal_id
+                           FROM cards c
+                           WHERE c.episode_id=? AND c.start_time >= ?
+                           ORDER BY c.start_time ASC, c.end_time ASC
+                           LIMIT ?`;
+              res = await env.DB.prepare(sql).bind(ep.id, Math.floor(startFrom), limit).all();
+            } else {
+              const sql = `SELECT c.card_number,
+                                  c.start_time AS start_time,
+                                  c.end_time AS end_time,
+                                  c.duration,
+                                  c.image_key,
+                                  c.audio_key,
+                                  c.sentence,
+                                  c.card_type,
+                                  c.length,
+                                  c.difficulty_score,
+                                  c.is_available,
+                                  c.id as internal_id
+                           FROM cards c
+                           WHERE c.episode_id=?
+                           ORDER BY c.start_time ASC, c.end_time ASC
+                           LIMIT ?`;
+              res = await env.DB.prepare(sql).bind(ep.id, limit).all();
+            }
           } catch (e) {
             // Backward compatibility: legacy ms columns
-            const sqlLegacy = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.id as internal_id FROM cards c WHERE c.episode_id=? ORDER BY c.card_number ASC, c.start_time_ms ASC LIMIT ?`;
-            res = await env.DB.prepare(sqlLegacy).bind(ep.id, limit).all();
+            if (startFrom != null && Number.isFinite(startFrom)) {
+              const sqlLegacy = `SELECT c.card_number,
+                                        c.start_time_ms,
+                                        c.end_time_ms,
+                                        c.image_key,
+                                        c.audio_key,
+                                        c.sentence,
+                                        c.card_type,
+                                        c.length,
+                                        c.difficulty_score,
+                                        c.is_available,
+                                        c.id as internal_id
+                                 FROM cards c
+                                 WHERE c.episode_id=? AND c.start_time_ms >= ?
+                                 ORDER BY c.start_time_ms ASC
+                                 LIMIT ?`;
+              res = await env.DB.prepare(sqlLegacy).bind(ep.id, Math.floor(startFrom * 1000), limit).all();
+            } else {
+              const sqlLegacy = `SELECT c.card_number,
+                                        c.start_time_ms,
+                                        c.end_time_ms,
+                                        c.image_key,
+                                        c.audio_key,
+                                        c.sentence,
+                                        c.card_type,
+                                        c.length,
+                                        c.difficulty_score,
+                                        c.is_available,
+                                        c.id as internal_id
+                                 FROM cards c
+                                 WHERE c.episode_id=?
+                                 ORDER BY c.start_time_ms ASC
+                                 LIMIT ?`;
+              res = await env.DB.prepare(sqlLegacy).bind(ep.id, limit).all();
+            }
           }
           const rows = res.results || [];
           // Optimize: Batch fetch subtitles and CEFR levels for all cards
           const cardIds = rows.map(r => r.internal_id);
           const subsMap = new Map();
           const cefrMap = new Map();
+          console.log('[WORKER] Episode cards - Total cards:', rows.length, 'Card IDs:', cardIds.length);
           if (cardIds.length > 0) {
-            const ph = cardIds.map(() => '?').join(',');
+            // Split into batches to avoid SQLite's 999 parameter limit
+            const batchSize = 500;
             try {
-              const allSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).all();
-              (allSubs.results || []).forEach(s => {
-                if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
-                subsMap.get(s.card_id)[s.language] = s.text;
-              });
-            } catch {}
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const ph = batch.map(() => '?').join(',');
+                const batchSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...batch).all();
+                console.log('[WORKER] Batch', Math.floor(i/batchSize) + 1, '- fetched', batchSubs.results?.length || 0, 'subtitle rows for', batch.length, 'cards');
+                (batchSubs.results || []).forEach(s => {
+                  if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                  subsMap.get(s.card_id)[s.language] = s.text;
+                });
+              }
+              console.log('[WORKER] Final subsMap size:', subsMap.size, '| Sample entry:', subsMap.size > 0 ? subsMap.entries().next().value : 'none');
+            } catch (e) {
+              console.error('[WORKER] Error fetching subtitles:', e);
+            }
             try {
-              const allCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...cardIds).all();
-              (allCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
-            } catch {}
+              // Batch CEFR levels to avoid SQLite parameter limit (999)
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const phCefr = batch.map(() => '?').join(',');
+                const batchCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${phCefr}) AND framework='CEFR'`).bind(...batch).all();
+                (batchCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
+              }
+            } catch (e) {
+              console.error('[WORKER] Error fetching CEFR levels:', e);
+            }
           }
           const out = [];
           for (const r of rows) {
@@ -1579,7 +1670,7 @@ export default {
             const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
             const endS = (r.end_time != null) ? r.end_time : Math.round((r.end_time_ms || 0) / 1000);
             const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-            out.push({ id: displayId, episode_id: outEpisodeId, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, subtitle });
+            out.push({ id: displayId, episode_id: outEpisodeId, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, is_available: r.is_available, subtitle });
           }
           return json(out);
         } catch { return json([]); }
@@ -1589,13 +1680,15 @@ export default {
   const filmAllCardsMatch = path.match(/^\/items\/([^/]+)\/cards$/);
       if (filmAllCardsMatch && request.method === 'GET') {
         const filmSlug = filmAllCardsMatch[1];
-        const limit = Number(url.searchParams.get('limit') || '50');
+        // Allow higher limits for admin pages, but cap at 5000 to prevent overload
+        const limitRaw = Number(url.searchParams.get('limit') || '50');
+        const limit = Math.min(5000, Math.max(1, limitRaw));
         try {
           const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(filmSlug).first();
           if (!filmRow) return json([]);
           let res;
           try {
-            const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,e.episode_number,e.slug as episode_slug,c.id as internal_id
+            const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.episode_number,e.slug as episode_slug,c.id as internal_id
                        FROM cards c JOIN episodes e ON c.episode_id=e.id
                        WHERE e.content_item_id=?
                        ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
@@ -1603,14 +1696,14 @@ export default {
           } catch (e) {
             // Fallback older schema (episode_num)
             try {
-              const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id
+              const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id
                        FROM cards c JOIN episodes e ON c.episode_id=e.id
                        WHERE e.content_item_id=?
                        ORDER BY e.episode_num ASC, c.card_number ASC LIMIT ?`;
               res = await env.DB.prepare(sql2).bind(filmRow.id, limit).all();
             } catch (e2) {
               // Final fallback: legacy ms columns
-              const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,e.episode_number,e.slug as episode_slug,c.id as internal_id
+              const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.episode_number,e.slug as episode_slug,c.id as internal_id
                        FROM cards c JOIN episodes e ON c.episode_id=e.id
                        WHERE e.content_item_id=?
                        ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
@@ -1627,18 +1720,31 @@ export default {
           const subsMap = new Map();
           const cefrMap = new Map();
           if (cardIds.length > 0) {
-            const ph = cardIds.map(() => '?').join(',');
+            // Split into batches to avoid SQLite's 999 parameter limit
+            const batchSize = 500;
             try {
-              const allSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).all();
-              (allSubs.results || []).forEach(s => {
-                if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
-                subsMap.get(s.card_id)[s.language] = s.text;
-              });
-            } catch {}
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const ph = batch.map(() => '?').join(',');
+                const batchSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...batch).all();
+                (batchSubs.results || []).forEach(s => {
+                  if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                  subsMap.get(s.card_id)[s.language] = s.text;
+                });
+              }
+            } catch (e) {
+              console.error('[WORKER /items/cards] Error fetching subtitles:', e);
+            }
             try {
-              const allCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...cardIds).all();
-              (allCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
-            } catch {}
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const phCefr = batch.map(() => '?').join(',');
+                const batchCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${phCefr}) AND framework='CEFR'`).bind(...batch).all();
+                (batchCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
+              }
+            } catch (e) {
+              console.error('[WORKER /items/cards] Error fetching CEFR levels:', e);
+            }
           }
           const out = [];
           for (const r of rows) {
@@ -1649,7 +1755,7 @@ export default {
             const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
             const endS = (r.end_time != null) ? r.end_time : Math.round((r.end_time_ms || 0) / 1000);
             const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-            out.push({ id: displayId, episode_id: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, subtitle });
+            out.push({ id: displayId, episode_id: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, is_available: r.is_available, subtitle });
           }
           return json(out);
         } catch { return json([]); }
@@ -1657,23 +1763,25 @@ export default {
 
       // 6) Global cards (return film slug, display id, and episode slug e{N} instead of UUID)
   if (path === '/cards' && request.method === 'GET') {
-        const limit = Number(url.searchParams.get('limit') || '100');
+        // Allow higher limits for admin pages, but cap at 5000 to prevent overload
+        const limitRaw = Number(url.searchParams.get('limit') || '100');
+        const limit = Math.min(5000, Math.max(1, limitRaw));
         try {
           let res;
           try {
-            const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
+            const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
                        FROM cards c JOIN episodes e ON c.episode_id=e.id
                        ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
             res = await env.DB.prepare(sql).bind(limit).all();
           } catch (e) {
             try {
-              const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,e.content_item_id as film_id,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id
+              const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id
                        FROM cards c JOIN episodes e ON c.episode_id=e.id
                        ORDER BY e.episode_num ASC, c.card_number ASC LIMIT ?`;
               res = await env.DB.prepare(sql2).bind(limit).all();
             } catch (e2) {
               // Final fallback: legacy ms columns
-              const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
+              const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
                        FROM cards c JOIN episodes e ON c.episode_id=e.id
                        ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
               try { res = await env.DB.prepare(sql3).bind(limit).all(); }
@@ -1688,18 +1796,31 @@ export default {
           const cefrMap = new Map();
           const filmSlugMap = new Map();
           if (cardIds.length > 0) {
-            const ph = cardIds.map(() => '?').join(',');
+            // Split into batches to avoid SQLite's 999 parameter limit
+            const batchSize = 500;
             try {
-              const allSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).all();
-              (allSubs.results || []).forEach(s => {
-                if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
-                subsMap.get(s.card_id)[s.language] = s.text;
-              });
-            } catch {}
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const ph = batch.map(() => '?').join(',');
+                const batchSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...batch).all();
+                (batchSubs.results || []).forEach(s => {
+                  if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                  subsMap.get(s.card_id)[s.language] = s.text;
+                });
+              }
+            } catch (e) {
+              console.error('[WORKER /cards] Error fetching subtitles:', e);
+            }
             try {
-              const allCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...cardIds).all();
-              (allCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
-            } catch {}
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const phCefr = batch.map(() => '?').join(',');
+                const batchCefr = await env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${phCefr}) AND framework='CEFR'`).bind(...batch).all();
+                (batchCefr.results || []).forEach(c => cefrMap.set(c.card_id, c.level));
+              }
+            } catch (e) {
+              console.error('[WORKER /cards] Error fetching CEFR levels:', e);
+            }
           }
           if (filmIds.length > 0) {
             const phFilm = filmIds.map(() => '?').join(',');
@@ -1718,7 +1839,7 @@ export default {
             const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
             const endS = (r.end_time != null) ? r.end_time : Math.round((r.end_time_ms || 0) / 1000);
             const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, film_id: film?.slug, subtitle });
+            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, film_id: film?.slug, is_available: r.is_available, subtitle });
           }
           return json(out);
         } catch { return json([]); }
@@ -1777,7 +1898,7 @@ export default {
           const placeholders = cardIds.map(() => '?').join(',');
           const orderCase = cardIds.map((id, idx) => `WHEN c.id=? THEN ${idx}`).join(' ');
           const bindOrder = [...cardIds];
-          const detailSql = `
+             const detailSql = `
             SELECT c.card_number,
                    c.start_time AS start_time,
                    c.end_time AS end_time,
@@ -1788,6 +1909,7 @@ export default {
                    c.card_type,
                    c.length,
                    c.difficulty_score,
+                 c.is_available,
                    e.episode_number,
                    e.slug as episode_slug,
                    ci.slug as film_slug,
@@ -1816,7 +1938,7 @@ export default {
             const startS = (r.start_time != null) ? r.start_time : 0;
             const endS = (r.end_time != null) ? r.end_time : 0;
             const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, film_id: r.film_slug, subtitle });
+            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, is_available: r.is_available, cefr_level: cefr, film_id: r.film_slug, subtitle });
           }
           return json(out);
         } catch (e) {
@@ -1846,10 +1968,10 @@ export default {
           }
           if (!ep) return new Response('Not found', { status: 404, headers: withCors() });
           const cardNum = Number(cardDisplay);
-          let row = await env.DB.prepare('SELECT c.id as internal_id,c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score FROM cards c WHERE c.episode_id=? AND c.card_number=?').bind(ep.id, cardNum).first();
+          let row = await env.DB.prepare('SELECT c.id as internal_id,c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available FROM cards c WHERE c.episode_id=? AND c.card_number=?').bind(ep.id, cardNum).first();
           if (!row) {
             // Legacy fallback
-            row = await env.DB.prepare('SELECT c.id as internal_id,c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score FROM cards c WHERE c.episode_id=? AND c.card_number=?').bind(ep.id, cardNum).first();
+            row = await env.DB.prepare('SELECT c.id as internal_id,c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available FROM cards c WHERE c.episode_id=? AND c.card_number=?').bind(ep.id, cardNum).first();
           }
           if (!row) return new Response('Not found', { status: 404, headers: withCors() });
           const subs = await env.DB.prepare('SELECT language,text FROM card_subtitles WHERE card_id=?').bind(row.internal_id).all();
@@ -1866,7 +1988,7 @@ export default {
           const startS = (row.start_time != null) ? row.start_time : Math.round((row.start_time_ms || 0) / 1000);
           const endS = (row.end_time != null) ? row.end_time : Math.round((row.end_time_ms || 0) / 1000);
           const dur = (row.duration != null) ? row.duration : Math.max(0, endS - startS);
-          return json({ id: displayId, episode_id: outEpisodeId, episode_display: displayPadded, film_id: filmSlug, start: startS, end: endS, duration: dur, image_key: row.image_key, audio_key: row.audio_key, sentence: row.sentence, card_type: row.card_type, length: row.length, difficulty_score: row.difficulty_score, cefr_level: cefr, subtitle });
+          return json({ id: displayId, episode_id: outEpisodeId, episode_display: displayPadded, film_id: filmSlug, start: startS, end: endS, duration: dur, image_key: row.image_key, audio_key: row.audio_key, sentence: row.sentence, card_type: row.card_type, length: row.length, difficulty_score: row.difficulty_score, cefr_level: cefr, subtitle, is_available: row.is_available ?? 1 });
         } catch { return new Response('Not found', { status: 404, headers: withCors() }); }
       }
       // PATCH card: update subtitles, audio_key, image_key
@@ -2159,14 +2281,16 @@ export default {
             const sStart = Math.max(0, Math.round(Number(c.start || 0)));
             const sEnd = Math.max(0, Math.round(Number(c.end || 0)));
             const dur = Math.max(0, sEnd - sStart);
+            // is_available: default 1 (true), set to 0 (false) if card explicitly has is_available=false
+            const isAvail = (c.is_available === false || c.is_available === 0) ? 0 : 1;
 
             cardsNewSchema.push(
-              env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time,end_time,duration,image_key,audio_key,sentence,card_type,length,difficulty_score) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-                .bind(cardUuid, episode.id, cardNum, sStart, sEnd, dur, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null))
+              env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time,end_time,duration,image_key,audio_key,sentence,card_type,length,difficulty_score,is_available) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                .bind(cardUuid, episode.id, cardNum, sStart, sEnd, dur, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null), isAvail)
             );
             cardsLegacySchema.push(
-              env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time_ms,end_time_ms,image_key,audio_key,sentence,card_type,length,difficulty_score) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-                .bind(cardUuid, episode.id, cardNum, sStart * 1000, sEnd * 1000, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null))
+              env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time_ms,end_time_ms,image_key,audio_key,sentence,card_type,length,difficulty_score,is_available) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+                .bind(cardUuid, episode.id, cardNum, sStart * 1000, sEnd * 1000, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null), isAvail)
             );
 
             if (c.subtitle) {
