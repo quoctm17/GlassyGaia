@@ -354,6 +354,7 @@ body,
 .language-option {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   width: 100%;
   padding: 8px 10px;
@@ -364,6 +365,7 @@ body,
   font-family: 'Press Start 2P', 'Courier New', monospace;
   font-size: 10px;
   letter-spacing: .4px;
+  text-align: left;
   cursor: pointer;
   transition: background .15s, color .15s, border-color .15s;
 }
@@ -455,6 +457,13 @@ body,
   max-height: 168px;
   overflow-y: auto;
   padding-right: 4px;
+}
+
+/* Mobile: Increase height to show more options */
+@media (max-width: 768px) {
+  .language-options-list {
+    max-height: 220px;
+  }
 }
 
 /* Custom vertical scrollbar for language lists */
@@ -818,6 +827,14 @@ body,
   display: flex;
   flex-direction: column;
   gap: 6px;
+  scrollbar-width: thin;
+}
+
+/* Mobile: Reduce max-height for better visibility */
+@media (max-width: 768px) {
+  .content-group-list {
+    max-height: 180px;
+  }
 }
 
 .content-group-list::-webkit-scrollbar {
@@ -1004,6 +1021,90 @@ body,
   gap: 18px;
 }
 
+.search-main {
+  min-width: 0;
+}
+
+/* Base search layout wrapper */
+.search-layout-wrapper {
+  max-width: 100%;
+  overflow-x: hidden;
+  position: relative;
+  min-height: calc(100vh - 100px); /* Ensure minimum height */
+}
+
+.search-flex-row {
+  display: flex;
+  gap: 0;
+  align-items: stretch; /* Changed from flex-start to stretch */
+  position: relative;
+  min-height: inherit; /* Inherit min-height from parent */
+}
+
+/* Filter panel toggle button */
+.filter-toggle-btn {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  z-index: 100;
+  position: relative;
+}
+
+.filter-toggle-btn:hover {
+  box-shadow: 0 0 0 3px rgba(199, 84, 133, 0.3), 0 0 12px rgba(199, 84, 133, 0.4);
+}
+
+.filter-toggle-btn:focus-visible {
+  outline: 2px dashed #f3a1d6;
+  outline-offset: 3px;
+}
+
+/* Filter panel close button (mobile/tablet only) */
+.filter-panel-close-btn {
+  display: none;
+}
+
+/* Filter panel - Desktop */
+.filter-panel {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  position: relative;
+  z-index: 50;
+}
+
+.filter-panel.open {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.filter-panel.closed {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* Desktop: hide panel when closed */
+@media (min-width: 769px) {
+  .filter-panel.closed {
+    display: none;
+  }
+  
+  .filter-panel.open {
+    display: block;
+  }
+  
+  /* Hide resizer when panel is closed */
+  .filter-panel.closed + .vertical-resizer {
+    display: none;
+  }
+}
+
+/* Mobile/Tablet overlay */
+.filter-panel-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 999;
+}
+
+/* Vertical resizer - visible on desktop and tablet */
 .vertical-resizer {
   width: 3px;
   cursor: col-resize;
@@ -1011,6 +1112,10 @@ body,
   margin: 0 16px;
   border-radius: 4px;
   position: relative;
+  flex-shrink: 0;
+  align-self: stretch; /* Stretch to full height of flex container */
+  transition: opacity 0.3s ease, background 0.2s ease;
+  display: block; /* Always visible on desktop */
 }
 
 .vertical-resizer:before {
@@ -1021,12 +1126,17 @@ body,
   box-shadow: 0 0 6px rgba(241, 170, 240, 0.6);
 }
 
+.vertical-resizer:hover {
+  background: #d56796;
+}
+
 .vertical-resizer.dragging {
+  background: #e375a3;
   box-shadow: 0 0 0 3px rgba(241, 170, 240, 0.5);
 }
 
-.search-main {
-  min-width: 0;
+.vertical-resizer:hover:before {
+  box-shadow: 0 0 12px rgba(241, 170, 240, 0.8);
 }
 
 .pixel-filter-btn {
@@ -1460,13 +1570,790 @@ input[type=number]:focus {
   border-color: #f3a1d6;
 }
 
-/* Responsive adjustments */
+/* ================= Responsive Design ================= */
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Increase touch target sizes */
+  .pixel-tab,
+  .pixel-search-btn,
+  .language-option,
+  .content-item-btn,
+  .difficulty-handle,
+  button,
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Better touch feedback */
+  .pixel-tab:active,
+  .pixel-search-btn:active,
+  .language-option:active,
+  .content-item-btn:active {
+    transform: scale(0.98);
+    transition: transform 0.1s;
+  }
+
+  /* Disable hover effects on touch devices */
+  .pixel-tab:hover,
+  .pixel-search-btn:hover,
+  .language-option:hover {
+    background: inherit;
+  }
+}
+
+/* Tablet (768px - 1024px) */
+@media (max-width: 1024px) {
+  /* Navbar adjustments */
+  .pixel-navbar {
+    padding: 8px 12px;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pixel-tabs {
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .pixel-tab {
+    padding: 8px 14px;
+    font-size: 9px;
+  }
+
+  /* Logo adjustments */
+  .pixel-logo-wrap {
+    gap: 10px;
+  }
+
+  .pixel-logo-img {
+    width: 50px;
+    height: 50px;
+  }
+
+  .pixel-logo-label {
+    font-size: 12px;
+    padding: 6px 16px;
+  }
+
+  /* Search bar adjustments */
+  .pixel-searchbar {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .pixel-input {
+    padding: 10px 14px 10px 40px;
+    font-size: 9px;
+  }
+
+  .pixel-search-btn {
+    padding: 10px 30px;
+    font-size: 9px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Search page layout - keep sidebar visible but narrower */
+  .search-layout-wrapper {
+    padding: 16px;
+  }
+
+  .filter-panel {
+    max-width: 280px;
+  }
+
+  /* Keep resizer on tablet - VISIBLE */
+  .vertical-resizer {
+    display: block !important;
+    margin: 0 12px;
+  }
+
+  /* Filter panels */
+  .content-selector-header {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  .content-group-header {
+    font-size: 11px;
+    padding: 8px 10px;
+  }
+
+  .content-item-btn {
+    font-size: 9px;
+    padding: 6px 8px;
+  }
+
+  /* Difficulty filter */
+  .difficulty-title {
+    font-size: 12px;
+  }
+
+  .difficulty-input input {
+    font-size: 9px;
+  }
+
+  /* Search result cards */
+  .pixel-result-card-new {
+    padding: 12px;
+  }
+
+  .card-main-content {
+    gap: 14px;
+  }
+
+  .card-left-section {
+    min-width: 140px;
+    max-width: 160px;
+  }
+
+  .card-image {
+    height: 120px;
+  }
+
+  .card-title {
+    font-size: 12px;
+  }
+
+  /* Pagination */
+  .pagination-controls {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Improve filter panel visibility on tablet */
+  .filter-panel-wrapper {
+    gap: 14px;
+  }
+
+  /* Content selector on tablet */
+  .content-search-input {
+    font-size: 9px;
+  }
+
+  /* User menu on tablet */
+  .pixel-tab img.rounded-full {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Mobile (max-width: 768px) */
 @media (max-width: 768px) {
+  /* Navbar mobile */
+  .pixel-navbar {
+    padding: 10px;
+  }
+
+  .pixel-tabs {
+    gap: 6px;
+    width: 100%;
+  }
+
+  .pixel-tab {
+    padding: 6px 10px;
+    font-size: 8px;
+    flex: 1;
+    text-align: center;
+    min-width: 0;
+  }
+
+  /* Logo mobile */
+  .pixel-logo-wrap {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .pixel-logo-img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .pixel-logo-label {
+    font-size: 10px;
+    padding: 5px 12px;
+  }
+
+  /* Language selectors mobile */
+  .language-selector-btn {
+    padding: 8px 12px;
+    font-size: 8px;
+    gap: 4px;
+  }
+
+  .language-dropdown {
+    width: 90vw;
+    max-width: 320px;
+  }
+
+  .language-option {
+    padding: 6px 8px;
+    font-size: 9px;
+  }
+
+  /* Sign in button */
+  .sign-in-btn {
+    padding: 8px 16px;
+    font-size: 9px;
+  }
+
+  /* User menu dropdown */
+  .pixel-tab img.rounded-full {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* User dropdown menu */
+  .pixel-tab + div[class*="absolute"] {
+    width: 180px;
+    font-size: 12px;
+  }
+
+  /* Search bar mobile */
+  .pixel-searchbar {
+    gap: 10px;
+  }
+
+  .pixel-input {
+    padding: 10px 12px 10px 36px;
+    font-size: 8px;
+  }
+
+  .pixel-input-icon {
+    left: 10px;
+    width: 16px;
+    height: 16px;
+  }
+
+  .pixel-search-btn {
+    padding: 10px 24px;
+    font-size: 9px;
+  }
+
+  /* Search page - Mobile slide-in panel */
+  .search-layout-wrapper {
+    padding: 12px;
+  }
+
+  /* Filter panel slides in from left on mobile */
+  .filter-panel {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 85vw !important;
+    max-width: 320px !important;
+    background: #1a0f26;
+    z-index: 1000;
+    overflow-y: auto;
+    padding: 20px;
+    padding-top: 60px; /* Space for close button */
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.5);
+    transform: translateX(-100%);
+    opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  }
+
+  .filter-panel.open {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  .filter-panel.closed {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* Show close button on mobile */
+  .filter-panel-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 36px;
+    height: 36px;
+    background: #c75485;
+    border: 2px solid #f1aaf0;
+    border-radius: 50%;
+    color: #1a0f26;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 10;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .filter-panel-close-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 3px rgba(241, 170, 240, 0.3);
+  }
+
+  .filter-panel-close-btn:active {
+    transform: scale(0.95);
+  }
+
+  /* Show overlay when filter panel is open on mobile */
+  .filter-panel.open ~ .search-flex-row::before,
+  .filter-panel-overlay {
+    display: block;
+    animation: fadeIn 0.3s ease forwards;
+  }
+
+  @keyframes fadeIn {
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* Hide resizer on mobile */
+  .vertical-resizer {
+    display: none !important;
+  }
+
+  /* Main content takes full width */
+  .search-flex-row {
+    flex-direction: row !important;
+  }
+
+  .search-main {
+    width: 100%;
+    flex: 1;
+  }
+
+  /* Filter panels mobile */
+  .pixel-filter-panel {
+    padding: 10px 12px;
+  }
+
+  .content-selector-panel {
+    padding: 10px 12px;
+  }
+
+  .content-selector-header {
+    font-size: 10px;
+    padding: 8px 10px;
+  }
+
+  .count-pill {
+    min-width: 32px;
+    padding: 3px 5px;
+    font-size: 8px;
+  }
+
+  .content-search-input {
+    padding: 8px 10px 8px 36px;
+    font-size: 9px;
+  }
+
+  .content-search-icon {
+    left: 10px;
+  }
+
+  .content-group-header {
+    font-size: 10px;
+    padding: 8px 10px;
+  }
+
+  .content-item-btn {
+    font-size: 8px;
+    padding: 6px 8px;
+  }
+
+  .item-count {
+    font-size: 8px;
+    padding: 2px 5px;
+  }
+
+  /* Difficulty filter mobile */
+  .difficulty-block {
+    padding: 10px 12px;
+  }
+
+  .difficulty-title {
+    font-size: 11px;
+  }
+
+  .difficulty-input input {
+    padding: 5px 6px;
+    font-size: 8px;
+  }
+
+  .diff-label {
+    font-size: 9px;
+  }
+
+  /* Make difficulty slider easier to use on mobile */
+  .difficulty-track {
+    height: 12px;
+  }
+
+  .difficulty-handle {
+    width: 32px;
+    height: 32px;
+  }
+
+  .level-tick-mark {
+    height: 18px;
+    width: 4px;
+  }
+
+  /* Level framework dropdown */
+  .level-dropdown-trigger button {
+    font-size: 9px;
+    padding: 8px 10px;
+  }
+
+  /* Search result cards mobile */
+  .pixel-result-card-new {
+    padding: 10px;
+    gap: 10px;
+  }
+
   .card-main-content {
     flex-direction: column;
+    gap: 12px;
   }
 
   .card-left-section {
     max-width: 100%;
+    min-width: 100%;
+  }
+
+  .card-image {
+    height: 180px;
+    width: 100%;
+  }
+
+  .card-title {
+    font-size: 11px;
+  }
+
+  .card-info-box {
+    padding: 6px 8px;
+  }
+
+  .card-right-section {
+    gap: 10px;
+  }
+
+  .level-badges-container {
+    gap: 4px;
+  }
+
+  /* Audio player mobile */
+  .pixel-audio-container audio {
+    height: 40px;
+  }
+
+  .audio-time-range {
+    font-size: 9px;
+  }
+
+  .pixel-card-meta {
+    font-size: 10px;
+    gap: 6px;
+  }
+
+  .pixel-card-meta .ep-tag {
+    font-size: 8px;
+    padding: 3px 8px;
+  }
+
+  /* Pagination mobile */
+  .pagination-controls {
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .pagination-controls > * {
+    width: 100%;
+  }
+
+  .pagination-controls label {
+    justify-content: space-between;
+  }
+
+  .pagination-controls .flex {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* Make pagination buttons larger on mobile */
+  .pagination-controls button {
+    min-height: 40px;
+    font-size: 11px;
+  }
+
+  .pagination-controls input[type="number"] {
+    min-height: 40px;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .pagination-controls select {
+    min-height: 40px;
+    font-size: 11px;
+  }
+
+  /* Buttons mobile */
+  .pixel-btn-fav,
+  .pixel-btn-anki {
+    padding: 4px 8px;
+    font-size: 8px;
+  }
+
+  /* Footer mobile */
+  .pixel-footer-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 0 16px;
+  }
+
+  .pixel-footer h4 {
+    font-size: 12px;
+  }
+
+  .pixel-footer a {
+    font-size: 11px;
+  }
+
+  .pixel-social-btn {
+    padding: 5px 10px;
+    font-size: 10px;
+  }
+
+  .pixel-footer-bottom {
+    font-size: 10px;
+  }
+}
+
+/* Small Mobile (max-width: 480px) */
+@media (max-width: 480px) {
+  /* Ultra compact navbar */
+  .pixel-navbar {
+    padding: 8px;
+  }
+
+  .pixel-tabs {
+    gap: 4px;
+  }
+
+  .pixel-tab {
+    padding: 5px 6px;
+    font-size: 7px;
+    letter-spacing: 0.2px;
+  }
+
+  .pixel-logo-img {
+    width: 35px;
+    height: 35px;
+  }
+
+  .pixel-logo-label {
+    font-size: 9px;
+    padding: 4px 10px;
+  }
+
+  /* Search bar ultra compact */
+  .pixel-input {
+    padding: 8px 10px 8px 32px;
+    font-size: 7px;
+  }
+
+  .pixel-search-btn {
+    padding: 8px 20px;
+    font-size: 8px;
+  }
+
+  /* Search page ultra compact */
+  .search-layout-wrapper {
+    padding: 8px;
+  }
+
+  /* Filter panels ultra compact */
+  .content-selector-header,
+  .content-group-header {
+    font-size: 9px;
+    padding: 6px 8px;
+  }
+
+  .content-item-btn {
+    font-size: 7px;
+    padding: 5px 6px;
+  }
+
+  /* Result cards ultra compact */
+  .pixel-result-card-new {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .card-image {
+    height: 150px;
+  }
+
+  .card-title {
+    font-size: 10px;
+  }
+
+  /* Language selectors */
+  .language-selector-btn {
+    padding: 6px 10px;
+    font-size: 7px;
+  }
+
+  .language-option {
+    padding: 5px 6px;
+    font-size: 8px;
+  }
+
+  /* Pagination ultra compact */
+  .pagination-controls button,
+  .pagination-controls input,
+  .pagination-controls select {
+    font-size: 10px;
+    padding: 6px 10px;
+  }
+
+  /* Difficulty slider ultra compact */
+  .difficulty-track {
+    height: 10px;
+  }
+
+  .difficulty-handle {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Card metadata ultra compact */
+  .pixel-card-meta {
+    font-size: 9px;
+  }
+
+  .pixel-card-meta .ep-tag {
+    font-size: 7px;
+    padding: 2px 6px;
+  }
+
+  /* General text scaling */
+  .text-xs {
+    font-size: 9px;
+  }
+
+  .text-sm {
+    font-size: 10px;
+  }
+}
+
+/* Landscape mobile optimization */
+@media (max-height: 500px) and (orientation: landscape) {
+  .pixel-navbar {
+    padding: 6px 10px;
+  }
+
+  .pixel-logo-img {
+    width: 35px;
+    height: 35px;
+  }
+
+  .pixel-tab {
+    padding: 4px 8px;
+    font-size: 7px;
+  }
+
+  .search-layout-wrapper {
+    padding: 10px;
+  }
+
+  .pixel-result-card-new {
+    padding: 8px;
+  }
+
+  .card-image {
+    height: 100px;
+  }
+}
+
+/* Print optimization (bonus) */
+@media print {
+  .pixel-navbar,
+  .pixel-footer,
+  .pixel-search-btn,
+  .vertical-resizer,
+  .pixel-btn-fav,
+  .pixel-btn-anki {
+    display: none;
+  }
+
+  .search-flex-row {
+    flex-direction: column !important;
+  }
+
+  .pixel-result-card-new {
+    page-break-inside: avoid;
+    border: 1px solid #000;
+    box-shadow: none;
+  }
+}
+
+/* ================= Responsive Utilities ================= */
+
+/* Prevent horizontal scroll on all screen sizes */
+body,
+html {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Better word wrapping for long titles/text */
+.card-title,
+.content-item-btn,
+.pixel-tab {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Hide scrollbar on mobile for cleaner look (optional) */
+@media (max-width: 768px) {
+  .content-group-list::-webkit-scrollbar,
+  .language-options-list::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .content-group-list::-webkit-scrollbar-thumb,
+  .language-options-list::-webkit-scrollbar-thumb {
+    border-width: 2px;
+  }
+}
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Focus visible improvements for accessibility */
+@media (prefers-reduced-motion: no-preference) {
+  *:focus-visible {
+    outline: 2px dashed #f3a1d6;
+    outline-offset: 2px;
+    transition: outline-offset 0.2s ease;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .pixel-tab,
+  .pixel-search-btn,
+  .language-option,
+  .content-item-btn {
+    border-width: 3px;
   }
 }

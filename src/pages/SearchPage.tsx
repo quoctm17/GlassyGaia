@@ -34,7 +34,24 @@ function SearchPage() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(300); // resizable panel width
   const [dragging, setDragging] = useState<boolean>(false);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
+  const [filterPanelOpen, setFilterPanelOpen] = useState<boolean>(true); // Filter panel visibility
+  const [isMobile, setIsMobile] = useState<boolean>(false); // Track if mobile/tablet
   // removed filmAvailMap (unused after suggestion source simplification)
+
+  // Detect mobile/tablet screen
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      // Close filter panel by default on mobile
+      if (mobile) {
+        setFilterPanelOpen(false);
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // LanguageSelector writes to preferences directly; no local mirror needed
 
@@ -266,10 +283,31 @@ function SearchPage() {
   };
   const stopDrag = () => setDragging(false);
 
+  const toggleFilterPanel = () => {
+    setFilterPanelOpen(prev => !prev);
+  };
+
   return (
     <div className={`search-layout-wrapper p-6`} onMouseMove={onMove} onMouseUp={stopDrag}>
+      {/* Mobile/Tablet overlay - only show on small screens */}
+      {isMobile && filterPanelOpen && (
+        <div 
+          className="filter-panel-overlay"
+          onClick={toggleFilterPanel}
+          aria-hidden="true"
+        />
+      )}
+      
       <div className="search-flex-row" style={{ display: 'flex' }}>
-        <aside className="filter-panel flex-shrink-0" style={{ width: sidebarWidth }}>
+        <aside className={`filter-panel flex-shrink-0 ${filterPanelOpen ? 'open' : 'closed'}`} style={{ width: sidebarWidth }}>
+          {/* Close button for mobile/tablet */}
+          <button
+            onClick={toggleFilterPanel}
+            className="filter-panel-close-btn"
+            aria-label="Close filters"
+          >
+            ✕
+          </button>
           <FilterPanel
             filmTitleMap={filmTitleMap}
             filmTypeMap={filmTypeMap}
@@ -311,9 +349,14 @@ function SearchPage() {
         {/* Subtitle language selection moved to NavBar */}
 
         <div className="mt-4 flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 bg-[#c75485] rounded-full">
+          <button
+            onClick={toggleFilterPanel}
+            className="filter-toggle-btn flex items-center justify-center w-10 h-10 bg-[#c75485] rounded-full transition-transform hover:scale-110 active:scale-95 cursor-pointer"
+            aria-label={filterPanelOpen ? "Close filters" : "Open filters"}
+            title={filterPanelOpen ? "Close filters" : "Open filters"}
+          >
             <Filter className="w-4 h-4 text-[#1a0f26]" />
-          </div>
+          </button>
           <span className="text-pink-500 text-2xl font-['Press_Start_2P']">›</span>
           <span className="text-pink-200 font-['Press_Start_2P'] text-xs">
             {loading ? "Searching..." : `${total} Results`}
