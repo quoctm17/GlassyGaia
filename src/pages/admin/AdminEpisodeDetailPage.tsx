@@ -5,6 +5,7 @@ import type { EpisodeDetailDoc, LevelFrameworkStats, CardDoc } from "../../types
 import { sortLevelsByDifficulty } from "../../utils/levelSort";
 import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown } from "lucide-react";
 import PortalDropdown from "../../components/PortalDropdown";
+import AudioPlayer from "../../components/AudioPlayer";
 import toast from "react-hot-toast";
 
 export default function AdminEpisodeDetailPage() {
@@ -161,6 +162,14 @@ export default function AdminEpisodeDetailPage() {
                 <label className="w-32 text-sm text-gray-400">Title:</label>
                 <span className="text-gray-200">{ep.title || '-'}</span>
               </div>
+              <div className="flex items-center gap-2">
+                <label className="w-32 text-sm text-gray-400">Status:</label>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  (ep.is_available ?? true) ? 'bg-green-500/20 text-green-300 border border-green-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40'
+                }`}>
+                  {(ep.is_available ?? true) ? 'Available' : 'Unavailable'}
+                </span>
+              </div>
             </div>
             <div>
               <label className="w-32 text-sm text-gray-400">Description:</label>
@@ -203,9 +212,7 @@ export default function AdminEpisodeDetailPage() {
                 <label className="w-32 text-sm text-gray-400">Full Audio:</label>
                 {ep.full_audio_url ? (
                   <div className="flex-1">
-                    <div className="audio-container">
-                      <audio controls src={ep.full_audio_url} />
-                    </div>
+                    <AudioPlayer src={ep.full_audio_url} />
                   </div>
                 ) : (
                   <span className="text-gray-200">-</span>
@@ -289,6 +296,7 @@ export default function AdminEpisodeDetailPage() {
                   {sortColumn === 'duration' && (sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
                 </div>
               </th>
+              <th>Status</th>
               <th>Image</th>
               <th>Audio</th>
               <th>Actions</th>
@@ -299,6 +307,7 @@ export default function AdminEpisodeDetailPage() {
               Array.from({ length: pageSize }).map((_, i) => (
                 <tr key={`sk-${i}`} className="animate-pulse">
                   <td className="opacity-60">••••</td>
+                  <td className="opacity-60">...</td>
                   <td className="opacity-60">...</td>
                   <td className="opacity-60">...</td>
                   <td className="opacity-60">...</td>
@@ -321,6 +330,16 @@ export default function AdminEpisodeDetailPage() {
                 <td>{c.start}</td>
                 <td>{c.end}</td>
                 <td>{typeof c.duration === 'number' ? c.duration : Math.max(0, (c.end || 0) - (c.start || 0))}</td>
+                <td>
+                  {(() => {
+                    const available = (c.is_available ?? true) ? true : false;
+                    return (
+                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}>
+                        {available ? 'Available' : 'Unavailable'}
+                      </span>
+                    );
+                  })()}
+                </td>
                 <td>{c.image_url ? <a href={c.image_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={(e) => e.stopPropagation()}>Open</a> : '-'}</td>
                 <td>{c.audio_url ? <a href={c.audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={(e) => e.stopPropagation()}>Open</a> : '-'}</td>
                 <td onMouseDown={(e)=>e.stopPropagation()}>
@@ -371,7 +390,7 @@ export default function AdminEpisodeDetailPage() {
               </tr>
             );})}
             {filteredCards.length === 0 && !loadingCards && (
-              <tr><td colSpan={7} className="admin-empty">No cards found</td></tr>
+              <tr><td colSpan={8} className="admin-empty">No cards found</td></tr>
             )}
           </tbody>
         </table>

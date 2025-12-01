@@ -130,6 +130,18 @@ export async function apiListItems(): Promise<FilmDoc[]> {
     is_original: normalizeOriginalFlag(
       (f as Partial<FilmDoc> & { is_original?: number | boolean }).is_original
     ),
+    is_available: (() => {
+      const raw = (f as Record<string, unknown>)["is_available"];
+      if (raw === null || raw === undefined) return undefined;
+      if (typeof raw === 'number') return raw === 1;
+      if (typeof raw === 'string') {
+        const v = raw.trim();
+        if (v === '1' || v.toLowerCase() === 'true') return true;
+        if (v === '0' || v.toLowerCase() === 'false') return false;
+      }
+      if (typeof raw === 'boolean') return raw;
+      return undefined;
+    })(),
   }));
 }
 
@@ -166,6 +178,18 @@ export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {
       num_cards: (f as Partial<FilmDoc> & { num_cards?: number | null }).num_cards ?? null,
       avg_difficulty_score: (f as Partial<FilmDoc> & { avg_difficulty_score?: number | null }).avg_difficulty_score ?? null,
       level_framework_stats: (f as Partial<FilmDoc> & { level_framework_stats?: string | LevelFrameworkStats[] | null }).level_framework_stats ?? null,
+      is_available: (() => {
+        const raw = (f as Record<string, unknown>)["is_available"];
+        if (raw === null || raw === undefined) return undefined;
+        if (typeof raw === 'number') return raw === 1;
+        if (typeof raw === 'string') {
+          const v = raw.trim();
+          if (v === '1' || v.toLowerCase() === 'true') return true;
+          if (v === '0' || v.toLowerCase() === 'false') return false;
+        }
+        if (typeof raw === 'boolean') return raw;
+        return undefined;
+      })(),
     };
     return film;
   } catch {
@@ -182,16 +206,39 @@ export interface EpisodeMetaApi {
   cover_url: string | null;
   full_audio_url: string | null;
   full_video_url: string | null;
+  is_available?: boolean;
 }
 
 export async function apiListEpisodes(
   filmSlug: string
 ): Promise<EpisodeMetaApi[]> {
   try {
-    const rows = await getJson<EpisodeMetaApi[]>(
+    const rows = await getJson<Array<Record<string, unknown>>>(
       `/items/${encodeURIComponent(filmSlug)}/episodes`
     );
-    return rows as EpisodeMetaApi[];
+    // Normalize availability flag if present
+    return (rows as Array<Record<string, unknown>>).map((r) => {
+      const raw = r["is_available"] as unknown;
+      let is_available: boolean | undefined = undefined;
+      if (raw !== null && raw !== undefined) {
+        if (typeof raw === 'number') is_available = raw === 1;
+        else if (typeof raw === 'string') {
+          const v = raw.trim();
+          if (v === '1' || v.toLowerCase() === 'true') is_available = true;
+          else if (v === '0' || v.toLowerCase() === 'false') is_available = false;
+        } else if (typeof raw === 'boolean') is_available = raw;
+      }
+      return {
+        episode_number: Number(r["episode_number"]) || 1,
+        title: (r["title"] as string | null) ?? null,
+        slug: String(r["slug"] ?? ''),
+        description: (r["description"] as string | null) ?? null,
+        cover_url: (r["cover_url"] as string | null) ?? null,
+        full_audio_url: (r["full_audio_url"] as string | null) ?? null,
+        full_video_url: (r["full_video_url"] as string | null) ?? null,
+        is_available,
+      } as EpisodeMetaApi;
+    });
   } catch {
     return [];
   }
@@ -200,14 +247,34 @@ export async function apiListEpisodes(
 export async function apiFetchCardsForFilm(
   filmId: string,
   episodeId?: string,
-  max: number = 50
+  max: number = 50,
+  opts?: { startFrom?: number }
 ): Promise<CardDoc[]> {
   // Always encode parts to support non-ASCII slugs (e.g., Vietnamese)
   const filmEnc = encodeURIComponent(filmId);
+  // Aggressive cache busting to bypass stale Cloudflare edge cache
+  const cacheBust = `v=${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  const q = new URLSearchParams();
+  q.set('limit', String(max));
+  if (opts?.startFrom != null && Number.isFinite(opts.startFrom)) {
+    q.set('start_from', String(Math.max(0, Math.floor(opts.startFrom))));
+  }
+  q.set('v', cacheBust);
   const basePath = episodeId
-    ? `/items/${filmEnc}/episodes/${encodeURIComponent(episodeId)}/cards?limit=${max}`
-    : `/items/${filmEnc}/cards?limit=${max}`;
+    ? `/items/${filmEnc}/episodes/${encodeURIComponent(episodeId)}/cards?${q.toString()}`
+    : `/items/${filmEnc}/cards?${q.toString()}`;
   const rows = await getJson<Array<Record<string, unknown>>>(basePath);
+  
+  // Debug: Log raw response to check subtitle structure
+  if (rows.length > 0) {
+    console.log('[cfApi] Raw first row from API:', rows[0]);
+    console.log('[cfApi] First row subtitle field:', rows[0].subtitle);
+    console.log('[cfApi] First row subtitle type:', typeof rows[0].subtitle);
+    if (rows[0].subtitle && typeof rows[0].subtitle === 'object') {
+      console.log('[cfApi] First row subtitle keys:', Object.keys(rows[0].subtitle as Record<string, unknown>));
+    }
+  }
+  
   return rows.map(rowToCardDoc);
 }
 
@@ -675,9 +742,11 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
   const endMs = Number(
     get("end_time_ms") ?? get("end_time") ?? get("end_ms") ?? get("end") ?? 0
   );
-  const start = startMs > 1000 ? startMs / 1000 : startMs; // convert if ms
-  const end = endMs > 1000 ? endMs / 1000 : endMs;
+  // Worker returns seconds directly in 'start' and 'end' fields; no conversion needed
+  const start = startMs;
+  const end = endMs;
   let subCandidate = (get("subtitle") ?? get("subtitles")) as unknown;
+  
   // Handle common shapes:
   // - Array of { language, text }
   // - Object map { lang: text }
@@ -758,6 +827,18 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
       typeof get("difficulty_score") === "number"
         ? (get("difficulty_score") as number)
         : undefined,
+    is_available: (() => {
+      const raw = get("is_available");
+      if (raw === null || raw === undefined) return undefined; // allow defaulting logic (?? true) in callers
+      if (typeof raw === 'number') return raw === 1;
+      if (typeof raw === 'string') {
+        const v = raw.trim();
+        if (v === '1' || v.toLowerCase() === 'true') return true;
+        if (v === '0' || v.toLowerCase() === 'false') return false;
+      }
+      if (typeof raw === 'boolean') return raw;
+      return undefined;
+    })(),
   };
 }
 

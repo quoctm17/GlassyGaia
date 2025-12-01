@@ -3,6 +3,7 @@ import type { FilmDoc } from '../types';
 import { CONTENT_TYPE_LABELS, type ContentType } from '../types/content';
 import LanguageTag from './LanguageTag';
 import { Film, Clapperboard, Book as BookIcon, AudioLines, X, Play } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface Props {
   film: FilmDoc | null;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function ContentDetailModal({ film, open, onClose }: Props) {
+  const navigate = useNavigate();
   if (!film) return null;
   const rawType = film.type as string | undefined;
   const asContentType = (rawType && ['movie','series','book','audio'].includes(rawType)) ? (rawType as ContentType) : undefined;
@@ -78,7 +80,12 @@ export default function ContentDetailModal({ film, open, onClose }: Props) {
             <div className="flex items-center gap-3 mb-6">
               <button
                 className="flex items-center gap-2 px-6 py-2.5 rounded-md bg-white hover:bg-white/90 text-black font-semibold text-base transition-colors"
-                onClick={() => { alert('Watch: TODO'); }}
+                onClick={() => {
+                  console.log('[ContentDetailModal] Play clicked for film:', { id: film.id, title: film.title });
+                  onClose();
+                  // film.id should be the slug according to FilmDoc type definition
+                  navigate(`/watch/${encodeURIComponent(film.id)}`);
+                }}
               >
                 <Play size={20} fill="currentColor" />
                 <span>Play</span>

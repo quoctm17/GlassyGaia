@@ -5,6 +5,7 @@ interface CsvPreviewPanelProps {
   csvRows: Record<string, string>[];
   csvValid: boolean | null;
   csvErrors: string[];
+    csvWarnings: string[];
   unrecognizedHeaders: string[];
   reservedHeaders: string[];
   ambiguousHeaders: string[];
@@ -20,6 +21,7 @@ export default function CsvPreviewPanel({
   csvRows,
   csvValid,
   csvErrors,
+  csvWarnings,
   unrecognizedHeaders,
   reservedHeaders,
   ambiguousHeaders,
@@ -58,6 +60,18 @@ export default function CsvPreviewPanel({
           </div>
         </div>
       )}
+
+        {/* CSV Warnings (non-blocking) */}
+        {csvWarnings.length > 0 && (
+          <div className="flex items-start gap-2 text-xs text-orange-400">
+            <AlertTriangle className="w-4 h-4 mt-0.5" />
+            <div className="space-y-1">
+              {csvWarnings.map((warn, i) => (
+                <div key={i}>{warn}</div>
+              ))}
+            </div>
+          </div>
+        )}
 
       {/* Unrecognized Headers Warning */}
       {unrecognizedHeaders.length > 0 && (
@@ -150,9 +164,16 @@ export default function CsvPreviewPanel({
                     <td
                       key={j}
                       className={`border border-gray-700 px-2 py-1 ${
-                        isEmpty && (isRequired || isMainLang || isSubtitle) ? 'bg-red-900/30 text-red-300' : 'text-gray-300'
+                        isEmpty && isRequired
+                          ? 'bg-red-900/30 text-red-300'
+                          : isEmpty && (isMainLang || isSubtitle)
+                          ? 'bg-orange-900/30 text-orange-300'
+                          : 'text-gray-300'
                       }`}
-                      title={isEmpty && (isRequired || isMainLang || isSubtitle) ? 'Ô trống - cần điền' : ''}
+                      title={
+                        isEmpty && isRequired ? 'Ô trống - CSV không hợp lệ' :
+                        isEmpty && (isMainLang || isSubtitle) ? 'Ô trống - card sẽ mặc định unavailable' : ''
+                      }
                     >
                       {displayVal}
                     </td>
@@ -168,7 +189,8 @@ export default function CsvPreviewPanel({
           <span className="text-blue-400">§</span> = Subtitle column |{' '}
           <span className="text-yellow-400">⚠</span> = Unrecognized column |{' '}
           <span className="text-purple-400">◆</span> = Reserved column (actively ignored) |{' '}
-          <span className="bg-red-900/30 text-red-300 px-1">Ô đỏ</span> = Ô trống cần điền
+          <span className="bg-red-900/30 text-red-300 px-1">Ô đỏ (Required)</span> = Blocking error |{' '}
+          <span className="bg-orange-900/30 text-orange-300 px-1">Ô cam (Subtitle/Main)</span> = Card unavailable
         </div>
       </div>
     </div>
