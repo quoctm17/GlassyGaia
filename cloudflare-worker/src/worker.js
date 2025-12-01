@@ -1000,7 +1000,7 @@ export default {
           let rows;
           try {
             // New schema (episode_number)
-            rows = await env.DB.prepare('SELECT episode_number,title,slug,description,cover_key,full_audio_key,full_video_key,is_available FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
+            rows = await env.DB.prepare('SELECT episode_number,title,slug,description,cover_key,full_audio_key,full_video_key,is_available,num_cards FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
           } catch (e) {
             // Backward compatibility: older column name episode_num
             try {
@@ -1019,6 +1019,7 @@ export default {
             full_audio_url: r.full_audio_key ? (base ? `${base}/${r.full_audio_key}` : `/${r.full_audio_key}`) : null,
             full_video_url: r.full_video_key ? (base ? `${base}/${r.full_video_key}` : `/${r.full_video_key}`) : null,
             is_available: r.is_available ?? 1,
+            num_cards: typeof r.num_cards === 'number' ? r.num_cards : Number(r.num_cards ?? 0),
           }));
           return json(out);
         } catch (e) {

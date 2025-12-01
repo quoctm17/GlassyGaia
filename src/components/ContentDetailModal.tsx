@@ -48,7 +48,7 @@ export default function ContentDetailModal({ film, open, onClose }: Props) {
     >
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
       <div 
-        className={`relative w-[min(92vw,900px)] max-h-[88vh] overflow-y-auto bg-gradient-to-b from-[#181818] to-[#0f0f0f] rounded-xl shadow-[0_8px_60px_rgba(0,0,0,0.8)] transition-all duration-500 ${
+        className={`relative w-[min(92vw,900px)] max-h-[88vh] overflow-y-auto bg-[#1a0f26] rounded-xl shadow-[0_8px_60px_rgba(0,0,0,0.8)] transition-all duration-500 ${
           open ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
         }`}
       >

@@ -1,4 +1,5 @@
 import NavBar from './components/NavBar';
+import BottomNav from './components/BottomNav';
 import SearchPage from './pages/SearchPage';
 import Footer from './components/Footer';
 import { UserProvider } from './context/UserContext';
@@ -70,6 +71,7 @@ function App() {
               </Route>
             </Routes>
           </div>
+          <BottomNav />
           <Footer />
           <Toaster position="top-right" toastOptions={{
             style: { background: '#241530', color: '#f5d0fe', border: '2px solid #f472b6' },

@@ -108,6 +108,10 @@ export default function DifficultyFilter({ minDifficulty, maxDifficulty, onDiffi
             className="difficulty-handle"
             style={{ left: `${localMin}%` }}
             onMouseDown={() => setDragging('min')}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              setDragging('min');
+            }}
           >
             <Flame className="w-4 h-4 text-pink-400" fill="currentColor" />
           </div>
@@ -117,13 +121,17 @@ export default function DifficultyFilter({ minDifficulty, maxDifficulty, onDiffi
             className="difficulty-handle"
             style={{ left: `${localMax}%` }}
             onMouseDown={() => setDragging('max')}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              setDragging('max');
+            }}
           >
             <Flame className="w-4 h-4 text-pink-400" fill="currentColor" />
           </div>
         </div>
       </div>
 
-      {/* Mouse tracking for drag */}
+      {/* Mouse and touch tracking for drag */}
       {dragging && (
         <div
           className="fixed inset-0 z-50 cursor-grabbing"
@@ -140,6 +148,20 @@ export default function DifficultyFilter({ minDifficulty, maxDifficulty, onDiffi
             }
           }}
           onMouseUp={() => setDragging(null)}
+          onTouchMove={(e) => {
+            if (!trackRef.current) return;
+            const rect = trackRef.current.getBoundingClientRect();
+            const touch = e.touches[0];
+            const percent = ((touch.clientX - rect.left) / rect.width) * 100;
+            const value = Math.max(0, Math.min(100, Math.round(percent)));
+            
+            if (dragging === 'min') {
+              handleMinChange(value);
+            } else {
+              handleMaxChange(value);
+            }
+          }}
+          onTouchEnd={() => setDragging(null)}
         />
       )}
     </div>

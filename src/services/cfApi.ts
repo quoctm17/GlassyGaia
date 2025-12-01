@@ -207,6 +207,7 @@ export interface EpisodeMetaApi {
   full_audio_url: string | null;
   full_video_url: string | null;
   is_available?: boolean;
+  num_cards?: number;
 }
 
 export async function apiListEpisodes(
@@ -237,6 +238,7 @@ export async function apiListEpisodes(
         full_audio_url: (r["full_audio_url"] as string | null) ?? null,
         full_video_url: (r["full_video_url"] as string | null) ?? null,
         is_available,
+        num_cards: typeof r["num_cards"] === "number" ? r["num_cards"] : Number(r["num_cards"] ?? 0),
       } as EpisodeMetaApi;
     });
   } catch {

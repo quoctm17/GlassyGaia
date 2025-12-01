@@ -425,6 +425,115 @@ export default function AdminContentDetailPage() {
         </table>
       </div>
 
+      {/* Card View for Mobile/Tablet */}
+      <div className="admin-cards-view">
+        {filteredEpisodes.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(ep => {
+          const available = (ep.is_available ?? true) ? true : false;
+          return (
+            <div 
+              key={ep.slug} 
+              className="admin-card"
+              onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${ep.slug}`)}
+            >
+              <div className="admin-card-header">
+                <div className="flex items-center gap-2">
+                  <span className="text-pink-500 font-bold">#{String(ep.episode_number).padStart(3,'0')}</span>
+                  <span className="font-semibold text-pink-300">{ep.title || '-'}</span>
+                </div>
+                <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}>
+                  {available ? 'Available' : 'Unavailable'}
+                </span>
+              </div>
+              
+              <div className="admin-card-body">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Cover:</span>
+                  {ep.cover_url ? (
+                    <a 
+                      href={ep.cover_url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="admin-btn secondary !px-2 !py-1 flex items-center gap-1"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Open</span>
+                    </a>
+                  ) : <span className="text-sm text-gray-400">-</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Full Audio:</span>
+                  {ep.full_audio_url ? (
+                    <a 
+                      href={ep.full_audio_url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="admin-btn secondary !px-2 !py-1 flex items-center gap-1"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <AudioLines className="w-3 h-3" />
+                      <span>Open</span>
+                    </a>
+                  ) : <span className="text-sm text-gray-400">-</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Full Video:</span>
+                  {ep.full_video_url ? (
+                    <a 
+                      href={ep.full_video_url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="admin-btn secondary !px-2 !py-1 flex items-center gap-1"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <Film className="w-3 h-3" />
+                      <span>Open</span>
+                    </a>
+                  ) : <span className="text-sm text-gray-400">-</span>}
+                </div>
+              </div>
+              
+              <div className="admin-card-actions">
+                <button
+                  className="admin-btn primary flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${ep.slug}`);
+                  }}
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>View</span>
+                </button>
+                <button
+                  className="admin-btn secondary flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${ep.slug}/update`);
+                  }}
+                >
+                  <Pencil className="w-4 h-4" />
+                  <span>Edit</span>
+                </button>
+                {ep.episode_number > 1 && (
+                  <button
+                    className="admin-btn secondary !px-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete({ slug: ep.slug, title: ep.title || ep.slug, episode_number: ep.episode_number });
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {filteredEpisodes.length === 0 && !loadingEpisodes && (
+          <div className="admin-empty">No episodes found</div>
+        )}
+      </div>
+
       {/* Pagination */}
       {!loadingEpisodes && filteredEpisodes.length > 0 && (
         <div className="flex items-center justify-between mt-2">

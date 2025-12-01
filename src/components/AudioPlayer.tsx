@@ -5,12 +5,14 @@ interface AudioPlayerProps {
   src: string;
   className?: string;
   onTimeUpdate?: (currentTime: number) => void;
+  onEnded?: () => void;
 }
 
 export interface AudioPlayerHandle {
   currentTime: number;
   play: () => void;
   pause: () => void;
+  togglePlayPause: () => void;
 }
 
 function formatTime(sec: number) {
@@ -23,7 +25,7 @@ function formatTime(sec: number) {
 // Global registry to ensure only one audio plays at a time
 const activeAudioInstances = new Set<HTMLAudioElement>();
 
-const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, className, onTimeUpdate }, ref) => {
+const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, className, onTimeUpdate, onEnded }, ref) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -44,6 +46,15 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
     },
     pause: () => {
       audioRef.current?.pause();
+    },
+    togglePlayPause: () => {
+      if (audioRef.current) {
+        if (audioRef.current.paused) {
+          audioRef.current.play();
+        } else {
+          audioRef.current.pause();
+        }
+      }
     }
   }));
 
@@ -60,15 +71,21 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
       onTimeUpdate?.(time);
     };
     const onLoaded = () => setDuration(audio.duration || 0);
+    const onEnd = () => {
+      setPlaying(false);
+      onEnded?.();
+    };
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("loadedmetadata", onLoaded);
+    audio.addEventListener("ended", onEnd);
     
     return () => {
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("loadedmetadata", onLoaded);
+      audio.removeEventListener("ended", onEnd);
       activeAudioInstances.delete(audio);
     };
-  }, [onTimeUpdate]);
+  }, [onTimeUpdate, onEnded]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -127,11 +144,15 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
       style={{ minHeight: 54 }}
     >
       <button
-        className="group p-1.5 rounded-full bg-pink-200 hover:bg-pink-300 text-pink-700 shadow"
+        className="group p-1.5 rounded-full bg-pink-200 hover:bg-pink-300 text-pink-700 shadow relative"
         onClick={togglePlay}
         aria-label={playing ? "Pause" : "Play"}
+        data-tooltip={playing ? "Pause (Space)" : "Play (Space)"}
       >
         {playing ? <Pause size={22} /> : <Play size={22} />}
+        <span className="audio-player-tooltip">
+          {playing ? "Pause (Space)" : "Play (Space)"}
+        </span>
       </button>
       <span className="text-xs font-bold text-pink-200 min-w-[48px] text-right">
         {formatTime(current)}

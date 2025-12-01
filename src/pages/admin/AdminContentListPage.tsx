@@ -20,7 +20,7 @@ export default function AdminContentListPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const [openMenuFor, setOpenMenuFor] = useState<{ id: string; anchor: HTMLElement; closing?: boolean } | null>(null);
+  const [openMenuFor, setOpenMenuFor] = useState<{ id: string; anchor: HTMLElement; closing?: boolean; context: 'table' | 'card' } | null>(null);
   const [openSubsFor, setOpenSubsFor] = useState<{ id: string; anchor: HTMLElement; closing?: boolean } | null>(null);
   const [origFilter, setOrigFilter] = useState<'all' | 'original' | 'non-original'>('all');
   const [confirmDelete, setConfirmDelete] = useState<{ slug: string; title: string } | null>(null);
@@ -602,14 +602,14 @@ export default function AdminContentListPage() {
                             setTimeout(() => setOpenMenuFor(null), 300);
                             return next;
                           }
-                          return { id: f.id, anchor: el };
+                          return { id: f.id, anchor: el, context: 'table' };
                         });
                         setOpenSubsFor(null);
                       }}
                     >
                       <MoreHorizontal className="w-4 h-4" />
                     </button>
-                    {openMenuFor?.id === f.id && openMenuFor.anchor && (
+                    {openMenuFor?.id === f.id && openMenuFor.context === 'table' && openMenuFor.anchor && (
                       <PortalDropdown
                         anchorEl={openMenuFor.anchor}
                         align="center"
@@ -642,6 +642,178 @@ export default function AdminContentListPage() {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Card View for Mobile/Tablet */}
+      <div className="admin-cards-view">
+        {filteredRows.length === 0 && !loading && !error && (
+          <div className="admin-empty">No content found</div>
+        )}
+        {filteredRows.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map((f) => {
+          const mainCanon = f.main_language ? (canonicalizeLangCode(f.main_language) || f.main_language.toLowerCase()) : undefined;
+          const subs = Array.from(
+            new Set(
+              (f.available_subs || [])
+                .map((s) => canonicalizeLangCode(s) || s.toLowerCase())
+                .filter((s) => s && s !== mainCanon)
+            )
+          );
+          const isSelected = selectedIds.has(f.id);
+          const available = ((f as unknown as { is_available?: boolean }).is_available ?? true) ? true : false;
+          
+          return (
+            <div 
+              key={f.id} 
+              className={`admin-card ${isSelected ? 'selected' : ''}`}
+              onClick={() => navigate(`/admin/content/${encodeURIComponent(f.id)}`)}
+            >
+              <div className="admin-card-header">
+                <div className="flex items-center gap-2">
+                  {getTypeIcon(f.type)}
+                  <span className="font-semibold text-pink-300">{f.title || f.id}</span>
+                </div>
+                <span 
+                  className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
+                    available 
+                      ? 'bg-green-600/20 text-green-300 border-green-500/60' 
+                      : 'bg-red-600/20 text-red-300 border-red-500/60'
+                  }`}
+                >
+                  {available ? 'Available' : 'Unavailable'}
+                </span>
+              </div>
+              
+              <div className="admin-card-body">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Slug:</span>
+                  <span className="text-sm font-mono truncate">{f.id}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Type:</span>
+                  <span className="text-sm">{f.type || '-'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Language:</span>
+                  {f.main_language ? <LanguageTag code={f.main_language} /> : <span className="text-sm">-</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Release:</span>
+                  <span className="text-sm">{f.release_year || '-'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-xs">Subtitles:</span>
+                  {subs.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">{subs.length} available</span>
+                      <button
+                        type="button"
+                        className="admin-btn secondary !px-2 !py-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const el = e.currentTarget as HTMLElement;
+                          setOpenSubsFor(prev => {
+                            if (prev && prev.id === f.id) {
+                              const next = { ...prev, closing: true } as typeof prev;
+                              setTimeout(() => setOpenSubsFor(null), 300);
+                              return next;
+                            }
+                            return { id: f.id, anchor: el };
+                          });
+                          setOpenMenuFor(null);
+                        }}
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                      {openSubsFor?.id === f.id && openSubsFor.anchor && (
+                        <PortalDropdown
+                          anchorEl={openSubsFor.anchor}
+                          align="center"
+                          minWidth={180}
+                          closing={openSubsFor.closing}
+                          durationMs={300}
+                          onClose={() => setOpenSubsFor(null)}
+                          className="admin-dropdown-panel py-2"
+                        >
+                          <div className="text-xs text-gray-300 px-3 mb-1">Available subtitles</div>
+                          <div className="flex flex-col">
+                            {subs.map((s) => (
+                              <div key={s} className="admin-dropdown-item !py-2 !px-3" onClick={(e) => e.stopPropagation()}>
+                                <span className={`fi fi-${countryCodeForLang(s)} w-4 h-3`}></span>
+                                <span>{langLabel(s)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </PortalDropdown>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-gray-400">0 available</span>
+                  )}
+                </div>
+              </div>
+              
+              <div className="admin-card-actions">
+                <button
+                  className="admin-btn primary flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/content/${encodeURIComponent(f.id)}`);
+                  }}
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>View</span>
+                </button>
+                <button
+                  className="admin-btn secondary flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/update?slug=${encodeURIComponent(f.id)}`);
+                  }}
+                >
+                  <Pencil className="w-4 h-4" />
+                  <span>Edit</span>
+                </button>
+                <button
+                  className="admin-btn secondary !px-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const el = e.currentTarget as HTMLElement;
+                    setOpenMenuFor(prev => {
+                      if (prev && prev.id === f.id) {
+                        const next = { ...prev, closing: true } as typeof prev;
+                        setTimeout(() => setOpenMenuFor(null), 300);
+                        return next;
+                      }
+                      return { id: f.id, anchor: el, context: 'card' };
+                    });
+                    setOpenSubsFor(null);
+                  }}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {openMenuFor?.id === f.id && openMenuFor.context === 'card' && openMenuFor.anchor && (
+                  <PortalDropdown
+                    anchorEl={openMenuFor.anchor}
+                    align="center"
+                    closing={openMenuFor.closing}
+                    durationMs={300}
+                    onClose={() => setOpenMenuFor(null)}
+                    className="admin-dropdown-panel py-1"
+                  >
+                    <div className="admin-dropdown-item" onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenuFor(null);
+                      setConfirmDelete({ slug: f.id, title: f.title || f.id });
+                    }}>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete</span>
+                    </div>
+                  </PortalDropdown>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Pagination */}

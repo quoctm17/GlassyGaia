@@ -1,10 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { FilmDoc, EpisodeDetailDoc, CardDoc } from '../types';
 import { apiGetFilm, apiListEpisodes, apiFetchCardsForFilm } from '../services/cfApi';
 import { useUser } from '../context/UserContext';
-import VideoPlayer from '../components/VideoPlayer';
-import type { VideoPlayerHandle } from '../components/VideoPlayer';
 import AudioPlayer from '../components/AudioPlayer';
 import type { AudioPlayerHandle } from '../components/AudioPlayer';
 import '../styles/pages/watch-page.css';
@@ -19,9 +18,98 @@ export default function WatchPage() {
   const [cards, setCards] = useState<CardDoc[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const mediaRef = useRef<VideoPlayerHandle | AudioPlayerHandle>(null);
+  const [loadingMoreCards, setLoadingMoreCards] = useState(false);
+  const [noMoreCards, setNoMoreCards] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
+  const mediaRef = useRef<AudioPlayerHandle>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
 
   const R2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
+
+  // Auto-scroll carousel and subtitle list when card changes
+  useEffect(() => {
+    // Scroll carousel thumbnail to center
+    if (carouselRef.current) {
+      const thumbnail = carouselRef.current.querySelector(`[data-card-index="${currentCardIndex}"]`);
+      if (thumbnail) {
+        thumbnail.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+    
+    // Scroll subtitle card to center within the visible area of the container
+    const cardElement = document.getElementById(`card-${currentCardIndex}`);
+    if (cardElement) {
+      const container = cardElement.closest('.watch-subtitles-list') as HTMLElement;
+      if (container) {
+        // Calculate position to center the card in the visible viewport
+        const containerHeight = container.clientHeight;
+        const cardOffsetTop = cardElement.offsetTop;
+        const cardHeight = cardElement.offsetHeight;
+        
+        // Center position: scroll so card is in middle of visible area
+        const scrollPosition = cardOffsetTop - (containerHeight / 2) + (cardHeight / 2);
+        
+        container.scrollTo({ top: scrollPosition, behavior: 'smooth' });
+      }
+    }
+    
+    // Reset slide direction after animation completes
+    if (slideDirection) {
+      const timer = setTimeout(() => setSlideDirection(null), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [currentCardIndex, slideDirection]);
+
+  // Progressive loading: Load more cards when approaching the end
+  useEffect(() => {
+    if (!contentId || !currentEpisode || loadingMoreCards || noMoreCards) return;
+    
+    // Trigger when within 10 cards of the end
+    const shouldLoadMore = currentCardIndex >= cards.length - 10 && cards.length > 0;
+    
+    if (shouldLoadMore) {
+      const loadMoreCards = async () => {
+        try {
+          setLoadingMoreCards(true);
+          
+          // Get the start time of the last card to continue from there
+          const lastCard = cards[cards.length - 1];
+          const startFrom = Math.floor(lastCard.end); // Start from the end of last card
+          
+          // Fetch next batch
+          const moreCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
+          
+          if (moreCards && moreCards.length > 0) {
+            // Merge and deduplicate
+            const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+            const seen = new Set(cards.map(key));
+            const merged = [...cards];
+            
+            for (const card of moreCards) {
+              const k = key(card);
+              if (!seen.has(k)) {
+                merged.push(card);
+                seen.add(k);
+              }
+            }
+            
+            // Sort by start time
+            merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+            setCards(merged);
+          } else {
+            // No more cards available
+            setNoMoreCards(true);
+          }
+        } catch (error) {
+          console.error('Failed to load more cards:', error);
+        } finally {
+          setLoadingMoreCards(false);
+        }
+      };
+      
+      loadMoreCards();
+    }
+  }, [currentCardIndex, cards, contentId, currentEpisode, loadingMoreCards, noMoreCards]);
 
   useEffect(() => {
     if (!contentId) return;
@@ -71,6 +159,8 @@ export default function WatchPage() {
         });
         setCards(sorted);
         setCurrentCardIndex(0);
+        setNoMoreCards(false);
+        setNoMoreCards(false); // Reset when loading new episode
       } catch (error) {
         console.error('Failed to load cards:', error);
         setCards([]);
@@ -80,46 +170,69 @@ export default function WatchPage() {
     loadCards();
   }, [contentId, currentEpisode]);
 
-  // Handle time update from media player
-  const handleTimeUpdate = (currentTime: number) => {
-    // Find the card that matches current time
-    const cardIndex = cards.findIndex((card) => {
-      return currentTime >= card.start && currentTime < card.end;
-    });
-    
-    if (cardIndex !== -1 && cardIndex !== currentCardIndex) {
-      setCurrentCardIndex(cardIndex);
+  // Handle audio end - auto advance to next card
+  const handleAudioEnd = () => {
+    if (currentCardIndex < cards.length - 1) {
+      const nextIndex = currentCardIndex + 1;
+      setCurrentCardIndex(nextIndex);
       
-      // Auto-scroll to current card
-      const cardElement = document.getElementById(`card-${cardIndex}`);
-      if (cardElement) {
-        cardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    } else if (cardIndex === -1 && contentId && currentEpisode) {
-      // Progressive load: if we don't have a card covering the current time, fetch from current time
-      // Use a modest batch to avoid DB param limits
-      const startFrom = Math.max(0, Math.floor(currentTime - 2));
-      apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom })
-        .then((more) => {
-          if (!more || more.length === 0) return;
-          // Merge while preserving uniqueness by id+start, then sort by start asc
-          const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
-          const seen = new Set(cards.map(key));
-          const merged = [...cards];
-          for (const m of more) {
-            const k = key(m);
-            if (!seen.has(k)) {
-              merged.push(m);
-              seen.add(k);
+      // Auto-play next card (scroll is handled by useEffect)
+      setTimeout(() => {
+        if (mediaRef.current) {
+          mediaRef.current.play();
+        }
+      }, 100);
+    } else if (currentCardIndex === cards.length - 1 && !loadingMoreCards && !noMoreCards) {
+      // At the last card, try to load more and continue playing
+      const tryLoadAndContinue = async () => {
+        if (!contentId || !currentEpisode) return;
+        
+        try {
+          setLoadingMoreCards(true);
+          const lastCard = cards[cards.length - 1];
+          const startFrom = Math.floor(lastCard.end);
+          
+          const moreCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
+          
+          if (moreCards && moreCards.length > 0) {
+            const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+            const seen = new Set(cards.map(key));
+            const merged = [...cards];
+            
+            for (const card of moreCards) {
+              const k = key(card);
+              if (!seen.has(k)) {
+                merged.push(card);
+                seen.add(k);
+              }
             }
+            
+            merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+            setCards(merged);
+            
+            // Auto-advance to next card and play (scroll is handled by useEffect)
+            setTimeout(() => {
+              const nextIndex = currentCardIndex + 1;
+              setCurrentCardIndex(nextIndex);
+              
+              setTimeout(() => {
+                if (mediaRef.current) {
+                  mediaRef.current.play();
+                }
+              }, 100);
+            }, 100);
+          } else {
+            // No more cards
+            setNoMoreCards(true);
           }
-          merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-          setCards(merged);
-          // Try to locate index again after merge
-          const idx = merged.findIndex(c => currentTime >= c.start && currentTime < c.end);
-          if (idx !== -1) setCurrentCardIndex(idx);
-        })
-        .catch(() => {});
+        } catch (error) {
+          console.error('Failed to load more cards:', error);
+        } finally {
+          setLoadingMoreCards(false);
+        }
+      };
+      
+      tryLoadAndContinue();
     }
   };
 
@@ -147,11 +260,75 @@ export default function WatchPage() {
     }
   };
 
-  const handleCardClick = (card: CardDoc, index: number) => {
+  const handleCardClick = (index: number) => {
+    // Set slide direction based on index change
+    if (index > currentCardIndex) {
+      setSlideDirection('left');
+    } else if (index < currentCardIndex) {
+      setSlideDirection('right');
+    }
+    
     setCurrentCardIndex(index);
-    if (mediaRef.current) {
-      mediaRef.current.currentTime = card.start;
-      mediaRef.current.play();
+    // Auto-play when card is clicked (scroll is handled by useEffect)
+    setTimeout(() => {
+      if (mediaRef.current) {
+        mediaRef.current.play();
+      }
+    }, 100);
+  };
+
+  const handlePrevCard = () => {
+    if (currentCardIndex > 0) {
+      handleCardClick(currentCardIndex - 1);
+    }
+  };
+
+  const handleNextCard = () => {
+    if (currentCardIndex < cards.length - 1) {
+      handleCardClick(currentCardIndex + 1);
+    } else if (currentCardIndex === cards.length - 1 && !loadingMoreCards && !noMoreCards) {
+      // At the last card, try to load more cards first
+      const tryLoadMore = async () => {
+        if (!contentId || !currentEpisode) return;
+        
+        try {
+          setLoadingMoreCards(true);
+          const lastCard = cards[cards.length - 1];
+          const startFrom = Math.floor(lastCard.end);
+          
+          const moreCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
+          
+          if (moreCards && moreCards.length > 0) {
+            const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+            const seen = new Set(cards.map(key));
+            const merged = [...cards];
+            
+            for (const card of moreCards) {
+              const k = key(card);
+              if (!seen.has(k)) {
+                merged.push(card);
+                seen.add(k);
+              }
+            }
+            
+            merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+            setCards(merged);
+            
+            // Move to next card after loading
+            setTimeout(() => {
+              handleCardClick(currentCardIndex + 1);
+            }, 100);
+          } else {
+            setNoMoreCards(true);
+          }
+        } catch (error) {
+          console.error('Failed to load more cards:', error);
+        } finally {
+          setLoadingMoreCards(false);
+        }
+      };
+      
+      tryLoadMore();
     }
   };
 
@@ -166,36 +343,75 @@ export default function WatchPage() {
     return cover;
   };
 
-  const getVideoUrl = (episode: EpisodeDetailDoc | null) => {
-    if (!episode || !contentId) return '';
-    // Only return video URL if it's explicitly set in the API response
-    let video = episode.full_video_url || '';
-    if (video.startsWith('/') && R2Base) video = R2Base + video;
-    return video; // Don't construct fallback URL, only use what API provides
+  // Get current card's media URLs
+  const getCurrentCardImageUrl = () => {
+    const card = cards[currentCardIndex];
+    if (!card) return '';
+    let imageUrl = card.image_url || '';
+    if (imageUrl.startsWith('/') && R2Base) imageUrl = R2Base + imageUrl;
+    return imageUrl;
   };
 
-  const getAudioUrl = (episode: EpisodeDetailDoc | null) => {
-    if (!episode || !contentId) return '';
-    let audio = episode.full_audio_url || '';
-    if (audio.startsWith('/') && R2Base) audio = R2Base + audio;
-    if (!audio) {
-      // Construct fallback audio URL
-      const path = `/items/${contentId}/episodes/e${episode.episode_number}/full_audio.mp3`;
-      audio = R2Base ? R2Base + path : path;
-    }
-    return audio;
+  const getCurrentCardAudioUrl = () => {
+    const card = cards[currentCardIndex];
+    if (!card) return '';
+    let audioUrl = card.audio_url || '';
+    if (audioUrl.startsWith('/') && R2Base) audioUrl = R2Base + audioUrl;
+    return audioUrl;
   };
-
-  // Determine if we should use video or audio
-  const videoUrl = getVideoUrl(currentEpisode);
-  const audioUrl = getAudioUrl(currentEpisode);
-  const mediaUrl = videoUrl || audioUrl;
-  const isVideo = !!videoUrl;
 
   // Get subtitle text for a card
   const getSubtitleText = (card: CardDoc, lang: string): string => {
     return card.subtitle?.[lang] || '';
   };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 'a':
+          // Previous card
+          e.preventDefault();
+          if (currentCardIndex > 0) {
+            handleCardClick(currentCardIndex - 1);
+          }
+          break;
+        case 'd':
+          // Next card
+          e.preventDefault();
+          handleNextCard();
+          break;
+        case ' ':
+          // Play/Pause
+          e.preventDefault();
+          if (mediaRef.current) {
+            mediaRef.current.togglePlayPause();
+          }
+          break;
+        case 'arrowleft':
+          // Previous card (alternative)
+          e.preventDefault();
+          if (currentCardIndex > 0) {
+            handleCardClick(currentCardIndex - 1);
+          }
+          break;
+        case 'arrowright':
+          // Next card (alternative)
+          e.preventDefault();
+          handleNextCard();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCardIndex, cards.length]);
 
   // Get main language subtitle (from film main_language)
   const mainLanguage = film?.main_language || 'en';
@@ -233,38 +449,133 @@ export default function WatchPage() {
           )}
         </div>
 
-        {/* Video/Audio player and Subtitles side by side */}
+        {/* Card Image and Audio player (50%) / Subtitles panel (50%) */}
         <div className="watch-grid">
-          {/* Left column - Video/Audio player */}
+          {/* Left column - Card Image + Audio player + Carousel */}
           <div className="watch-grid-col-2">
-            <div className="watch-media-container">
-              {currentEpisode && mediaUrl ? (
-                <div className="watch-media-wrapper">
-                  {isVideo ? (
-                    <VideoPlayer
-                      ref={mediaRef as React.RefObject<VideoPlayerHandle>}
-                      key={currentEpisode.episode_number}
-                      src={mediaUrl}
-                      poster={getCoverUrl(currentEpisode)}
-                      onTimeUpdate={handleTimeUpdate}
-                    />
-                  ) : (
-                    <div className="space-y-4">
-                      <AudioPlayer
-                        ref={mediaRef as React.RefObject<AudioPlayerHandle>}
-                        key={currentEpisode.episode_number}
-                        src={mediaUrl}
-                        onTimeUpdate={handleTimeUpdate}
-                      />
-                      <p className="text-sm text-pink-200 text-center">Audio only - No video available</p>
+            {/* Media Container with Navigation Buttons */}
+            <div className="watch-media-container-wrapper">
+              {/* Previous Card Button */}
+              <button
+                onClick={handlePrevCard}
+                disabled={currentCardIndex === 0}
+                className="watch-nav-button watch-nav-button-prev"
+                aria-label="Previous card"
+                data-tooltip="Prev (A)"
+              >
+                <ChevronLeft size={32} />
+              </button>
+
+              <div className="watch-media-container">
+                {/* Card Counter */}
+                <div className="watch-card-counter">
+                  <span className="watch-card-counter-current">{currentCardIndex + 1}</span>
+                  <span className="watch-card-counter-separator">/</span>
+                  <span className="watch-card-counter-total">
+                    {typeof currentEpisode?.num_cards === 'number' && currentEpisode.num_cards > 0 ? currentEpisode.num_cards : cards.length}
+                  </span>
+                </div>
+
+                {cards.length > 0 && cards[currentCardIndex] ? (
+                  <div className={`watch-media-wrapper ${slideDirection ? `slide-${slideDirection}` : ''}`}>
+                    {/* Card Image */}
+                    <div className="relative w-full h-full bg-[#1a0f26] flex flex-col items-center justify-center">
+                      {getCurrentCardImageUrl() ? (
+                        <img
+                          src={getCurrentCardImageUrl()}
+                          alt={`Card ${currentCardIndex + 1}`}
+                          className="max-w-full max-h-[70%] object-contain"
+                        />
+                      ) : (
+                        <div className="text-white text-center p-8">
+                          <p className="text-lg mb-2">Card {currentCardIndex + 1}</p>
+                          <p className="text-sm text-gray-400">No image available</p>
+                        </div>
+                      )}
+                      
+                      {/* Audio Player below image */}
+                      <div className="w-full max-w-2xl px-8 py-4">
+                        {getCurrentCardAudioUrl() ? (
+                          <AudioPlayer
+                            ref={mediaRef}
+                            key={`card-${currentCardIndex}`}
+                            src={getCurrentCardAudioUrl()}
+                            onEnded={handleAudioEnd}
+                          />
+                        ) : (
+                          <p className="text-sm text-pink-200 text-center">No audio available for this card</p>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-              ) : (
-                <div className="watch-no-media">
-                  <p className="text-white">No media available for this episode</p>
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <div className="watch-no-media">
+                    <p className="text-white">No cards available for this episode</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Next Card Button */}
+              <button
+                onClick={handleNextCard}
+                disabled={currentCardIndex === cards.length - 1}
+                className="watch-nav-button watch-nav-button-next"
+                aria-label="Next card"
+                data-tooltip="Next (D)"
+              >
+                <ChevronRight size={32} />
+              </button>
+            </div>
+
+            {/* Card Carousel - Thumbnails */}
+            <div className="watch-card-carousel">
+              <div className="watch-card-carousel-track" ref={carouselRef}>
+                {cards.map((card, index) => {
+                  const isActive = index === currentCardIndex;
+                  const imageUrl = card.image_url ? 
+                    (card.image_url.startsWith('/') && R2Base ? R2Base + card.image_url : card.image_url) : 
+                    '';
+                  
+                  return (
+                    <button
+                      key={card.id}
+                      data-card-index={index}
+                      onClick={() => handleCardClick(index)}
+                      className={`watch-card-thumbnail ${isActive ? 'active' : ''}`}
+                    >
+                      {imageUrl ? (
+                        <img
+                          src={imageUrl}
+                          alt={`Card ${index + 1}`}
+                          className="watch-card-thumbnail-image"
+                        />
+                      ) : (
+                        <div className="watch-card-thumbnail-placeholder">
+                          <span className="text-xs">{index + 1}</span>
+                        </div>
+                      )}
+                      {isActive && (
+                        <div className="watch-card-thumbnail-indicator" />
+                      )}
+                    </button>
+                  );
+                })}
+                
+                {/* Loading indicator when fetching more cards */}
+                {loadingMoreCards && (
+                  <div className="watch-card-thumbnail-loading">
+                    <div className="watch-loading-spinner"></div>
+                    <span className="text-xs text-pink-200">Loading...</span>
+                  </div>
+                )}
+                
+                {/* End of episode indicator */}
+                {noMoreCards && (
+                  <div className="watch-card-thumbnail-end">
+                    <span className="text-xs text-gray-400">End of episode</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -298,7 +609,7 @@ export default function WatchPage() {
                       <button
                         key={card.id}
                         id={`card-${index}`}
-                        onClick={() => handleCardClick(card, index)}
+                        onClick={() => handleCardClick(index)}
                         className={`watch-subtitle-card ${isActive ? 'active' : ''}`}
                       >
                         <div className="watch-subtitle-card-content">
@@ -316,6 +627,17 @@ export default function WatchPage() {
                 ) : (
                   <div className="watch-subtitles-empty">
                     <p>No subtitles available</p>
+                  </div>
+                )}
+                
+                {/* End of episode indicator */}
+                {noMoreCards && cards.length > 0 && (
+                  <div className="watch-subtitles-end">
+                    <div className="watch-subtitles-end-icon">🎬</div>
+                    <p className="watch-subtitles-end-text">End of Episode</p>
+                    <p className="watch-subtitles-end-subtext">
+                      You've completed all {currentEpisode?.num_cards || cards.length} cards
+                    </p>
                   </div>
                 )}
               </div>
