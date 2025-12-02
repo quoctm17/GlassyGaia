@@ -1,19 +1,17 @@
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { detectSubtitleHeaders, categorizeHeaders } from "../utils/csvDetection";
 
 interface CsvPreviewPanelProps {
   csvHeaders: string[];
   csvRows: Record<string, string>[];
   csvValid: boolean | null;
   csvErrors: string[];
-    csvWarnings: string[];
-  unrecognizedHeaders: string[];
-  reservedHeaders: string[];
-  ambiguousHeaders: string[];
+  csvWarnings: string[];
+  csvSubtitleWarnings?: string[];
   confirmedAsLanguage: Set<string>;
   requiredOriginals: string[];
   mainLangHeader: string | null;
   mainLangHeaderOverride: string | null;
-  recognizedSubtitleHeaders: Set<string>;
 }
 
 export default function CsvPreviewPanel({
@@ -22,20 +20,28 @@ export default function CsvPreviewPanel({
   csvValid,
   csvErrors,
   csvWarnings,
-  unrecognizedHeaders,
-  reservedHeaders,
-  ambiguousHeaders,
+  csvSubtitleWarnings = [],
   confirmedAsLanguage,
   requiredOriginals,
   mainLangHeader,
   mainLangHeaderOverride,
-  recognizedSubtitleHeaders,
 }: CsvPreviewPanelProps) {
+  // Auto-detect subtitle headers using shared utility
+  const recognizedSubtitleHeaders = detectSubtitleHeaders(csvHeaders, confirmedAsLanguage);
+  
+  // Auto-categorize headers
+  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders } = categorizeHeaders(
+    csvHeaders,
+    confirmedAsLanguage,
+    recognizedSubtitleHeaders
+  );
+  
   // Compute effective reserved headers: include ambiguous columns that are NOT confirmed as language
   const effectiveReservedHeaders = [
     ...reservedHeaders,
     ...(ambiguousHeaders || []).filter(col => !confirmedAsLanguage.has(col))
   ];
+  
   if (csvHeaders.length === 0) return null;
 
   return (
@@ -60,6 +66,18 @@ export default function CsvPreviewPanel({
           </div>
         </div>
       )}
+
+        {/* Subtitle Missing Warnings (non-blocking, teal) */}
+        {csvSubtitleWarnings.length > 0 && (
+          <div className="flex items-start gap-2 text-xs text-teal-300">
+            <AlertTriangle className="w-4 h-4 mt-0.5" />
+            <div className="space-y-1">
+              {csvSubtitleWarnings.map((warn, i) => (
+                <div key={i}>{warn}</div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* CSV Warnings (non-blocking) */}
         {csvWarnings.length > 0 && (
@@ -166,13 +184,16 @@ export default function CsvPreviewPanel({
                       className={`border border-gray-700 px-2 py-1 ${
                         isEmpty && isRequired
                           ? 'bg-red-900/30 text-red-300'
-                          : isEmpty && (isMainLang || isSubtitle)
+                          : isEmpty && isMainLang
                           ? 'bg-orange-900/30 text-orange-300'
+                          : isEmpty && isSubtitle
+                          ? 'bg-teal-900/30 text-teal-300'
                           : 'text-gray-300'
                       }`}
                       title={
                         isEmpty && isRequired ? 'Ô trống - CSV không hợp lệ' :
-                        isEmpty && (isMainLang || isSubtitle) ? 'Ô trống - card sẽ mặc định unavailable' : ''
+                        isEmpty && isMainLang ? 'Ô trống - card sẽ mặc định unavailable' :
+                        isEmpty && isSubtitle ? 'Ô trống - thiếu subtitle (sẽ bỏ qua khi upload)' : ''
                       }
                     >
                       {displayVal}
@@ -190,7 +211,8 @@ export default function CsvPreviewPanel({
           <span className="text-yellow-400">⚠</span> = Unrecognized column |{' '}
           <span className="text-purple-400">◆</span> = Reserved column (actively ignored) |{' '}
           <span className="bg-red-900/30 text-red-300 px-1">Ô đỏ (Required)</span> = Blocking error |{' '}
-          <span className="bg-orange-900/30 text-orange-300 px-1">Ô cam (Subtitle/Main)</span> = Card unavailable
+          <span className="bg-orange-900/30 text-orange-300 px-1">Ô cam (Main)</span> = Card unavailable |{' '}
+          <span className="bg-teal-900/30 text-teal-300 px-1">Ô xanh ngọc (Subtitle)</span> = Thiếu subtitle (sẽ bỏ qua khi upload)
         </div>
       </div>
     </div>

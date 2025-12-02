@@ -20,6 +20,7 @@ export default function AdminCardUpdatePage() {
   const [subtitles, setSubtitles] = useState<Record<string, string>>({});
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isAvailable, setIsAvailable] = useState<boolean>(true);
   
   // Language dropdown state
   const [langDropdown, setLangDropdown] = useState<{ anchor: HTMLElement; closing?: boolean } | null>(null);
@@ -56,7 +57,10 @@ export default function AdminCardUpdatePage() {
         const row = await apiGetCardByPath(contentSlug, episodeId, cardId);
         if (!mounted) return;
         setCard(row);
-        if (row) setSubtitles(row.subtitle || {});
+        if (row) {
+          setSubtitles(row.subtitle || {});
+          setIsAvailable(row.is_available !== false);
+        }
       } catch (e) {
         setError((e as Error).message);
       } finally { setLoading(false); }
@@ -113,13 +117,14 @@ export default function AdminCardUpdatePage() {
 
       // Update card in database via API
       const apiBase = import.meta.env.VITE_CF_API_BASE?.replace(/\/$/, '') || '';
-      const response = await fetch(`${apiBase}/admin/cards/${contentSlug}/${episodeId}/${cardId}`, {
+      const response = await fetch(`${apiBase}/cards/${contentSlug}/${episodeId}/${cardId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subtitle: subtitles,
           audio_url: audioUrl,
           image_url: imageUrl,
+          is_available: isAvailable ? 1 : 0,
         }),
       });
 
@@ -134,7 +139,10 @@ export default function AdminCardUpdatePage() {
       // Refresh card data
       const refreshed = await apiGetCardByPath(contentSlug, episodeId, cardId);
       setCard(refreshed);
-      if (refreshed) setSubtitles(refreshed.subtitle || {});
+      if (refreshed) {
+        setSubtitles(refreshed.subtitle || {});
+        setIsAvailable(refreshed.is_available !== false);
+      }
       setAudioFile(null);
       setImageFile(null);
     } catch (e) {
@@ -162,12 +170,34 @@ export default function AdminCardUpdatePage() {
               <div><span className="text-gray-400">End:</span> <span className="text-gray-200">{card.end}s</span></div>
               <div><span className="text-gray-400">Duration:</span> <span className="text-gray-200">{card.duration}s</span></div>
             </div>
+            <div className="pt-2 border-t border-pink-500/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-400">Status:</span>
+                  <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
+                    isAvailable ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'
+                  }`}>
+                    {isAvailable ? 'Available' : 'Unavailable'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="admin-btn secondary !py-1 !px-3 text-xs"
+                  onClick={() => setIsAvailable(!isAvailable)}
+                >
+                  Toggle to {isAvailable ? 'Unavailable' : 'Available'}
+                </button>
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                {isAvailable ? 'Card xuất hiện trong kết quả search' : 'Card bị ẩn khỏi search'}
+              </div>
+            </div>
           </div>
 
           {/* Two Column Layout: Subtitles Left, Media Right */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Subtitles Editor - Left */}
-            <div className="admin-panel space-y-3 flex flex-col">
+            <div className="admin-panel space-y-3 flex flex-col h-[600px]">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-pink-300">Subtitles</div>
                 <button
@@ -262,7 +292,7 @@ export default function AdminCardUpdatePage() {
             </div>
 
             {/* Media - Right */}
-            <div className="space-y-4">
+            <div className="space-y-4 h-[600px] overflow-y-auto custom-scrollbar">
               {/* Audio Upload */}
               <div className="admin-panel space-y-3">
                 <div className="text-sm font-semibold text-pink-300">Audio</div>

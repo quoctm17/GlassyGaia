@@ -38,11 +38,23 @@ export default function PortalDropdown(props: PortalDropdownProps) {
       if (isMobile && (next.right as number) < padding) {
         next.right = padding;
       }
+      // Constrain width if would overflow horizontally
+      const availableWidth = window.innerWidth - (next.right as number) - padding;
+      if (panelRef.current && panelRef.current.offsetWidth > availableWidth) {
+        next.maxWidth = Math.max(180, availableWidth);
+        next.width = Math.min(panelRef.current.offsetWidth, availableWidth);
+      }
     } else if (align === 'left') {
       next.left = Math.round(rect.left);
       // Ensure minimum left padding on mobile
       if (isMobile && (next.left as number) < padding) {
         next.left = padding;
+      }
+      // Constrain width to remain within viewport
+      const availableWidth = window.innerWidth - (next.left as number) - padding;
+      if (panelRef.current && panelRef.current.offsetWidth > availableWidth) {
+        next.maxWidth = Math.max(180, availableWidth);
+        next.width = Math.min(panelRef.current.offsetWidth, availableWidth);
       }
     } else {
       let centerX = Math.round(rect.left + rect.width / 2);
@@ -61,6 +73,20 @@ export default function PortalDropdown(props: PortalDropdownProps) {
       next.left = centerX;
     }
     if (minWidth) next.minWidth = typeof minWidth === 'number' ? `${minWidth}px` : String(minWidth);
+    // Universal mobile constraint: clamp max width
+    if (isMobile) {
+      next.maxWidth = Math.min(window.innerWidth - padding * 2, 400);
+      // If panel would overflow to right when left aligned
+      if (typeof next.left === 'number') {
+        const overflowRight = next.left + (panelRef.current?.offsetWidth || 240) + padding > window.innerWidth;
+        if (overflowRight) {
+          // Shift left position inside viewport
+          const targetWidth = Math.min(panelRef.current?.offsetWidth || 240, window.innerWidth - padding * 2);
+          next.left = window.innerWidth - padding - targetWidth;
+          next.width = targetWidth;
+        }
+      }
+    }
 
     setStyle((prev) => {
       // Extract current Y translate to prevent jump during scroll/resize

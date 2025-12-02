@@ -31,6 +31,7 @@ export default function AdminContentUpdatePage() {
 	// New optional fields (tri-state): undefined = unchanged, string/number = set, null = clear
 	const [contentType, setContentType] = useState<string | null | undefined>(undefined);
 	const [releaseYear, setReleaseYear] = useState<number | null | undefined>(undefined);
+	const [isAvailable, setIsAvailable] = useState<boolean | number | null | undefined>(undefined);
 
 	// Dropdown state and refs for outside-click close
 	const [typeOpen, setTypeOpen] = useState(false);
@@ -96,6 +97,7 @@ export default function AdminContentUpdatePage() {
 				cover_landscape_url?: string | null;
 				type?: string | null;
 				release_year?: number | null;
+				is_available?: boolean | number | null;
 			} = {
 				filmSlug: contentSlug,
 				title: title || undefined,
@@ -105,6 +107,7 @@ export default function AdminContentUpdatePage() {
 			};
 			if (contentType !== undefined) payload.type = contentType;
 			if (releaseYear !== undefined) payload.release_year = releaseYear;
+			if (isAvailable !== undefined) payload.is_available = isAvailable;
 			await apiUpdateFilmMeta(payload);
 			setStage('done');
 			toast.success(`Updated meta for ${contentSlug}`);
@@ -260,19 +263,48 @@ export default function AdminContentUpdatePage() {
 							<input id="update-cover-landscape-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
 						</div>
 
-						<div className="flex items-start gap-2 md:col-span-2">
-							<label className="w-40 text-sm pt-2">Description</label>
-							<textarea
-								className="admin-input"
-								rows={3}
-								value={description}
-								onChange={e => setDescription(e.target.value)}
-								placeholder="Content description (optional)"
-							/>
-						</div>
+					<div className="flex items-start gap-2 md:col-span-2">
+						<label className="w-40 text-sm pt-2">Description</label>
+						<textarea
+							className="admin-input"
+							rows={3}
+							value={description}
+							onChange={e => setDescription(e.target.value)}
+							placeholder="Content description (optional)"
+						/>
 					</div>
 
-					<div className="flex items-center gap-3">
+					<div className="flex items-center gap-2 md:col-span-2">
+						<label className="w-40 text-sm">Availability</label>
+						<div className="flex items-center gap-3">
+							<span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
+								(isAvailable === 1 || isAvailable === true) ? 'bg-green-600/20 text-green-300 border-green-500/60' : 
+								(isAvailable === 0 || isAvailable === false) ? 'bg-red-600/20 text-red-300 border-red-500/60' :
+								'bg-gray-600/20 text-gray-300 border-gray-500/60'
+							}`}>
+								{(isAvailable === 1 || isAvailable === true) ? 'Available' : 
+								 (isAvailable === 0 || isAvailable === false) ? 'Unavailable' : 'Unchanged'}
+							</span>
+							<button
+								type="button"
+								className="admin-btn secondary !py-1 !px-3 text-xs"
+								onClick={() => {
+									if (isAvailable === undefined || isAvailable === 1 || isAvailable === true) {
+										setIsAvailable(0);
+									} else {
+										setIsAvailable(1);
+									}
+								}}
+							>
+								Toggle
+							</button>
+							<span className="text-xs text-gray-500">
+								{(isAvailable === 1 || isAvailable === true) ? 'Content xuất hiện trong search' : 
+								 (isAvailable === 0 || isAvailable === false) ? 'Content bị ẩn khỏi search' : 'Giữ nguyên giá trị hiện tại'}
+							</span>
+						</div>
+					</div>
+				</div>					<div className="flex items-center gap-3">
 						<button
 							className="admin-btn primary"
 							disabled={busy || !contentSlug || !isAdmin}
