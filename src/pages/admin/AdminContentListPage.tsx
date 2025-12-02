@@ -754,7 +754,7 @@ export default function AdminContentListPage() {
               
               <div className="admin-card-actions">
                 <button
-                  className="admin-btn primary flex-1"
+                  className="admin-btn primary admin-card-btn"
                   onClick={(e) => {
                     e.stopPropagation();
                     navigate(`/admin/content/${encodeURIComponent(f.id)}`);
@@ -764,7 +764,7 @@ export default function AdminContentListPage() {
                   <span>View</span>
                 </button>
                 <button
-                  className="admin-btn secondary flex-1"
+                  className="admin-btn secondary admin-card-btn"
                   onClick={(e) => {
                     e.stopPropagation();
                     navigate(`/admin/update?slug=${encodeURIComponent(f.id)}`);
@@ -774,42 +774,15 @@ export default function AdminContentListPage() {
                   <span>Edit</span>
                 </button>
                 <button
-                  className="admin-btn secondary !px-2"
+                  className="admin-btn secondary admin-card-btn bg-red-600 hover:bg-red-700 border-pink-300"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const el = e.currentTarget as HTMLElement;
-                    setOpenMenuFor(prev => {
-                      if (prev && prev.id === f.id) {
-                        const next = { ...prev, closing: true } as typeof prev;
-                        setTimeout(() => setOpenMenuFor(null), 300);
-                        return next;
-                      }
-                      return { id: f.id, anchor: el, context: 'card' };
-                    });
-                    setOpenSubsFor(null);
+                    setConfirmDelete({ slug: f.id, title: f.title || f.id });
                   }}
                 >
-                  <MoreHorizontal className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete</span>
                 </button>
-                {openMenuFor?.id === f.id && openMenuFor.context === 'card' && openMenuFor.anchor && (
-                  <PortalDropdown
-                    anchorEl={openMenuFor.anchor}
-                    align="center"
-                    closing={openMenuFor.closing}
-                    durationMs={300}
-                    onClose={() => setOpenMenuFor(null)}
-                    className="admin-dropdown-panel py-1"
-                  >
-                    <div className="admin-dropdown-item" onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenMenuFor(null);
-                      setConfirmDelete({ slug: f.id, title: f.title || f.id });
-                    }}>
-                      <Trash2 className="w-4 h-4" />
-                      <span>Delete</span>
-                    </div>
-                  </PortalDropdown>
-                )}
               </div>
             </div>
           );

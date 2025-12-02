@@ -32,9 +32,11 @@ export default function AdminLayout() {
 
   const [isSidenavOpen, setIsSidenavOpen] = useState(true);
 
+  const layoutClassName = `admin-layout ${isSidenavOpen ? 'sidenav-open' : 'sidenav-collapsed'}`;
+
   return (
     <div
-      className="admin-layout"
+      className={layoutClassName}
       style={{
         "--admin-sidenav-width": isSidenavOpen ? '260px' : '0px',
         gridTemplateColumns: isSidenavOpen ? 'var(--admin-sidenav-width) auto 1fr' : '1fr'
@@ -83,6 +85,13 @@ export default function AdminLayout() {
           <button className="admin-btn secondary" onClick={()=>navigate('/search')}>← Back</button>
         </div>
       </aside>
+      )}
+      {/* Mobile backdrop for overlay sidenav */}
+      {isSidenavOpen && (
+        <div
+          className="admin-sidenav-backdrop"
+          onClick={() => setIsSidenavOpen(false)}
+        />
       )}
       {isSidenavOpen && (
         <div

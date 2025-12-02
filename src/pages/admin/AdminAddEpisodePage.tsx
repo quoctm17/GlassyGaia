@@ -8,6 +8,7 @@ import { apiGetFilm, apiListEpisodes, apiUpdateEpisodeMeta, apiCalculateStats, a
 import { uploadEpisodeCoverImage, uploadEpisodeFullMedia, uploadMediaBatch } from '../../services/storageUpload';
 import type { MediaType } from '../../services/storageUpload';
 import { canonicalizeLangCode, langLabel, countryCodeForLang, expandCanonicalToAliases } from '../../utils/lang';
+import { detectSubtitleHeaders, categorizeHeaders } from '../../utils/csvDetection';
 import ProgressBar from '../../components/ProgressBar';
 import { Loader2, CheckCircle, RefreshCcw, AlertTriangle } from 'lucide-react';
 import CsvPreviewPanel from '../../components/CsvPreviewPanel';
@@ -45,6 +46,7 @@ export default function AdminAddEpisodePage() {
   const [csvRows, setCsvRows] = useState<Record<string,string>[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
+  const [csvSubtitleWarnings, setCsvSubtitleWarnings] = useState<string[]>([]);
   // (Unused) warnings placeholder removed to satisfy lint
   const [csvValid, setCsvValid] = useState<boolean|null>(null);
   // Allow selecting which CSV header to treat as Main Language subtitle (override auto-detected)
@@ -152,141 +154,6 @@ export default function AdminAddEpisodePage() {
   }
   const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, filmMainLang), [csvHeaders, filmMainLang]);
   
-  // Derive lists for unrecognized and reserved columns (EXACT COPY from AdminContentIngestPage)
-  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders, recognizedSubtitleHeaders } = useMemo(() => {
-    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[], recognizedSubtitleHeaders: new Set<string>() };
-    
-    // Same reserved columns as validateCsv in AdminContentIngestPage
-    const RESERVED_COLUMNS = new Set([
-      "id", "card_id", "cardid", "card id",
-      "no", "number", "card_number", "cardnumber", "card number",
-      "start", "start_time", "starttime", "start time", "start_time_ms",
-      "end", "end_time", "endtime", "end time", "end_time_ms",
-      "duration", "length", "card_length",
-      "type", "card_type", "cardtype", "card type",
-      "sentence", "text", "content",
-      "image", "image_url", "imageurl", "image url", "image_key",
-      "audio", "audio_url", "audiourl", "audio url", "audio_key",
-      "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
-      "cefr", "cefr_level", "cefr level",
-      "jlpt", "jlpt_level", "jlpt level",
-      "hsk", "hsk_level", "hsk level",
-      "notes", "tags", "metadata",
-      "hiragana", "katakana", "romaji"
-    ]);
-    
-    const langAliases: Record<string, string> = {
-      english: "en", eng: "en", vietnamese: "vi", vn: "vi",
-      chinese: "zh", "chinese simplified": "zh", chinese_simplified: "zh", zh: "zh", cn: "zh", "zh-cn": "zh", zh_cn: "zh", "zh-hans": "zh", zh_hans: "zh", "zh-hans-cn": "zh", zh_hans_cn: "zh", "zh-simplified": "zh", zh_simplified: "zh",
-      "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", traditional_chinese: "zh_trad", zh_trad: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad", "zh-hant": "zh_trad", zh_hant: "zh_trad", "zh-hk": "zh_trad", zh_hk: "zh_trad", "zh-mo": "zh_trad", zh_mo: "zh_trad", "zh-hant-tw": "zh_trad", zh_hant_tw: "zh_trad", "zh-hant-hk": "zh_trad", zh_hant_hk: "zh_trad", tw: "zh_trad",
-      japanese: "ja", ja: "ja", jp: "ja", korean: "ko", ko: "ko", kr: "ko",
-      indonesian: "id", id: "id", "in": "id", thai: "th", th: "th", malay: "ms", ms: "ms", my: "ms",
-      cantonese: "yue", yue: "yue", "zh-yue": "yue", zh_yue: "yue",
-      arabic: "ar", ar: "ar", basque: "eu", eu: "eu", bengali: "bn", bn: "bn", catalan: "ca", ca: "ca", croatian: "hr", hr: "hr", czech: "cs", cs: "cs", danish: "da", da: "da", dutch: "nl", nl: "nl",
-      filipino: "fil", fil: "fil", tagalog: "fil", tl: "fil", finnish: "fi", fi: "fi",
-      french: "fr", fr: "fr", "french canadian": "fr_ca", "french (canada)": "fr_ca", fr_ca: "fr_ca", frcan: "fr_ca",
-      galician: "gl", gl: "gl", german: "de", de: "de", greek: "el", el: "el", hebrew: "he", he: "he", iw: "he", hindi: "hi", hi: "hi", hungarian: "hu", hu: "hu", icelandic: "is", is: "is", italian: "it", it: "it", malayalam: "ml", ml: "ml", norwegian: "no", no: "no", nb: "nb", "norwegian bokmal": "nb", "norwegian bokmål": "nb", bokmal: "nb", bokmål: "nb", polish: "pl", pl: "pl",
-      portuguese: "pt_pt", pt: "pt_pt", pt_pt: "pt_pt", ptpt: "pt_pt", "portuguese (portugal)": "pt_pt",
-      "portuguese (brazil)": "pt_br", pt_br: "pt_br", ptbr: "pt_br", brazilian_portuguese: "pt_br",
-      portugese: "pt_pt", "portugese (portugal)": "pt_pt", "portugese (brazil)": "pt_br",
-      romanian: "ro", ro: "ro", russian: "ru", ru: "ru",
-      spanish: "es_es", es: "es_es", es_es: "es_es", "spanish (spain)": "es_es",
-      "spanish (latin america)": "es_la", es_la: "es_la", latam_spanish: "es_la",
-      swedish: "sv", sv: "sv", tamil: "ta", ta: "ta", telugu: "te", te: "te", turkish: "tr", tr: "tr", ukrainian: "uk", uk: "uk",
-      persian: "fa", farsi: "fa", fa: "fa",
-      kurdish: "ku", ku: "ku",
-      slovenian: "sl", sl: "sl",
-      serbian: "sr", sr: "sr",
-      bulgarian: "bg", bg: "bg",
-      // Northern Sami aliases
-      "northern sami": "se", "sami (northern)": "se", "sami": "se", se: "se", sme: "se"
-    };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
-    const recognizedSubtitleHeaders = new Set<string>();
-    const AMBIGUOUS_COLS = new Set(["id", "in"]); // These could be Indonesian language codes OR reserved columns
-    
-    // Same generalized language detection as in AdminContentIngestPage
-    const extractBaseLang = (rawHeader: string): { base: string; variation?: string } => {
-      const trimmed = rawHeader.trim().toLowerCase();
-      const parenMatch = trimmed.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
-      if (parenMatch) {
-        return { base: parenMatch[1].trim(), variation: parenMatch[2].trim() };
-      }
-      const hyphenMatch = trimmed.match(/^([a-z]{2,3})[-_](.+)$/);
-      if (hyphenMatch) {
-        return { base: hyphenMatch[1], variation: hyphenMatch[2] };
-      }
-      return { base: trimmed };
-    };
-
-    csvHeaders.forEach(h => {
-      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
-      
-      // If user confirmed this column is a language, treat it as language
-      if (confirmedAsLanguage.has(h)) {
-        recognizedSubtitleHeaders.add(h);
-        return;
-      }
-      
-      // Skip reserved columns BEFORE language detection (but not ambiguous ones - let user decide)
-      if (RESERVED_COLUMNS.has(key) && !AMBIGUOUS_COLS.has(key)) return;
-      
-      const alias = langAliases[key];
-      if (alias) {
-        recognizedSubtitleHeaders.add(h);
-        return;
-      }
-      if (supported.has(key)) {
-        recognizedSubtitleHeaders.add(h);
-        return;
-      }
-      // Generalized pattern matching
-      const { base } = extractBaseLang(h);
-      const baseAlias = langAliases[base];
-      const baseCanon = baseAlias || (supported.has(base) ? base : null);
-      if (baseCanon) {
-        recognizedSubtitleHeaders.add(h);
-      }
-    });
-    const knownSingles = new Set(["start","end","type","length","cefr","cefr level","cefr_level","jlpt","jlpt level","jlpt_level","hsk","hsk level","hsk_level","difficulty score","difficulty_score","difficultyscore","score","difficulty_percent","card_difficulty"]);
-    const isFrameworkDynamic = (raw: string) => {
-      const key = raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
-      return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key);
-    };
-    const unrecognized: string[] = [];
-    const reserved: string[] = [];
-    const ambiguous: string[] = [];
-    // Reserved columns that appear in CSV should be shown separately (ID/number cols that we actively ignore)
-    const displayableReserved = new Set(["id", "card_id", "cardid", "card id", "no", "number", "card_number", "cardnumber", "card number"]);
-    for (const h of csvHeaders) {
-      const raw = (h || '').trim(); if (!raw) continue;
-      const low = raw.toLowerCase();
-      if (knownSingles.has(low)) continue;
-      
-      // If user confirmed this column is a language, don't treat as reserved
-      if (confirmedAsLanguage.has(raw)) continue;
-      
-      // Check if it's an ambiguous column that needs user confirmation
-      if (AMBIGUOUS_COLS.has(low) && displayableReserved.has(low)) {
-        ambiguous.push(raw);
-        continue;
-      }
-      
-      // Check if it's a displayable reserved column (actively ignored)
-      if (displayableReserved.has(low)) {
-        reserved.push(raw);
-        continue;
-      }
-      // Skip other reserved columns
-      if (RESERVED_COLUMNS.has(low)) continue;
-      if (recognizedSubtitleHeaders.has(raw)) continue;
-      if (isFrameworkDynamic(raw)) continue;
-      if (low === 'sentence') continue; // already an error above
-      unrecognized.push(raw);
-    }
-    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous, recognizedSubtitleHeaders };
-  }, [csvHeaders, confirmedAsLanguage]);
-  
   // Candidate headers for main language (support simple variant pairs like es_es/es_la, pt_pt/pt_br)
   const mainLangHeaderOptions = useMemo(() => {
     if (!csvHeaders.length) return [] as string[];
@@ -349,6 +216,9 @@ export default function AdminAddEpisodePage() {
     const missing = required.filter(r => !headerMap[r]);
     if (missing.length) errors.push(`Thiếu cột bắt buộc: ${missing.join(', ')}`);
     
+    // Use shared subtitle detection utility
+    const recognizedSubtitleHeaders = detectSubtitleHeaders(headers, confirmedAsLanguage);
+    
     // Language detection with alias support
     const mainCanon = canonicalizeLangCode(filmMainLang) || filmMainLang;
     // Use user-selected override if present; otherwise auto-detect
@@ -359,34 +229,60 @@ export default function AdminAddEpisodePage() {
     
     let ec=0; const maxErr=50;
     const emptySubtitleRows: number[] = [];
+    const emptyMainLangRows: number[] = [];
     rows.forEach((row,i)=>{
       required.forEach(k=>{
         const orig=headerMap[k];
         const v=orig? (row[orig]||'').trim() : '';
         if(!v){ errors.push(`Hàng ${i+1}: cột "${k}" trống.`); ec++; }
       });
-      // Track empty subtitle cells as non-blocking warning
+      // Track empty main language and subtitle cells as non-blocking warnings
       if (ec < maxErr) {
+        // Main language cell empty → card will be unavailable
+        if (foundHeader) {
+          const mainVal = (row[foundHeader] || '').toString().trim();
+          if (!mainVal) emptyMainLangRows.push(i + 1);
+        }
+        // Subtitle empties: only check headers that are confirmed or non-ambiguous
+        // This prevents false warnings for ambiguous columns like 'id' before user confirmation
+        const selectedMain = foundHeader || null;
         let hasEmptySubtitle = false;
         recognizedSubtitleHeaders.forEach((hdr) => {
+          if (selectedMain && hdr === selectedMain) return;
+          // Skip ambiguous columns that haven't been confirmed
+          const hdrLow = hdr.toLowerCase();
+          const isAmbiguous = hdrLow === 'id' || hdrLow === 'in';
+          if (isAmbiguous && !confirmedAsLanguage.has(hdr)) return;
           const val = (row[hdr] || "").toString().trim();
           if (!val) { hasEmptySubtitle = true; }
         });
-        if (hasEmptySubtitle) {
-          emptySubtitleRows.push(i + 1);
-        }
+        if (hasEmptySubtitle) emptySubtitleRows.push(i + 1);
       }
       if(ec>=maxErr) return;
     });
     const warnings: string[] = [];
+    const subWarnings: string[] = [];
+    if (emptyMainLangRows.length > 0) {
+      const rowList = emptyMainLangRows.slice(0, 10).join(', ') + (emptyMainLangRows.length > 10 ? '...' : '');
+      warnings.push(`${emptyMainLangRows.length} cards thiếu phụ đề cho Main Language (${langLabel(mainCanon)}). Hàng: ${rowList}. Các cards này sẽ mặc định unavailable.`);
+    }
     if (emptySubtitleRows.length > 0) {
       const rowList = emptySubtitleRows.slice(0, 10).join(', ') + (emptySubtitleRows.length > 10 ? '...' : '');
-      warnings.push(`${emptySubtitleRows.length} cards có subtitle trống (hàng: ${rowList}). Các cards này sẽ mặc định unavailable.`);
+      subWarnings.push(`${emptySubtitleRows.length} cards có subtitle trống (hàng: ${rowList}). Các subtitle trống sẽ bị bỏ qua khi upload.`);
     }
     setCsvErrors(errors);
     setCsvWarnings(warnings);
+    setCsvSubtitleWarnings(subWarnings);
     setCsvValid(errors.length===0);
-  }, [filmMainLang, mainLangHeaderOverride, recognizedSubtitleHeaders]);
+  }, [filmMainLang, mainLangHeaderOverride, confirmedAsLanguage]);
+
+  // Compute ambiguousHeaders for UI display (checkbox prompt)
+  const ambiguousHeaders = useMemo(() => {
+    if (!csvHeaders.length) return [];
+    const recognizedSubtitleHeaders = detectSubtitleHeaders(csvHeaders, confirmedAsLanguage);
+    const { ambiguousHeaders: ambiguous } = categorizeHeaders(csvHeaders, confirmedAsLanguage, recognizedSubtitleHeaders);
+    return ambiguous;
+  }, [csvHeaders, confirmedAsLanguage]);
 
   useEffect(()=>{ if(csvHeaders.length && csvRows.length) validateCsv(csvHeaders,csvRows); }, [csvHeaders,csvRows,filmMainLang,mainLangHeaderOverride,validateCsv]);
 
@@ -861,14 +757,11 @@ export default function AdminAddEpisodePage() {
           csvValid={csvValid}
           csvErrors={csvErrors}
           csvWarnings={csvWarnings}
-          unrecognizedHeaders={unrecognizedHeaders}
-          reservedHeaders={reservedHeaders}
-          ambiguousHeaders={ambiguousHeaders}
+          csvSubtitleWarnings={csvSubtitleWarnings}
           confirmedAsLanguage={confirmedAsLanguage}
           requiredOriginals={requiredOriginals}
           mainLangHeader={mainLangHeader}
           mainLangHeaderOverride={mainLangHeaderOverride}
-          recognizedSubtitleHeaders={recognizedSubtitleHeaders}
         />
         
         {/* Ambiguous column checkboxes */}

@@ -309,16 +309,21 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
     const subtitle: Record<string, string> = {};
     Object.entries(mapping.subtitles || {}).forEach(([canon, header]) => {
       const c = canonicalizeLangCode(canon) || canon;
-      subtitle[c] = (row[header]?.trim?.() as string) ?? "";
+      const text = (row[header]?.trim?.() as string) ?? "";
+      if (text && text.trim()) {
+        subtitle[c] = text;
+      }
     });
 
-    // Always set sentence from main language subtitle
+    // Always set sentence from Main Language subtitle column value (raw), even if unavailable
     const mainCanon = canonicalizeLangCode(mainLang) || mainLang;
-    const sentence = subtitle[mainCanon] || "";
+    const mainHeader = (mapping.subtitles || {})[mainCanon];
+    const mainText = mainHeader ? ((row[mainHeader] as string) ?? "").trim() : "";
+    const sentence = mainText || "";
 
-    // Availability rule: a card is Available only if ALL mapped subtitle columns are non-empty
-    // If any subtitle column (including main language) is empty -> Unavailable
-    const allSubtitlesFilled = Object.values(subtitle).every(text => !!(text && text.trim()));
+    // Availability rule (updated): Only depend on Main Language cell.
+    // If Main Language cell is empty -> Unavailable; missing other subtitles do NOT affect availability.
+    const isAvailable = !!mainText;
 
     const difficulty_levels: Array<{ framework: string; level: string; language?: string }> = [];
     const cefrLevel = mapping.cefr ? (row[mapping.cefr] || "").toString().trim() : "";
@@ -380,7 +385,7 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
       difficulty_score: Number.isFinite(difficultyScoreNum) ? difficultyScoreNum : undefined,
       image_url,
       audio_url,
-      is_available: allSubtitlesFilled, // false if any subtitle is empty
+      is_available: isAvailable,
     };
   });
 

@@ -538,6 +538,7 @@ export async function apiUpdateFilmMeta(params: {
   type?: string | null;
   release_year?: number | null;
   is_original?: boolean | null;
+  is_available?: boolean | number | null;
 }) {
   assertApiBase();
   const { filmSlug, ...body } = params;
@@ -564,6 +565,7 @@ export async function apiUpdateEpisodeMeta(params: {
   full_audio_key?: string;
   full_video_url?: string;
   full_video_key?: string;
+  is_available?: boolean | number;
 }) {
   assertApiBase();
   const { filmSlug, episodeNum, ...body } = params;

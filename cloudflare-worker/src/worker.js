@@ -1102,6 +1102,18 @@ export default {
             if (val !== null) { setClauses.push('is_original=?'); values.push(val); }
           }
 
+          // New: is_available flag (boolean). Accepts boolean or number; coerces to 0/1.
+          if (has('is_available')) {
+            const raw = body.is_available;
+            let val = null;
+            if (typeof raw === 'boolean') {
+              val = raw ? 1 : 0;
+            } else if (typeof raw === 'number') {
+              val = raw ? 1 : 0;
+            }
+            if (val !== null) { setClauses.push('is_available=?'); values.push(val); }
+          }
+
           if (!setClauses.length) {
             return json({ ok: true, note: 'No fields to update' });
           }
@@ -1509,6 +1521,12 @@ export default {
             const fullVideoKey = String(fullVideoKeyRaw).replace(/^https?:\/\/[^/]+\//, '');
             setClauses.push('full_video_key=?');
             values.push(fullVideoKey);
+          }
+          // is_available flag (boolean or number → 0/1)
+          if (typeof body.is_available === 'boolean' || typeof body.is_available === 'number') {
+            const isAvail = body.is_available ? 1 : 0;
+            setClauses.push('is_available=?');
+            values.push(isAvail);
           }
           if (!setClauses.length) {
             return json({ error: 'No valid fields to update' }, { status: 400 });
@@ -2043,6 +2061,11 @@ export default {
               const normalizeKey = (url) => String(url).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '');
               const imageKey = normalizeKey(body.image_url);
               await env.DB.prepare('UPDATE cards SET image_key=? WHERE id=?').bind(imageKey, row.id).run();
+            }
+            // Update is_available if provided
+            if (typeof body.is_available === 'number' || typeof body.is_available === 'boolean') {
+              const isAvail = body.is_available ? 1 : 0;
+              await env.DB.prepare('UPDATE cards SET is_available=? WHERE id=?').bind(isAvail, row.id).run();
             }
             try { await env.DB.prepare('COMMIT').run(); } catch {}
           } catch (e) {

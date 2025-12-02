@@ -16,6 +16,7 @@ import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon,
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
 import { langLabel, canonicalizeLangCode, expandCanonicalToAliases } from "../../utils/lang";
+import { detectSubtitleHeaders, categorizeHeaders } from "../../utils/csvDetection";
 import ProgressBar from "../../components/ProgressBar";
 import FlagDisplay from "../../components/FlagDisplay";
 import CsvPreviewPanel from "../../components/CsvPreviewPanel";
@@ -105,6 +106,8 @@ export default function AdminContentIngestPage() {
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
     const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [csvFileName, setCsvFileName] = useState<string>("");
+  // Separate subtitle warnings for teal display
+  const [csvSubtitleWarnings, setCsvSubtitleWarnings] = useState<string[]>([]);
   // Allow selecting which CSV header to treat as Main Language subtitle
   const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string>("");
   // Reserved column confirmation state (for ambiguous columns like 'id' which could be Indonesian)
@@ -170,6 +173,27 @@ export default function AdminContentIngestPage() {
   }, [csvHeaders]);
   const requiredOriginals = useMemo(() => ["start", "end"].map(k => lowerHeaderMap[k]).filter(Boolean) as string[], [lowerHeaderMap]);
 
+  // Helper: find header matching a canonical language code (placed early to avoid TS use-before-declare)
+  const findHeaderForLang = useCallback((headers: string[], lang: string): string | null => {
+    const rawAliases = expandCanonicalToAliases(lang);
+    const normalizedAliases = rawAliases.map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
+    const variantAliases = rawAliases.filter(a => /\(.+\)/.test(a)).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
+    const headerNorms = headers.map(h => ({ orig: h, norm: h.toLowerCase().replace(/[_\s-]/g, "" ) }));
+    if (lang.toLowerCase() === 'id') {
+      const confirmedId = headers.find(h => (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(h.toLowerCase())) && h.trim().toLowerCase() === 'id');
+      if (confirmedId) return confirmedId;
+    }
+    for (const v of variantAliases) {
+      const found = headerNorms.find(h => h.norm === v);
+      if (found) return found.orig;
+    }
+    for (const a of normalizedAliases) {
+      const found = headerNorms.find(h => h.norm === a);
+      if (found) return found.orig;
+    }
+    return null;
+  }, [confirmedAsLanguage]);
+
   const validateCsv = useCallback((headers: string[], rows: Record<string, string>[]) => {
     const errors: string[] = [];
     const headerMap: Record<string, string> = {};
@@ -204,108 +228,11 @@ export default function AdminContentIngestPage() {
       errors.push(`Thiếu cột bắt buộc: ${missing.join(", ")}`);
     }
     // language detection (strict variant matching)
-    const recognizedSubtitleHeaders = new Set<string>();
-    const SUPPORTED_CANON = ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"] as const;
-    const aliasMap: Record<string,string> = {};
-    SUPPORTED_CANON.forEach(c => { expandCanonicalToAliases(c).forEach(a => { aliasMap[a.toLowerCase()] = c; }); });
-    // Common misspellings / fallbacks
-    aliasMap["portugese"] = "pt_pt";
-    aliasMap["portugese (portugal)"] = "pt_pt";
-    aliasMap["portugese (brazil)"] = "pt_br";
-    // CRITICAL: Add explicit variant forms with parentheses for proper detection
-    aliasMap["spanish (latin america)"] = "es_la";
-    aliasMap["spanish (spain)"] = "es_es";
-    aliasMap["portuguese (brazil)"] = "pt_br";
-    aliasMap["portuguese (portugal)"] = "pt_pt";
-    aliasMap["chinese (traditional)"] = "zh_trad";
-    aliasMap["chinese (simplified)"] = "zh";
-    aliasMap["french (canada)"] = "fr_ca";
-    const norm = (s: string) => s.trim().toLowerCase();
-    headers.forEach(h => {
-      const rawLow = norm(h);
-      // Remove bracketed qualifiers like [CC], [SDH], [Captions] and trim again
-      const cleaned = rawLow.replace(/\s*\[[^\]]*\]\s*/g, '').trim();
-      // Manual confirmation: allow ambiguous headers to be treated as language (e.g., 'id' → Indonesian)
-      if (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(cleaned)) { recognizedSubtitleHeaders.add(h); return; }
-      // Skip reserved columns BEFORE language detection
-      if (RESERVED_COLUMNS.has(cleaned)) return;
-      // Direct alias match (after cleaning)
-      if (aliasMap[cleaned]) { recognizedSubtitleHeaders.add(h); return; }
-      // Parentheses variant form e.g. Chinese (Traditional), Spanish (Spain)
-      const m = cleaned.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
-      if (m) {
-        const base = m[1];
-        const variant = m[2];
-        if (base === 'chinese') {
-          if (/(?:trad|traditional|hant|hk|tw|mo)/.test(variant)) { recognizedSubtitleHeaders.add(h); return; }
-          if (/(?:simplified|hans|cn)/.test(variant)) { recognizedSubtitleHeaders.add(h); return; }
-        }
-        if (aliasMap[base]) { recognizedSubtitleHeaders.add(h); }
-      }
-    });
+    const recognizedSubtitleHeaders = detectSubtitleHeaders(headers, confirmedAsLanguage);
     const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
-    const mainAliases = new Set(expandCanonicalToAliases(mainCanon).map(a => a.toLowerCase()));
-    // Explicit variant alias forms (with parentheses) for strict presence check
-    if (mainCanon === 'es_la') {
-      mainAliases.add('spanish (latin america)');
-      mainAliases.add('spanish latin america');
-    } else if (mainCanon === 'es_es') {
-      mainAliases.add('spanish (spain)');
-      mainAliases.add('spanish spain');
-    } else if (mainCanon === 'pt_br') {
-      mainAliases.add('portuguese (brazil)');
-      mainAliases.add('portugese (brazil)');
-      mainAliases.add('brazilian portuguese');
-    } else if (mainCanon === 'pt_pt') {
-      mainAliases.add('portuguese (portugal)');
-      mainAliases.add('portugese (portugal)');
-    }
-    // Robust presence check: normalize headers & aliases; also allow base-with-parentheses mapping.
-    const normStrict = (s: string) => s.toLowerCase().replace(/[_\s-]/g, '').trim();
-    const mainAliasesStrict = new Set(Array.from(mainAliases).map(a => normStrict(a)));
-    let hasMainLangColumn = false;
-    for (const h of headers) {
-      const hStrict = normStrict(h);
-      if (mainAliasesStrict.has(hStrict)) { hasMainLangColumn = true; break; }
-      const rawLow = norm(h);
-      const low = rawLow.replace(/\s*\[[^\]]*\]\s*/g, '').trim();
-      // Direct canonical code match (e.g. es_es, pt_br)
-      const directCanon = aliasMap[low];
-      if (directCanon === mainCanon) { hasMainLangColumn = true; break; }
-      // Parentheses variant form (Spanish (Spain), Chinese (Traditional), etc.)
-      const m2 = low.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
-      if (m2) {
-        const base = m2[1];
-        const variant = m2[2];
-        if (base === 'spanish') {
-          const isSpain = /(spain)/.test(variant);
-          const isLatAm = /(latin\s*america|latam)/.test(variant);
-          if (isSpain && mainCanon === 'es_es') { hasMainLangColumn = true; break; }
-          if (isLatAm && mainCanon === 'es_la') { hasMainLangColumn = true; break; }
-          continue; // do not allow fallback base mapping when a variant is specified
-        }
-        if (base === 'portuguese' || base === 'portugese') {
-          const isBrazil = /(brazil)/.test(variant);
-          const isPortugal = /(portugal)/.test(variant);
-          if (isBrazil && mainCanon === 'pt_br') { hasMainLangColumn = true; break; }
-          if (isPortugal && mainCanon === 'pt_pt') { hasMainLangColumn = true; break; }
-          continue;
-        }
-        if (base === 'chinese') {
-          const isTrad = /(trad|traditional|hant|hk|tw|mo)/.test(variant);
-          const isSimp = /(simplified|hans|cn)/.test(variant);
-          if (isTrad && mainCanon === 'zh_trad') { hasMainLangColumn = true; break; }
-          if (isSimp && mainCanon === 'zh') { hasMainLangColumn = true; break; }
-          continue;
-        }
-      }
-      // Ambiguous base language (no variant parentheses). Allow if base maps directly AND no parentheses form.
-      if (!/\([^)]+\)/.test(low)) {
-        const baseCanon = aliasMap[low];
-        if (baseCanon === mainCanon) { hasMainLangColumn = true; break; }
-      }
-    }
-    if (!hasMainLangColumn) {
+    // Check if main language column exists
+    const foundMainHeader = findHeaderForLang(headers, mainLanguage);
+    if (!foundMainHeader) {
       errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon}`);
     }
     // Warn for ignored/unused columns (not required, not known frameworks/difficulty, not subtitles)
@@ -326,20 +253,31 @@ export default function AdminContentIngestPage() {
       if (low === 'sentence') continue; // already an error above
       ignored.push(raw);
     }
+    // Determine which header is the active Main Language column (override > auto-detect)
+    const selectedMainHeader = mainLangHeaderOverride || (findHeaderForLang(headers, mainLanguage) || "");
+    // Build a subtitle headers set excluding the selected main language header so it is not double-counted
+    const subtitleHeadersExcludingMain = new Set<string>(
+      Array.from(recognizedSubtitleHeaders).filter(h => h !== selectedMainHeader)
+    );
     // row required cell checks (limit to 50 errors)
     let ec = 0;
     const maxErr = 50;
     const emptySubtitleRows: number[] = [];
+    const emptyMainLangRows: number[] = [];
     rows.forEach((row, i) => {
       required.forEach(k => {
         const orig = headerMap[k];
         const v = orig ? (row[orig] || "").toString().trim() : "";
         if (!v) { errors.push(`Hàng ${i + 1}: cột "${k}" trống.`); ec++; }
       });
-      // Check for empty subtitle cells (now a warning, not error)
+      // Check for empty subtitle cells (excluding main header) -> warning only
       if (ec < maxErr) {
         let hasEmptySubtitle = false;
-        recognizedSubtitleHeaders.forEach((hdr) => {
+        subtitleHeadersExcludingMain.forEach((hdr) => {
+          // Skip ambiguous columns that haven't been confirmed
+          const hdrLow = hdr.toLowerCase();
+          const isAmbiguous = hdrLow === 'id' || hdrLow === 'in';
+          if (isAmbiguous && !confirmedAsLanguage.has(hdr)) return;
           const val = (row[hdr] || "").toString().trim();
           if (!val) { hasEmptySubtitle = true; }
         });
@@ -347,181 +285,40 @@ export default function AdminContentIngestPage() {
           emptySubtitleRows.push(i + 1);
         }
       }
+      // Track empty Main Language cells for unavailable notice
+      if (selectedMainHeader) {
+        const mainVal = (row[selectedMainHeader] || "").toString().trim();
+        if (!mainVal) emptyMainLangRows.push(i + 1);
+      }
       if (ec >= maxErr) return;
     });
     
       // Build warnings separately (non-blocking issues)
       const warnings: string[] = [];
+    if (emptyMainLangRows.length > 0) {
+      const rowList = emptyMainLangRows.slice(0, 10).join(', ') + (emptyMainLangRows.length > 10 ? '...' : '');
+      warnings.push(`${emptyMainLangRows.length} cards thiếu Main Language (hàng: ${rowList}). Những cards này sẽ bị đánh dấu unavailable.`);
+    }
+    const subtitleWarnings: string[] = [];
     if (emptySubtitleRows.length > 0) {
       const rowList = emptySubtitleRows.slice(0, 10).join(', ') + (emptySubtitleRows.length > 10 ? '...' : '');
-      warnings.push(`${emptySubtitleRows.length} cards có subtitle trống (hàng: ${rowList}). Các cards này sẽ mặc định unavailable.`);
+      subtitleWarnings.push(`${emptySubtitleRows.length} cards thiếu subtitle (hàng: ${rowList}). Thiếu này sẽ được bỏ qua khi upload, không làm card unavailable.`);
     }
     
       setCsvErrors(errors);
       setCsvWarnings(warnings);
+    setCsvSubtitleWarnings(subtitleWarnings);
     setCsvValid(errors.length === 0);
-  }, [mainLanguage, confirmedAsLanguage]);
+  }, [mainLanguage, confirmedAsLanguage, mainLangHeaderOverride, findHeaderForLang]);
 
-  // Derive lists for footnote display (kept in sync with validateCsv rules)
-  // Two types: unrecognized (not detected) and reserved (actively ignored)
-  const { unrecognizedHeaders, reservedHeaders, ambiguousHeaders, recognizedSubtitleHeaders } = useMemo(() => {
-    if (!csvHeaders.length) return { unrecognizedHeaders: [] as string[], reservedHeaders: [] as string[], ambiguousHeaders: [] as string[], recognizedSubtitleHeaders: new Set<string>() };
-    
-    // Same reserved columns as validateCsv
-    const RESERVED_COLUMNS = new Set([
-      "id", "card_id", "cardid", "card id",
-      "no", "number", "card_number", "cardnumber", "card number",
-      "start", "start_time", "starttime", "start time", "start_time_ms",
-      "end", "end_time", "endtime", "end time", "end_time_ms",
-      "duration", "length", "card_length",
-      "type", "card_type", "cardtype", "card type",
-      "sentence", "text", "content",
-      "image", "image_url", "imageurl", "image url", "image_key",
-      "audio", "audio_url", "audiourl", "audio url", "audio_key",
-      "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
-      "cefr", "cefr_level", "cefr level",
-      "jlpt", "jlpt_level", "jlpt level",
-      "hsk", "hsk_level", "hsk level",
-      "notes", "tags", "metadata",
-      "hiragana", "katakana", "romaji"
-    ]);
-    
-    const langAliases: Record<string, string> = {
-      english: "en", eng: "en", vietnamese: "vi", vn: "vi",
-      chinese: "zh", "chinese simplified": "zh", chinese_simplified: "zh", zh: "zh", cn: "zh", "zh-cn": "zh", zh_cn: "zh", "zh-hans": "zh", zh_hans: "zh", "zh-hans-cn": "zh", zh_hans_cn: "zh", "zh-simplified": "zh", zh_simplified: "zh",
-      "chinese traditional": "zh_trad", "traditional chinese": "zh_trad", traditional_chinese: "zh_trad", zh_trad: "zh_trad", "zh-tw": "zh_trad", zh_tw: "zh_trad", "zh-hant": "zh_trad", zh_hant: "zh_trad", "zh-hk": "zh_trad", zh_hk: "zh_trad", "zh-mo": "zh_trad", zh_mo: "zh_trad", "zh-hant-tw": "zh_trad", zh_hant_tw: "zh_trad", "zh-hant-hk": "zh_trad", zh_hant_hk: "zh_trad", tw: "zh_trad",
-      japanese: "ja", ja: "ja", jp: "ja", korean: "ko", ko: "ko", kr: "ko",
-      indonesian: "id", id: "id", "in": "id", thai: "th", th: "th", malay: "ms", ms: "ms", my: "ms",
-      cantonese: "yue", yue: "yue", "zh-yue": "yue", zh_yue: "yue",
-      arabic: "ar", ar: "ar", basque: "eu", eu: "eu", bengali: "bn", bn: "bn", catalan: "ca", ca: "ca", croatian: "hr", hr: "hr", czech: "cs", cs: "cs", danish: "da", da: "da", dutch: "nl", nl: "nl",
-      filipino: "fil", fil: "fil", tagalog: "fil", tl: "fil", finnish: "fi", fi: "fi",
-      french: "fr", fr: "fr", "french canadian": "fr_ca", "french (canada)": "fr_ca", fr_ca: "fr_ca", frcan: "fr_ca",
-      galician: "gl", gl: "gl", german: "de", de: "de", greek: "el", el: "el", hebrew: "he", he: "he", iw: "he", hindi: "hi", hi: "hi", hungarian: "hu", hu: "hu", icelandic: "is", is: "is", italian: "it", it: "it", malayalam: "ml", ml: "ml", norwegian: "no", no: "no", nb: "nb", "norwegian bokmal": "nb", "norwegian bokmål": "nb", bokmal: "nb", bokmål: "nb", polish: "pl", pl: "pl",
-      portuguese: "pt_pt", pt: "pt_pt", pt_pt: "pt_pt", ptpt: "pt_pt", "portuguese (portugal)": "pt_pt",
-      "portuguese (brazil)": "pt_br", pt_br: "pt_br", ptbr: "pt_br", brazilian_portuguese: "pt_br",
-      portugese: "pt_pt", "portugese (portugal)": "pt_pt", "portugese (brazil)": "pt_br",
-      romanian: "ro", ro: "ro", russian: "ru", ru: "ru",
-      spanish: "es_es", es: "es_es", es_es: "es_es", "spanish (spain)": "es_es",
-      "spanish (latin america)": "es_la", es_la: "es_la", latam_spanish: "es_la",
-      swedish: "sv", sv: "sv", tamil: "ta", ta: "ta", telugu: "te", te: "te", turkish: "tr", tr: "tr", ukrainian: "uk", uk: "uk",
-      persian: "fa", farsi: "fa", fa: "fa",
-      kurdish: "ku", ku: "ku",
-      slovenian: "sl", sl: "sl",
-      serbian: "sr", sr: "sr",
-      bulgarian: "bg", bg: "bg",
-      // Northern Sami aliases
-      "northern sami": "se", "sami (northern)": "se", "sami": "se", se: "se", sme: "se"
-    };
-    const supported = new Set(["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","fa","ku","sl","sr","bg"]);
-    const recognizedSubtitleHeaders = new Set<string>();
-    const AMBIGUOUS_COLS = new Set(["id", "in"]); // These could be Indonesian language codes OR reserved columns
-    
-    // Same generalized language detection as in validateCsv
-    const extractBaseLang = (rawHeader: string): { base: string; variation?: string } => {
-      const trimmed = rawHeader.trim().toLowerCase();
-      const parenMatch = trimmed.match(/^([a-z]+(?:\s+[a-z]+)?)\s*\(([^)]+)\)\s*$/);
-      if (parenMatch) {
-        return { base: parenMatch[1].trim(), variation: parenMatch[2].trim() };
-      }
-      const hyphenMatch = trimmed.match(/^([a-z]{2,3})[-_](.+)$/);
-      if (hyphenMatch) {
-        return { base: hyphenMatch[1], variation: hyphenMatch[2] };
-      }
-      return { base: trimmed };
-    };
-
-    csvHeaders.forEach(h => {
-      const key = (h || "").trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
-      
-      // Ambiguous columns: 'id' could be Indonesian language OR reserved ID column
-      // If user confirmed this column is a language, treat it as language
-      if (confirmedAsLanguage.has(h)) {
-        recognizedSubtitleHeaders.add(h);
-        return;
-      }
-      
-      // Skip reserved columns BEFORE language detection (but not ambiguous ones - let user decide)
-      if (RESERVED_COLUMNS.has(key) && !AMBIGUOUS_COLS.has(key)) return;
-      
-      const alias = langAliases[key];
-      if (alias) {
-        recognizedSubtitleHeaders.add(h);
-        return;
-      }
-      if (supported.has(key)) {
-        recognizedSubtitleHeaders.add(h);
-        return;
-      }
-      // Generalized pattern matching
-      const { base } = extractBaseLang(h);
-      const baseAlias = langAliases[base];
-      const baseCanon = baseAlias || (supported.has(base) ? base : null);
-      if (baseCanon) {
-        recognizedSubtitleHeaders.add(h);
-      }
-    });
-    const knownSingles = new Set(["start","end","type","length","cefr","cefr level","cefr_level","jlpt","jlpt level","jlpt_level","hsk","hsk level","hsk_level","difficulty score","difficulty_score","difficultyscore","score","difficulty_percent","card_difficulty"]);
-    const isFrameworkDynamic = (raw: string) => {
-      const key = raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
-      return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key);
-    };
-    const unrecognized: string[] = [];
-    const reserved: string[] = [];
-    const ambiguous: string[] = [];
-    // Reserved columns that appear in CSV should be shown separately (ID/number cols that we actively ignore)
-    const displayableReserved = new Set(["id", "card_id", "cardid", "card id", "no", "number", "card_number", "cardnumber", "card number"]);
-    for (const h of csvHeaders) {
-      const raw = (h || '').trim(); if (!raw) continue;
-      const low = raw.toLowerCase();
-      if (knownSingles.has(low)) continue;
-      
-      // If user confirmed this column is a language, don't treat as reserved
-      if (confirmedAsLanguage.has(raw)) continue;
-      
-      // Check if it's an ambiguous column that needs user confirmation
-      if (AMBIGUOUS_COLS.has(low) && displayableReserved.has(low)) {
-        ambiguous.push(raw);
-        continue;
-      }
-      
-      // Check if it's a displayable reserved column (actively ignored)
-      if (displayableReserved.has(low)) {
-        reserved.push(raw);
-        continue;
-      }
-      // Skip other reserved columns
-      if (RESERVED_COLUMNS.has(low)) continue;
-      if (recognizedSubtitleHeaders.has(raw)) continue;
-      if (isFrameworkDynamic(raw)) continue;
-      if (low === 'sentence') continue;
-      // If we got here, it's unrecognized
-      unrecognized.push(raw);
-    }
-    return { unrecognizedHeaders: unrecognized, reservedHeaders: reserved, ambiguousHeaders: ambiguous, recognizedSubtitleHeaders };
+  // Compute ambiguousHeaders for UI display (checkbox prompt)
+  const ambiguousHeaders = useMemo(() => {
+    if (!csvHeaders.length) return [];
+    const recognizedSubtitleHeaders = detectSubtitleHeaders(csvHeaders, confirmedAsLanguage);
+    const { ambiguousHeaders: ambiguous } = categorizeHeaders(csvHeaders, confirmedAsLanguage, recognizedSubtitleHeaders);
+    return ambiguous;
   }, [csvHeaders, confirmedAsLanguage]);
 
-  const findHeaderForLang = useCallback((headers: string[], lang: string): string | null => {
-    // Strict exact alias matching only (ignore case & separators); prefer the variant alias that includes parentheses if both exist.
-    const rawAliases = expandCanonicalToAliases(lang);
-    const normalizedAliases = rawAliases.map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
-    const variantAliases = rawAliases.filter(a => /\(.+\)/.test(a)).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
-    const headerNorms = headers.map(h => ({ orig: h, norm: h.toLowerCase().replace(/[_\s-]/g, "") }));
-    // Prefer confirmed ambiguous Indonesian 'id' header if present
-    if (lang.toLowerCase() === 'id') {
-      const confirmedId = headers.find(h => (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(h.toLowerCase())) && h.trim().toLowerCase() === 'id');
-      if (confirmedId) return confirmedId;
-    }
-    // If a variant alias exists (with parentheses) try those first
-    for (const v of variantAliases) {
-      const found = headerNorms.find(h => h.norm === v);
-      if (found) return found.orig;
-    }
-    for (const a of normalizedAliases) {
-      const found = headerNorms.find(h => h.norm === a);
-      if (found) return found.orig;
-    }
-    return null;
-  }, [confirmedAsLanguage]);
   const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, mainLanguage), [csvHeaders, mainLanguage, findHeaderForLang]);
   const mainLangHeaderOptions = useMemo(() => {
     const canon = canonicalizeLangCode(mainLanguage) || mainLanguage;
@@ -1319,15 +1116,12 @@ export default function AdminContentIngestPage() {
           csvRows={csvRows}
           csvValid={csvValid}
           csvErrors={csvErrors}
-            csvWarnings={csvWarnings}
-          unrecognizedHeaders={unrecognizedHeaders}
-          reservedHeaders={reservedHeaders}
-          ambiguousHeaders={ambiguousHeaders}
+          csvWarnings={csvWarnings}
+          csvSubtitleWarnings={csvSubtitleWarnings}
           confirmedAsLanguage={confirmedAsLanguage}
           requiredOriginals={requiredOriginals}
           mainLangHeader={mainLangHeader}
           mainLangHeaderOverride={mainLangHeaderOverride}
-          recognizedSubtitleHeaders={recognizedSubtitleHeaders}
         />
         
         {/* Ambiguous column checkboxes */}

@@ -206,6 +206,64 @@
 /* Collapsed sidenav state */
 .sidenav-collapsed .admin-sidenav { display: none; }
 
+/* Mobile overlay behaviour */
+@media (max-width: 860px) {
+    .sidenav-open .admin-sidenav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 260px;
+        max-width: 80vw;
+        z-index: 60;
+        box-shadow: 4px 0 16px rgba(0,0,0,0.6);
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 20px 18px 24px;
+        gap: 12px;
+        overflow-y: auto;
+    }
+
+    .admin-sidenav-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 50;
+        display: block;
+    }
+
+    /* When overlay is open, stack nav links vertically */
+    .sidenav-open .admin-sidenav-links {
+        flex-direction: column;
+        flex-wrap: nowrap;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+
+    .sidenav-open .admin-sidenav-header {
+        margin-bottom: 4px;
+        width: 100%;
+    }
+
+    .sidenav-open .admin-nav-link {
+        justify-content: flex-start;
+        width: 100%;
+        padding: 6px 10px; /* shrink size in overlay */
+        font-size: 11px;
+    }
+
+    /* Active state inside overlay - keep compact height */
+    .sidenav-open .admin-nav-link.active {
+        padding: 6px 10px;
+    }
+}
+
+/* Hide backdrop on desktop */
+.admin-sidenav-backdrop {
+    display: none;
+}
+
 /* Toggle button shown when collapsed */
 .admin-sidenav-toggle {
     position: fixed;
@@ -625,9 +683,9 @@
 
 .admin-card-btn {
     flex: 1;
-    min-width: 100px;
-    padding: 8px 12px;
-    font-size: 12px;
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 11px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -702,9 +760,9 @@
     }
 
     .admin-card-btn {
-        font-size: 11px;
-        padding: 6px 10px;
-        min-width: 90px;
+        font-size: 10px;
+        padding: 5px 8px;
+        min-width: 0;
     }
 }
 
@@ -733,31 +791,34 @@ html.flag-emoji-supported .flag-fallback { display: none; }
 html.flag-emoji-supported .emoji-flag { display: none; }
 html.no-flag-emoji .emoji-flag { display: none; }
 
-/* Custom scrollbar for admin panels with PixelPink theme */
+/* Custom scrollbar for admin panels - matching global style from index.css */
 .custom-scrollbar::-webkit-scrollbar {
-    width: 8px;
+    width: 16px;
+    height: 16px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-    background: #1a0f24;
+    background: #6a4e7a;
     border-radius: 10px;
-    border: 1px solid rgba(236, 72, 153, 0.2);
+    border: 2px solid #6a4e7a;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #ec4899 0%, #db2777 100%);
+    background: #d35f90;
+    border: 3px solid #6a4e7a;
     border-radius: 10px;
-    border: 1px solid #f472b6;
-    box-shadow: 0 0 6px rgba(236, 72, 153, 0.4);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, #f472b6 0%, #ec4899 100%);
-    box-shadow: 0 0 10px rgba(236, 72, 153, 0.6);
+    background: #e375a3;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:active {
+    background: #b94d79;
 }
 
 /* Firefox scrollbar styling */
 .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: #ec4899 #1a0f24;
+    scrollbar-color: #d35f90 #6a4e7a;
 }
