@@ -10,29 +10,57 @@ function withCors(headers = {}) {
   };
 }
 
-function buildFtsQuery(q) {
+function buildFtsQuery(q, language) {
   const cleaned = (q || '').trim();
   if (!cleaned) return '';
+  
+  // Detect if query contains Japanese characters (Hiragana, Katakana, or Kanji)
+  const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(cleaned);
+  
+  // For Japanese: normalize whitespace AND remove furigana brackets from query
+  // User might search "番線" but DB has "番線[ばんせん]" - we need to match the base kanji
+  // This handles cases like "番線に" vs "番線 に" or "番線[ばんせん]に" in subtitle text
+  let normalized = (hasJapanese || language === 'ja') ? cleaned.replace(/\s+/g, '') : cleaned;
+  
+  // For Japanese: also remove any furigana brackets from the query itself
+  // e.g., user searches "番線[ばんせん]" -> normalize to "番線"
+  if (hasJapanese || language === 'ja') {
+    normalized = normalized.replace(/\[[^\]]+\]/g, '');
+  }
+  
   // If the user wraps text in quotes, treat it as an exact phrase
-  const quotedMatch = cleaned.match(/^\s*"([\s\S]+)"\s*$/);
+  const quotedMatch = normalized.match(/^\s*"([\s\S]+)"\s*$/);
   if (quotedMatch) {
     const phrase = quotedMatch[1].replace(/["']/g, '').replace(/[^\p{L}\p{N}\s]+/gu, ' ').trim().replace(/\s+/g, ' ');
     return phrase ? `"${phrase}"` : '';
   }
-  // Otherwise, build an exact phrase from tokens (not OR). Strip punctuation.
-  const tokens = cleaned
+  
+  // Tokenize: For CJK, each character is a token. For others, split by whitespace.
+  // Japanese/Chinese: return empty string to trigger LIKE-based search instead of FTS
+  // FTS5 doesn't handle CJK phrase search well, so we use database LIKE for accuracy
+  if (hasJapanese || language === 'ja') {
+    // Return special marker to indicate we should use LIKE search
+    // The search endpoint will detect this and use LIKE '%query%' instead of FTS
+    return ''; // Empty FTS query triggers LIKE fallback in search endpoint
+  }
+  
+  // Non-Japanese: tokenize by whitespace
+  const tokens = normalized
     .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .slice(0, 8); // allow a few more words for phrases
+    .slice(0, 8);
   if (!tokens.length) return '';
+  
   if (tokens.length === 1) {
-    // Single word: allow prefix expansion
     const t = escapeFtsToken(tokens[0]);
-    return t ? `${t}*` : '';
+    if (!t) return '';
+    // Exact word matching (quoted) to avoid substring matches
+    return `"${t}"`;
   }
-  // Multi-word: exact phrase matching
+  
+  // Multi-word non-Japanese: exact phrase matching
   const phrase = tokens.map(escapeFtsToken).join(' ');
   return phrase ? `"${phrase}"` : '';
 }
@@ -65,18 +93,29 @@ function kanaOnlyString(s) {
 }
 
 // Expand Japanese index text by adding mixed kanji/kana tokens from bracketed furigana: 例) 黒川[くろかわ]
+// Also normalizes whitespace for consistent FTS matching
+// IMPORTANT: Indexes BOTH the base text (without brackets) AND the reading separately
+// e.g., "番線[ばんせん]" -> indexes: "番線" (base) + "ばんせん" (reading) + mixed variants
 function expandJaIndexText(text) {
-  const src = String(text || '');
+  // First, normalize whitespace (remove all spaces) for consistent FTS matching
+  const src = String(text || '').replace(/\s+/g, '');
+  
   const extra = [];
   const re = /(\p{Script=Han}+[\p{Script=Han}・・]*)\[([\p{Script=Hiragana}\p{Script=Katakana}]+)\]/gu;
+  let baseText = src; // text with brackets removed
   let m;
+  
   while ((m = re.exec(src)) !== null) {
     const kan = m[1];
     const rawKana = m[2];
     const hira = normalizeJaInput(rawKana);
     if (!kan || !hira) continue;
+    
+    // Add base kanji (without brackets) and reading separately to index
     extra.push(kan);
     extra.push(hira);
+    
+    // Add mixed kanji/kana variants for partial matching
     const firstKan = kan[0];
     const lastKan = kan[kan.length - 1];
     for (let i = 1; i < hira.length; i++) {
@@ -86,10 +125,18 @@ function expandJaIndexText(text) {
       extra.push(firstKan + suff);
     }
   }
-  if (!extra.length) return src;
+  
+  // Remove all brackets from base text so "番線[ばんせん]" becomes "番線"
+  baseText = baseText.replace(/\[[^\]]+\]/g, '');
+  
+  if (!extra.length) return baseText;
+  
   // Deduplicate extras to keep FTS text compact
   const uniq = Array.from(new Set(extra.filter(Boolean)));
-  return `${src} ${uniq.join(' ')}`;
+  
+  // Index format: base_text + space + all_variants
+  // This allows searching by base kanji OR reading OR mixed
+  return `${baseText} ${uniq.join(' ')}`;
 }
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) });
@@ -405,25 +452,22 @@ export default {
         const offset = (page - 1) * size;
 
         // Build FTS query. For Japanese with mixed Kanji+Kana, expand with kana-only OR and post-filter kanji presence.
-        let ftsQuery = buildFtsQuery(q);
+        let ftsQuery = buildFtsQuery(q, mainLanguage);
         const isJa = (mainLanguage === 'ja');
         const qNormJa = isJa ? normalizeJaInput(q) : q;
-        const isMixedJa = isJa && hasHanAndKana(qNormJa);
+        const isMixedJa = false; // Disabled: we now index normalized base text without brackets
         let kanjiChars = [];
-        if (isMixedJa) {
-          // Extract unique Kanji characters from query for precise filtering
-          const ks = qNormJa.match(/[\p{Script=Han}]/gu) || [];
-          kanjiChars = Array.from(new Set(ks));
-          // Build kana-only expansion and OR it with the main FTS query to ensure hits
-          const kanaOnly = kanaOnlyString(qNormJa).replace(/[\p{Script=Katakana}]/gu, (ch) => kataToHira(ch));
-          if (kanaOnly) {
-            // Tokenize kana-only and add prefix wildcard to each term for inclusive match
-            const kanaTokens = kanaOnly.split(/\s+/).filter(Boolean).map(t => escapeFtsToken(kataToHira(t)) + '*');
-            const kanaExpr = kanaTokens.join(' '); // default AND
-            // Prefer kana expansion for mixed JA to guarantee hits, rely on kanji filter for precision
-            ftsQuery = kanaExpr || ftsQuery;
-          }
-        }
+        // DISABLED mixed JA kana expansion - we now match against normalized base text directly
+        // if (isMixedJa) {
+        //   const ks = qNormJa.match(/[\p{Script=Han}]/gu) || [];
+        //   kanjiChars = Array.from(new Set(ks));
+        //   const kanaOnly = kanaOnlyString(qNormJa).replace(/[\p{Script=Katakana}]/gu, (ch) => kataToHira(ch));
+        //   if (kanaOnly) {
+        //     const kanaTokens = kanaOnly.split(/\s+/).filter(Boolean).map(t => escapeFtsToken(kataToHira(t)) + '*');
+        //     const kanaExpr = kanaTokens.join(' ');
+        //     ftsQuery = kanaExpr || ftsQuery;
+        //   }
+        // }
         const basePublic = env.R2_PUBLIC_BASE || '';
         const makeMediaUrl = (k) => {
           if (!k) return null;
@@ -443,6 +487,266 @@ export default {
         const mainLower = (mainLanguage || '').toLowerCase();
         const altMain1 = (mainLower === 'zh') ? 'zh_trad' : (mainLower === 'zh_trad' ? 'zh' : null);
         const altMain2 = (mainLower === 'zh' || mainLower === 'zh_trad') ? 'yue' : null;
+
+        // For Japanese queries, use LIKE-based search instead of FTS
+        // FTS doesn't handle CJK phrase search well, so we use direct text matching
+        if (!ftsQuery && q && q.trim()) {
+          const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(q);
+          if (hasJapanese || mainLanguage === 'ja') {
+            // Normalize query: remove whitespace and brackets for matching
+            const qNorm = q.trim().replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
+            
+            const stmtLike = `
+              SELECT
+                cs.card_id,
+                cs.language,
+                cs.text,
+                c.episode_id,
+                c.card_number,
+                c.start_time,
+                c.end_time,
+                c.image_key,
+                c.audio_key,
+                c.difficulty_score,
+                e.slug AS episode_slug,
+                e.episode_number AS episode_number,
+                e.title AS episode_title,
+                ci.slug AS content_slug,
+                ci.title AS content_title,
+                ci.cover_key AS content_cover_key,
+                ci.cover_landscape_key AS content_cover_landscape_key,
+                ci.main_language AS content_main_language,
+                subs.subs_json AS subs_json,
+                levels.levels_json AS levels_json
+              FROM card_subtitles_fts fts
+              JOIN card_subtitles cs ON cs.card_id = fts.card_id AND cs.language = fts.language
+              JOIN cards c ON c.id = cs.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              LEFT JOIN (
+                SELECT card_id, COUNT(DISTINCT language) AS cnt
+                FROM card_subtitles
+                WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
+                GROUP BY card_id
+              ) req ON req.card_id = cs.card_id
+              LEFT JOIN (
+                SELECT card_id, json_group_object(language, text) AS subs_json
+                FROM card_subtitles
+                WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
+                GROUP BY card_id
+              ) subs ON subs.card_id = cs.card_id
+              LEFT JOIN (
+                SELECT card_id, json_group_array(json_object('framework', framework, 'level', level, 'language', language)) AS levels_json
+                FROM card_difficulty_levels
+                GROUP BY card_id
+              ) levels ON levels.card_id = cs.card_id
+              WHERE fts.text LIKE '%' || ?1 || '%'
+                AND fts.language = ci.main_language
+                AND cs.language = ci.main_language
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
+                AND (?3 IS NULL OR ci.type = ?3)
+                AND (?8 IS NULL OR ci.slug = ?8)
+                AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (
+                  ?9 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?11
+                      AND (
+                        CASE ?11
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?9 AND ?10
+                  )
+                )
+                AND (?7 = 0 OR req.cnt = ?7)
+              ORDER BY c.card_number ASC
+              LIMIT ?14 OFFSET ?15;
+            `;
+            
+            const countLike = `
+              WITH matches AS (
+                SELECT DISTINCT cs.card_id, ci.slug AS content_slug
+                FROM card_subtitles_fts fts
+                JOIN card_subtitles cs ON cs.card_id = fts.card_id AND cs.language = fts.language
+                JOIN cards c ON c.id = cs.card_id
+                JOIN episodes e ON e.id = c.episode_id
+                JOIN content_items ci ON ci.id = e.content_item_id
+                LEFT JOIN (
+                  SELECT card_id, COUNT(DISTINCT language) AS cnt
+                  FROM card_subtitles
+                  WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
+                  GROUP BY card_id
+                ) req ON req.card_id = cs.card_id
+                WHERE fts.text LIKE '%' || ?1 || '%'
+                  AND fts.language = ci.main_language
+                  AND cs.language = ci.main_language
+                  AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
+                  AND (?3 IS NULL OR ci.type = ?3)
+                  AND (?8 IS NULL OR 1=1)
+                  AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                  AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                  AND (
+                    ?9 IS NULL OR EXISTS (
+                      SELECT 1 FROM card_difficulty_levels dl
+                      WHERE dl.card_id = c.id
+                        AND dl.framework = ?11
+                        AND (
+                          CASE ?11
+                            WHEN 'CEFR' THEN (
+                              CASE dl.level
+                                WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                            )
+                            WHEN 'JLPT' THEN (
+                              CASE dl.level
+                                WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                            )
+                            WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
+                            ELSE NULL
+                          END
+                        ) BETWEEN ?9 AND ?10
+                    )
+                  )
+                  AND (?7 = 0 OR req.cnt = ?7)
+              )
+              SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
+            `;
+            
+            const totalLike = `
+              SELECT COUNT(DISTINCT cs.card_id) AS total
+              FROM card_subtitles_fts fts
+              JOIN card_subtitles cs ON cs.card_id = fts.card_id AND cs.language = fts.language
+              JOIN cards c ON c.id = cs.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              LEFT JOIN (
+                SELECT card_id, COUNT(DISTINCT language) AS cnt
+                FROM card_subtitles
+                WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
+                GROUP BY card_id
+              ) req ON req.card_id = cs.card_id
+              WHERE fts.text LIKE '%' || ?1 || '%'
+                AND fts.language = ci.main_language
+                AND cs.language = ci.main_language
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
+                AND (?3 IS NULL OR ci.type = ?3)
+                AND (?8 IS NULL OR 1=1)
+                AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (
+                  ?9 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?11
+                      AND (
+                        CASE ?11
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?9 AND ?10
+                  )
+                )
+                AND (?7 = 0 OR req.cnt = ?7);
+            `;
+            
+            try {
+              const { results } = await env.DB.prepare(stmtLike)
+                .bind(
+                  qNorm,                // ?1
+                  mainLanguage,         // ?2
+                  type,                 // ?3
+                  minDifficulty,        // ?4
+                  maxDifficulty,        // ?5
+                  subtitleLanguagesCsv, // ?6
+                  subtitleLangsCount,   // ?7
+                  contentSlug,          // ?8
+                  minIdxEff,            // ?9
+                  maxIdxEff,            // ?10
+                  framework,            // ?11
+                  altMain1,             // ?12
+                  altMain2,             // ?13
+                  size,                 // ?14
+                  offset                // ?15
+                )
+                .all();
+              const countsRes = await env.DB.prepare(countLike)
+                .bind(
+                  qNorm,                // ?1
+                  mainLanguage,         // ?2
+                  type,                 // ?3
+                  minDifficulty,        // ?4
+                  maxDifficulty,        // ?5
+                  subtitleLanguagesCsv, // ?6
+                  subtitleLangsCount,   // ?7
+                  contentSlug,          // ?8
+                  minIdxEff,            // ?9
+                  maxIdxEff,            // ?10
+                  framework,            // ?11
+                  altMain1,             // ?12
+                  altMain2              // ?13
+                )
+                .all();
+              const totalRes = await env.DB.prepare(totalLike)
+                .bind(
+                  qNorm,                // ?1
+                  mainLanguage,         // ?2
+                  type,                 // ?3
+                  minDifficulty,        // ?4
+                  maxDifficulty,        // ?5
+                  subtitleLanguagesCsv, // ?6
+                  subtitleLangsCount,   // ?7
+                  contentSlug,          // ?8
+                  minIdxEff,            // ?9
+                  maxIdxEff,            // ?10
+                  framework,            // ?11
+                  altMain1,             // ?12
+                  altMain2              // ?13
+                )
+                .all();
+              
+              const mapped = (results || []).map(r => {
+                let levels = null;
+                if (r.levels_json) {
+                  try { levels = JSON.parse(r.levels_json); } catch {}
+                }
+                return {
+                  ...r,
+                  image_url: makeMediaUrl(r.image_key),
+                  audio_url: makeMediaUrl(r.audio_key),
+                  levels
+                };
+              });
+              const perContent = {};
+              for (const row of (countsRes.results || [])) {
+                if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
+              }
+              const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
+              const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
+              await cache.put(cacheKey, resp.clone());
+              return resp;
+            } catch (e) {
+              return json({ error: 'search_failed', message: String(e) }, { status: 500 });
+            }
+          }
+        }
 
         if (!ftsQuery) {
           // Fallback listing (latest cards) filtered by content main_language & type & difficulty
