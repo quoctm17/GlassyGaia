@@ -4,7 +4,7 @@ import { apiGetFilm, apiListEpisodes, apiDeleteEpisode, apiCalculateStats } from
 import type { FilmDoc, LevelFrameworkStats } from '../../types';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
 import { sortLevelsByDifficulty } from '../../utils/levelSort';
-import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown, Film, Clapperboard, Book as BookIcon, AudioLines } from 'lucide-react';
+import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown, Film, Clapperboard, Book as BookIcon, AudioLines, CheckCircle, XCircle } from 'lucide-react';
 import PortalDropdown from '../../components/PortalDropdown';
 import ProgressBar from '../../components/ProgressBar';
 import toast from 'react-hot-toast';
@@ -175,10 +175,18 @@ export default function AdminContentDetailPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Status:</label>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                  (item.is_available ?? true) ? 'bg-green-500/20 text-green-300 border border-green-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40'
-                }`}>
-                  {(item.is_available ?? true) ? 'Available' : 'Unavailable'}
+                <span className={`status-badge ${(item.is_available ?? true) ? 'active' : 'inactive'}`}>
+                  {(item.is_available ?? true) ? (
+                    <>
+                      <CheckCircle className="w-3 h-3" />
+                      Available
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-3 h-3" />
+                      Unavailable
+                    </>
+                  )}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -365,8 +373,18 @@ export default function AdminContentDetailPage() {
                   {(() => {
                     const available = (ep.is_available ?? true) ? true : false;
                     return (
-                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}>
-                        {available ? 'Available' : 'Unavailable'}
+                      <span className={`status-badge ${available ? 'active' : 'inactive'}`}>
+                        {available ? (
+                          <>
+                            <CheckCircle className="w-3 h-3" />
+                            Available
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3 h-3" />
+                            Unavailable
+                          </>
+                        )}
                       </span>
                     );
                   })()}
@@ -440,8 +458,18 @@ export default function AdminContentDetailPage() {
                   <span className="text-pink-500 font-bold">#{String(ep.episode_number).padStart(3,'0')}</span>
                   <span className="font-semibold text-pink-300">{ep.title || '-'}</span>
                 </div>
-                <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}>
-                  {available ? 'Available' : 'Unavailable'}
+                <span className={`status-badge ${available ? 'active' : 'inactive'}`}>
+                  {available ? (
+                    <>
+                      <CheckCircle className="w-3 h-3" />
+                      Available
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-3 h-3" />
+                      Unavailable
+                    </>
+                  )}
                 </span>
               </div>
               

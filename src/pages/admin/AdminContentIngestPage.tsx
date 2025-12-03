@@ -20,6 +20,7 @@ import { detectSubtitleHeaders, categorizeHeaders } from "../../utils/csvDetecti
 import ProgressBar from "../../components/ProgressBar";
 import FlagDisplay from "../../components/FlagDisplay";
 import CsvPreviewPanel from "../../components/CsvPreviewPanel";
+import "../../styles/admin/admin-forms.css";
 
 // Normalize slug: remove accents, convert to lowercase, replace spaces with underscores, keep only safe characters
 function normalizeSlug(input: string): string {

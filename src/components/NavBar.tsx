@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "../context/UserContext";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { ChevronDown, Shield } from "lucide-react";
 import MainLanguageSelector from "./MainLanguageSelector";
 import SubtitleLanguageSelector from "./SubtitleLanguageSelector";
 
 export default function NavBar() {
-  const { user, signInGoogle, signOutApp } = useUser();
+  const { user, signOutApp } = useUser();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const allowedEmails = useMemo(
@@ -152,7 +153,10 @@ export default function NavBar() {
             )}
           </div>
         ) : (
-          <button onClick={signInGoogle} className="sign-in-btn">
+          <button 
+            onClick={() => navigate('/auth/login')} 
+            className="sign-in-btn"
+          >
             Sign In
           </button>
         )}

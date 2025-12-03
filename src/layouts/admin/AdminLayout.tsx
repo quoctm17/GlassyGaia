@@ -3,10 +3,10 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import '../../styles/admin/admin.css';
 import toast from 'react-hot-toast';
-import { Menu, Layers, HardDrive } from 'lucide-react';
+import { Menu, Layers, HardDrive, Users, Database } from 'lucide-react';
 
 export default function AdminLayout() {
-  const { user, loading, signInGoogle, adminKey, setAdminKey } = useUser();
+  const { user, loading, signInGoogle, adminKey, setAdminKey, isAdmin, isSuperAdmin } = useUser();
   const allowedEmails = useMemo(() => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || '')
     .split(',').map((s: string) => s.trim()).filter(Boolean), []);
   const isAdminEmail = !!user && allowedEmails.includes(user.email || '');
@@ -24,11 +24,11 @@ export default function AdminLayout() {
       toast('Vui lòng đăng nhập để vào khu vực Admin');
       return;
     }
-    if (!isAdminEmail) {
+    if (!isAdmin()) {
       navigate('/');
-      toast.error('Access denied: admin email required');
+      toast.error('Access denied: admin role required');
     }
-  }, [loading, user, isAdminEmail, navigate]);
+  }, [loading, user, isAdmin, navigate]);
 
   const [isSidenavOpen, setIsSidenavOpen] = useState(true);
 
@@ -59,6 +59,16 @@ export default function AdminLayout() {
             <HardDrive className="w-4 h-4 mr-2" />
             <span>Media</span>
           </NavLink>
+          <NavLink to="/admin/users" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <Users className="w-4 h-4 mr-2" />
+            <span>Users</span>
+          </NavLink>
+          {isSuperAdmin() && (
+            <NavLink to="/admin/database" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+              <Database className="w-4 h-4 mr-2" />
+              <span>Database</span>
+            </NavLink>
+          )}
         </nav>
         {!user && (
           <button className="admin-btn" onClick={signInGoogle}>Sign in</button>

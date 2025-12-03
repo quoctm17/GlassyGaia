@@ -5,7 +5,7 @@ import { getAvailableMainLanguages } from "../../services/firestore";
 import type { FilmDoc } from '../../types';
 import { useNavigate } from 'react-router-dom';
 import { canonicalizeLangCode, countryCodeForLang, langLabel } from '../../utils/lang';
-import { PlusCircle, Eye, Pencil, Trash2, ChevronDown, MoreHorizontal, Filter, Search, ChevronUp, Film, Music, Book, Tv, Check } from 'lucide-react';
+import { PlusCircle, Eye, Pencil, Trash2, ChevronDown, MoreHorizontal, Filter, Search, ChevronUp, Film, Music, Book, Tv, Check, CheckCircle, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LanguageTag from '../../components/LanguageTag';
 import PortalDropdown from '../../components/PortalDropdown';
@@ -13,6 +13,7 @@ import CustomSelect from '../../components/CustomSelect';
 import FlagDisplay from '../../components/FlagDisplay';
 import ProgressBar from '../../components/ProgressBar';
 import Pagination from '../../components/Pagination';
+import '../../styles/admin/admin-content-list.css';
 
 export default function AdminContentListPage() {
   const { preferences, setMainLanguage } = useUser();
@@ -307,7 +308,12 @@ export default function AdminContentListPage() {
         <div className="flex items-center justify-between gap-3 w-full">
           {/* Left: Title + Search aligned to left */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <h2 className="admin-title shrink-0">Content</h2>
+            <div className="shrink-0">
+              <h2 className="admin-title">Content</h2>
+              <p className="text-xs text-[#f9a8d4] mt-1 font-['Press_Start_2P']">
+                {filteredRows.length} content{filteredRows.length !== 1 ? 's' : ''} {filteredRows.length !== rows.length && `(filtered from ${rows.length})`}
+              </p>
+            </div>
             <div className="relative flex-1 max-w-[680px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
@@ -529,10 +535,18 @@ export default function AdminContentListPage() {
                     {(() => {
                       const available = ((f as unknown as { is_available?: boolean }).is_available ?? true) ? true : false;
                       return (
-                        <span
-                          className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}
-                        >
-                          {available ? 'Available' : 'Unavailable'}
+                        <span className={`status-badge ${available ? 'active' : 'inactive'}`}>
+                          {available ? (
+                            <>
+                              <CheckCircle className="w-3 h-3" />
+                              Available
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3 h-3" />
+                              Unavailable
+                            </>
+                          )}
                         </span>
                       );
                     })()}
@@ -616,23 +630,25 @@ export default function AdminContentListPage() {
                         closing={openMenuFor.closing}
                         durationMs={300}
                         onClose={() => setOpenMenuFor(null)}
-                        className="admin-dropdown-panel py-1"
+                        className="admin-dropdown-panel p-0"
                       >
-                        <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(f.id)}`); }}>
-                          <Eye className="w-4 h-4" />
-                          <span>View</span>
-                        </div>
-                        <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/update?slug=${encodeURIComponent(f.id)}`); }}>
-                          <Pencil className="w-4 h-4" />
-                          <span>Update</span>
-                        </div>
-                        <div className="admin-dropdown-item" onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenMenuFor(null);
-                          setConfirmDelete({ slug: f.id, title: f.title || f.id });
-                        }}>
-                          <Trash2 className="w-4 h-4" />
-                          <span>Delete</span>
+                        <div className="admin-dropdown-menu">
+                          <button className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(f.id)}`); }}>
+                            <Eye className="w-4 h-4" />
+                            <span>View</span>
+                          </button>
+                          <button className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/update?slug=${encodeURIComponent(f.id)}`); }}>
+                            <Pencil className="w-4 h-4" />
+                            <span>Update</span>
+                          </button>
+                          <button className="admin-dropdown-item danger" onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuFor(null);
+                            setConfirmDelete({ slug: f.id, title: f.title || f.id });
+                          }}>
+                            <Trash2 className="w-4 h-4" />
+                            <span>Delete</span>
+                          </button>
                         </div>
                       </PortalDropdown>
                     )}
@@ -672,14 +688,18 @@ export default function AdminContentListPage() {
                   {getTypeIcon(f.type)}
                   <span className="font-semibold text-pink-300">{f.title || f.id}</span>
                 </div>
-                <span 
-                  className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
-                    available 
-                      ? 'bg-green-600/20 text-green-300 border-green-500/60' 
-                      : 'bg-red-600/20 text-red-300 border-red-500/60'
-                  }`}
-                >
-                  {available ? 'Available' : 'Unavailable'}
+                <span className={`status-badge ${available ? 'active' : 'inactive'}`}>
+                  {available ? (
+                    <>
+                      <CheckCircle className="w-3 h-3" />
+                      Available
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-3 h-3" />
+                      Unavailable
+                    </>
+                  )}
                 </span>
               </div>
               

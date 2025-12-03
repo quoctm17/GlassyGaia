@@ -1,0 +1,328 @@
+/* Admin Form Pages Styles - Dark Pink Pixel Theme */
+/* For AdminContentIngestPage, AdminContentUpdatePage, AdminEpisodeUpdatePage, AdminAddEpisodePage */
+
+/* Override admin-panel and admin-subpanel to restore borders */
+.admin-content .admin-panel {
+  background: #16111f;
+  border: 3px solid #ec4899;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.25) inset, 0 0 24px rgba(236, 72, 153, 0.35);
+}
+
+.admin-content .admin-subpanel {
+  background: #1c1527;
+  border: 2px solid rgba(236, 72, 153, 0.45);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+/* Section headers in forms */
+.admin-content .admin-panel h3,
+.admin-content .admin-panel h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f5d0fe;
+  margin-bottom: 12px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.admin-content .admin-panel h4 {
+  font-size: 12px;
+}
+
+/* Labels */
+.admin-content .admin-panel label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f9a8d4;
+  margin-bottom: 6px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* Inputs */
+.admin-content .admin-input,
+.admin-content input[type="text"],
+.admin-content input[type="number"],
+.admin-content input[type="url"],
+.admin-content textarea,
+.admin-content select {
+  width: 100%;
+  padding: 10px 12px;
+  background: #2a1b3b;
+  color: #f5d0fe;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.15);
+  transition: all 0.2s;
+}
+
+.admin-content .admin-input:focus,
+.admin-content input:focus,
+.admin-content textarea:focus,
+.admin-content select:focus {
+  outline: none;
+  background: #3a254f;
+  border-color: #f472b6;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+}
+
+.admin-content .admin-input:disabled,
+.admin-content input:disabled,
+.admin-content textarea:disabled,
+.admin-content select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #1a0f26;
+  color: #c084fc;
+}
+
+/* Textarea */
+.admin-content textarea {
+  min-height: 100px;
+  resize: vertical;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+}
+
+/* File inputs */
+.admin-content input[type="file"] {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  font-size: 12px;
+  color: #f5d0fe;
+}
+
+.admin-content input[type="file"]::file-selector-button {
+  padding: 8px 16px;
+  background: #ec4899;
+  color: #fff;
+  border: 2px solid #f472b6;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  margin-right: 12px;
+  transition: all 0.2s;
+}
+
+.admin-content input[type="file"]::file-selector-button:hover {
+  background: #db2777;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+}
+
+/* Checkboxes */
+.admin-content input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #ec4899;
+}
+
+/* Buttons */
+.admin-content .admin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  background: #2a1b3b;
+  color: #f472b6;
+}
+
+.admin-content .admin-btn:hover:not(:disabled) {
+  background: #ec4899;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+  transform: translateY(-1px);
+}
+
+.admin-content .admin-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #3a254f;
+  color: #c084fc;
+}
+
+.admin-content .admin-btn.primary {
+  background: linear-gradient(135deg, #f9a8d4 0%, #f472b6 40%, #ec4899 75%, #db2777 100%);
+  color: #1a0f26;
+  border-color: #f9a8d4;
+}
+
+.admin-content .admin-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.55), 0 0 14px rgba(236, 72, 153, 0.55);
+}
+
+.admin-content .admin-btn.secondary {
+  background: #241530;
+  color: #f5d0fe;
+  border-color: #f472b6;
+}
+
+.admin-content .admin-btn.secondary:hover:not(:disabled) {
+  background: #2c1840;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+}
+
+.admin-content .admin-btn.danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border-color: #ef4444;
+}
+
+.admin-content .admin-btn.danger:hover:not(:disabled) {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.35), 0 0 10px rgba(239, 68, 68, 0.35);
+}
+
+/* Warning/Info boxes */
+.admin-content .bg-yellow-900\/20 {
+  background: rgba(161, 98, 7, 0.2);
+  border-color: rgba(202, 138, 4, 0.4);
+}
+
+.admin-content .bg-green-900\/20 {
+  background: rgba(20, 83, 45, 0.2);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.admin-content .bg-orange-900\/20 {
+  background: rgba(154, 52, 18, 0.2);
+  border-color: rgba(249, 115, 22, 0.4);
+}
+
+/* Status badges - match AdminUserListPage style */
+.admin-content .status-badge,
+.admin-content .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.admin-content .status-badge.active,
+.admin-content .badge.success {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid #22c55e;
+}
+
+.admin-content .status-badge.inactive,
+.admin-content .badge.error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid #ef4444;
+}
+
+.admin-content .status-badge.pending,
+.admin-content .badge.warning {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border: 1px solid #f59e0b;
+}
+
+.admin-content .badge.info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid #3b82f6;
+}
+
+/* Dropdown panels */
+.admin-content .admin-dropdown-panel {
+  background: #241530;
+  border: 2px solid #ec4899;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.25) inset, 0 0 24px rgba(236, 72, 153, 0.35);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.admin-content .admin-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #f5d0fe;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.admin-content .admin-dropdown-item:hover {
+  background: rgba(236, 72, 153, 0.14);
+}
+
+/* Text colors */
+.admin-content .text-pink-100 {
+  color: #fce7f3;
+}
+
+.admin-content .text-pink-200 {
+  color: #f9a8d4;
+}
+
+.admin-content .text-pink-300 {
+  color: #f472b6;
+}
+
+.admin-content .text-pink-400 {
+  color: #ec4899;
+}
+
+.admin-content .text-gray-200 {
+  color: #e5e7eb;
+}
+
+.admin-content .text-gray-400 {
+  color: #c084fc;
+}
+
+/* Spacing utilities */
+.admin-content .space-y-2 > * + * {
+  margin-top: 8px;
+}
+
+.admin-content .space-y-3 > * + * {
+  margin-top: 12px;
+}
+
+.admin-content .space-y-4 > * + * {
+  margin-top: 16px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .admin-content .admin-panel {
+    padding: 12px;
+  }
+  
+  .admin-content .admin-subpanel {
+    padding: 10px;
+  }
+  
+  .admin-content .admin-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

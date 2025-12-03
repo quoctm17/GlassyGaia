@@ -1,0 +1,510 @@
+/* Admin User Detail Page Styles */
+
+.admin-user-detail-page {
+  padding: 0;
+  max-width: none;
+  margin: 0;
+}
+
+/* Header */
+.detail-header {
+  margin-bottom: 16px;
+}
+
+.detail-header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 12px 0 0 0;
+  color: #f5d0fe;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  background: #2a1b3b;
+  color: #f472b6;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.back-btn:hover {
+  background: #3a254f;
+  border-color: #f472b6;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+}
+
+/* Cards */
+.detail-card {
+  background: #2a1b3b;
+  border: 3px solid #ec4899;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #ec4899;
+}
+
+.card-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: #f5d0fe;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.status-badges {
+  display: flex;
+  gap: 8px;
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.badge-admin {
+  background: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+  border: 1px solid #ec4899;
+}
+
+.badge-user {
+  background: #3a254f;
+  color: #c084fc;
+  border: 1px solid #a855f7;
+}
+
+.badge-active {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid #22c55e;
+}
+
+.badge-inactive {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid #ef4444;
+}
+
+/* Profile Content */
+.profile-content {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.profile-photo {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #ec4899;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.5);
+}
+
+.profile-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.info-row .label {
+  font-weight: 600;
+  color: #f9a8d4;
+  min-width: 140px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.info-row .value {
+  color: #f5d0fe;
+  flex: 1;
+  font-size: 12px;
+}
+
+.monospace {
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  background: #1a0f26;
+  color: #c084fc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #a855f7;
+}
+
+/* Preferences Grid */
+.preferences-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.pref-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #1a0f26;
+  border-radius: 8px;
+  border: 1px solid #a855f7;
+}
+
+.pref-label {
+  font-weight: 600;
+  color: #f9a8d4;
+  font-size: 10px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.pref-value {
+  color: #f5d0fe;
+  font-size: 12px;
+}
+
+/* Statistics Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #1a0f26;
+  border-radius: 8px;
+  border: 2px solid #ec4899;
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.3);
+}
+
+.stat-icon {
+  width: 36px;
+  height: 36px;
+  color: #f472b6;
+  flex-shrink: 0;
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #f5d0fe;
+  line-height: 1;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.stat-label {
+  font-size: 10px;
+  color: #f9a8d4;
+  margin-top: 6px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* Timeline */
+.stats-timeline {
+  display: flex;
+  justify-content: space-around;
+  padding: 16px;
+  background: #1a0f26;
+  border-radius: 8px;
+  border: 1px solid #a855f7;
+}
+
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-label {
+  font-size: 10px;
+  color: #f9a8d4;
+  font-weight: 600;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.timeline-value {
+  font-size: 12px;
+  color: #f5d0fe;
+  font-weight: 600;
+}
+
+/* Episode Progress */
+.episode-count {
+  background: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid #ec4899;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.episode-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.episode-progress-item {
+  padding: 16px;
+  background: #1a0f26;
+  border-radius: 8px;
+  border: 2px solid #a855f7;
+}
+
+.episode-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.episode-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.episode-film {
+  font-weight: 600;
+  color: #f5d0fe;
+  font-size: 12px;
+}
+
+.episode-id {
+  font-size: 10px;
+  color: #c084fc;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.episode-completion {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.completion-percentage {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f472b6;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.completion-fraction {
+  font-size: 10px;
+  color: #f9a8d4;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.episode-progress-bar {
+  height: 10px;
+  background: #3a254f;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  border: 1px solid #a855f7;
+}
+
+.episode-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ec4899 0%, #f472b6 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.6);
+}
+
+.episode-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #c084fc;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* Recent Cards Table */
+.card-count {
+  background: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid #ec4899;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.recent-cards-table {
+  overflow-x: auto;
+}
+
+.recent-cards-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.recent-cards-table thead {
+  background: #1a0f26;
+  border-bottom: 2px solid #ec4899;
+}
+
+.recent-cards-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 10px;
+  color: #f9a8d4;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.recent-cards-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid #3a254f;
+  font-size: 11px;
+  color: #f5d0fe;
+}
+
+.recent-cards-table tbody tr:hover {
+  background: #3a254f;
+}
+
+.recent-cards-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.card-index {
+  font-weight: 600;
+  color: #f472b6;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.card-id {
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  color: #c084fc;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 48px;
+  color: #f9a8d4;
+  font-size: 12px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* States */
+.loading-state,
+.error-state {
+  text-align: center;
+  padding: 48px;
+  color: #f9a8d4;
+  font-size: 14px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.error-state {
+  color: #f87171;
+}
+
+/* Responsive */
+@media (max-width: 768px) {  
+  .profile-content {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  
+  .profile-info {
+    width: 100%;
+  }
+  
+  .info-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  
+  .info-row .label {
+    min-width: auto;
+  }
+  
+  .preferences-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .stats-timeline {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .episode-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .episode-completion {
+    align-items: flex-start;
+  }
+  
+  .recent-cards-table {
+    overflow-x: auto;
+  }
+  
+  .recent-cards-table table {
+    min-width: 600px;
+  }
+}

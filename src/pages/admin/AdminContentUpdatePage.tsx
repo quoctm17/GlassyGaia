@@ -6,6 +6,7 @@ import { uploadCoverImage } from '../../services/storageUpload';
 import { apiUpdateFilmMeta } from '../../services/cfApi';
 import { Film, Clapperboard, Book as BookIcon, AudioLines } from 'lucide-react';
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from '../../types/content';
+import '../../styles/admin/admin-forms.css';
 
 export default function AdminContentUpdatePage() {
 	const [searchParams] = useSearchParams();

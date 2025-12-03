@@ -877,3 +877,116 @@ function buildMediaUrlFromKey(
   const rel = `items/${filmId}/episodes/${filmId}_${epPadded}/${type}/${filmId}_${epPadded}_${cardPadded}.${ext}`;
   return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${rel}` : `/${rel}`;
 }
+
+// ==================== USER MANAGEMENT ====================
+
+export interface UserProfile {
+  id: string;
+  email?: string;
+  display_name?: string;
+  photo_url?: string;
+  auth_provider?: string;
+  is_active?: number;
+  is_admin?: number;
+  role?: string;
+  created_at?: number;
+  updated_at?: number;
+  last_login_at?: number;
+  // From preferences join
+  main_language?: string;
+  subtitle_languages?: string;
+  require_all_languages?: number;
+  difficulty_min?: number;
+  difficulty_max?: number;
+  auto_play?: number;
+  playback_speed?: number;
+  theme?: string;
+  show_romanization?: number;
+}
+
+export interface UserRole {
+  id: number;
+  user_id: string;
+  role_name: string;
+  description?: string;
+  permissions?: string;
+  granted_by?: string;
+  granted_at?: number;
+  expires_at?: number;
+}
+
+export interface UserProgressData {
+  episode_stats: Array<{
+    id: number;
+    user_id: string;
+    film_id: string;
+    episode_slug: string;
+    total_cards: number;
+    completed_cards: number;
+    last_card_index: number;
+    completion_percentage: number;
+    last_completed_at: number;
+    created_at: number;
+    updated_at: number;
+  }>;
+  recent_cards: Array<{
+    id: number;
+    user_id: string;
+    film_id: string;
+    episode_id: string;
+    card_id: string;
+    completed_at: number;
+    created_at: number;
+  }>;
+}
+
+export async function apiGetAllUsers(): Promise<UserProfile[]> {
+  return getJson<UserProfile[]>('/users');
+}
+
+export async function apiGetUser(userId: string): Promise<UserProfile | null> {
+  try {
+    return await getJson<UserProfile>(`/users/${userId}`);
+  } catch (e) {
+    if ((e as Error).message?.includes('404')) return null;
+    throw e;
+  }
+}
+
+export async function apiGetUserRoles(userId: string): Promise<UserRole[]> {
+  return getJson<UserRole[]>(`/users/${userId}/roles`);
+}
+
+export async function apiGetUserProgressData(userId: string): Promise<UserProgressData> {
+  return getJson<UserProgressData>(`/users/${userId}/progress`);
+}
+
+export async function apiSyncAdminRoles(params: {
+  adminEmails: string[];
+  requesterId: string;
+}): Promise<{
+  success: boolean;
+  synced: number;
+  skipped: number;
+  message: string;
+}> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/admin/sync-roles`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(params),
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Admin sync failed: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiGetDatabaseStats(): Promise<Record<string, number>> {
+  return getJson<Record<string, number>>('/admin/database-stats');
+}
