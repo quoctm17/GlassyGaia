@@ -30,14 +30,14 @@
   font-weight: 700;
   margin: 0;
   color: #f5d0fe;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .admin-user-list-header .subtitle {
   color: #f9a8d4;
   font-size: 12px;
   margin-top: 4px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* Controls */
@@ -64,7 +64,7 @@
   background: #2a1b3b;
   color: #f5d0fe;
   transition: all 0.2s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .search-box input::placeholder {
@@ -105,7 +105,7 @@
   color: #f5d0fe;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .filter-select:hover {
@@ -147,7 +147,7 @@
   color: #f9a8d4;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .user-table th.sortable {
@@ -214,7 +214,7 @@
   color: #f9a8d4;
   text-transform: capitalize;
   border: 1px solid #ec4899;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .role-badge {
@@ -225,7 +225,7 @@
   border-radius: 6px;
   font-size: 10px;
   font-weight: 600;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .role-badge.admin {
@@ -248,7 +248,7 @@
   border-radius: 6px;
   font-size: 10px;
   font-weight: 600;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .status-badge.active {
@@ -273,7 +273,7 @@
 .date-relative {
   font-size: 10px;
   color: #c084fc;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* Action Button */
@@ -291,7 +291,7 @@
   transition: all 0.2s;
   background: #2a1b3b;
   color: #f472b6;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .action-btn:hover {
@@ -319,7 +319,7 @@
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   background: transparent;
   border: none;
   width: 100%;
@@ -354,7 +354,7 @@
   padding: 48px;
   color: #f9a8d4;
   font-size: 14px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .error-state {

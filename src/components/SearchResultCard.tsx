@@ -193,27 +193,230 @@ export default function SearchResultCard({
     return out;
   }
 
+  // Normalize Japanese text for comparison: Katakana → Hiragana, remove whitespace, remove furigana brackets
+  function normalizeJapanese(text: string): string {
+    try {
+      // First remove HTML tags if present
+      const withoutTags = text.replace(/<[^>]+>/g, '');
+      // NFKC normalization for width, remove all whitespace, remove furigana brackets
+      const nfkc = withoutTags.normalize('NFKC').replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
+      // Convert Katakana to Hiragana
+      return nfkc.replace(/[\u30A1-\u30F6]/g, (ch) => 
+        String.fromCharCode(ch.charCodeAt(0) - 0x60)
+      );
+    } catch {
+      // Fallback: just Katakana → Hiragana, remove whitespace, tags and brackets
+      return text.replace(/<[^>]+>/g, '').replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '').replace(/[\u30A1-\u30F6]/g, (ch) => 
+        String.fromCharCode(ch.charCodeAt(0) - 0x60)
+      );
+    }
+  }
+
+  // Check if text contains Japanese characters
+  function hasJapanese(text: string): boolean {
+    return /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(text);
+  }
+
+  // Helper to normalize a single character (Katakana → Hiragana, NFKC)
+  function normChar(ch: string): string {
+    try {
+      const nfkc = ch.normalize('NFKC');
+      // Katakana → Hiragana conversion
+      return nfkc.replace(/[\u30A1-\u30F6]/g, (c) => 
+        String.fromCharCode(c.charCodeAt(0) - 0x60)
+      );
+    } catch {
+      return ch.replace(/[\u30A1-\u30F6]/g, (c) => 
+        String.fromCharCode(c.charCodeAt(0) - 0x60)
+      );
+    }
+  }
+
   // Highlight query occurrences with a styled span; case-insensitive
   function highlightHtml(text: string, q: string): string {
     if (!q) return escapeHtml(text);
     try {
+      // For Japanese text, use normalized comparison (ignore whitespace)
+      if (hasJapanese(q) || hasJapanese(text)) {
+        const qNorm = normalizeJapanese(q.trim());
+        
+        // Build normalized version of text, tracking position mapping
+        const posMap: number[] = []; // posMap[i] = original position for normalized position i
+        let normalized = '';
+        
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          // Skip whitespace and brackets
+          if (/\s/.test(ch) || ch === '[' || ch === ']') {
+            continue;
+          }
+          // Inside bracket (furigana) - skip content
+          if (i > 0 && text.lastIndexOf('[', i) > text.lastIndexOf(']', i)) {
+            continue;
+          }
+          
+          const norm = normChar(ch);
+          for (let j = 0; j < norm.length; j++) {
+            normalized += norm[j];
+            posMap.push(i);
+          }
+        }
+        
+        // Find match in normalized text
+        const matchIdx = normalized.indexOf(qNorm);
+        if (matchIdx === -1) return escapeHtml(text);
+        
+        // Map back to original positions
+        const startPos = posMap[matchIdx];
+        // Find the end position: we need the position AFTER the last matched character
+        // The last normalized char is at matchIdx + qNorm.length - 1
+        // We want to include the full original character at that position
+        const lastNormIdx = matchIdx + qNorm.length - 1;
+        const lastOrigPos = posMap[lastNormIdx];
+        
+        // Find the next original position that's different (or end of text)
+        let endPosExclusive = lastOrigPos + 1;
+        // Check if there are more normalized chars pointing to the same original position
+        for (let i = lastNormIdx + 1; i < posMap.length; i++) {
+          if (posMap[i] === lastOrigPos) {
+            // Still part of the same original character
+            continue;
+          } else {
+            // Next char starts here
+            endPosExclusive = posMap[i];
+            break;
+          }
+        }
+        
+        const before = text.slice(0, startPos);
+        const match = text.slice(startPos, endPosExclusive);
+        const after = text.slice(endPosExclusive);
+        
+        return `${escapeHtml(before)}<span class="text-[#f3a1d6]">${escapeHtml(match)}</span>${escapeHtml(after)}`;
+      }
+      
+      // Non-Japanese: simple regex match
       const re = new RegExp(escapeRegExp(q), "gi");
       return escapeHtml(text).replace(
         re,
         (match) => `<span class="text-[#f3a1d6]">${escapeHtml(match)}</span>`
       );
-    } catch {
+    } catch (err) {
+      console.warn('Highlight error:', err);
       return escapeHtml(text);
     }
   }
 
   // Highlight occurrences inside already-safe HTML (e.g., ruby markup) without escaping tags
-  function highlightInsideHtmlPreserveTags(html: string, q: string): string {
+  function highlightInsideHtmlPreserveTags(html: string, q: string, lang?: string): string {
     if (!q) return html;
     try {
+      // For Japanese, do smart matching on visible text (strip brackets and tags)
+      if (lang === 'ja' || hasJapanese(q)) {
+        const qNorm = normalizeJapanese(q.trim());
+        if (!qNorm) return html;
+
+        // Strategy: detect ruby groups and if q matches the rt reading (normalized),
+        // highlight both the entire rb and rt content. Otherwise fall back to visible text matching.
+
+        // Process ruby groups first
+        const rubyRe = /<ruby>\s*<rb>([\s\S]*?)<\/rb>\s*<rt>([\s\S]*?)<\/rt>\s*<\/ruby>/gi;
+        let hasRubyHighlights = false;
+        const processed = html.replace(rubyRe, (m, rbContent, rtContent) => {
+          const rbNorm = normalizeJapanese(rbContent);
+          const rtNorm = normalizeJapanese(rtContent);
+          if (!rbNorm && !rtNorm) return m;
+          // If query matches the rt (reading), highlight both rb and rt
+          if (rtNorm.includes(qNorm) || rbNorm.includes(qNorm)) {
+            hasRubyHighlights = true;
+            return `<ruby><rb><span class="text-[#f3a1d6]">${rbContent}</span></rb><rt><span class="text-[#f3a1d6]">${rtContent}</span></rt></ruby>`;
+          }
+          return m;
+        });
+
+        if (hasRubyHighlights) {
+          return processed;
+        }
+
+        // Fallback: original visible text approach (no ruby reading match found)
+        const visibleChars: { char: string; htmlPos: number }[] = [];
+        let i = 0;
+        let inRtTag = false;
+
+        while (i < html.length) {
+          const char = html[i];
+
+          if (char === '<') {
+            const rtMatch = html.substring(i).match(/^<rt>/);
+            const rtCloseMatch = html.substring(i).match(/^<\/rt>/);
+
+            if (rtMatch) {
+              inRtTag = true;
+              i += rtMatch[0].length;
+              continue;
+            } else if (rtCloseMatch) {
+              inRtTag = false;
+              i += rtCloseMatch[0].length;
+              continue;
+            }
+
+            while (i < html.length && html[i] !== '>') i++;
+            if (i < html.length && html[i] === '>') i++;
+            continue;
+          }
+
+          if (inRtTag) { i++; continue; }
+          if (/\s/.test(char)) { i++; continue; }
+          visibleChars.push({ char, htmlPos: i });
+          i++;
+        }
+
+        const posMap: number[] = [];
+        let normalized = '';
+        for (let vi = 0; vi < visibleChars.length; vi++) {
+          const norm = normChar(visibleChars[vi].char);
+          for (let j = 0; j < norm.length; j++) { normalized += norm[j]; posMap.push(vi); }
+        }
+
+        const matchIdx = normalized.indexOf(qNorm);
+        if (matchIdx === -1) return html;
+        const lastNormIdx = matchIdx + qNorm.length - 1;
+        const startVisIdx = posMap[matchIdx];
+        const lastVisIdx = posMap[lastNormIdx];
+        let endVisIdxExclusive = lastVisIdx + 1;
+        for (let k = lastNormIdx + 1; k < posMap.length; k++) {
+          if (posMap[k] !== lastVisIdx) { endVisIdxExclusive = posMap[k]; break; }
+        }
+
+        let result = '';
+        let htmlIdx = 0;
+        let inRtTag2 = false;
+        const charPositions = new Set(visibleChars.slice(startVisIdx, endVisIdxExclusive).map(v => v.htmlPos));
+        while (htmlIdx < html.length) {
+          const c = html[htmlIdx];
+          if (c === '<') {
+            const rtMatch = html.substring(htmlIdx).match(/^<rt>/);
+            const rtCloseMatch = html.substring(htmlIdx).match(/^<\/rt>/);
+            if (rtMatch) { result += rtMatch[0]; inRtTag2 = true; htmlIdx += rtMatch[0].length; continue; }
+            if (rtCloseMatch) { result += rtCloseMatch[0]; inRtTag2 = false; htmlIdx += rtCloseMatch[0].length; continue; }
+            let tagStart = htmlIdx; htmlIdx++;
+            while (htmlIdx < html.length && html[htmlIdx] !== '>') htmlIdx++;
+            if (htmlIdx < html.length && html[htmlIdx] === '>') htmlIdx++;
+            result += html.substring(tagStart, htmlIdx);
+            continue;
+          }
+          const shouldHighlight = !inRtTag2 && charPositions.has(htmlIdx);
+          result += shouldHighlight ? `<span class="text-[#f3a1d6]">${c}</span>` : c;
+          htmlIdx++;
+        }
+        return result;
+      }
+      
+      // Non-Japanese: simple regex on whole HTML
       const re = new RegExp(escapeRegExp(q), "gi");
       return html.replace(re, (match) => `<span class="text-[#f3a1d6]">${match}</span>`);
-    } catch {
+    } catch (err) {
+      console.warn('Highlight error:', err);
       return html;
     }
   }
@@ -375,7 +578,7 @@ export default function SearchResultCard({
                 // removed debug logging
                 const rubyHtml = bracketToRubyHtml(normalized, canon);
                 // removed debug logging
-                html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q) : rubyHtml;
+                html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q, canon) : rubyHtml;
               } else {
                 html = q ? highlightHtml(raw, q) : escapeHtml(raw);
               }

@@ -26,7 +26,7 @@
   font-weight: 700;
   color: #f5d0fe;
   margin-bottom: 12px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .admin-content .admin-panel h4 {
@@ -40,7 +40,7 @@
   font-weight: 600;
   color: #f9a8d4;
   margin-bottom: 6px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* Inputs */
@@ -57,7 +57,7 @@
   border: 2px solid #ec4899;
   border-radius: 8px;
   font-size: 13px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.15);
   transition: all 0.2s;
 }
@@ -109,7 +109,7 @@
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   margin-right: 12px;
   transition: all 0.2s;
 }
@@ -139,7 +139,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   background: #2a1b3b;
   color: #f472b6;
 }
@@ -218,7 +218,7 @@
   border-radius: 6px;
   font-size: 10px;
   font-weight: 600;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .admin-content .status-badge.active,

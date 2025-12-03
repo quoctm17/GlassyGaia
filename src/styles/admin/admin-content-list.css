@@ -19,14 +19,14 @@
   font-weight: 700;
   margin: 0;
   color: #f5d0fe;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .admin-section-header .subtitle {
   color: #f9a8d4;
   font-size: 12px;
   margin-top: 4px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* Header Controls (New Content Button + Bulk Actions) */
@@ -48,7 +48,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   background: #2a1b3b;
   color: #f472b6;
 }
@@ -114,7 +114,7 @@
   background: #2a1b3b;
   color: #f5d0fe;
   transition: all 0.2s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .search-box input::placeholder {
@@ -166,7 +166,7 @@
   color: #f5d0fe;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   width: 100%;
 }
 
@@ -193,7 +193,7 @@
   color: #f5d0fe;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .filter-btn:hover {
@@ -235,7 +235,7 @@
   color: #f9a8d4;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .admin-section .admin-table th.sortable {
@@ -294,7 +294,7 @@
   color: #f9a8d4;
   text-transform: capitalize;
   border: 1px solid #ec4899;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* Language Badge */
@@ -310,7 +310,7 @@
   color: #c084fc;
   text-transform: uppercase;
   border: 1px solid #a855f7;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* Original Badge */
@@ -322,7 +322,7 @@
   border-radius: 6px;
   font-size: 9px;
   font-weight: 600;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .original-badge.original {
@@ -346,7 +346,7 @@
   border-radius: 6px;
   font-size: 10px;
   font-weight: 600;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .admin-section .status-badge.active {
@@ -373,7 +373,7 @@
   background: rgba(59, 130, 246, 0.2);
   color: #60a5fa;
   border: 1px solid #3b82f6;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -448,7 +448,7 @@
   font-size: 14px;
   font-weight: 600;
   color: #f5d0fe;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   line-height: 1.4;
 }
 
@@ -472,12 +472,12 @@
 
 .content-card-label {
   color: #f9a8d4;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .content-card-value {
   color: #f5d0fe;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   text-align: right;
 }
 
@@ -495,7 +495,7 @@
   padding: 48px;
   color: #f9a8d4;
   font-size: 14px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .admin-section .admin-error {
@@ -503,7 +503,7 @@
   padding: 48px;
   color: #f87171;
   font-size: 14px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* Modal Styles */
@@ -534,7 +534,7 @@
   font-weight: 700;
   color: #f5d0fe;
   margin-bottom: 16px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .modal-text {
@@ -565,7 +565,7 @@
   font-size: 13px;
   background: #2a1b3b;
   color: #f5d0fe;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   margin-top: 12px;
 }
 
@@ -589,13 +589,13 @@
   color: #f5d0fe;
   font-size: 12px;
   margin-bottom: 8px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .deletion-progress .details {
   color: #f9a8d4;
   font-size: 11px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 .progress-bar-container {
@@ -681,7 +681,7 @@
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s;
-  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
   background: transparent;
   border: none;
   width: 100%;
