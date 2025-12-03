@@ -10,7 +10,7 @@ import ContentMoviePage from './pages/ContentMoviePage';
 import SeriesPage from './pages/SeriesPage';
 import BookPage from './pages/BookPage';
 import AboutPage from './pages/AboutPage';
-import LoginPage from './pages/LoginPage';
+import LoginPageOld from './pages/LoginPage';
 import WatchPage from './pages/WatchPage';
 import AdminContentIngestPage from './pages/admin/AdminContentIngestPage';
 import AdminContentUpdatePage from './pages/admin/AdminContentUpdatePage';
@@ -23,6 +23,11 @@ import AdminAddEpisodePage from './pages/admin/AdminAddEpisodePage';
 import AdminEpisodeDetailPage from './pages/admin/AdminEpisodeDetailPage';
 import AdminEpisodeUpdatePage from './pages/admin/AdminEpisodeUpdatePage';
 import AdminCardUpdatePage from './pages/admin/AdminCardUpdatePage';
+import AdminUserListPage from './pages/admin/AdminUserListPage';
+import AdminUserDetailPage from './pages/admin/AdminUserDetailPage';
+import AdminDatabasePage from './pages/admin/AdminDatabasePage';
+import AuthLoginPage from './pages/authentication/LoginPage';
+import AuthSignupPage from './pages/authentication/SignupPage';
 import { Toaster } from 'react-hot-toast';
 
 function App() {
@@ -53,7 +58,10 @@ function App() {
               <Route path="/book" element={<BookPage />} />
               <Route path="/favorites" element={<FavoritesPage />} />
               <Route path="/about" element={<AboutPage />} />
-              <Route path="/login" element={<LoginPage />} />
+              <Route path="/login" element={<LoginPageOld />} />
+              {/* Authentication Routes */}
+              <Route path="/auth/login" element={<AuthLoginPage />} />
+              <Route path="/auth/signup" element={<AuthSignupPage />} />
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminContentMediaPage />} />
                 <Route path="media" element={<AdminContentMediaPage />} />
@@ -65,6 +73,11 @@ function App() {
                 <Route path="content/:contentSlug/episodes/:episodeSlug/update" element={<AdminEpisodeUpdatePage />} />
                 <Route path="content/:contentSlug/:episodeId/:cardId/update" element={<AdminCardUpdatePage />} />
                 <Route path="content/:contentSlug/add-episode" element={<AdminAddEpisodePage />} />
+                {/* Admin User Management Routes */}
+                <Route path="users" element={<AdminUserListPage />} />
+                <Route path="users/:userId" element={<AdminUserDetailPage />} />
+                {/* Admin Database Management */}
+                <Route path="database" element={<AdminDatabasePage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />

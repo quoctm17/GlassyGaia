@@ -60,6 +60,7 @@ export interface AppUser {
   email?: string | null;
   photoURL?: string | null;
   preferences?: UserPreferences;
+  roles?: string[]; // user roles: 'user', 'admin', 'superadmin'
 }
 
 export interface UserEventLog {
@@ -91,4 +92,48 @@ export interface EpisodeDetailDoc {
   avg_difficulty_score?: number | null;
   level_framework_stats?: string | LevelFrameworkStats[] | null;
   is_available?: boolean; // visibility flag (default: true)
+}
+
+// User progress tracking types
+export interface UserCardProgress {
+  id: number;
+  user_id: string;
+  film_id: string;
+  episode_slug: string;
+  card_id: string;
+  card_index: number;
+  completed_at: number; // Unix timestamp (milliseconds)
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UserEpisodeStats {
+  id: number;
+  user_id: string;
+  film_id: string;
+  episode_slug: string;
+  total_cards: number;
+  completed_cards: number;
+  last_card_index: number;
+  completion_percentage: number; // 0-100
+  last_accessed_at: number; // Unix timestamp (milliseconds)
+  created_at: number;
+  updated_at: number;
+}
+
+// API request/response types for progress
+export interface MarkCardCompleteRequest {
+  user_id: string;
+  film_id: string;
+  episode_slug: string;
+  card_id: string;
+  card_index: number;
+  total_cards?: number; // Optional: helps update episode stats
+}
+
+export interface GetProgressResponse {
+  episode_stats: UserEpisodeStats | null;
+  completed_cards: UserCardProgress[];
+  completed_card_ids: Set<string>;
+  completed_indices: Set<number>;
 }

@@ -198,7 +198,7 @@
   top: 1rem;
   right: 1rem;
   z-index: 20;
-  background-color: rgba(0, 0, 0, 0.8);
+  background-color: #1a0f26;
   border: 2px solid #f3a1d6;
   border-radius: 2rem;
   padding: 0.5rem 1rem;
@@ -577,7 +577,7 @@
 
 .watch-subtitles-search-input {
   width: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: #1a0f26;
   color: white;
   font-size: 0.875rem;
   padding: 0.5rem 0.75rem;

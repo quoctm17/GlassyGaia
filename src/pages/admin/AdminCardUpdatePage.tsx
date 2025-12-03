@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiGetCardByPath } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
-import { ExternalLink, Upload, X, Search, ChevronDown } from 'lucide-react';
+import { ExternalLink, Upload, X, Search, ChevronDown, CheckCircle, XCircle } from 'lucide-react';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
 import { r2UploadViaSignedUrl } from '../../services/cfApi';
 import PortalDropdown from '../../components/PortalDropdown';
@@ -174,10 +174,18 @@ export default function AdminCardUpdatePage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-400">Status:</span>
-                  <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
-                    isAvailable ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'
-                  }`}>
-                    {isAvailable ? 'Available' : 'Unavailable'}
+                  <span className={`status-badge ${isAvailable ? 'active' : 'inactive'}`}>
+                    {isAvailable ? (
+                      <>
+                        <CheckCircle className="w-3 h-3" />
+                        Available
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-3 h-3" />
+                        Unavailable
+                      </>
+                    )}
                   </span>
                 </div>
                 <button

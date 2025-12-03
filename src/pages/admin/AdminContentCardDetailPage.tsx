@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGetCardByPath } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
-import { ExternalLink, Pencil } from 'lucide-react';
+import { ExternalLink, Pencil, CheckCircle, XCircle } from 'lucide-react';
 import { langLabel, countryCodeForLang, languageCssBase } from '../../utils/lang';
 import AudioPlayer from '../../components/AudioPlayer';
 
@@ -65,10 +65,18 @@ export default function AdminContentCardDetailPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Status:</label>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                  (card.is_available ?? true) ? 'bg-green-500/20 text-green-300 border border-green-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40'
-                }`}>
-                  {(card.is_available ?? true) ? 'Available' : 'Unavailable'}
+                <span className={`status-badge ${(card.is_available ?? true) ? 'active' : 'inactive'}`}>
+                  {(card.is_available ?? true) ? (
+                    <>
+                      <CheckCircle className="w-3 h-3" />
+                      Available
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-3 h-3" />
+                      Unavailable
+                    </>
+                  )}
                 </span>
               </div>
               <div className="flex items-center gap-2">

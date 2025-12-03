@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { apiGetEpisodeDetail, apiFetchCardsForFilm, apiDeleteCard, apiCalculateStats } from "../../services/cfApi";
 import type { EpisodeDetailDoc, LevelFrameworkStats, CardDoc } from "../../types";
 import { sortLevelsByDifficulty } from "../../utils/levelSort";
-import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown } from "lucide-react";
+import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown, CheckCircle, XCircle } from "lucide-react";
 import PortalDropdown from "../../components/PortalDropdown";
 import AudioPlayer from "../../components/AudioPlayer";
 import toast from "react-hot-toast";
@@ -164,9 +164,10 @@ export default function AdminEpisodeDetailPage() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-32 text-sm text-gray-400">Status:</label>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                  (ep.is_available ?? true) ? 'bg-green-500/20 text-green-300 border border-green-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40'
-                }`}>
+                <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                  (ep.is_available ?? true) ? 'bg-green-500/20 text-green-300 border-2 border-green-500' : 'bg-red-500/20 text-red-300 border-2 border-red-500'
+                }`} style={{ fontFamily: "'Press Start 2P', system-ui, sans-serif" }}>
+                  {(ep.is_available ?? true) ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
                   {(ep.is_available ?? true) ? 'Available' : 'Unavailable'}
                 </span>
               </div>
@@ -368,22 +369,24 @@ export default function AdminEpisodeDetailPage() {
                       closing={openMenuFor.closing}
                       durationMs={300}
                       onClose={() => setOpenMenuFor(null)}
-                      className="admin-dropdown-panel py-1"
+                      className="admin-dropdown-panel p-0"
                     >
-                      <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/${encodeURIComponent(episodeSlug || '')}/${idPadded}`); }}>
-                        <Eye className="w-4 h-4" />
-                        <span>View</span>
+                      <div className="admin-dropdown-menu">
+                        <button className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/${encodeURIComponent(episodeSlug || '')}/${idPadded}`); }}>
+                          <Eye className="w-4 h-4" />
+                          <span>View</span>
+                        </button>
+                        <button className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/${encodeURIComponent(episodeSlug || '')}/${idPadded}/update`); }}>
+                          <Pencil className="w-4 h-4" />
+                          <span>Update</span>
+                        </button>
+                        {!isFirstCard && (
+                          <button className="admin-dropdown-item danger" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); setConfirmDelete({ id: idPadded }); }}>
+                            <Trash2 className="w-4 h-4" />
+                            <span>Delete</span>
+                          </button>
+                        )}
                       </div>
-                      <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/${encodeURIComponent(episodeSlug || '')}/${idPadded}/update`); }}>
-                        <Pencil className="w-4 h-4" />
-                        <span>Update</span>
-                      </div>
-                      {!isFirstCard && (
-                        <div className="admin-dropdown-item" onClick={(e) => { e.stopPropagation(); setOpenMenuFor(null); setConfirmDelete({ id: idPadded }); }}>
-                          <Trash2 className="w-4 h-4" />
-                          <span>Delete</span>
-                        </div>
-                      )}
                     </PortalDropdown>
                   )}
                 </td>

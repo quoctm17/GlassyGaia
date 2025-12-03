@@ -48,7 +48,7 @@ export default function Pagination(props: PaginationProps) {
     const clamp = (p: number) => Math.min(totalPages, Math.max(1, p));
     return (
       <div className="flex items-center gap-3 flex-wrap">
-        <label className="flex items-center gap-2 text-xs">
+        <label className="flex items-center gap-2 text-xs whitespace-nowrap">
           <span className="text-pink-200">Page size:</span>
           <select
             value={pageSize}
@@ -59,7 +59,7 @@ export default function Pagination(props: PaginationProps) {
             {sizes.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 whitespace-nowrap">
           <button
             type="button"
             className="admin-btn secondary !px-2 !py-1 text-xs disabled:opacity-40"
@@ -97,7 +97,7 @@ export default function Pagination(props: PaginationProps) {
           />
           <span className="text-xs text-pink-300">/ {totalPages}</span>
         </div>
-        <div className="ml-auto text-xs text-gray-400">
+        <div className="ml-auto text-xs text-gray-400 whitespace-nowrap">
           Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} of {total}
         </div>
       </div>
@@ -108,7 +108,7 @@ export default function Pagination(props: PaginationProps) {
   const { pageIndex, pageSize, hasPrev, hasNext, onPrev, onNext, onPageSizeChange, totalPages } = props;
   return (
     <div className="flex items-center gap-3 flex-wrap">
-      <label className="flex items-center gap-2 text-xs">
+      <label className="flex items-center gap-2 text-xs whitespace-nowrap">
         <span className="text-pink-200">Page size:</span>
         <select
           value={pageSize}
@@ -119,7 +119,7 @@ export default function Pagination(props: PaginationProps) {
           {sizes.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       </label>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 whitespace-nowrap">
         <button
           type="button"
           className="admin-btn secondary !px-2 !py-1 text-xs disabled:opacity-40"

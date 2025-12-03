@@ -1,17 +1,19 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { FilmDoc, EpisodeDetailDoc, CardDoc } from '../types';
+import type { FilmDoc, EpisodeDetailDoc, CardDoc, GetProgressResponse } from '../types';
 import { apiGetFilm, apiListEpisodes, apiFetchCardsForFilm } from '../services/cfApi';
+import { getEpisodeProgress, markCardComplete } from '../services/userProgress';
 import { useUser } from '../context/UserContext';
 import AudioPlayer from '../components/AudioPlayer';
 import type { AudioPlayerHandle } from '../components/AudioPlayer';
+import LearningProgressBar from '../components/LearningProgressBar';
 import '../styles/pages/watch-page.css';
 
 export default function WatchPage() {
   const { contentId } = useParams<{ contentId: string }>();
   const navigate = useNavigate();
-  const { preferences } = useUser();
+  const { preferences, user } = useUser();
   const [film, setFilm] = useState<FilmDoc | null>(null);
   const [episodes, setEpisodes] = useState<EpisodeDetailDoc[]>([]);
   const [currentEpisode, setCurrentEpisode] = useState<EpisodeDetailDoc | null>(null);
@@ -21,6 +23,8 @@ export default function WatchPage() {
   const [loadingMoreCards, setLoadingMoreCards] = useState(false);
   const [noMoreCards, setNoMoreCards] = useState(false);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
+  const [progress, setProgress] = useState<GetProgressResponse | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(false);
   const mediaRef = useRef<AudioPlayerHandle>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
 
@@ -161,6 +165,25 @@ export default function WatchPage() {
         setCurrentCardIndex(0);
         setNoMoreCards(false);
         setNoMoreCards(false); // Reset when loading new episode
+        
+        // Load user progress for this episode
+        if (user?.uid) {
+          setLoadingProgress(true);
+          try {
+            const progressData = await getEpisodeProgress(user.uid, contentId, currentEpisode.slug);
+            setProgress(progressData);
+            
+            // Resume from last card if user has progress
+            if (progressData.episode_stats && progressData.episode_stats.last_card_index > 0) {
+              setCurrentCardIndex(progressData.episode_stats.last_card_index);
+            }
+          } catch (error) {
+            console.error('Failed to load progress:', error);
+            setProgress(null);
+          } finally {
+            setLoadingProgress(false);
+          }
+        }
       } catch (error) {
         console.error('Failed to load cards:', error);
         setCards([]);
@@ -168,10 +191,36 @@ export default function WatchPage() {
     };
     
     loadCards();
-  }, [contentId, currentEpisode]);
+  }, [contentId, currentEpisode, user]);
 
   // Handle audio end - auto advance to next card
-  const handleAudioEnd = () => {
+  const handleAudioEnd = async () => {
+    // Mark current card as completed
+    if (user?.uid && contentId && currentEpisode && cards[currentCardIndex]) {
+      try {
+        await markCardComplete({
+          user_id: user.uid,
+          film_id: contentId,
+          episode_slug: currentEpisode.slug,
+          card_id: cards[currentCardIndex].id,
+          card_index: currentCardIndex,
+          total_cards: currentEpisode.num_cards || cards.length,
+        });
+        
+        // Update local progress state
+        if (progress) {
+          const newCompletedIndices = new Set(progress.completed_indices);
+          newCompletedIndices.add(currentCardIndex);
+          setProgress({
+            ...progress,
+            completed_indices: newCompletedIndices,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to mark card as completed:', error);
+      }
+    }
+    
     if (currentCardIndex < cards.length - 1) {
       const nextIndex = currentCardIndex + 1;
       setCurrentCardIndex(nextIndex);
@@ -448,6 +497,15 @@ export default function WatchPage() {
             <p className="watch-content-description">{currentEpisode.description}</p>
           )}
         </div>
+
+        {/* Learning Progress Bar */}
+        {!loadingProgress && progress && cards.length > 0 && (
+          <LearningProgressBar
+            totalCards={currentEpisode?.num_cards || cards.length}
+            completedIndices={progress.completed_indices}
+            currentIndex={currentCardIndex}
+          />
+        )}
 
         {/* Card Image and Audio player (50%) / Subtitles panel (50%) */}
         <div className="watch-grid">

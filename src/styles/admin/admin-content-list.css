@@ -1,0 +1,728 @@
+/* Admin Content List Page Styles - Dark Pink Pixel Theme */
+
+.admin-section {
+  padding: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.admin-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+
+.admin-section-header h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  color: #f5d0fe;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.admin-section-header .subtitle {
+  color: #f9a8d4;
+  font-size: 12px;
+  margin-top: 4px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* Header Controls (New Content Button + Bulk Actions) */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-section .admin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  background: #2a1b3b;
+  color: #f472b6;
+}
+
+.admin-section .admin-btn:hover:not(:disabled) {
+  background: #ec4899;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+  transform: translateY(-1px);
+}
+
+.admin-section .admin-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #3a254f;
+  color: #c084fc;
+}
+
+.admin-section .admin-btn.primary {
+  background: linear-gradient(135deg, #f9a8d4 0%, #f472b6 40%, #ec4899 75%, #db2777 100%);
+  color: #1a0f26;
+  border-color: #f9a8d4;
+}
+
+.admin-section .admin-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.55), 0 0 14px rgba(236, 72, 153, 0.55);
+}
+
+.admin-section .admin-btn.danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border-color: #ef4444;
+}
+
+.admin-section .admin-btn.danger:hover:not(:disabled) {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.35), 0 0 10px rgba(239, 68, 68, 0.35);
+}
+
+/* Search and Filter Controls */
+.content-list-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  min-width: 250px;
+}
+
+.search-box input {
+  width: 100%;
+  padding: 10px 12px 10px 40px;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #2a1b3b;
+  color: #f5d0fe;
+  transition: all 0.2s;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.search-box input::placeholder {
+  color: #c084fc;
+  opacity: 0.6;
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: #f472b6;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+  background: #3a254f;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: #f9a8d4;
+  pointer-events: none;
+}
+
+.filter-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Custom Select (Dropdown) */
+.custom-select-wrapper {
+  position: relative;
+  min-width: 150px;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  font-size: 11px;
+  background: #2a1b3b;
+  color: #f5d0fe;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  width: 100%;
+}
+
+.custom-select-trigger:hover {
+  background: #3a254f;
+  border-color: #f472b6;
+}
+
+.custom-select-trigger.open {
+  border-color: #f472b6;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+}
+
+/* Filter Button */
+.filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  font-size: 11px;
+  background: #2a1b3b;
+  color: #f5d0fe;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.filter-btn:hover {
+  background: #3a254f;
+  border-color: #f472b6;
+}
+
+.filter-btn.active {
+  background: #ec4899;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+}
+
+/* Table Wrapper */
+.admin-section .admin-table-wrapper {
+  background: #2a1b3b;
+  border: 3px solid #ec4899;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+}
+
+.admin-section .admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-section .admin-table thead {
+  background: #1a0f26;
+  border-bottom: 2px solid #ec4899;
+}
+
+.admin-section .admin-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: #f9a8d4;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.admin-section .admin-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.admin-section .admin-table th.sortable:hover {
+  background: #2a1b3b;
+  color: #fff;
+}
+
+.admin-section .admin-table tbody tr {
+  border-bottom: 1px solid #3a254f;
+  transition: background 0.2s;
+}
+
+.admin-section .admin-table tbody tr:hover {
+  background: #3a254f;
+}
+
+.admin-section .admin-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.admin-section .admin-table td {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #f5d0fe;
+}
+
+/* Checkbox Cell */
+.checkbox-cell {
+  width: 40px;
+  text-align: center;
+}
+
+.checkbox-cell input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #ec4899;
+}
+
+/* Type Badge */
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #3a254f;
+  color: #f9a8d4;
+  text-transform: capitalize;
+  border: 1px solid #ec4899;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* Language Badge */
+.lang-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  text-transform: uppercase;
+  border: 1px solid #a855f7;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* Original Badge */
+.original-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.original-badge.original {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid #22c55e;
+}
+
+.original-badge.non-original {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border: 1px solid #f59e0b;
+}
+
+/* Status Badges - match AdminUserListPage */
+.admin-section .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.admin-section .status-badge.active {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid #22c55e;
+}
+
+.admin-section .status-badge.inactive {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid #ef4444;
+}
+
+/* Subs Count Badge */
+.subs-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid #3b82f6;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.subs-count-badge:hover {
+  background: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+/* Action Buttons */
+.table-action-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid #ec4899;
+  border-radius: 6px;
+  background: #2a1b3b;
+  color: #f472b6;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  background: #ec4899;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+  transform: translateY(-1px);
+}
+
+.icon-btn:active {
+  transform: translateY(0);
+}
+
+/* Card View for Mobile */
+.admin-cards-view {
+  display: none;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.content-card {
+  background: #2a1b3b;
+  border: 2px solid #ec4899;
+  border-radius: 10px;
+  padding: 16px;
+  transition: all 0.2s;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2), 0 0 8px rgba(236, 72, 153, 0.2);
+}
+
+.content-card:hover {
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.4), 0 0 16px rgba(236, 72, 153, 0.4);
+  transform: translateY(-2px);
+}
+
+.content-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.content-card-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f5d0fe;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  line-height: 1.4;
+}
+
+.content-card-checkbox {
+  flex-shrink: 0;
+}
+
+.content-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.content-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.content-card-label {
+  color: #f9a8d4;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.content-card-value {
+  color: #f5d0fe;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  text-align: right;
+}
+
+.content-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #3a254f;
+}
+
+/* Loading & Error States */
+.admin-section .admin-info {
+  text-align: center;
+  padding: 48px;
+  color: #f9a8d4;
+  font-size: 14px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.admin-section .admin-error {
+  text-align: center;
+  padding: 48px;
+  color: #f87171;
+  font-size: 14px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: #16111f;
+  border: 3px solid #ec4899;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+  margin: 16px;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.25) inset, 0 0 24px rgba(236, 72, 153, 0.35);
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f5d0fe;
+  margin-bottom: 16px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.modal-text {
+  color: #f5d0fe;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.modal-highlight {
+  color: #f9a8d4;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #2a1b3b;
+  color: #f5d0fe;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  margin-top: 12px;
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: #f472b6;
+  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
+  background: #3a254f;
+}
+
+/* Progress Indicator */
+.deletion-progress {
+  margin: 16px 0;
+  padding: 12px;
+  background: #2a1b3b;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+}
+
+.deletion-progress .stage {
+  color: #f5d0fe;
+  font-size: 12px;
+  margin-bottom: 8px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.deletion-progress .details {
+  color: #f9a8d4;
+  font-size: 11px;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 24px;
+  background: #3a254f;
+  border: 2px solid #ec4899;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ec4899, #f472b6, #ec4899);
+  transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.6);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .admin-section .admin-table-wrapper {
+    display: none;
+  }
+  
+  .admin-section .admin-cards-view {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .header-controls {
+    width: 100%;
+    flex-direction: column;
+  }
+  
+  .admin-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .content-list-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .search-box {
+    min-width: 100%;
+  }
+  
+  .filter-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .custom-select-wrapper,
+  .filter-btn {
+    width: 100%;
+  }
+}
+
+/* Dropdown Menu - Pixel Style */
+.admin-dropdown-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+}
+
+.admin-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #f5d0fe;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+}
+
+.admin-dropdown-item:hover {
+  background: rgba(236, 72, 153, 0.2);
+  color: #fff;
+  transform: translateX(2px);
+}
+
+.admin-dropdown-item.danger {
+  color: #f87171;
+}
+
+.admin-dropdown-item.danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fff;
+}
+
+.admin-dropdown-item svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .modal-content {
+    padding: 16px;
+  }
+  
+  .modal-title {
+    font-size: 14px;
+  }
+  
+  .modal-actions {
+    flex-direction: column;
+  }
+  
+  .admin-btn {
+    width: 100%;
+  }
+}

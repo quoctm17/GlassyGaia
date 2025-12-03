@@ -119,6 +119,98 @@ function getLevelIndex(level, language) {
   return -1;
 }
 
+// ==================== AUTHENTICATION HELPERS ====================
+
+// Hash password using PBKDF2
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const passwordBuffer = encoder.encode(password);
+  
+  const key = await crypto.subtle.importKey(
+    'raw',
+    passwordBuffer,
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+  
+  const hashBuffer = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    key,
+    256
+  );
+  
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const saltArray = Array.from(salt);
+  
+  const combined = saltArray.concat(hashArray);
+  return btoa(String.fromCharCode(...combined));
+}
+
+// Verify password against hash
+async function verifyPassword(password, hash) {
+  try {
+    const encoder = new TextEncoder();
+    const combined = Uint8Array.from(atob(hash), c => c.charCodeAt(0));
+    
+    const salt = combined.slice(0, 16);
+    const storedHash = combined.slice(16);
+    
+    const passwordBuffer = encoder.encode(password);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      passwordBuffer,
+      { name: 'PBKDF2' },
+      false,
+      ['deriveBits']
+    );
+    
+    const hashBuffer = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: salt,
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      key,
+      256
+    );
+    
+    const hashArray = new Uint8Array(hashBuffer);
+    
+    if (hashArray.length !== storedHash.length) return false;
+    
+    let isValid = true;
+    for (let i = 0; i < hashArray.length; i++) {
+      if (hashArray[i] !== storedHash[i]) {
+        isValid = false;
+      }
+    }
+    
+    return isValid;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Generate random token
+function generateToken() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+// Generate user ID
+function generateUserId() {
+  return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -127,6 +219,170 @@ export default {
     try {
       if (request.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: withCors() });
+      }
+
+      // ==================== AUTHENTICATION ENDPOINTS ====================
+      
+      // Sign up with email/password
+      if (path === '/auth/signup' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { email, password, displayName } = body;
+          
+          if (!email || !password) {
+            return json({ error: 'Email and password are required' }, { status: 400 });
+          }
+          
+          if (password.length < 6) {
+            return json({ error: 'Password must be at least 6 characters' }, { status: 400 });
+          }
+          
+          // Check if email already exists
+          const existing = await env.DB.prepare(`
+            SELECT id FROM users WHERE email = ?
+          `).bind(email.toLowerCase()).first();
+          
+          if (existing) {
+            return json({ error: 'Email already registered' }, { status: 409 });
+          }
+          
+          // Hash password
+          const passwordHash = await hashPassword(password);
+          
+          // Generate user ID and verification token
+          const userId = generateUserId();
+          const verificationToken = generateToken();
+          const now = Date.now();
+          const tokenExpires = now + (24 * 60 * 60 * 1000); // 24 hours
+          
+          // Create user
+          await env.DB.prepare(`
+            INSERT INTO users (
+              id, email, display_name, password_hash,
+              auth_provider, email_verified, verification_token,
+              verification_token_expires, is_active, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            userId, email.toLowerCase(), displayName || email.split('@')[0],
+            passwordHash, 'email', 0, verificationToken,
+            tokenExpires, 1, now, now
+          ).run();
+          
+          // Create default preferences
+          await env.DB.prepare(`
+            INSERT INTO user_preferences (user_id, created_at, updated_at)
+            VALUES (?, ?, ?)
+          `).bind(userId, now, now).run();
+          
+          return json({
+            success: true,
+            user: {
+              id: userId,
+              email: email.toLowerCase(),
+              display_name: displayName || email.split('@')[0],
+              auth_provider: 'email',
+            },
+            message: 'Account created successfully. Please check your email for verification.'
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Login with email/password
+      if (path === '/auth/login' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { email, password } = body;
+          
+          if (!email || !password) {
+            return json({ error: 'Email and password are required' }, { status: 400 });
+          }
+          
+          // Find user by email or phone
+          const user = await env.DB.prepare(`
+            SELECT * FROM users 
+            WHERE (email = ? OR phone_number = ?) 
+            AND auth_provider = 'email'
+          `).bind(email.toLowerCase(), email).first();
+          
+          if (!user) {
+            return json({ error: 'Invalid credentials' }, { status: 401 });
+          }
+          
+          if (!user.is_active) {
+            return json({ error: 'Account is deactivated' }, { status: 403 });
+          }
+          
+          if (user.account_locked) {
+            const now = Date.now();
+            if (user.lockout_until && user.lockout_until > now) {
+              return json({ error: 'Account is temporarily locked. Please try again later.' }, { status: 403 });
+            }
+            // Unlock if lockout period has expired
+            await env.DB.prepare(`
+              UPDATE users SET account_locked = 0, lockout_until = NULL, failed_login_attempts = 0
+              WHERE id = ?
+            `).bind(user.id).run();
+          }
+          
+          // Verify password
+          const isValid = await verifyPassword(password, user.password_hash);
+          
+          if (!isValid) {
+            // Increment failed attempts
+            const failedAttempts = (user.failed_login_attempts || 0) + 1;
+            const now = Date.now();
+            
+            if (failedAttempts >= 5) {
+              // Lock account for 30 minutes
+              const lockoutUntil = now + (30 * 60 * 1000);
+              await env.DB.prepare(`
+                UPDATE users 
+                SET failed_login_attempts = ?, account_locked = 1, lockout_until = ?
+                WHERE id = ?
+              `).bind(failedAttempts, lockoutUntil, user.id).run();
+              
+              return json({ error: 'Too many failed attempts. Account locked for 30 minutes.' }, { status: 429 });
+            } else {
+              await env.DB.prepare(`
+                UPDATE users SET failed_login_attempts = ? WHERE id = ?
+              `).bind(failedAttempts, user.id).run();
+              
+              return json({ error: 'Invalid credentials' }, { status: 401 });
+            }
+          }
+          
+          // Success - reset failed attempts and update last login
+          const now = Date.now();
+          await env.DB.prepare(`
+            UPDATE users 
+            SET failed_login_attempts = 0, last_login_at = ?, updated_at = ?
+            WHERE id = ?
+          `).bind(now, now, user.id).run();
+          
+          // Log login
+          await env.DB.prepare(`
+            INSERT INTO user_logins (user_id, login_method, success, created_at)
+            VALUES (?, ?, ?, ?)
+          `).bind(user.id, 'email', 1, now).run();
+          
+          return json({
+            success: true,
+            user: {
+              id: user.id,
+              email: user.email,
+              display_name: user.display_name,
+              photo_url: user.photo_url,
+              auth_provider: user.auth_provider,
+              role: user.role,
+              is_admin: user.is_admin,
+            }
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
       }
 
       // Search API: FTS-backed card subtitles with caching + main_language filtering + fallback listing
@@ -2410,6 +2666,737 @@ export default {
           return json({ ok: true, rebuilt: items.length });
         } catch (e) {
           return json({ error: String(e) }, { status: 500 });
+        }
+      }
+
+      // ==================== USER PROGRESS TRACKING ====================
+      
+      // Mark a card as completed
+      if (path === '/api/progress/complete' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id, film_id, episode_slug, card_id, card_index, total_cards } = body;
+          
+          if (!user_id || !film_id || !episode_slug || !card_id || card_index === undefined) {
+            return json({ error: 'Missing required fields' }, { status: 400 });
+          }
+
+          const now = Date.now();
+          
+          // Insert or update card progress (upsert using ON CONFLICT)
+          await env.DB.prepare(`
+            INSERT INTO user_progress (user_id, film_id, episode_slug, card_id, card_index, completed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, film_id, episode_slug, card_id) 
+            DO UPDATE SET completed_at = ?, updated_at = ?
+          `).bind(user_id, film_id, episode_slug, card_id, card_index, now, now, now, now).run();
+          
+          // Update episode stats
+          const completedCount = await env.DB.prepare(`
+            SELECT COUNT(*) as count FROM user_progress 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ?
+          `).bind(user_id, film_id, episode_slug).first();
+          
+          const completed = completedCount?.count || 0;
+          const total = total_cards || completed; // Use provided total or fall back to completed count
+          const percentage = total > 0 ? (completed / total) * 100 : 0;
+          
+          await env.DB.prepare(`
+            INSERT INTO user_episode_stats 
+              (user_id, film_id, episode_slug, total_cards, completed_cards, last_card_index, completion_percentage, last_accessed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, film_id, episode_slug)
+            DO UPDATE SET 
+              total_cards = ?,
+              completed_cards = ?,
+              last_card_index = ?,
+              completion_percentage = ?,
+              last_accessed_at = ?,
+              updated_at = ?
+          `).bind(
+            user_id, film_id, episode_slug, total, completed, card_index, percentage, now, now,
+            total, completed, card_index, percentage, now, now
+          ).run();
+          
+          return json({ 
+            success: true,
+            completed_cards: completed,
+            total_cards: total,
+            completion_percentage: percentage
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get progress for a specific episode
+      if (path === '/api/progress/episode' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const filmId = url.searchParams.get('film_id');
+          const episodeSlug = url.searchParams.get('episode_slug');
+          
+          if (!userId || !filmId || !episodeSlug) {
+            return json({ error: 'Missing required parameters' }, { status: 400 });
+          }
+          
+          // Get episode stats
+          const stats = await env.DB.prepare(`
+            SELECT * FROM user_episode_stats 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ?
+          `).bind(userId, filmId, episodeSlug).first();
+          
+          // Get all completed cards for this episode
+          const cards = await env.DB.prepare(`
+            SELECT * FROM user_progress 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ?
+            ORDER BY card_index ASC
+          `).bind(userId, filmId, episodeSlug).all();
+          
+          const completed = cards.results || [];
+          const completedCardIds = completed.map(c => c.card_id);
+          const completedIndices = completed.map(c => c.card_index);
+          
+          return json({
+            episode_stats: stats || null,
+            completed_cards: completed,
+            completed_card_ids: completedCardIds,
+            completed_indices: completedIndices
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get all progress for a film (all episodes)
+      if (path === '/api/progress/film' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const filmId = url.searchParams.get('film_id');
+          
+          if (!userId || !filmId) {
+            return json({ error: 'Missing required parameters' }, { status: 400 });
+          }
+          
+          const stats = await env.DB.prepare(`
+            SELECT * FROM user_episode_stats 
+            WHERE user_id = ? AND film_id = ?
+            ORDER BY episode_slug ASC
+          `).bind(userId, filmId).all();
+          
+          return json(stats.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Reset progress for an episode
+      if (path === '/api/progress/reset' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id, film_id, episode_slug } = body;
+          
+          if (!user_id || !film_id || !episode_slug) {
+            return json({ error: 'Missing required fields' }, { status: 400 });
+          }
+          
+          // Delete all card progress for this episode
+          await env.DB.prepare(`
+            DELETE FROM user_progress 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ?
+          `).bind(user_id, film_id, episode_slug).run();
+          
+          // Delete episode stats
+          await env.DB.prepare(`
+            DELETE FROM user_episode_stats 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ?
+          `).bind(user_id, film_id, episode_slug).run();
+          
+          return json({ success: true });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // ==================== USER MANAGEMENT ====================
+      
+      // Register/Create user (upsert)
+      if (path === '/api/users/register' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { id, email, display_name, photo_url, auth_provider } = body;
+          
+          if (!id) {
+            return json({ error: 'User ID is required' }, { status: 400 });
+          }
+          
+          const now = Date.now();
+          
+          // Check if user is new
+          const existingUser = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`).bind(id).first();
+          const isNewUser = !existingUser;
+          
+          // Upsert user
+          await env.DB.prepare(`
+            INSERT INTO users (id, email, display_name, photo_url, auth_provider, last_login_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              email = COALESCE(?, email),
+              display_name = COALESCE(?, display_name),
+              photo_url = COALESCE(?, photo_url),
+              last_login_at = ?,
+              updated_at = ?
+          `).bind(
+            id, email, display_name, photo_url, auth_provider || 'firebase', now, now,
+            email, display_name, photo_url, now, now
+          ).run();
+          
+          // Assign role based on email whitelist
+          if (email) {
+            const adminEmails = [
+              'phungnguyeniufintechclub@gmail.com',
+              'trang.vtae@gmail.com',
+              'nhungngth03@gmail.com'
+            ];
+            const superAdminEmail = 'tranminhquoc0711@gmail.com';
+            
+            let assignedRole = 'user'; // default
+            if (email === superAdminEmail) {
+              assignedRole = 'superadmin';
+            } else if (adminEmails.includes(email)) {
+              assignedRole = 'admin';
+            }
+            
+            // Insert or update user role
+            await env.DB.prepare(`
+              INSERT INTO user_roles (user_id, role_name, granted_by, granted_at)
+              VALUES (?, ?, 'system', ?)
+              ON CONFLICT(user_id, role_name) DO UPDATE SET granted_at = ?
+            `).bind(id, assignedRole, now, now).run();
+          } else if (isNewUser) {
+            // No email (shouldn't happen with Firebase), assign default 'user' role
+            await env.DB.prepare(`
+              INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
+              VALUES (?, 'user', 'system', ?)
+            `).bind(id, now).run();
+          }
+          
+          // Get user with preferences and role
+          const user = await env.DB.prepare(`
+            SELECT u.*, up.main_language, up.subtitle_languages, up.require_all_languages,
+                   GROUP_CONCAT(ur.role_name) as roles
+            FROM users u
+            LEFT JOIN user_preferences up ON u.id = up.user_id
+            LEFT JOIN user_roles ur ON u.id = ur.user_id
+            WHERE u.id = ?
+            GROUP BY u.id
+          `).bind(id).first();
+          
+          return json(user);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Update last login
+      if (path === '/api/users/login' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id } = body;
+          
+          if (!user_id) {
+            return json({ error: 'User ID is required' }, { status: 400 });
+          }
+          
+          const now = Date.now();
+          await env.DB.prepare(`
+            UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?
+          `).bind(now, now, user_id).run();
+          
+          return json({ success: true, last_login_at: now });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get user profile
+      if (path.match(/^\/api\/users\/[^\/]+$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/').pop();
+          
+          const user = await env.DB.prepare(`
+            SELECT * FROM v_user_profiles WHERE id = ?
+          `).bind(userId).first();
+          
+          if (!user) {
+            return json({ error: 'User not found' }, { status: 404 });
+          }
+          
+          return json(user);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Update user profile
+      if (path.match(/^\/api\/users\/[^\/]+$/) && request.method === 'PUT') {
+        try {
+          const userId = path.split('/').pop();
+          const body = await request.json();
+          const { email, display_name, photo_url } = body;
+          
+          const now = Date.now();
+          await env.DB.prepare(`
+            UPDATE users 
+            SET email = COALESCE(?, email),
+                display_name = COALESCE(?, display_name),
+                photo_url = COALESCE(?, photo_url),
+                updated_at = ?
+            WHERE id = ?
+          `).bind(email, display_name, photo_url, now, userId).run();
+          
+          const user = await env.DB.prepare(`
+            SELECT * FROM v_user_profiles WHERE id = ?
+          `).bind(userId).first();
+          
+          return json(user);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Delete user (cascade delete related data)
+      if (path.match(/^\/api\/users\/[^\/]+$/) && request.method === 'DELETE') {
+        try {
+          const userId = path.split('/').pop();
+          
+          // Cascade delete in order (respect foreign key constraints)
+          // 1. Delete user progress
+          const progressResult = await env.DB.prepare(`DELETE FROM user_progress WHERE user_id = ?`).bind(userId).run();
+          
+          // 2. Delete user episode stats
+          const episodeStatsResult = await env.DB.prepare(`DELETE FROM user_episode_stats WHERE user_id = ?`).bind(userId).run();
+          
+          // 3. Delete user favorites
+          const favoritesResult = await env.DB.prepare(`DELETE FROM user_favorites WHERE user_id = ?`).bind(userId).run();
+          
+          // 4. Delete user study sessions
+          const sessionsResult = await env.DB.prepare(`DELETE FROM user_study_sessions WHERE user_id = ?`).bind(userId).run();
+          
+          // 5. Delete user preferences
+          const prefsResult = await env.DB.prepare(`DELETE FROM user_preferences WHERE user_id = ?`).bind(userId).run();
+          
+          // 6. Delete user roles
+          const rolesResult = await env.DB.prepare(`DELETE FROM user_roles WHERE user_id = ?`).bind(userId).run();
+          
+          // 7. Delete user logins
+          const loginsResult = await env.DB.prepare(`DELETE FROM user_logins WHERE user_id = ?`).bind(userId).run();
+          
+          // 8. Finally delete user
+          const userResult = await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
+          
+          return json({
+            success: true,
+            deleted: {
+              user: userResult.meta.changes || 0,
+              progress: progressResult.meta.changes || 0,
+              episode_stats: episodeStatsResult.meta.changes || 0,
+              favorites: favoritesResult.meta.changes || 0,
+              study_sessions: sessionsResult.meta.changes || 0,
+              preferences: prefsResult.meta.changes || 0,
+              roles: rolesResult.meta.changes || 0,
+              logins: loginsResult.meta.changes || 0,
+            }
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get user preferences
+      if (path.match(/^\/api\/users\/[^\/]+\/preferences$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/')[3];
+          
+          let prefs = await env.DB.prepare(`
+            SELECT * FROM user_preferences WHERE user_id = ?
+          `).bind(userId).first();
+          
+          // Create default preferences if not exist
+          if (!prefs) {
+            const now = Date.now();
+            await env.DB.prepare(`
+              INSERT INTO user_preferences (user_id, created_at, updated_at)
+              VALUES (?, ?, ?)
+            `).bind(userId, now, now).run();
+            
+            prefs = await env.DB.prepare(`
+              SELECT * FROM user_preferences WHERE user_id = ?
+            `).bind(userId).first();
+          }
+          
+          return json(prefs);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Update user preferences
+      if (path.match(/^\/api\/users\/[^\/]+\/preferences$/) && request.method === 'PUT') {
+        try {
+          const userId = path.split('/')[3];
+          const body = await request.json();
+          
+          const now = Date.now();
+          
+          // Convert array to JSON string if needed
+          const subLangsJson = Array.isArray(body.subtitle_languages) 
+            ? JSON.stringify(body.subtitle_languages) 
+            : body.subtitle_languages;
+          
+          // Build update fields dynamically to avoid undefined values
+          const updates = [];
+          const updateValues = [];
+          
+          if (body.main_language !== undefined) {
+            updates.push('main_language = ?');
+            updateValues.push(body.main_language);
+          }
+          if (subLangsJson !== undefined) {
+            updates.push('subtitle_languages = ?');
+            updateValues.push(subLangsJson);
+          }
+          if (body.require_all_languages !== undefined) {
+            updates.push('require_all_languages = ?');
+            updateValues.push(body.require_all_languages);
+          }
+          if (body.difficulty_min !== undefined) {
+            updates.push('difficulty_min = ?');
+            updateValues.push(body.difficulty_min);
+          }
+          if (body.difficulty_max !== undefined) {
+            updates.push('difficulty_max = ?');
+            updateValues.push(body.difficulty_max);
+          }
+          if (body.auto_play !== undefined) {
+            updates.push('auto_play = ?');
+            updateValues.push(body.auto_play);
+          }
+          if (body.playback_speed !== undefined) {
+            updates.push('playback_speed = ?');
+            updateValues.push(body.playback_speed);
+          }
+          if (body.theme !== undefined) {
+            updates.push('theme = ?');
+            updateValues.push(body.theme);
+          }
+          if (body.show_romanization !== undefined) {
+            updates.push('show_romanization = ?');
+            updateValues.push(body.show_romanization);
+          }
+          
+          // Always update timestamp
+          updates.push('updated_at = ?');
+          updateValues.push(now);
+          
+          // Check if preferences exist
+          const existing = await env.DB.prepare(`
+            SELECT id FROM user_preferences WHERE user_id = ?
+          `).bind(userId).first();
+          
+          if (existing) {
+            // Update existing preferences
+            if (updates.length > 1) { // More than just updated_at
+              await env.DB.prepare(`
+                UPDATE user_preferences SET ${updates.join(', ')} WHERE user_id = ?
+              `).bind(...updateValues, userId).run();
+            }
+          } else {
+            // Insert new preferences with defaults
+            await env.DB.prepare(`
+              INSERT INTO user_preferences (
+                user_id, main_language, subtitle_languages, require_all_languages,
+                auto_play, created_at, updated_at
+              )
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+              userId, 
+              body.main_language || 'en',
+              subLangsJson || '["en"]',
+              body.require_all_languages ?? 0,
+              body.auto_play ?? 1,
+              now, 
+              now
+            ).run();
+          }
+          
+          const prefs = await env.DB.prepare(`
+            SELECT * FROM user_preferences WHERE user_id = ?
+          `).bind(userId).first();
+          
+          return json(prefs);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get user favorites
+      if (path.match(/^\/api\/users\/[^\/]+\/favorites$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/')[3];
+          const filmId = url.searchParams.get('film_id');
+          
+          let query = 'SELECT * FROM user_favorites WHERE user_id = ?';
+          const params = [userId];
+          
+          if (filmId) {
+            query += ' AND film_id = ?';
+            params.push(filmId);
+          }
+          
+          query += ' ORDER BY created_at DESC';
+          
+          const favorites = await env.DB.prepare(query).bind(...params).all();
+          return json(favorites.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Add favorite
+      if (path.match(/^\/api\/users\/[^\/]+\/favorites$/) && request.method === 'POST') {
+        try {
+          const userId = path.split('/')[3];
+          const body = await request.json();
+          const { card_id, film_id, episode_id, notes, tags } = body;
+          
+          if (!card_id) {
+            return json({ error: 'card_id is required' }, { status: 400 });
+          }
+          
+          const now = Date.now();
+          const tagsJson = Array.isArray(tags) ? JSON.stringify(tags) : tags;
+          
+          await env.DB.prepare(`
+            INSERT INTO user_favorites (user_id, card_id, film_id, episode_id, notes, tags, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, card_id) DO UPDATE SET
+              notes = COALESCE(?, notes),
+              tags = COALESCE(?, tags),
+              updated_at = ?
+          `).bind(
+            userId, card_id, film_id, episode_id, notes, tagsJson, now, now,
+            notes, tagsJson, now
+          ).run();
+          
+          const favorite = await env.DB.prepare(`
+            SELECT * FROM user_favorites WHERE user_id = ? AND card_id = ?
+          `).bind(userId, card_id).first();
+          
+          return json(favorite);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Remove favorite
+      if (path.match(/^\/api\/users\/[^\/]+\/favorites\/[^\/]+$/) && request.method === 'DELETE') {
+        try {
+          const pathParts = path.split('/');
+          const userId = pathParts[3];
+          const cardId = pathParts[5];
+          
+          await env.DB.prepare(`
+            DELETE FROM user_favorites WHERE user_id = ? AND card_id = ?
+          `).bind(userId, cardId).run();
+          
+          return json({ success: true });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get user statistics
+      if (path.match(/^\/api\/users\/[^\/]+\/stats$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/')[3];
+          
+          const stats = await env.DB.prepare(`
+            SELECT * FROM v_user_stats WHERE user_id = ?
+          `).bind(userId).first();
+          
+          return json(stats || {});
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get all users (admin endpoint)
+      if (path === '/api/users' && request.method === 'GET') {
+        try {
+          const users = await env.DB.prepare(`
+            SELECT * FROM v_user_profiles ORDER BY created_at DESC
+          `).all();
+          
+          return json(users.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get user roles
+      if (path.match(/^\/api\/users\/[^\/]+\/roles$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/')[3];
+          
+          const roles = await env.DB.prepare(`
+            SELECT ur.role_name, r.description, r.permissions
+            FROM user_roles ur
+            JOIN roles r ON ur.role_name = r.name
+            WHERE ur.user_id = ?
+          `).bind(userId).all();
+          
+          return json(roles.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get user progress details (admin endpoint)
+      if (path.match(/^\/api\/users\/[^\/]+\/progress$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/')[3];
+          
+          // Get all episode stats for this user
+          const episodeStats = await env.DB.prepare(`
+            SELECT * FROM user_episode_stats 
+            WHERE user_id = ? 
+            ORDER BY last_completed_at DESC
+          `).bind(userId).all();
+          
+          // Get recent card completions
+          const recentCards = await env.DB.prepare(`
+            SELECT * FROM user_progress 
+            WHERE user_id = ? 
+            ORDER BY completed_at DESC 
+            LIMIT 100
+          `).bind(userId).all();
+          
+          return json({
+            episode_stats: episodeStats.results || [],
+            recent_cards: recentCards.results || []
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // ==================== ADMIN ROLE MANAGEMENT ====================
+
+      // Get database table statistics (superadmin only)
+      if (path === '/api/admin/database-stats' && request.method === 'GET') {
+        try {
+          const tables = [
+            'users',
+            'auth_providers',
+            'user_logins',
+            'roles',
+            'user_roles',
+            'user_preferences',
+            'user_study_sessions',
+            'user_favorites',
+            'user_progress',
+            'user_episode_stats'
+          ];
+          
+          const stats = {};
+          
+          for (const table of tables) {
+            const result = await env.DB.prepare(`SELECT COUNT(*) as count FROM ${table}`).first();
+            stats[table] = result?.count || 0;
+          }
+          
+          return json(stats);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Sync admin roles from environment variable (admin only)
+      if (path === '/api/admin/sync-roles' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { adminEmails, requesterId } = body;
+          
+          if (!adminEmails || !Array.isArray(adminEmails)) {
+            return json({ error: 'adminEmails array is required' }, { status: 400 });
+          }
+          
+          // Check if requester is already an admin
+          const requester = await env.DB.prepare(`
+            SELECT is_admin, role FROM users WHERE id = ?
+          `).bind(requesterId).first();
+          
+          if (!requester || (!requester.is_admin && requester.role !== 'admin')) {
+            return json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
+          }
+          
+          const now = Date.now();
+          let syncedCount = 0;
+          let skippedCount = 0;
+          
+          for (const email of adminEmails) {
+            // Find user by email
+            const user = await env.DB.prepare(`
+              SELECT id, is_admin, role FROM users WHERE email = ?
+            `).bind(email).first();
+            
+            if (user) {
+              // Update user to admin
+              await env.DB.prepare(`
+                UPDATE users SET is_admin = 1, role = 'admin', updated_at = ? WHERE id = ?
+              `).bind(now, user.id).run();
+              
+              // Add admin role to user_roles if not exists
+              await env.DB.prepare(`
+                INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
+                VALUES (?, 'admin', ?, ?)
+              `).bind(user.id, requesterId, now).run();
+              
+              syncedCount++;
+            } else {
+              skippedCount++;
+            }
+          }
+          
+          return json({
+            success: true,
+            synced: syncedCount,
+            skipped: skippedCount,
+            message: `Synced ${syncedCount} admin users, skipped ${skippedCount} (not registered)`
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get user roles (admin endpoint)
+      if (path.match(/^\/api\/users\/[^\/]+\/roles$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/')[3];
+          
+          const roles = await env.DB.prepare(`
+            SELECT ur.*, r.description, r.permissions
+            FROM user_roles ur
+            JOIN roles r ON ur.role_name = r.name
+            WHERE ur.user_id = ?
+            AND (ur.expires_at IS NULL OR ur.expires_at > ?)
+            ORDER BY ur.granted_at DESC
+          `).bind(userId, Date.now()).all();
+          
+          return json(roles.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
         }
       }
 

@@ -17,6 +17,7 @@ import {
 import PortalDropdown from "./PortalDropdown";
 import ProgressBar from "./ProgressBar";
 import Pagination from "./Pagination";
+import "../styles/admin/admin-content-media.css";
 
 // R2 item type mirrors cfApi
 interface R2Item {
@@ -273,19 +274,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
       <div className="admin-info">
         Browse and manage R2 objects and folders.
       </div>
-      <div className="flex items-center gap-3 mt-2 mb-3">
-        <Pagination
-          mode="cursor"
-          pageIndex={pageIndex}
-          pageSize={pageSize}
-          hasPrev={pageIndex > 0}
-          hasNext={(pageIndex < pages.length - 1) || !!nextCursor}
-          loading={loading}
-          onPrev={goPrevPage}
-          onNext={goNextPage}
-          onPageSizeChange={(n) => setPageSize(n)}
-          totalPages={totalPages}
-        />
+      <div className="flex items-center gap-2 mt-2 mb-3">
         <button
           className="admin-btn secondary !px-3 !py-1 ml-auto"
           onClick={() => setRefreshKey((k) => k + 1)}
@@ -463,7 +452,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                         <span>View</span>
                       </div>
                       <div
-                        className="admin-dropdown-item"
+                        className="admin-dropdown-item danger"
                         onClick={(e) => {
                           e.stopPropagation();
                           setOpenMenuFor(null);
@@ -499,6 +488,22 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="mt-3">
+        <Pagination
+          mode="cursor"
+          pageIndex={pageIndex}
+          pageSize={pageSize}
+          hasPrev={pageIndex > 0}
+          hasNext={(pageIndex < pages.length - 1) || !!nextCursor}
+          loading={loading}
+          onPrev={goPrevPage}
+          onNext={goNextPage}
+          onPageSizeChange={(n) => setPageSize(n)}
+          totalPages={totalPages}
+        />
       </div>
 
       {/* Confirmation modal (same style as AdminContentListPage) */}
