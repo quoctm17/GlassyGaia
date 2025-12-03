@@ -315,21 +315,41 @@ export default function SearchResultCard({
       if (lang === 'ja' || hasJapanese(q)) {
         const qNorm = normalizeJapanese(q.trim());
         if (!qNorm) return html;
-        
-        // Parse HTML to extract visible text with position mapping
-        // We need to track which HTML positions correspond to which visible characters
+
+        // Strategy: detect ruby groups and if q matches the rt reading (normalized),
+        // highlight both the entire rb and rt content. Otherwise fall back to visible text matching.
+
+        // Process ruby groups first
+        const rubyRe = /<ruby>\s*<rb>([\s\S]*?)<\/rb>\s*<rt>([\s\S]*?)<\/rt>\s*<\/ruby>/gi;
+        let hasRubyHighlights = false;
+        const processed = html.replace(rubyRe, (m, rbContent, rtContent) => {
+          const rbNorm = normalizeJapanese(rbContent);
+          const rtNorm = normalizeJapanese(rtContent);
+          if (!rbNorm && !rtNorm) return m;
+          // If query matches the rt (reading), highlight both rb and rt
+          if (rtNorm.includes(qNorm) || rbNorm.includes(qNorm)) {
+            hasRubyHighlights = true;
+            return `<ruby><rb><span class="text-[#f3a1d6]">${rbContent}</span></rb><rt><span class="text-[#f3a1d6]">${rtContent}</span></rt></ruby>`;
+          }
+          return m;
+        });
+
+        if (hasRubyHighlights) {
+          return processed;
+        }
+
+        // Fallback: original visible text approach (no ruby reading match found)
         const visibleChars: { char: string; htmlPos: number }[] = [];
         let i = 0;
         let inRtTag = false;
-        
+
         while (i < html.length) {
           const char = html[i];
-          
+
           if (char === '<') {
-            // Check what tag this is
             const rtMatch = html.substring(i).match(/^<rt>/);
             const rtCloseMatch = html.substring(i).match(/^<\/rt>/);
-            
+
             if (rtMatch) {
               inRtTag = true;
               i += rtMatch[0].length;
@@ -339,152 +359,56 @@ export default function SearchResultCard({
               i += rtCloseMatch[0].length;
               continue;
             }
-            
-            // Other tags - skip until '>'
-            while (i < html.length && html[i] !== '>') {
-              i++;
-            }
-            if (i < html.length && html[i] === '>') {
-              i++;
-            }
+
+            while (i < html.length && html[i] !== '>') i++;
+            if (i < html.length && html[i] === '>') i++;
             continue;
           }
-          
-          // Skip content inside <rt> tags (furigana)
-          if (inRtTag) {
-            i++;
-            continue;
-          }
-          
-          // Skip whitespace
-          if (/\s/.test(char)) {
-            i++;
-            continue;
-          }
-          
-          // This is a visible character - store its actual position
+
+          if (inRtTag) { i++; continue; }
+          if (/\s/.test(char)) { i++; continue; }
           visibleChars.push({ char, htmlPos: i });
           i++;
         }
-        
-        // Build normalized visible text with position mapping
-        const posMap: number[] = []; // maps normalized index to visibleChars index
+
+        const posMap: number[] = [];
         let normalized = '';
-        
         for (let vi = 0; vi < visibleChars.length; vi++) {
           const norm = normChar(visibleChars[vi].char);
-          for (let j = 0; j < norm.length; j++) {
-            normalized += norm[j];
-            posMap.push(vi); // point to visibleChars index
-          }
+          for (let j = 0; j < norm.length; j++) { normalized += norm[j]; posMap.push(vi); }
         }
-        
-        // Find match in normalized text
+
         const matchIdx = normalized.indexOf(qNorm);
         if (matchIdx === -1) return html;
-        
         const lastNormIdx = matchIdx + qNorm.length - 1;
-        
-        // Get start and end visible character indices
         const startVisIdx = posMap[matchIdx];
         const lastVisIdx = posMap[lastNormIdx];
-        
-        // Find exclusive end index
         let endVisIdxExclusive = lastVisIdx + 1;
-        for (let i = lastNormIdx + 1; i < posMap.length; i++) {
-          if (posMap[i] === lastVisIdx) {
-            continue;
-          } else {
-            endVisIdxExclusive = posMap[i];
-            break;
-          }
+        for (let k = lastNormIdx + 1; k < posMap.length; k++) {
+          if (posMap[k] !== lastVisIdx) { endVisIdxExclusive = posMap[k]; break; }
         }
-        
-        // Convert to HTML positions - not needed anymore, using Set instead
-        
-        // Now insert highlight spans at these HTML positions
-        // Strategy: wrap each individual character position with highlight
-        // Also highlight corresponding <rt> content if character is inside <ruby>
+
         let result = '';
         let htmlIdx = 0;
         let inRtTag2 = false;
-        let inRubyRb = false; // track if we're inside <rb> tag
         const charPositions = new Set(visibleChars.slice(startVisIdx, endVisIdxExclusive).map(v => v.htmlPos));
-        
         while (htmlIdx < html.length) {
-          const char = html[htmlIdx];
-          
-          if (char === '<') {
+          const c = html[htmlIdx];
+          if (c === '<') {
             const rtMatch = html.substring(htmlIdx).match(/^<rt>/);
             const rtCloseMatch = html.substring(htmlIdx).match(/^<\/rt>/);
-            const rbMatch = html.substring(htmlIdx).match(/^<rb>/);
-            const rbCloseMatch = html.substring(htmlIdx).match(/^<\/rb>/);
-            
-            if (rtMatch) {
-              result += rtMatch[0];
-              inRtTag2 = true;
-              htmlIdx += rtMatch[0].length;
-              
-              // Check if the corresponding <rb> content is highlighted
-              // If yes, highlight the entire <rt> content
-              const rtStart = htmlIdx;
-              let rtEnd = htmlIdx;
-              while (rtEnd < html.length && !html.substring(rtEnd).startsWith('</rt>')) {
-                rtEnd++;
-              }
-              const rtContent = html.substring(rtStart, rtEnd);
-              
-              // Check if any char in the corresponding rb was highlighted
-              // We need to track this - for now, check if we just closed a highlighted rb
-              if (inRubyRb) {
-                // Highlight the rt content
-                result += '<span class="text-[#f3a1d6]">' + rtContent + '</span>';
-                htmlIdx = rtEnd;
-              }
-              continue;
-            } else if (rtCloseMatch) {
-              result += rtCloseMatch[0];
-              inRtTag2 = false;
-              htmlIdx += rtCloseMatch[0].length;
-              continue;
-            } else if (rbMatch) {
-              result += rbMatch[0];
-              htmlIdx += rbMatch[0].length;
-              // Check if next content will be highlighted
-              const nextCharPos = htmlIdx;
-              inRubyRb = charPositions.has(nextCharPos);
-              continue;
-            } else if (rbCloseMatch) {
-              result += rbCloseMatch[0];
-              htmlIdx += rbCloseMatch[0].length;
-              continue;
-            }
-            
-            // Other tag - copy entire tag
-            let tagStart = htmlIdx;
-            htmlIdx++;
-            while (htmlIdx < html.length && html[htmlIdx] !== '>') {
-              htmlIdx++;
-            }
-            if (htmlIdx < html.length && html[htmlIdx] === '>') {
-              htmlIdx++;
-            }
+            if (rtMatch) { result += rtMatch[0]; inRtTag2 = true; htmlIdx += rtMatch[0].length; continue; }
+            if (rtCloseMatch) { result += rtCloseMatch[0]; inRtTag2 = false; htmlIdx += rtCloseMatch[0].length; continue; }
+            let tagStart = htmlIdx; htmlIdx++;
+            while (htmlIdx < html.length && html[htmlIdx] !== '>') htmlIdx++;
+            if (htmlIdx < html.length && html[htmlIdx] === '>') htmlIdx++;
             result += html.substring(tagStart, htmlIdx);
             continue;
           }
-          
-          // Check if this character position should be highlighted
           const shouldHighlight = !inRtTag2 && charPositions.has(htmlIdx);
-          
-          if (shouldHighlight) {
-            result += '<span class="text-[#f3a1d6]">' + char + '</span>';
-          } else {
-            result += char;
-          }
-          
+          result += shouldHighlight ? `<span class="text-[#f3a1d6]">${c}</span>` : c;
           htmlIdx++;
         }
-        
         return result;
       }
       
