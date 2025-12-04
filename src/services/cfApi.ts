@@ -267,16 +267,6 @@ export async function apiFetchCardsForFilm(
     : `/items/${filmEnc}/cards?${q.toString()}`;
   const rows = await getJson<Array<Record<string, unknown>>>(basePath);
   
-  // Debug: Log raw response to check subtitle structure
-  if (rows.length > 0) {
-    console.log('[cfApi] Raw first row from API:', rows[0]);
-    console.log('[cfApi] First row subtitle field:', rows[0].subtitle);
-    console.log('[cfApi] First row subtitle type:', typeof rows[0].subtitle);
-    if (rows[0].subtitle && typeof rows[0].subtitle === 'object') {
-      console.log('[cfApi] First row subtitle keys:', Object.keys(rows[0].subtitle as Record<string, unknown>));
-    }
-  }
-  
   return rows.map(rowToCardDoc);
 }
 

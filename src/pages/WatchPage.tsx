@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { FilmDoc, EpisodeDetailDoc, CardDoc, GetProgressResponse } from '../types';
 import { apiGetFilm, apiListEpisodes, apiFetchCardsForFilm } from '../services/cfApi';
-import { getEpisodeProgress, markCardComplete } from '../services/userProgress';
+import { getEpisodeProgress, markCardComplete, markCardIncomplete } from '../services/userProgress';
 import { useUser } from '../context/UserContext';
 import AudioPlayer from '../components/AudioPlayer';
 import type { AudioPlayerHandle } from '../components/AudioPlayer';
@@ -22,9 +22,11 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMoreCards, setLoadingMoreCards] = useState(false);
   const [noMoreCards, setNoMoreCards] = useState(false);
-  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [progress, setProgress] = useState<GetProgressResponse | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isEditingCardNumber, setIsEditingCardNumber] = useState(false);
+  const [cardNumberInput, setCardNumberInput] = useState<string>('');
   const mediaRef = useRef<AudioPlayerHandle>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
 
@@ -56,13 +58,7 @@ export default function WatchPage() {
         container.scrollTo({ top: scrollPosition, behavior: 'smooth' });
       }
     }
-    
-    // Reset slide direction after animation completes
-    if (slideDirection) {
-      const timer = setTimeout(() => setSlideDirection(null), 300);
-      return () => clearTimeout(timer);
-    }
-  }, [currentCardIndex, slideDirection]);
+  }, [currentCardIndex]);
 
   // Progressive loading: Load more cards when approaching the end
   useEffect(() => {
@@ -164,7 +160,6 @@ export default function WatchPage() {
         setCards(sorted);
         setCurrentCardIndex(0);
         setNoMoreCards(false);
-        setNoMoreCards(false); // Reset when loading new episode
         
         // Load user progress for this episode
         if (user?.uid) {
@@ -184,6 +179,58 @@ export default function WatchPage() {
             setLoadingProgress(false);
           }
         }
+        
+        // Background loading: Load remaining cards in batches
+        // Only if episode has more cards than initial batch
+        if (currentEpisode.num_cards && currentEpisode.num_cards > sorted.length) {
+          const loadRemainingCards = async () => {
+            try {
+              const allCards = [...sorted];
+              let hasMore = true;
+              
+              while (hasMore && allCards.length < currentEpisode.num_cards!) {
+                const lastCard = allCards[allCards.length - 1];
+                const startFrom = Math.floor(lastCard.end);
+                
+                // Load in batches of 100
+                const batchCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
+                
+                if (batchCards && batchCards.length > 0) {
+                  const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+                  const seen = new Set(allCards.map(key));
+                  
+                  for (const card of batchCards) {
+                    const k = key(card);
+                    if (!seen.has(k)) {
+                      allCards.push(card);
+                      seen.add(k);
+                    }
+                  }
+                  
+                  allCards.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+                  
+                  // Update cards state periodically (every 100 cards)
+                  setCards([...allCards]);
+                  
+                  // Small delay to avoid overwhelming the API
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                } else {
+                  hasMore = false;
+                  setNoMoreCards(true);
+                }
+              }
+              
+              console.log(`Background loading complete: ${allCards.length} cards loaded`);
+            } catch (error) {
+              console.error('Background card loading failed:', error);
+            }
+          };
+          
+          // Start background loading after a short delay
+          setTimeout(() => {
+            loadRemainingCards();
+          }, 2000);
+        }
       } catch (error) {
         console.error('Failed to load cards:', error);
         setCards([]);
@@ -192,6 +239,60 @@ export default function WatchPage() {
     
     loadCards();
   }, [contentId, currentEpisode, user]);
+
+  // Toggle card completion status
+  const handleToggleComplete = async (markAsComplete: boolean) => {
+    if (!user?.uid || !contentId || !currentEpisode || !cards[currentCardIndex]) return;
+
+    // Optimistically update UI first
+    if (progress) {
+      const newCompletedIndices = new Set(progress.completed_indices);
+      if (markAsComplete) {
+        newCompletedIndices.add(currentCardIndex);
+      } else {
+        newCompletedIndices.delete(currentCardIndex);
+      }
+      setProgress({
+        ...progress,
+        completed_indices: newCompletedIndices,
+      });
+    }
+
+    try {
+      if (markAsComplete) {
+        // Mark as completed in backend
+        await markCardComplete({
+          user_id: user.uid,
+          film_id: contentId,
+          episode_slug: currentEpisode.slug,
+          card_id: cards[currentCardIndex].id,
+          card_index: currentCardIndex,
+          total_cards: currentEpisode.num_cards || cards.length,
+        });
+      } else {
+        // Mark as incomplete in backend (delete progress record)
+        await markCardIncomplete({
+          user_id: user.uid,
+          film_id: contentId,
+          episode_slug: currentEpisode.slug,
+          card_id: cards[currentCardIndex].id,
+          total_cards: currentEpisode.num_cards || cards.length,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to toggle card completion:', error);
+      
+      // Revert optimistic update on error by reloading from backend
+      if (user?.uid && contentId && currentEpisode) {
+        try {
+          const updatedProgress = await getEpisodeProgress(user.uid, contentId, currentEpisode.slug);
+          setProgress(updatedProgress);
+        } catch (reloadError) {
+          console.error('Failed to reload progress:', reloadError);
+        }
+      }
+    }
+  };
 
   // Handle audio end - auto advance to next card
   const handleAudioEnd = async () => {
@@ -310,20 +411,150 @@ export default function WatchPage() {
   };
 
   const handleCardClick = (index: number) => {
-    // Set slide direction based on index change
-    if (index > currentCardIndex) {
-      setSlideDirection('left');
-    } else if (index < currentCardIndex) {
-      setSlideDirection('right');
+    // If target card is not loaded yet, load it first
+    if (index >= cards.length) {
+      // Load cards up to the target index
+      const loadToTarget = async () => {
+        try {
+          setLoadingMoreCards(true);
+          const lastCard = cards[cards.length - 1];
+          const startFrom = Math.floor(lastCard.end);
+          
+          // Calculate how many cards we need to load
+          const cardsToLoad = Math.min(index - cards.length + 50, 200); // Load target + 50 more, max 200
+          
+          const moreCards = await apiFetchCardsForFilm(contentId!, currentEpisode!.slug, cardsToLoad, { startFrom });
+          
+          if (moreCards && moreCards.length > 0) {
+            const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+            const seen = new Set(cards.map(key));
+            const merged = [...cards];
+            
+            for (const card of moreCards) {
+              const k = key(card);
+              if (!seen.has(k)) {
+                merged.push(card);
+                seen.add(k);
+              }
+            }
+            
+            merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+            setCards(merged);
+            
+            // Now jump to the target card
+            setTimeout(() => {
+              if (index < merged.length) {
+                setCurrentCardIndex(index);
+                if (mediaRef.current) {
+                  mediaRef.current.play();
+                }
+              } else {
+                console.warn('Target card not available after loading');
+              }
+            }, 100);
+          }
+        } catch (error) {
+          console.error('Failed to load cards for jump:', error);
+        } finally {
+          setLoadingMoreCards(false);
+        }
+      };
+      
+      loadToTarget();
+    } else {
+      // Card already loaded, just jump to it
+      setCurrentCardIndex(index);
+      // Auto-play when card is clicked (scroll is handled by useEffect)
+      setTimeout(() => {
+        if (mediaRef.current) {
+          mediaRef.current.play();
+        }
+      }, 100);
     }
+  };
+
+  const handleCardNumberClick = () => {
+    setIsEditingCardNumber(true);
+    setCardNumberInput(String(currentCardIndex + 1));
+  };
+
+  const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (/^\d*$/.test(value)) {
+      setCardNumberInput(value);
+    }
+  };
+
+  const handleCardNumberSubmit = () => {
+    const num = parseInt(cardNumberInput, 10);
+    const totalCards = typeof currentEpisode?.num_cards === 'number' && currentEpisode.num_cards > 0 
+      ? currentEpisode.num_cards 
+      : cards.length;
     
-    setCurrentCardIndex(index);
-    // Auto-play when card is clicked (scroll is handled by useEffect)
-    setTimeout(() => {
-      if (mediaRef.current) {
-        mediaRef.current.play();
+    if (num >= 1 && num <= totalCards) {
+      const targetIndex = num - 1;
+      
+      // If target card is not loaded yet, load more cards first
+      if (targetIndex >= cards.length) {
+        // Load cards up to the target index
+        const loadToTarget = async () => {
+          try {
+            setLoadingMoreCards(true);
+            const lastCard = cards[cards.length - 1];
+            const startFrom = Math.floor(lastCard.end);
+            
+            // Calculate how many cards we need to load
+            const cardsToLoad = Math.min(targetIndex - cards.length + 50, 200); // Load target + 50 more, max 200
+            
+            const moreCards = await apiFetchCardsForFilm(contentId!, currentEpisode!.slug, cardsToLoad, { startFrom });
+            
+            if (moreCards && moreCards.length > 0) {
+              const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+              const seen = new Set(cards.map(key));
+              const merged = [...cards];
+              
+              for (const card of moreCards) {
+                const k = key(card);
+                if (!seen.has(k)) {
+                  merged.push(card);
+                  seen.add(k);
+                }
+              }
+              
+              merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+              setCards(merged);
+              
+              // Now jump to the target card
+              setTimeout(() => {
+                if (targetIndex < merged.length) {
+                  handleCardClick(targetIndex);
+                } else {
+                  console.warn('Target card not available after loading');
+                }
+              }, 100);
+            }
+          } catch (error) {
+            console.error('Failed to load cards for jump:', error);
+          } finally {
+            setLoadingMoreCards(false);
+          }
+        };
+        
+        loadToTarget();
+      } else {
+        // Card already loaded, just jump to it
+        handleCardClick(targetIndex);
       }
-    }, 100);
+    }
+    setIsEditingCardNumber(false);
+  };
+
+  const handleCardNumberKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleCardNumberSubmit();
+    } else if (e.key === 'Escape') {
+      setIsEditingCardNumber(false);
+    }
   };
 
   const handlePrevCard = () => {
@@ -442,6 +673,14 @@ export default function WatchPage() {
             mediaRef.current.togglePlayPause();
           }
           break;
+        case 'c':
+          // Toggle completion status
+          e.preventDefault();
+          if (progress) {
+            const isCompleted = progress.completed_indices.has(currentCardIndex);
+            handleToggleComplete(!isCompleted);
+          }
+          break;
         case 'arrowleft':
           // Previous card (alternative)
           e.preventDefault();
@@ -460,7 +699,7 @@ export default function WatchPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCardIndex, cards.length]);
+  }, [currentCardIndex, cards.length, progress]);
 
   // Get main language subtitle (from film main_language)
   const mainLanguage = film?.main_language || 'en';
@@ -498,15 +737,6 @@ export default function WatchPage() {
           )}
         </div>
 
-        {/* Learning Progress Bar */}
-        {!loadingProgress && progress && cards.length > 0 && (
-          <LearningProgressBar
-            totalCards={currentEpisode?.num_cards || cards.length}
-            completedIndices={progress.completed_indices}
-            currentIndex={currentCardIndex}
-          />
-        )}
-
         {/* Card Image and Audio player (50%) / Subtitles panel (50%) */}
         <div className="watch-grid">
           {/* Left column - Card Image + Audio player + Carousel */}
@@ -527,7 +757,25 @@ export default function WatchPage() {
               <div className="watch-media-container">
                 {/* Card Counter */}
                 <div className="watch-card-counter">
-                  <span className="watch-card-counter-current">{currentCardIndex + 1}</span>
+                  {isEditingCardNumber ? (
+                    <input
+                      type="text"
+                      value={cardNumberInput}
+                      onChange={handleCardNumberChange}
+                      onBlur={handleCardNumberSubmit}
+                      onKeyDown={handleCardNumberKeyDown}
+                      className="watch-card-counter-input"
+                      autoFocus
+                    />
+                  ) : (
+                    <span 
+                      className="watch-card-counter-current" 
+                      onClick={handleCardNumberClick}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {currentCardIndex + 1}
+                    </span>
+                  )}
                   <span className="watch-card-counter-separator">/</span>
                   <span className="watch-card-counter-total">
                     {typeof currentEpisode?.num_cards === 'number' && currentEpisode.num_cards > 0 ? currentEpisode.num_cards : cards.length}
@@ -535,9 +783,10 @@ export default function WatchPage() {
                 </div>
 
                 {cards.length > 0 && cards[currentCardIndex] ? (
-                  <div className={`watch-media-wrapper ${slideDirection ? `slide-${slideDirection}` : ''}`}>
-                    {/* Card Image */}
-                    <div className="relative w-full h-full bg-[#1a0f26] flex flex-col items-center justify-center">
+                  <>
+                    <div className="watch-media-wrapper">
+                      {/* Card Image */}
+                      <div className="relative w-full flex-1 flex flex-col items-center justify-center">
                       {getCurrentCardImageUrl() ? (
                         <img
                           src={getCurrentCardImageUrl()}
@@ -565,7 +814,46 @@ export default function WatchPage() {
                         )}
                       </div>
                     </div>
-                  </div>
+                    
+                    {/* Mark Complete/Incomplete Buttons */}
+                    <div className="watch-completion-buttons">
+                      {progress?.completed_indices.has(currentCardIndex) ? (
+                        <button
+                          onClick={() => handleToggleComplete(false)}
+                          className="watch-completion-btn watch-completion-btn-incomplete"
+                          title="Mark as incomplete (C)"
+                        >
+                          ✕ Incomplete
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleComplete(true)}
+                          className="watch-completion-btn watch-completion-btn-complete"
+                          title="Mark as completed (C)"
+                        >
+                          ✓ Complete
+                        </button>
+                      )}
+                    </div>
+                    </div>
+                    
+                    {/* Learning Progress Bar */}
+                    {!loadingProgress && progress && (
+                      <div className="watch-progress-container">
+                        <div className="watch-progress-percentage">
+                          {Math.round((progress.completed_indices.size / (currentEpisode?.num_cards || cards.length)) * 100)}%
+                        </div>
+                        <div className="watch-progress-bar-wrapper">
+                          <LearningProgressBar
+                            totalCards={currentEpisode?.num_cards || cards.length}
+                            completedIndices={progress.completed_indices}
+                            currentIndex={currentCardIndex}
+                            onCardClick={handleCardClick}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="watch-no-media">
                     <p className="text-white">No cards available for this episode</p>
@@ -590,6 +878,7 @@ export default function WatchPage() {
               <div className="watch-card-carousel-track" ref={carouselRef}>
                 {cards.map((card, index) => {
                   const isActive = index === currentCardIndex;
+                  const isCompleted = progress?.completed_indices.has(index) || false;
                   const imageUrl = card.image_url ? 
                     (card.image_url.startsWith('/') && R2Base ? R2Base + card.image_url : card.image_url) : 
                     '';
@@ -599,7 +888,7 @@ export default function WatchPage() {
                       key={card.id}
                       data-card-index={index}
                       onClick={() => handleCardClick(index)}
-                      className={`watch-card-thumbnail ${isActive ? 'active' : ''}`}
+                      className={`watch-card-thumbnail ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
                     >
                       {imageUrl ? (
                         <img
@@ -645,6 +934,8 @@ export default function WatchPage() {
                 <input
                   type="text"
                   placeholder="Search vocabulary..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="watch-subtitles-search-input"
                 />
               </div>
@@ -656,6 +947,17 @@ export default function WatchPage() {
                     const mainText = getSubtitleText(card, mainLanguage);
                     const secondaryText = getSubtitleText(card, secondaryLanguage);
                     const isActive = index === currentCardIndex;
+                    const isCompleted = progress?.completed_indices.has(index) || false;
+                    
+                    // Search filter
+                    if (searchQuery) {
+                      const query = searchQuery.toLowerCase();
+                      const mainMatch = mainText.toLowerCase().includes(query);
+                      const secondaryMatch = secondaryText && secondaryText.toLowerCase().includes(query);
+                      if (!mainMatch && !secondaryMatch) {
+                        return null;
+                      }
+                    }
                     
                     // Only show secondary if it exists, is different from main, and user has selected subtitle languages
                     const showSecondary = secondaryText && 
@@ -668,7 +970,7 @@ export default function WatchPage() {
                         key={card.id}
                         id={`card-${index}`}
                         onClick={() => handleCardClick(index)}
-                        className={`watch-subtitle-card ${isActive ? 'active' : ''}`}
+                        className={`watch-subtitle-card ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
                       >
                         <div className="watch-subtitle-card-content">
                           <p className="watch-subtitle-main-text">{mainText || '—'}</p>

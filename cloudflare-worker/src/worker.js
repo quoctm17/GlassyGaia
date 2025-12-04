@@ -3007,7 +3007,7 @@ export default {
           
           await env.DB.prepare(`
             INSERT INTO user_episode_stats 
-              (user_id, film_id, episode_slug, total_cards, completed_cards, last_card_index, completion_percentage, last_accessed_at, updated_at)
+              (user_id, film_id, episode_slug, total_cards, completed_cards, last_card_index, completion_percentage, last_completed_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, film_id, episode_slug)
             DO UPDATE SET 
@@ -3015,11 +3015,75 @@ export default {
               completed_cards = ?,
               last_card_index = ?,
               completion_percentage = ?,
-              last_accessed_at = ?,
+              last_completed_at = ?,
               updated_at = ?
           `).bind(
             user_id, film_id, episode_slug, total, completed, card_index, percentage, now, now,
             total, completed, card_index, percentage, now, now
+          ).run();
+          
+          return json({ 
+            success: true,
+            completed_cards: completed,
+            total_cards: total,
+            completion_percentage: percentage
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Delete progress for a specific card (mark as incomplete)
+      if (path === '/api/progress/complete' && request.method === 'DELETE') {
+        try {
+          const body = await request.json();
+          const { user_id, film_id, episode_slug, card_id, total_cards } = body;
+          
+          if (!user_id || !film_id || !episode_slug || !card_id) {
+            return json({ error: 'Missing required fields' }, { status: 400 });
+          }
+
+          const now = Date.now();
+          
+          // Delete card progress
+          await env.DB.prepare(`
+            DELETE FROM user_progress 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ? AND card_id = ?
+          `).bind(user_id, film_id, episode_slug, card_id).run();
+          
+          // Update episode stats
+          const completedCount = await env.DB.prepare(`
+            SELECT COUNT(*) as count FROM user_progress 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ?
+          `).bind(user_id, film_id, episode_slug).first();
+          
+          const completed = completedCount?.count || 0;
+          const total = total_cards || completed; // Use provided total or fall back to completed count
+          const percentage = total > 0 ? (completed / total) * 100 : 0;
+          
+          // Get last card index if any cards remain
+          const lastCard = await env.DB.prepare(`
+            SELECT card_index FROM user_progress 
+            WHERE user_id = ? AND film_id = ? AND episode_slug = ?
+            ORDER BY card_index DESC LIMIT 1
+          `).bind(user_id, film_id, episode_slug).first();
+          
+          const lastCardIndex = lastCard?.card_index ?? 0;
+          
+          await env.DB.prepare(`
+            INSERT INTO user_episode_stats 
+              (user_id, film_id, episode_slug, total_cards, completed_cards, last_card_index, completion_percentage, last_completed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, film_id, episode_slug)
+            DO UPDATE SET 
+              total_cards = ?,
+              completed_cards = ?,
+              last_card_index = ?,
+              completion_percentage = ?,
+              updated_at = ?
+          `).bind(
+            user_id, film_id, episode_slug, total, completed, lastCardIndex, percentage, now, now,
+            total, completed, lastCardIndex, percentage, now
           ).run();
           
           return json({ 

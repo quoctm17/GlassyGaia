@@ -183,6 +183,8 @@
   flex: 1;
   height: 100%;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Mobile: Smaller border */
@@ -212,6 +214,32 @@
 .watch-card-counter-current {
   color: #f3a1d6;
   font-size: 1.125rem;
+  min-width: 2ch;
+  text-align: center;
+}
+
+.watch-card-counter-current:hover {
+  background-color: rgba(243, 161, 214, 0.1);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.watch-card-counter-input {
+  width: 3.5rem;
+  background-color: rgba(243, 161, 214, 0.1);
+  color: #f3a1d6;
+  border: 1px solid #f3a1d6;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+}
+
+.watch-card-counter-input:focus {
+  background-color: rgba(243, 161, 214, 0.2);
+  box-shadow: 0 0 0 2px rgba(243, 161, 214, 0.5);
 }
 
 .watch-card-counter-separator {
@@ -248,52 +276,114 @@
 
 .watch-media-wrapper {
   width: 100%;
-  height: 100%;
+  flex: 1;
   background-color: #1a0f26;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 1rem;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Completion Buttons */
+.watch-completion-buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  padding: 1rem 0;
+}
+
+.watch-completion-btn {
+  min-width: 140px;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  border: none;
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
-  animation: fadeIn 0.3s ease-in-out;
+  gap: 0.5rem;
 }
 
-/* Slide animations */
-.watch-media-wrapper.slide-left {
-  animation: slideInFromRight 0.3s ease-out;
+.watch-completion-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.watch-media-wrapper.slide-right {
-  animation: slideInFromLeft 0.3s ease-out;
+.watch-completion-btn-complete {
+  background: #34d399;
 }
 
-@keyframes slideInFromRight {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
+.watch-completion-btn-complete:hover {
+  background: #10b981;
+}
+
+.watch-completion-btn-incomplete {
+  background: #f87171;
+}
+
+.watch-completion-btn-incomplete:hover {
+  background: #ef4444;
+}
+
+/* Mobile: Smaller buttons */
+@media (max-width: 640px) {
+  .watch-completion-buttons {
+    gap: 0.5rem;
+    padding: 0.75rem 0;
   }
-  to {
-    opacity: 1;
-    transform: translateX(0);
+  
+  .watch-completion-btn {
+    min-width: 120px;
+    padding: 0.625rem 1.25rem;
+    font-size: 0.875rem;
   }
 }
 
-@keyframes slideInFromLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+/* Progress bar container inside media */
+.watch-progress-container {
+  padding: 0.75rem 1rem;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(243, 161, 214, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
+.watch-progress-percentage {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f3a1d6;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+.watch-progress-bar-wrapper {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Mobile: Smaller progress */
+@media (max-width: 640px) {
+  .watch-progress-container {
+    padding: 0.5rem 0.75rem;
+    gap: 0.75rem;
   }
-  to {
-    opacity: 1;
+  
+  .watch-progress-percentage {
+    font-size: 1rem;
+    min-width: 50px;
   }
 }
 
@@ -422,6 +512,40 @@
 .watch-card-thumbnail.active {
   border-color: #f3a1d6;
   box-shadow: 0 0 0 2px rgba(243, 161, 214, 0.3);
+}
+
+.watch-card-thumbnail.completed {
+  position: relative;
+}
+
+.watch-card-thumbnail.completed::after {
+  content: '✓';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background-color: #c45484;
+  color: white;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 640px) {
+  .watch-card-thumbnail.completed::after {
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+    top: 2px;
+    right: 2px;
+    border-width: 1px;
+  }
 }
 
 .watch-card-thumbnail-image {
@@ -643,6 +767,49 @@
 .watch-subtitle-card.active {
   border-color: #f3a1d6;
   background-color: rgba(243, 161, 214, 0.1);
+}
+
+.watch-subtitle-card.completed {
+  position: relative;
+  border-color: rgba(196, 84, 132, 0.3);
+  background-color: rgba(196, 84, 132, 0.05);
+}
+
+.watch-subtitle-card.completed::before {
+  content: '✓';
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  background-color: #c45484;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.watch-subtitle-card.completed .watch-subtitle-card-content {
+  padding-left: 36px;
+}
+
+@media (max-width: 640px) {
+  .watch-subtitle-card.completed::before {
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    top: 0.5rem;
+    left: 0.5rem;
+  }
+  
+  .watch-subtitle-card.completed .watch-subtitle-card-content {
+    padding-left: 30px;
+  }
 }
 
 .watch-subtitle-card-content {

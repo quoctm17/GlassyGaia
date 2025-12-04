@@ -50,6 +50,33 @@ export async function markCardComplete(
 }
 
 /**
+ * Mark a card as incomplete for a user (delete progress record)
+ */
+export async function markCardIncomplete(data: {
+  user_id: string;
+  film_id: string;
+  episode_slug: string;
+  card_id: string;
+  total_cards: number;
+}): Promise<UserCardProgress> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/api/progress/complete`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to mark card incomplete: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
  * Get progress for a user on a specific episode
  */
 export async function getEpisodeProgress(
