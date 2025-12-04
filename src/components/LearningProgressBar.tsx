@@ -6,6 +6,7 @@ interface LearningProgressBarProps {
   completedIndices: Set<number>; // Set of card indices that have been completed
   currentIndex?: number; // Optional: highlight current card
   className?: string;
+  onCardClick?: (index: number) => void; // Optional: callback when card is clicked
 }
 
 export default function LearningProgressBar({
@@ -13,6 +14,7 @@ export default function LearningProgressBar({
   completedIndices,
   currentIndex,
   className = '',
+  onCardClick,
 }: LearningProgressBarProps) {
   // Calculate completion percentage
   const completionPercentage = useMemo(() => {
@@ -54,6 +56,8 @@ export default function LearningProgressBar({
               card.completed ? 'completed' : 'incomplete'
             } ${card.current ? 'current' : ''}`}
             title={`Card ${card.index + 1}${card.completed ? ' - Completed' : ''}`}
+            onClick={() => onCardClick?.(card.index)}
+            style={{ cursor: onCardClick ? 'pointer' : 'default' }}
           />
         ))}
       </div>

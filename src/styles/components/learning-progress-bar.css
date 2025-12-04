@@ -8,6 +8,14 @@
   margin-bottom: 1.5rem;
 }
 
+/* When inside watch page media container - horizontal layout */
+.watch-progress-bar-wrapper .learning-progress-container {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 0;
+}
+
 /* Mobile: Smaller padding */
 @media (max-width: 640px) {
   .learning-progress-container {
@@ -26,6 +34,11 @@
   margin-bottom: 0.75rem;
 }
 
+/* Hide percentage when inside watch page (shown separately) */
+.watch-progress-bar-wrapper .learning-progress-percentage {
+  display: none;
+}
+
 /* Mobile: Smaller text */
 @media (max-width: 640px) {
   .learning-progress-percentage {
@@ -39,12 +52,16 @@
   display: flex;
   gap: 2px;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   height: 24px;
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: rgba(243, 161, 214, 0.15);
   border-radius: 4px;
   padding: 2px;
   overflow: hidden;
   margin-bottom: 0.5rem;
+  border: 1px solid rgba(243, 161, 214, 0.3);
+  box-sizing: border-box;
 }
 
 /* Mobile: Smaller height */
@@ -62,6 +79,7 @@
   border-radius: 2px;
   transition: all 0.3s ease;
   position: relative;
+  cursor: pointer;
 }
 
 /* Completed card - solid pink #c45484 */
@@ -105,6 +123,11 @@
   color: #d1d5db;
   font-size: 0.875rem;
   font-weight: 500;
+}
+
+/* Hide stats when inside watch page */
+.watch-progress-bar-wrapper .learning-progress-stats {
+  display: none;
 }
 
 /* Mobile: Smaller text */
