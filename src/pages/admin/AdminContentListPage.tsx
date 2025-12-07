@@ -13,7 +13,7 @@ import CustomSelect from '../../components/CustomSelect';
 import FlagDisplay from '../../components/FlagDisplay';
 import ProgressBar from '../../components/ProgressBar';
 import Pagination from '../../components/Pagination';
-import '../../styles/admin/admin-content-list.css';
+import '../../styles/pages/admin/admin-content-list.css';
 
 export default function AdminContentListPage() {
   const { preferences, setMainLanguage } = useUser();

@@ -49,12 +49,21 @@ export default function Pagination(props: PaginationProps) {
     return (
       <div className="flex items-center gap-3 flex-wrap">
         <label className="flex items-center gap-2 text-xs whitespace-nowrap">
-          <span className="text-pink-200">Page size:</span>
+          <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>Page size:</span>
           <select
             value={pageSize}
             onChange={(e) => onPageSizeChange?.(Number(e.currentTarget.value) || pageSize)}
             disabled={disabled}
-            className="bg-[#1f1829] border border-pink-500 rounded px-2 py-1 text-pink-100 text-xs"
+            style={{
+              background: 'var(--secondary)',
+              border: '2px solid var(--primary)',
+              borderRadius: '8px',
+              padding: '4px 8px',
+              color: 'var(--primary)',
+              fontFamily: 'var(--font-family)',
+              fontSize: '12px',
+              fontWeight: 500
+            }}
           >
             {sizes.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -62,17 +71,57 @@ export default function Pagination(props: PaginationProps) {
         <div className="flex items-center gap-2 whitespace-nowrap">
           <button
             type="button"
-            className="admin-btn secondary !px-2 !py-1 text-xs disabled:opacity-40"
             disabled={disabled || page <= 1}
             onClick={() => onPageChange(page - 1)}
+            style={{
+              background: 'var(--secondary)',
+              border: '2px solid var(--primary)',
+              borderRadius: '8px',
+              padding: '4px 12px',
+              color: 'var(--primary)',
+              fontFamily: 'var(--font-family)',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: (disabled || page <= 1) ? 'not-allowed' : 'pointer',
+              opacity: (disabled || page <= 1) ? 0.4 : 1,
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={(e) => {
+              if (!disabled && page > 1) {
+                e.currentTarget.style.background = 'var(--hover-bg)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--secondary)';
+            }}
           >Prev</button>
           <button
             type="button"
-            className="admin-btn secondary !px-2 !py-1 text-xs disabled:opacity-40"
             disabled={disabled || page >= totalPages}
             onClick={() => onPageChange(page + 1)}
+            style={{
+              background: 'var(--secondary)',
+              border: '2px solid var(--primary)',
+              borderRadius: '8px',
+              padding: '4px 12px',
+              color: 'var(--primary)',
+              fontFamily: 'var(--font-family)',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: (disabled || page >= totalPages) ? 'not-allowed' : 'pointer',
+              opacity: (disabled || page >= totalPages) ? 0.4 : 1,
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={(e) => {
+              if (!disabled && page < totalPages) {
+                e.currentTarget.style.background = 'var(--hover-bg)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--secondary)';
+            }}
           >Next</button>
-          <span className="text-xs text-pink-300">Page</span>
+          <span style={{ fontSize: '12px', color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>Page</span>
           <input
             type="number"
             min={1}
@@ -93,11 +142,22 @@ export default function Pagination(props: PaginationProps) {
               if (Number.isFinite(val)) onPageChange(clamp(val));
             }}
             disabled={disabled}
-            className="w-16 bg-[#1f1829] border border-pink-500 rounded px-2 py-1 text-pink-100 text-xs text-center"
+            style={{
+              width: '64px',
+              background: 'var(--secondary)',
+              border: '2px solid var(--primary)',
+              borderRadius: '8px',
+              padding: '4px 8px',
+              color: 'var(--primary)',
+              fontFamily: 'var(--font-family)',
+              fontSize: '12px',
+              fontWeight: 500,
+              textAlign: 'center'
+            }}
           />
-          <span className="text-xs text-pink-300">/ {totalPages}</span>
+          <span style={{ fontSize: '12px', color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>/ {totalPages}</span>
         </div>
-        <div className="ml-auto text-xs text-gray-400 whitespace-nowrap">
+        <div className="ml-auto" style={{ fontSize: '12px', color: 'var(--neutral)', fontFamily: 'var(--font-family)', fontWeight: 400, whiteSpace: 'nowrap' }}>
           Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} of {total}
         </div>
       </div>
@@ -109,12 +169,21 @@ export default function Pagination(props: PaginationProps) {
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <label className="flex items-center gap-2 text-xs whitespace-nowrap">
-        <span className="text-pink-200">Page size:</span>
+        <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>Page size:</span>
         <select
           value={pageSize}
           onChange={(e) => onPageSizeChange?.(Number(e.currentTarget.value) || pageSize)}
           disabled={disabled}
-          className="bg-[#1f1829] border border-pink-500 rounded px-2 py-1 text-pink-100 text-xs"
+          style={{
+            background: 'var(--secondary)',
+            border: '2px solid var(--primary)',
+            borderRadius: '8px',
+            padding: '4px 8px',
+            color: 'var(--primary)',
+            fontFamily: 'var(--font-family)',
+            fontSize: '12px',
+            fontWeight: 500
+          }}
         >
           {sizes.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -122,17 +191,57 @@ export default function Pagination(props: PaginationProps) {
       <div className="flex items-center gap-2 whitespace-nowrap">
         <button
           type="button"
-          className="admin-btn secondary !px-2 !py-1 text-xs disabled:opacity-40"
           disabled={disabled || !hasPrev}
           onClick={onPrev}
+          style={{
+            background: 'var(--secondary)',
+            border: '2px solid var(--primary)',
+            borderRadius: '8px',
+            padding: '4px 12px',
+            color: 'var(--primary)',
+            fontFamily: 'var(--font-family)',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: (disabled || !hasPrev) ? 'not-allowed' : 'pointer',
+            opacity: (disabled || !hasPrev) ? 0.4 : 1,
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (!disabled && hasPrev) {
+              e.currentTarget.style.background = 'var(--hover-bg)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--secondary)';
+          }}
         >Prev</button>
         <button
           type="button"
-          className="admin-btn secondary !px-2 !py-1 text-xs disabled:opacity-40"
           disabled={disabled || !hasNext}
           onClick={onNext}
+          style={{
+            background: 'var(--secondary)',
+            border: '2px solid var(--primary)',
+            borderRadius: '8px',
+            padding: '4px 12px',
+            color: 'var(--primary)',
+            fontFamily: 'var(--font-family)',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: (disabled || !hasNext) ? 'not-allowed' : 'pointer',
+            opacity: (disabled || !hasNext) ? 0.4 : 1,
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (!disabled && hasNext) {
+              e.currentTarget.style.background = 'var(--hover-bg)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--secondary)';
+          }}
         >Next</button>
-        <span className="text-xs text-pink-300">
+        <span style={{ fontSize: '12px', color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>
           {totalPages != null ? `Page ${pageIndex + 1} / ${totalPages}` : `Page ${pageIndex + 1}`}
         </span>
       </div>

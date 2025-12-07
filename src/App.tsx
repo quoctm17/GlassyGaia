@@ -26,6 +26,7 @@ import AdminCardUpdatePage from './pages/admin/AdminCardUpdatePage';
 import AdminUserListPage from './pages/admin/AdminUserListPage';
 import AdminUserDetailPage from './pages/admin/AdminUserDetailPage';
 import AdminDatabasePage from './pages/admin/AdminDatabasePage';
+import AdminImageMigrationPage from './pages/admin/AdminImageMigrationPage';
 import AuthLoginPage from './pages/authentication/LoginPage';
 import AuthSignupPage from './pages/authentication/SignupPage';
 import { Toaster } from 'react-hot-toast';
@@ -78,6 +79,8 @@ function App() {
                 <Route path="users/:userId" element={<AdminUserDetailPage />} />
                 {/* Admin Database Management */}
                 <Route path="database" element={<AdminDatabasePage />} />
+                {/* Admin Image Migration */}
+                <Route path="image-migration" element={<AdminImageMigrationPage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />

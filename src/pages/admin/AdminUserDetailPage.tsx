@@ -4,7 +4,7 @@ import { getUserProfile, getUserProgressData, getUserStats } from '../../service
 import type { UserProfile, UserProgressData, UserStats } from '../../services/userManagement';
 import { ArrowLeft, Mail, Calendar, Clock, Shield, UserCheck, UserX, BarChart3, Film, Tv, Heart, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
-import '../../styles/admin/admin-user-detail.css';
+import '../../styles/pages/admin/admin-user-detail.css';
 
 export default function AdminUserDetailPage() {
   const { userId } = useParams<{ userId: string }>();

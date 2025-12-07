@@ -1,0 +1,78 @@
+/* ================= Theme Colors System ================= */
+
+:root {
+  /* Light Mode Colors */
+  --light-primary: #FDAAAA;
+  --light-secondary: #F2EDE5;
+  --light-sidenav-bg: #F2EDE5;
+  --light-background: #F8F5EF;
+  --light-neutral: #9E9E9E;
+  --light-hover-select: #AA3F55;
+  --light-hover-bg: rgba(254, 228, 228, 0.5);
+  --light-main-language-text: #000000;
+
+  /* Dark Mode Colors */
+  --dark-primary: #9E2741;
+  --dark-secondary: #948979;
+  --dark-sidenav-bg: #2A3747;
+  --dark-background: #000000;
+  --dark-neutral: #9E9E9E;
+  --dark-hover-select: #FDAAAA;
+  --dark-hover-bg: rgba(45, 36, 41, 0.88);
+  --dark-main-language-text: #F2EDE5;
+
+  /* Icon Filter Values (CSS filters can't use color variables directly) */
+  /* Light Mode Filters */
+  --light-primary-filter: brightness(0) saturate(100%) invert(86%) sepia(16%) saturate(978%) hue-rotate(307deg) brightness(103%) contrast(99%); /* #FDAAAA */
+  --light-secondary-filter: brightness(0) saturate(100%) invert(91%) sepia(8%) saturate(337%) hue-rotate(323deg) brightness(99%) contrast(92%); /* #F2EDE5 */
+  --light-hover-select-filter: brightness(0) saturate(100%) invert(47%) sepia(17%) saturate(1517%) hue-rotate(298deg) brightness(91%) contrast(88%); /* #AA3F55 */
+  --light-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
+
+  /* Dark Mode Filters */
+  --dark-primary-filter: brightness(0) saturate(100%) invert(22%) sepia(44%) saturate(1481%) hue-rotate(318deg) brightness(92%) contrast(93%); /* #9E2741 */
+  --dark-secondary-filter: brightness(0) saturate(100%) invert(71%) sepia(7%) saturate(712%) hue-rotate(18deg) brightness(92%) contrast(87%); /* #948979 */
+  --dark-hover-select-filter: brightness(0) saturate(100%) invert(93%) sepia(22%) saturate(634%) hue-rotate(297deg) brightness(103%) contrast(98%); /* #FDAAAA */
+  --dark-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
+}
+
+/* Light Mode */
+.light {
+  --primary: var(--light-primary);
+  --secondary: var(--light-secondary);
+  --sidenav-bg: var(--light-sidenav-bg);
+  --background: var(--light-background);
+  --neutral: var(--light-neutral);
+  --hover-select: var(--light-hover-select);
+  --hover-bg: var(--light-hover-bg);
+  --main-language-text: var(--light-main-language-text);
+  
+  /* Icon Filters */
+  --icon-primary-filter: var(--light-primary-filter);
+  --icon-secondary-filter: var(--light-secondary-filter);
+  --icon-hover-select-filter: var(--light-hover-select-filter);
+  --icon-neutral-filter: var(--light-neutral-filter);
+  
+  /* Firefox scrollbar */
+  scrollbar-color: var(--light-primary) var(--light-secondary);
+}
+
+/* Dark Mode */
+.dark {
+  --primary: var(--dark-primary);
+  --secondary: var(--dark-secondary);
+  --sidenav-bg: var(--dark-sidenav-bg);
+  --background: var(--dark-background);
+  --neutral: var(--dark-neutral);
+  --hover-select: var(--dark-hover-select);
+  --hover-bg: var(--dark-hover-bg);
+  --main-language-text: var(--dark-main-language-text);
+  
+  /* Icon Filters */
+  --icon-primary-filter: var(--dark-primary-filter);
+  --icon-secondary-filter: var(--dark-secondary-filter);
+  --icon-hover-select-filter: var(--dark-hover-select-filter);
+  --icon-neutral-filter: var(--dark-neutral-filter);
+  
+  /* Firefox scrollbar */
+  scrollbar-color: var(--dark-primary) var(--dark-secondary);
+}

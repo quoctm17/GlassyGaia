@@ -15,12 +15,11 @@ import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../ser
 import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
-import { langLabel, canonicalizeLangCode, expandCanonicalToAliases } from "../../utils/lang";
+import { langLabel, canonicalizeLangCode, expandCanonicalToAliases, getFlagImageForLang } from "../../utils/lang";
 import { detectSubtitleHeaders, categorizeHeaders } from "../../utils/csvDetection";
 import ProgressBar from "../../components/ProgressBar";
-import FlagDisplay from "../../components/FlagDisplay";
-import CsvPreviewPanel from "../../components/CsvPreviewPanel";
-import "../../styles/admin/admin-forms.css";
+import CsvPreviewPanel from "../../components/admin/CsvPreviewPanel";
+import "../../styles/components/admin/admin-forms.css";
 
 // Normalize slug: remove accents, convert to lowercase, replace spaces with underscores, keep only safe characters
 function normalizeSlug(input: string): string {
@@ -42,17 +41,10 @@ function normalizeSlug(input: string): string {
 }
 
 export default function AdminContentIngestPage() {
-  const { user, signInGoogle, adminKey, preferences: globalPreferences, setMainLanguage: setGlobalMainLanguage } = useUser();
-  const allowedEmails = useMemo(
-    () => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "")
-      .split(",")
-      .map((s: string) => s.trim())
-      .filter(Boolean),
-    []
-  );
+  const { user, signInGoogle, adminKey, preferences: globalPreferences, setMainLanguage: setGlobalMainLanguage, isAdmin: checkIsAdmin } = useUser();
   const pass = (import.meta.env.VITE_IMPORT_KEY || "").toString();
   const requireKey = !!pass;
-  const isAdmin = !!user && allowedEmails.includes(user.email || "") && (!requireKey || adminKey === pass);
+  const isAdmin = !!user && checkIsAdmin() && (!requireKey || adminKey === pass);
 
   // Content meta state
   const [filmId, setFilmId] = useState("");
@@ -179,7 +171,11 @@ export default function AdminContentIngestPage() {
     const rawAliases = expandCanonicalToAliases(lang);
     const normalizedAliases = rawAliases.map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
     const variantAliases = rawAliases.filter(a => /\(.+\)/.test(a)).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
-    const headerNorms = headers.map(h => ({ orig: h, norm: h.toLowerCase().replace(/[_\s-]/g, "" ) }));
+    // Strip brackets/parentheses from headers (like [CC], (CC)) before normalizing
+    const headerNorms = headers.map(h => ({ 
+      orig: h, 
+      norm: h.toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "").replace(/[_\s-]/g, "") 
+    }));
     if (lang.toLowerCase() === 'id') {
       const confirmedId = headers.find(h => (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(h.toLowerCase())) && h.trim().toLowerCase() === 'id');
       if (confirmedId) return confirmedId;
@@ -397,9 +393,6 @@ export default function AdminContentIngestPage() {
 
   // Derived: can the user start creation?
   const canCreate = useMemo(() => {
-    const hasUser = !!user;
-    const emailOk = hasUser && allowedEmails.includes(user?.email || "");
-    const keyOk = !requireKey || adminKey === pass;
     const slugOk = !!filmId && slugChecked && slugAvailable === true;
     const csvOk = csvValid === true;
     const titleOk = (title || "").trim().length > 0;
@@ -413,8 +406,8 @@ export default function AdminContentIngestPage() {
     const epAudioOk = !addEpAudio || hasEpAudioFile;
     const epVideoOk = !addEpVideo || hasEpVideoFile;
     const optionalUploadsOk = coverOk && coverLandscapeOk && epCoverOk && epAudioOk && epVideoOk;
-    return !!(hasUser && emailOk && keyOk && slugOk && csvOk && titleOk && typeOk && cardMediaOk && optionalUploadsOk);
-  }, [user, allowedEmails, requireKey, adminKey, pass, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, addEpAudio, addEpVideo, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
+    return !!(isAdmin && slugOk && csvOk && titleOk && typeOk && cardMediaOk && optionalUploadsOk);
+  }, [isAdmin, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, addEpAudio, addEpVideo, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
 
   // Handlers
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -527,9 +520,7 @@ export default function AdminContentIngestPage() {
   };
 
   const onCreateAll = async () => {
-    if (!user) { toast.error("Sign in required"); return; }
-    if (!allowedEmails.includes(user.email || "")) { toast.error("Admin email required"); return; }
-    if (requireKey && adminKey !== pass) { toast.error("Admin Key required"); return; }
+    if (!isAdmin) { toast.error("Admin access required"); return; }
     if (!filmId) { toast.error("Please enter Content Slug"); return; }
     if (!slugChecked || !slugAvailable) { toast.error("Cần kiểm tra slug trước"); return; }
     try {
@@ -749,11 +740,10 @@ export default function AdminContentIngestPage() {
       {user ? (
         <div className="admin-panel space-y-2">
           <div className="text-sm">Signed in as <span className="text-gray-300">{user.email}</span></div>
-          <div className="text-sm">Admin emails allowed: <span className="text-gray-400">{(import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "").toString()}</span></div>
           {requireKey && (
             <div className="text-xs text-gray-400">Admin Key required — set it once in the SideNav.</div>
           )}
-          <div className="text-sm">Access: {isAdmin ? <span className="text-green-400">granted</span> : <span className="text-red-400">denied</span>}</div>
+          <div className="text-sm">Access: {isAdmin ? <span className="text-green-400">granted (Admin role)</span> : <span className="text-red-400">denied (No admin role)</span>}</div>
         </div>
       ) : (
         <div className="admin-panel">
@@ -844,8 +834,7 @@ export default function AdminContentIngestPage() {
             <div className="relative w-full" ref={langDropdownRef}>
               <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
                 <span className="inline-flex items-center gap-2">
-                  {/* Use emoji flags for 100% reliability across all languages */}
-                  <FlagDisplay lang={mainLanguage} />
+                  <img src={getFlagImageForLang(mainLanguage)} alt={`${mainLanguage} flag`} className="w-5 h-3.5 rounded" />
                   <span>{langLabel(mainLanguage)} ({mainLanguage})</span>
                 </span>
                 <span className="text-gray-400">▼</span>
@@ -863,7 +852,7 @@ export default function AdminContentIngestPage() {
                   </div>
                   {FILTERED_LANG_OPTIONS.map(l => (
                     <div key={l} className="admin-dropdown-item" onClick={() => { setMainLanguage(l); setLangOpen(false); setLangQuery(""); }}>
-                      <FlagDisplay lang={l} />
+                      <img src={getFlagImageForLang(l)} alt={`${l} flag`} className="w-5 h-3.5 rounded" />
                       <span className="text-sm">{langLabel(l)} ({l})</span>
                     </div>
                   ))}

@@ -10,8 +10,8 @@ import { importFilmFromCsv, type ImportFilmMeta } from '../../services/importer'
 import { canonicalizeLangCode, expandCanonicalToAliases, langLabel, countryCodeForLang } from '../../utils/lang';
 import { detectSubtitleHeaders, findHeaderForLang as findHeaderUtil, categorizeHeaders } from '../../utils/csvDetection';
 import ProgressBar from '../../components/ProgressBar';
-import CsvPreviewPanel from '../../components/CsvPreviewPanel';
-import '../../styles/admin/admin-forms.css';
+import CsvPreviewPanel from '../../components/admin/CsvPreviewPanel';
+import '../../styles/components/admin/admin-forms.css';
 
 export default function AdminEpisodeUpdatePage() {
   const { contentSlug, episodeSlug } = useParams();

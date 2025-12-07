@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import { Mail, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import '../../styles/authentication/auth.css';
+import '../../styles/pages/authentication/auth.css';
 
 export default function LoginPage() {
   const navigate = useNavigate();

@@ -1,0 +1,159 @@
+/* Role Management Modal Styles */
+
+.role-management-modal {
+  max-width: 600px;
+}
+
+.modal-subtitle-email {
+  font-size: 12px;
+  color: #c084fc;
+  margin-top: 2px;
+  font-family: 'Courier New', monospace;
+}
+
+.role-section {
+  margin-bottom: 24px;
+}
+
+.role-section:last-child {
+  margin-bottom: 0;
+}
+
+.role-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f9a8d4;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+}
+
+.role-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.role-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(42, 27, 59, 0.5);
+  border: 2px solid rgba(236, 72, 153, 0.3);
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.role-item.assigned {
+  border-color: rgba(168, 85, 247, 0.5);
+  background: rgba(168, 85, 247, 0.1);
+}
+
+.role-item.available {
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.role-item.available:hover {
+  background: rgba(42, 27, 59, 0.8);
+  border-color: #ec4899;
+  transform: translateX(4px);
+}
+
+.role-item.available:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.role-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.role-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f5d0fe;
+  margin-bottom: 2px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+}
+
+.role-item-desc {
+  font-size: 11px;
+  color: #e9d5ff;
+  font-family: system-ui, sans-serif;
+}
+
+.role-item-remove {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 2px solid #ef4444;
+  border-radius: 6px;
+  color: #f87171;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.role-item-remove:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+}
+
+.role-item-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.role-item-add-icon {
+  flex-shrink: 0;
+  color: #a855f7;
+  transition: all 0.2s;
+}
+
+.role-item.available:hover .role-item-add-icon {
+  color: #ec4899;
+  transform: scale(1.2);
+}
+
+.no-roles {
+  text-align: center;
+  padding: 24px;
+  color: #9333ea;
+  font-size: 13px;
+  font-style: italic;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px dashed rgba(168, 85, 247, 0.3);
+  border-radius: 8px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .role-management-modal {
+    max-width: 100%;
+  }
+
+  .role-item {
+    padding: 10px 12px;
+  }
+
+  .role-item-name {
+    font-size: 13px;
+  }
+
+  .role-item-desc {
+    font-size: 10px;
+  }
+}

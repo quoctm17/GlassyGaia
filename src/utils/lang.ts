@@ -452,3 +452,61 @@ export function calculateTextLength(text: string, langCode: string): number {
   }
 }
 
+// Mapping from country code to flag folder file name
+function getFlagFileName(countryCode: string): string {
+  const map: Record<string, string> = {
+    us: "united_states_the",
+    vn: "vietnam",
+    jp: "japan",
+    kr: "korea_south",
+    cn: "china",
+    tw: "taiwan",
+    no: "norway",
+    id: "indonesia",
+    th: "thailand",
+    my: "malaysia",
+    hk: "hong_kong",
+    sa: "saudi_arabia",
+    es: "spain",
+    bd: "bangladesh",
+    ad: "andorra",
+    hr: "croatia",
+    cz: "czech_republic_the",
+    dk: "denmark",
+    nl: "netherlands_the",
+    ph: "philippines_the",
+    fi: "finland",
+    fr: "france",
+    ca: "canada",
+    de: "germany",
+    gr: "greece",
+    il: "israel",
+    in: "india",
+    hu: "hungary",
+    is: "iceland",
+    it: "italy",
+    pl: "poland",
+    pt: "portugal",
+    br: "brazil",
+    ru: "russia",
+    se: "sweden",
+    tr: "turkey",
+    ua: "ukraine",
+    ro: "romania",
+    bg: "bulgaria",
+    sl: "slovenia",
+    sr: "serbia",
+    fa: "iran",
+    ku: "iraq",
+    gb: "united_kingdom_the",
+  };
+  return map[countryCode] || countryCode;
+}
+
+// Get flag image path for a language
+export function getFlagImageForLang(code: string): string {
+  const countryCode = countryCodeForLang(code);
+  const fileName = getFlagFileName(countryCode);
+  return new URL(`../assets/flags/flag_${fileName}.png`, import.meta.url).href;
+}
+

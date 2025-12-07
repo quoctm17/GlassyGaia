@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Search, Film, Book, Tv, Music, ChevronDown, ChevronUp } from 'lucide-react';
 import { listFilms } from '../services/firestore';
-import type { FilmDoc, CardDoc } from '../types';
+import type { FilmDoc, CardDoc, LevelFrameworkStats } from '../types';
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS, type ContentType } from '../types/content';
+import '../styles/components/content-selector.css';
 
 interface ContentSelectorProps {
   value: string | null;
@@ -13,11 +14,12 @@ interface ContentSelectorProps {
   filmTypeMapExternal?: Record<string, string | undefined>; // optional external map to avoid refetch
   filmTitleMapExternal?: Record<string, string>;
   filmLangMapExternal?: Record<string, string>;
+  filmStatsMapExternal?: Record<string, LevelFrameworkStats | null>; // level framework stats for each film
   mainLanguage?: string;
 }
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
-export default function ContentSelector({ value, onChange, allResults, contentCounts, totalCount, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, mainLanguage }: ContentSelectorProps) {
+export default function ContentSelector({ value, onChange, allResults, contentCounts, totalCount, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage }: ContentSelectorProps) {
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -50,6 +52,49 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     films.forEach(f => { if (f.main_language) m[f.id] = f.main_language; });
     return m;
   }, [films, filmLangMapExternal]);
+
+  const filmStatsMap: Record<string, LevelFrameworkStats | null> = useMemo(() => {
+    if (filmStatsMapExternal) return filmStatsMapExternal;
+    const m: Record<string, LevelFrameworkStats | null> = {};
+    films.forEach(f => {
+      const raw = f.level_framework_stats;
+      if (!raw) { m[f.id] = null; return; }
+      if (Array.isArray(raw)) { 
+        m[f.id] = raw as unknown as LevelFrameworkStats; 
+        return; 
+      }
+      if (typeof raw === 'string') {
+        try { 
+          const arr = JSON.parse(raw); 
+          m[f.id] = Array.isArray(arr) ? (arr as unknown as LevelFrameworkStats) : null; 
+        }
+        catch { m[f.id] = null; }
+      }
+    });
+    return m;
+  }, [films, filmStatsMapExternal]);
+
+  // Get dominant level for a film based on level_framework_stats
+  const getDominantLevel = (filmId: string): string | null => {
+    const stats = filmStatsMap[filmId];
+    if (!stats || stats.length === 0) return null;
+    
+    // Find the framework entry with highest percentage level
+    let maxLevel: string | null = null;
+    let maxPercent = 0;
+    
+    for (const entry of stats) {
+      const levels = entry.levels;
+      for (const [level, percent] of Object.entries(levels)) {
+        if (percent > maxPercent) {
+          maxPercent = percent;
+          maxLevel = level;
+        }
+      }
+    }
+    
+    return maxLevel;
+  };
 
   // Counts from allResults
   const counts: Record<string, number> = useMemo(() => {
@@ -122,6 +167,22 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     }
   };
 
+  // Get level badge for content item
+  const getItemLevelBadge = (filmId: string) => {
+    const level = getDominantLevel(filmId);
+    if (level) return level;
+    
+    // Fallback to type letter if no level stats
+    const type = (filmTypeMap[filmId] || '').toLowerCase();
+    switch(type) {
+      case 'movie': return 'M';
+      case 'series': return 'S';
+      case 'book': return 'B';
+      case 'audio': return 'A';
+      default: return '?';
+    }
+  };
+
   return (
     <div className="content-selector-panel">
       <button className={`content-selector-header ${value===null? 'active':''}`} onClick={() => onChange(null)}>
@@ -136,6 +197,9 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
             placeholder="SEARCH NAME"
             className="content-search-input"
           />
+        </div>
+        <div className="typography-inter-3" style={{ textAlign: 'right', marginTop: '8px', color: 'var(--neutral)' }}>
+          {value === null ? '0 selected' : '1 selected'}
         </div>
       </div>
       {CONTENT_TYPES.map(t => {
@@ -152,17 +216,23 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
             </button>
             <div className={`content-group-list-wrapper ${isOpen ? 'open' : 'closed'}`}>
               <div className="content-group-list">
-                {list.map(id => (
-                  <button
-                    key={id}
-                    className={`content-item-btn ${value===id? 'active':''}`}
-                    onClick={() => onChange(id)}
-                    title={id}
-                  >
-                    {filmTitleMap[id] || id}
-                    <span className="item-count">{counts[id] || 0}</span>
-                  </button>
-                ))}
+                {list.map(id => {
+                  const levelBadge = getItemLevelBadge(id);
+                  return (
+                    <button
+                      key={id}
+                      className={`content-item-btn ${value===id? 'active':''}`}
+                      onClick={() => onChange(id)}
+                      title={id}
+                    >
+                      <span className={`level-badge level-${levelBadge.toLowerCase()}`}>
+                        {levelBadge}
+                      </span>
+                      <span className="content-item-text">{filmTitleMap[id] || id}</span>
+                      <span className="item-count">{counts[id] || 0}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -176,17 +246,23 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
           </button>
           <div className={`content-group-list-wrapper ${openGroups.has('other') ? 'open' : 'closed'}`}>
             <div className="content-group-list">
-              {grouped.other.map(id => (
-                <button
-                  key={id}
-                  className={`content-item-btn ${value===id? 'active':''}`}
-                  onClick={() => onChange(id)}
-                  title={id}
-                >
-                  {filmTitleMap[id] || id}
-                  <span className="item-count">{counts[id] || 0}</span>
-                </button>
-              ))}
+              {grouped.other.map(id => {
+                const levelBadge = getItemLevelBadge(id);
+                return (
+                  <button
+                    key={id}
+                    className={`content-item-btn ${value===id? 'active':''}`}
+                    onClick={() => onChange(id)}
+                    title={id}
+                  >
+                    <span className={`level-badge level-${levelBadge.toLowerCase()}`}>
+                      {levelBadge}
+                    </span>
+                    <span className="content-item-text">{filmTitleMap[id] || id}</span>
+                    <span className="item-count">{counts[id] || 0}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

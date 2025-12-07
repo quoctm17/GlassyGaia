@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useUser } from "../context/UserContext";
-import { langLabel, countryCodeForLang, canonicalizeLangCode } from "../utils/lang";
+import { langLabel, canonicalizeLangCode, getFlagImageForLang } from "../utils/lang";
 import { getAvailableLanguagesForFilm } from "../services/firestore";
 import { ChevronDown, Languages } from "lucide-react";
 import PortalDropdown from "./PortalDropdown";
 import { toast } from "react-hot-toast";
+import "../styles/components/language-selectors.css";
 
 interface Props {
   filmId?: string;
@@ -133,7 +134,7 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
                   onClick={() => toggle(lang)}
                   className={`language-option ${active ? 'active' : ''}`}
                 >
-                  <span className={`fi fi-${countryCodeForLang(lang)} w-5 h-3.5`}></span>
+                  <img src={getFlagImageForLang(lang)} alt={`${lang} flag`} className="w-5 h-3.5 rounded" />
                   <span>{langLabel(lang)}</span>
                 </button>
               );

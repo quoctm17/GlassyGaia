@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useUser } from '../../context/UserContext';
@@ -6,21 +6,14 @@ import { uploadCoverImage } from '../../services/storageUpload';
 import { apiUpdateFilmMeta } from '../../services/cfApi';
 import { Film, Clapperboard, Book as BookIcon, AudioLines } from 'lucide-react';
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from '../../types/content';
-import '../../styles/admin/admin-forms.css';
+import '../../styles/components/admin/admin-forms.css';
 
 export default function AdminContentUpdatePage() {
 	const [searchParams] = useSearchParams();
-	const { user, signInGoogle, adminKey } = useUser();
-	const allowedEmails = useMemo(
-		() => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || '')
-			.split(',')
-			.map((s: string) => s.trim())
-			.filter(Boolean),
-		[]
-	);
+	const { user, signInGoogle, adminKey, isAdmin: checkIsAdmin } = useUser();
 	const pass = (import.meta.env.VITE_IMPORT_KEY || '').toString();
 	const requireKey = !!pass;
-	const isAdmin = !!user && allowedEmails.includes(user.email || '') && (!requireKey || adminKey === pass);
+	const isAdmin = !!user && checkIsAdmin() && (!requireKey || adminKey === pass);
 
 	// Editable meta fields
 	const [contentSlug, setContentSlug] = useState('');
@@ -147,11 +140,10 @@ export default function AdminContentUpdatePage() {
 			{user && (
 				<div className="admin-panel space-y-2 text-sm">
 					<div>Signed in as <span className="text-gray-300">{user.email}</span></div>
-					<div>Allowed admins: <span className="text-gray-400">{(import.meta.env.VITE_IMPORT_ADMIN_EMAILS || '').toString()}</span></div>
 					{requireKey && (
 						<div className="text-xs text-gray-400">Admin Key required — set it once in the SideNav.</div>
 					)}
-					<div>Access: {isAdmin ? <span className="text-green-400">granted</span> : <span className="text-red-400">denied</span>}</div>
+					<div>Access: {isAdmin ? <span className="text-green-400">granted (Admin role)</span> : <span className="text-red-400">denied (No admin role)</span>}</div>
 				</div>
 			)}
 

@@ -1,0 +1,99 @@
+/* Theme Toggle Styles */
+.theme-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 64px;
+  height: 32px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  border: none;
+  outline: none;
+  padding: 0;
+}
+
+.theme-toggle:focus {
+  outline: 2px solid #ec4899;
+  outline-offset: 2px;
+}
+
+/* Background colors */
+.theme-toggle.light-mode {
+  background-color: #ed306a;
+}
+
+.theme-toggle.dark-mode {
+  background-color: #594484;
+}
+
+/* Sliding circle */
+.theme-toggle-slider {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: transform 0.3s ease-in-out;
+  top: 4px;
+}
+
+.theme-toggle.light-mode .theme-toggle-slider {
+  transform: translateX(4px);
+}
+
+.theme-toggle.dark-mode .theme-toggle-slider {
+  transform: translateX(36px);
+}
+
+/* Icons inside slider */
+.theme-toggle-slider-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+/* Background icons (left and right) */
+.theme-toggle-icon {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  transition: opacity 0.3s ease;
+}
+
+.theme-toggle-icon.left {
+  left: 8px;
+}
+
+.theme-toggle-icon.right {
+  right: 8px;
+}
+
+/* Icon visibility based on mode */
+.theme-toggle.light-mode .theme-toggle-icon.left {
+  opacity: 1;
+}
+
+.theme-toggle.light-mode .theme-toggle-icon.right {
+  opacity: 0;
+}
+
+.theme-toggle.dark-mode .theme-toggle-icon.left {
+  opacity: 0;
+}
+
+.theme-toggle.dark-mode .theme-toggle-icon.right {
+  opacity: 1;
+}
+
+.theme-toggle-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

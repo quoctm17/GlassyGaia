@@ -103,10 +103,11 @@ export async function getEpisodeIdsForFilm(filmId: string): Promise<string[]> {
 
 export async function fetchCardsForFilm(
   filmId: string,
-  episodeId?: string,
-  max: number = 50
+  episodeId: string,
+  max: number = 50,
+  opts?: { startFrom?: number }
 ): Promise<CardDoc[]> {
-  return await apiFetchCardsForFilm(filmId, episodeId, max);
+  return await apiFetchCardsForFilm(filmId, episodeId, max, opts);
 }
 
 export async function searchCardsClient(

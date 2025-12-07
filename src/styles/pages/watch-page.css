@@ -451,7 +451,7 @@
 
 .watch-card-carousel::-webkit-scrollbar-thumb {
   background: #f3a1d6;
-  border-radius: 3px;
+  border-radius: 0;
 }
 
 .watch-card-carousel::-webkit-scrollbar-thumb:hover {

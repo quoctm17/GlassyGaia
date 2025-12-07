@@ -4,7 +4,7 @@ import { useUser } from '../../context/UserContext';
 import { Mail, Lock, User, AlertCircle, Loader2, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { signupWithEmailPassword } from '../../services/authentication';
-import '../../styles/authentication/auth.css';
+import '../../styles/pages/authentication/auth.css';
 
 export default function SignupPage() {
   const navigate = useNavigate();

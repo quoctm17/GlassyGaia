@@ -1,0 +1,86 @@
+/* ================= Filter Panel Component ================= */
+
+.filter-panel-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 8px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+
+.filter-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.filter-toggle-btn:hover,
+.filter-toggle-btn:focus {
+  box-shadow: none;
+}
+
+.filter-toggle-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-block;
+  object-fit: contain;
+  transition: transform 0.3s ease, filter 0.3s ease;
+  filter: var(--icon-primary-filter);
+}
+
+.filter-toggle-icon.rotate {
+  transform: rotate(180deg);
+}
+
+/* Dynamic theming */
+.filter-panel-wrapper {
+  background-color: var(--sidenav-bg);
+  border: none;
+}
+
+.filter-toggle-btn:hover .filter-toggle-icon {
+  filter: var(--icon-hover-select-filter);
+}
+
+.filter-toggle-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-toggle-icon-button:hover {
+  background: transparent;
+}
+
+.filter-toggle-icon-button:hover .filter-toggle-icon {
+  filter: var(--icon-hover-select-filter);
+}
+
+.filter-toggle-icon-button:active,
+.filter-toggle-icon-button.active {
+  background: var(--hover-select);
+  border-color: var(--hover-select);
+}
+
+.filter-toggle-icon-button:active .filter-toggle-icon,
+.filter-toggle-icon-button.active .filter-toggle-icon {
+  filter: brightness(0) invert(1);
+}

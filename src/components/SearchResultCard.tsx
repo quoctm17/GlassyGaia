@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
-import AudioPlayer from "./AudioPlayer";
 import { toggleFavorite } from "../services/progress";
 import { canonicalizeLangCode, countryCodeForLang } from "../utils/lang";
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
-import { getCardByPath } from "../services/firestore";
+import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
+import "../styles/components/search-result-card.css";
+import saveHeartIcon from "../assets/icons/save-heart.svg";
+import threeDotsIcon from "../assets/icons/three-dots.svg";
+import buttonPlayIcon from "../assets/icons/button-play.svg";
+import eyeIcon from "../assets/icons/eye.svg";
+import warningIcon from "../assets/icons/icon-warning.svg";
+import informationIcon from "../assets/icons/information.svg";
+import loopIcon from "../assets/icons/loop.svg";
+
+// Global registry to ensure only one audio plays at a time across all cards
+const activeAudioInstances = new Set<HTMLAudioElement>();
 
 interface Props {
   card: CardDoc;
@@ -16,10 +25,9 @@ interface Props {
 }
 
 export default function SearchResultCard({
-  card,
+  card: initialCard,
   highlightQuery,
   primaryLang,
-  filmTitle,
 }: Props) {
   const { preferences, user, signInGoogle, favoriteIds, setFavoriteLocal } =
     useUser();
@@ -27,6 +35,74 @@ export default function SearchResultCard({
   const [favorite, setFavorite] = useState<boolean>(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const [subsOverride, setSubsOverride] = useState<Record<string, string> | null>(null);
+  const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [episodeCards, setEpisodeCards] = useState<CardDoc[]>([]);
+  const [currentCardIndex, setCurrentCardIndex] = useState<number>(-1);
+  const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
+  const [card, setCard] = useState<CardDoc>(initialCard);
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+
+  // Update card when initialCard changes
+  useEffect(() => {
+    setCard(initialCard);
+    // Reset to original when initialCard changes (new search result)
+    setOriginalCardIndex(-1);
+  }, [initialCard]);
+
+  // Register/unregister audio instance in global registry
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      activeAudioInstances.add(audio);
+      return () => {
+        activeAudioInstances.delete(audio);
+      };
+    }
+  }, []);
+
+  // Keyboard shortcuts when card is hovered
+  useEffect(() => {
+    if (!isHovered) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        handlePrevCard();
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        handleNextCard();
+      } else if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        handleImageClick();
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        onToggleFavorite();
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        handleReplayAudio();
+      } else if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        handleReturnToOriginal();
+      } else if (e.key === 'Shift') {
+        e.preventDefault();
+        handleMoveToPrevCardHover();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        handleMoveToNextCardHover();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovered, currentCardIndex, originalCardIndex, episodeCards, card, isPlaying, favorite]);
 
   const shownLangs = useMemo(() => {
     const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
@@ -102,6 +178,20 @@ export default function SearchResultCard({
     };
   }, [card.film_id, card.episode_id, card.episode, card.id, card.subtitle]);
 
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [menuOpen]);
 
   // Simple HTML escaper
   function escapeHtml(s: string): string {
@@ -399,7 +489,7 @@ export default function SearchResultCard({
             const rtCloseMatch = html.substring(htmlIdx).match(/^<\/rt>/);
             if (rtMatch) { result += rtMatch[0]; inRtTag2 = true; htmlIdx += rtMatch[0].length; continue; }
             if (rtCloseMatch) { result += rtCloseMatch[0]; inRtTag2 = false; htmlIdx += rtCloseMatch[0].length; continue; }
-            let tagStart = htmlIdx; htmlIdx++;
+            const tagStart = htmlIdx; htmlIdx++;
             while (htmlIdx < html.length && html[htmlIdx] !== '>') htmlIdx++;
             if (htmlIdx < html.length && html[htmlIdx] === '>') htmlIdx++;
             result += html.substring(tagStart, htmlIdx);
@@ -426,6 +516,146 @@ export default function SearchResultCard({
     setFavorite(user ? favoriteIds.has(card.id) : false);
   }, [user, favoriteIds, card.id]);
 
+  // Load episode cards for navigation (centered around current card)
+  // Only load ONCE when initialCard changes, don't reload during A/D navigation
+  useEffect(() => {
+    const filmId = initialCard.film_id;
+    const episodeId = initialCard.episode_id || (typeof initialCard.episode === 'number' ? `e${initialCard.episode}` : String(initialCard.episode || ''));
+    
+    if (!filmId || !episodeId) return;
+    
+    // Load 500 cards centered around current position (250 before, 250 after)
+    const startTime = Math.max(0, initialCard.start - 250 * 5); // Assume ~5s per card average
+    
+    fetchCardsForFilm(filmId, episodeId, 500, { startFrom: startTime }).then(cards => {
+      setEpisodeCards(cards);
+      // Match by start time (API returns card_number as ID, not UUID)
+      const idx = cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+      setCurrentCardIndex(idx);
+      setOriginalCardIndex(idx); // Set original position on initial load
+      
+      // Fallback: if not found, try loading from start (for early episode cards)
+      if (idx === -1 && startTime > 0) {
+        fetchCardsForFilm(filmId, episodeId, 500).then(fallbackCards => {
+          setEpisodeCards(fallbackCards);
+          const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+          setCurrentCardIndex(fallbackIdx);
+          setOriginalCardIndex(fallbackIdx); // Store original position
+        }).catch(() => {
+          setCurrentCardIndex(-1);
+          setOriginalCardIndex(-1);
+        });
+      }
+    }).catch(() => {
+      setEpisodeCards([]);
+      setCurrentCardIndex(-1);
+      setOriginalCardIndex(-1);
+    });
+  }, [initialCard]);
+
+  // Play audio on image click
+  const handleImageClick = () => {
+    if (!card.audio_url) return;
+    
+    if (!audioRef.current) {
+      audioRef.current = new Audio(card.audio_url);
+      audioRef.current.addEventListener('ended', () => setIsPlaying(false));
+      activeAudioInstances.add(audioRef.current);
+    } else {
+      audioRef.current.src = card.audio_url;
+    }
+    
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      // Pause all other audio instances before playing this one
+      activeAudioInstances.forEach((otherAudio) => {
+        if (otherAudio !== audioRef.current) {
+          otherAudio.pause();
+        }
+      });
+      audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
+      setIsPlaying(true);
+    }
+  };
+
+  // Navigate to previous card
+  const handlePrevCard = async () => {
+    if (currentCardIndex <= 0 || episodeCards.length === 0) return;
+    const prevCard = episodeCards[currentCardIndex - 1];
+    if (prevCard && card.film_id) {
+      // Fetch full card data with all subtitles
+      try {
+        const fullCard = await getCardByPath(
+          card.film_id,
+          prevCard.episode_id || card.episode_id || `e${card.episode}`,
+          String(prevCard.id)
+        );
+        setCard(fullCard || prevCard);
+      } catch {
+        setCard(prevCard);
+      }
+      setCurrentCardIndex(currentCardIndex - 1);
+      
+      // Auto-play audio for the new card
+      if (audioRef.current && prevCard.audio_url) {
+        audioRef.current.src = prevCard.audio_url;
+        // Pause all other audio instances
+        activeAudioInstances.forEach((otherAudio) => {
+          if (otherAudio !== audioRef.current) {
+            otherAudio.pause();
+          }
+        });
+        audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
+        setIsPlaying(true);
+      } else {
+        setIsPlaying(false);
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+      }
+    }
+  };
+
+  // Navigate to next card
+  const handleNextCard = async () => {
+    if (currentCardIndex < 0 || currentCardIndex >= episodeCards.length - 1) return;
+    const nextCard = episodeCards[currentCardIndex + 1];
+    if (nextCard && card.film_id) {
+      // Fetch full card data with all subtitles
+      try {
+        const fullCard = await getCardByPath(
+          card.film_id,
+          nextCard.episode_id || card.episode_id || `e${card.episode}`,
+          String(nextCard.id)
+        );
+        setCard(fullCard || nextCard);
+      } catch {
+        setCard(nextCard);
+      }
+      setCurrentCardIndex(currentCardIndex + 1);
+      
+      // Auto-play audio for the new card
+      if (audioRef.current && nextCard.audio_url) {
+        audioRef.current.src = nextCard.audio_url;
+        // Pause all other audio instances
+        activeAudioInstances.forEach((otherAudio) => {
+          if (otherAudio !== audioRef.current) {
+            otherAudio.pause();
+          }
+        });
+        audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
+        setIsPlaying(true);
+      } else {
+        setIsPlaying(false);
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+      }
+    }
+  };
+
   const onToggleFavorite = async () => {
     if (!user) {
       await signInGoogle();
@@ -442,6 +672,129 @@ export default function SearchResultCard({
     });
     setFavorite(next);
     setFavoriteLocal(card.id, next);
+  };
+
+  // Replay audio from beginning
+  const handleReplayAudio = () => {
+    if (!card.audio_url || !audioRef.current) return;
+    
+    audioRef.current.currentTime = 0;
+    // Pause all other audio instances before playing
+    activeAudioInstances.forEach((otherAudio) => {
+      if (otherAudio !== audioRef.current) {
+        otherAudio.pause();
+      }
+    });
+    audioRef.current.play().catch(err => console.warn('Audio replay failed:', err));
+    setIsPlaying(true);
+  };
+
+  // Return to original card (C key)
+  const handleReturnToOriginal = async () => {
+    console.log('🔄 Return to Original - Debug:', {
+      currentCardIndex,
+      originalCardIndex,
+      episodeCardsLength: episodeCards.length,
+      isDisabled: currentCardIndex === originalCardIndex || originalCardIndex < 0
+    });
+    
+    if (originalCardIndex < 0 || originalCardIndex >= episodeCards.length) {
+      console.log('❌ Invalid originalCardIndex');
+      return;
+    }
+    if (currentCardIndex === originalCardIndex) {
+      console.log('✅ Already at original');
+      return; // Already at original
+    }
+    
+    const originalCard = episodeCards[originalCardIndex];
+    console.log('📍 Original card:', originalCard);
+    
+    if (originalCard && card.film_id) {
+      try {
+        const fullCard = await getCardByPath(
+          card.film_id,
+          originalCard.episode_id || card.episode_id || `e${card.episode}`,
+          String(originalCard.id)
+        );
+        setCard(fullCard || originalCard);
+      } catch {
+        setCard(originalCard);
+      }
+      setCurrentCardIndex(originalCardIndex);
+      
+      // Auto-play audio for the original card
+      if (audioRef.current && originalCard.audio_url) {
+        audioRef.current.src = originalCard.audio_url;
+        // Pause all other audio instances
+        activeAudioInstances.forEach((otherAudio) => {
+          if (otherAudio !== audioRef.current) {
+            otherAudio.pause();
+          }
+        });
+        audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
+        setIsPlaying(true);
+      } else {
+        setIsPlaying(false);
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+      }
+    }
+  };
+
+  // Move hover to previous card (Shift key)
+  const handleMoveToPrevCardHover = () => {
+    // Find all card elements on the page
+    const allCards = document.querySelectorAll('.pixel-result-card-new');
+    const currentCard = ref.current;
+    
+    if (!currentCard || allCards.length === 0) return;
+    
+    // Find current card index in DOM
+    let currentIdx = -1;
+    allCards.forEach((el, idx) => {
+      if (el === currentCard) currentIdx = idx;
+    });
+    
+    if (currentIdx > 0) {
+      // Move to previous card
+      const prevCard = allCards[currentIdx - 1] as HTMLElement;
+      setIsHovered(false);
+      prevCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      // Trigger hover on previous card after a brief delay
+      setTimeout(() => {
+        prevCard.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      }, 300);
+    }
+  };
+
+  // Move hover to next card (Enter key)
+  const handleMoveToNextCardHover = () => {
+    // Find all card elements on the page
+    const allCards = document.querySelectorAll('.pixel-result-card-new');
+    const currentCard = ref.current;
+    
+    if (!currentCard || allCards.length === 0) return;
+    
+    // Find current card index in DOM
+    let currentIdx = -1;
+    allCards.forEach((el, idx) => {
+      if (el === currentCard) currentIdx = idx;
+    });
+    
+    if (currentIdx >= 0 && currentIdx < allCards.length - 1) {
+      // Move to next card
+      const nextCard = allCards[currentIdx + 1] as HTMLElement;
+      setIsHovered(false);
+      nextCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      // Trigger hover on next card after a brief delay
+      setTimeout(() => {
+        nextCard.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      }, 300);
+    }
   };
 
   // add-to-deck deferred
@@ -461,72 +814,116 @@ export default function SearchResultCard({
       : undefined;
 
   return (
-    <div ref={ref} className="pixel-result-card-new">
+    <div 
+      ref={ref} 
+      className="pixel-result-card-new"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="card-main-content">
-        {/* Left side: Image + Title */}
+        {/* Left side: Metadata + Image */}
         <div className="card-left-section">
-          <Link
-            to={detailPath || "#"}
-            className="block relative"
-            onClick={(e) => { if (!detailPath) e.preventDefault(); }}
-          >
-            <img
-              src={card.image_url}
-              alt={card.id}
-              loading="lazy"
-              className="card-image"
-              onContextMenu={(e) => e.preventDefault()}
-              draggable={false}
-            />
-          </Link>
-          <div className="card-info-box">
-            <div className="card-info-row">
-              {filmTitle && (
-                <div className="card-title">{filmTitle}</div>
+          {/* Metadata at top: Level badges, Episode slug, Time range */}
+          <div className="card-metadata-top">
+            {/* Level badges */}
+            {card.levels && Array.isArray(card.levels) && card.levels.length > 0 && (
+              <div className="level-badges-container">
+                {card.levels.map((lvl: { framework: string; level: string; language?: string }, idx: number) => (
+                  <span key={idx} className={`level-badge level-${(lvl.level || '').toLowerCase()}`}>
+                    {lvl.level}
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* Episode slug and Time range grouped */}
+            <div className="card-slug-time-group">
+              {card.episode_id && (
+                <div className="card-episode-slug">{card.episode_id}</div>
               )}
-              {/* Level badges from card.levels array */}
-              {card.levels && Array.isArray(card.levels) && card.levels.length > 0 && (
-                <div className="level-badges-container">
-                  {card.levels.map((lvl: { framework: string; level: string; language?: string }, idx: number) => (
-                    <span key={idx} className={`level-badge level-${(lvl.level || '').toLowerCase()}`}>
-                      {lvl.level}
-                    </span>
-                  ))}
+              <div className="card-time-range">
+                <span>{Math.floor(card.start)}s</span>
+                <span>–</span>
+                <span>{Math.floor(card.end)}s</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="card-image-container">
+            <button 
+              className="card-nav-btn card-nav-left"
+              onClick={handlePrevCard}
+              disabled={currentCardIndex <= 0}
+              style={{ opacity: currentCardIndex <= 0 ? 0.3 : 1 }}
+              title="Previous Card (A)"
+            >
+              <img src={buttonPlayIcon} alt="Previous" style={{ transform: 'rotate(180deg)' }} />
+            </button>
+            <div className="card-image-wrapper" title={card.audio_url ? "Play Audio (Space) • Replay (R)" : undefined}>
+              <img
+                src={card.image_url}
+                alt={card.id}
+                loading="lazy"
+                className="card-image"
+                onContextMenu={(e) => e.preventDefault()}
+                draggable={false}
+                onClick={handleImageClick}
+                style={{ cursor: card.audio_url ? 'pointer' : 'default' }}
+              />
+              {card.audio_url && (
+                <div className="card-image-play-overlay" onClick={handleImageClick} style={{ cursor: 'pointer', pointerEvents: 'all' }}>
+                  <img src={buttonPlayIcon} alt="Play" className="play-icon" />
                 </div>
               )}
             </div>
-            <div className="pixel-card-meta">
-              <span className="ep-tag">EP {String(card.episode)}</span>
-              {import.meta.env.VITE_LINK_ANKI && (
-                <a 
-                  href={import.meta.env.VITE_LINK_ANKI} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="pixel-btn-anki"
-                  title="Add to Anki"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                    <polyline points="15 3 21 3 21 9"></polyline>
-                    <line x1="10" y1="14" x2="21" y2="3"></line>
-                  </svg>
-                  Anki
-                </a>
-              )}
-              <button
-                className={`pixel-btn-fav ${favorite ? "active" : ""}`}
-                onClick={onToggleFavorite}
-                title="Favorite"
-              >
-                ♥
-              </button>
-            </div>
+            <button 
+              className="card-nav-btn card-nav-right"
+              onClick={handleNextCard}
+              disabled={currentCardIndex < 0 || currentCardIndex >= episodeCards.length - 1}
+              style={{ opacity: (currentCardIndex < 0 || currentCardIndex >= episodeCards.length - 1) ? 0.3 : 1 }}
+              title="Next Card (D)"
+            >
+              <img src={buttonPlayIcon} alt="Next" />
+            </button>
+          </div>
+          
+          {/* Action buttons for mouse users */}
+          <div className="card-action-buttons">
+            <button 
+              className="card-action-btn"
+              onClick={handleMoveToPrevCardHover}
+              title="Move to Previous Card (Shift)"
+            >
+              ↑ Prev
+            </button>
+            <button 
+              className="card-action-btn"
+              onClick={handleReplayAudio}
+              disabled={!card.audio_url}
+              title="Replay Audio (R)"
+            >
+              <img src={loopIcon} alt="Replay" style={{ width: '16px', height: '16px' }} />
+            </button>
+            <button 
+              className="card-action-btn"
+              onClick={handleReturnToOriginal}
+              disabled={currentCardIndex === originalCardIndex || originalCardIndex < 0}
+              title={`Return to Original Card (C) - Current: ${currentCardIndex}, Original: ${originalCardIndex}`}
+            >
+              ⟲ Return
+            </button>
+            <button 
+              className="card-action-btn"
+              onClick={handleMoveToNextCardHover}
+              title="Move to Next Card (Enter)"
+            >
+              ↓ Next
+            </button>
           </div>
         </div>
 
-        {/* Right side: Subtitles */}
-        <div className="card-right-section">
-        <div className="card-subtitles">
+        {/* Center: Subtitles */}
+        <div className="card-center-section">
+          <div className="card-subtitles">
           {(() => {
             const primaryCode = primaryLang
               ? canonicalizeLangCode(primaryLang) || primaryLang
@@ -588,16 +985,17 @@ export default function SearchResultCard({
               return (
                 <div
                   key={code}
-                  className={`${isPrimary ? "text-sm sm:text-base" : "text-xs text-gray-200"} ${roleClass} ${rubyClass}`}
+                  className={`${roleClass} ${rubyClass}`}
+                  style={{
+                    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                    fontSize: isPrimary ? "24px" : "18px",
+                    fontWeight: isPrimary ? 700 : 400,
+                    lineHeight: 1.5,
+                    color: isPrimary ? "var(--main-language-text)" : undefined,
+                  }}
                 >
                   <span className={`inline-block align-middle mr-1.5 text-sm fi fi-${countryCodeForLang(code)}`}></span>
-                  {isPrimary && (
-                    <span className="align-middle mr-1.5 text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-amber-400/90 text-black font-semibold">
-                      Primary
-                    </span>
-                  )}
                   <span
-                    className={isPrimary ? "font-semibold" : ""}
                     dangerouslySetInnerHTML={{ __html: html }}
                   />
                 </div>
@@ -605,14 +1003,63 @@ export default function SearchResultCard({
             });
           })()}
         </div>
-      </div>
-      </div>
+        </div>
 
-      {/* Audio Player - Full width at bottom */}
-      <div className="card-audio-section">
-        <AudioPlayer src={card.audio_url} />
-        <div className="audio-time-range">
-          {card.start.toFixed(2)}s – {card.end.toFixed(2)}s
+        {/* Right: Favorite button and Menu */}
+        <div className="card-right-section">
+          <button
+            className="pixel-btn-info"
+            title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)"
+          >
+            <img src={informationIcon} alt="Info" />
+          </button>
+          
+          <button
+            className={`pixel-btn-fav ${favorite ? "active" : ""}`}
+            onClick={onToggleFavorite}
+            title={favorite ? "Remove from Favorites (S)" : "Add to Favorites (S)"}
+          >
+            <img src={saveHeartIcon} alt="Favorite" />
+          </button>
+          
+          <div className="card-menu-container" ref={menuRef}>
+            <button
+              className="pixel-btn-menu"
+              onClick={() => setMenuOpen(!menuOpen)}
+              title="More options"
+            >
+              <img src={threeDotsIcon} alt="Menu" />
+            </button>
+            
+            {menuOpen && (
+              <div className="card-menu-dropdown">
+                <div 
+                  className="card-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    // Navigate to card detail view
+                    if (detailPath) {
+                      window.location.href = detailPath;
+                    }
+                  }}
+                >
+                  <img src={eyeIcon} alt="View" className="menu-item-icon" />
+                  View Card
+                </div>
+                <div 
+                  className="card-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    // TODO: Implement report issues functionality
+                    alert("Report Issues feature coming soon!");
+                  }}
+                >
+                  <img src={warningIcon} alt="Report" className="menu-item-icon" />
+                  Report Issues
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -1,0 +1,82 @@
+/* ================= Typography System ================= */
+
+/* Import fonts */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&display=swap');
+
+/* ================= PressStart2P Font ================= */
+
+/* PressStart2P - Size 1 (Default) */
+.typography-pressstart-1 {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
+}
+
+/* PressStart2P - Size 2 (Large) */
+.typography-pressstart-2 {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 1px;
+}
+
+/* ================= Inter Font ================= */
+
+/* Inter - Size 1 (Bold Heading) */
+.typography-inter-1 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.5px;
+}
+
+/* Inter - Size 2 (Regular Body) */
+.typography-inter-2 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0px;
+}
+
+/* Inter - Size 3 (Light Body) */
+.typography-inter-3 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+}
+
+/* Inter - Size 4 (Medium Small) */
+.typography-inter-4 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+}
+
+/* ================= Legacy Aliases (Deprecated - Use typography-* instead) ================= */
+
+/* Pixel/Retro text - Commonly used, kept for convenience */
+.pixel-text-1 {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
+}
+
+.pixel-text-2 {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 1px;
+}

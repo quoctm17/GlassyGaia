@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Flame } from 'lucide-react';
 import CustomSelect from './CustomSelect';
+import '../styles/components/difficulty-filter.css';
 
 interface LevelFrameworkFilterProps {
   mainLanguage: string;
@@ -125,8 +126,6 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
 
   return (
     <div className="difficulty-block">
-      <div className="difficulty-title">{framework.name}</div>
-      
       {/* Dropdown selectors */}
       <div className="difficulty-range-row">
         <div className="difficulty-input">

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import PortalDropdown from "./PortalDropdown";
 import { useUser } from "../context/UserContext";
-import { langLabel, countryCodeForLang } from "../utils/lang";
+import { langLabel, getFlagImageForLang } from "../utils/lang";
 import { getAvailableMainLanguages, getFilmDoc } from "../services/firestore";
 import { ChevronDown } from "lucide-react";
+import "../styles/components/language-selectors.css";
 
 interface Props {
   filmId?: string; // optional: fallback to global if not provided
@@ -72,7 +73,7 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={`fi fi-${countryCodeForLang(current)} w-5 h-3.5`}></span>
+        <img src={getFlagImageForLang(current)} alt={`${current} flag`} className="w-5 h-3.5 rounded" />
         <span>{langLabel(current)}</span>
         <ChevronDown className="w-4 h-4" />
       </button>
@@ -104,7 +105,7 @@ export default function MainLanguageSelector({ filmId = "global", optionsOverrid
                   onClick={() => { setMainLanguage(l); onChange?.(l); setClosing(true); setTimeout(() => { setOpenLanguageSelector(null); setClosing(false); }, 500); }}
                   className={`language-option ${active ? 'active' : ''}`}
                 >
-                  <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
+                  <img src={getFlagImageForLang(l)} alt={`${l} flag`} className="w-5 h-3.5 rounded" />
                   <span>{langLabel(l)}</span>
                 </button>
               );

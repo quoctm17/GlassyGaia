@@ -1,15 +1,20 @@
 import { useEffect, useState, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
-import type { CardDoc } from "../types";
+import type { CardDoc, LevelFrameworkStats } from "../types";
 import { listAllItems } from "../services/firestore";
-// Replaced old SearchFilters with new FilterPanel + ContentSelector
 import FilterPanel from "../components/FilterPanel";
+import FilterModal from "../components/FilterModal";
+import CustomizeModal from "../components/CustomizeModal";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
-import { Filter } from "lucide-react";
 import Pagination from "../components/Pagination";
 import { hasJapanese, toHiragana } from "../utils/japanese";
+import mediaIcon from "../assets/icons/media.svg";
+import rightAngleIcon from "../assets/icons/right-angle.svg";
+import filterIcon from "../assets/icons/filter.svg";
+import customIcon from "../assets/icons/custom.svg";
+import "../styles/pages/search-page.css";
 
 function SearchPage() {
   const { preferences } = useUser();
@@ -28,6 +33,7 @@ function SearchPage() {
   const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
   const [films, setFilms] = useState<string[]>([]);
   const [filmTypeMap, setFilmTypeMap] = useState<Record<string, string>>({});
+  const [filmStatsMap, setFilmStatsMap] = useState<Record<string, LevelFrameworkStats | null>>({});
   const [minDifficulty, setMinDifficulty] = useState<number>(0);
   const [maxDifficulty, setMaxDifficulty] = useState<number>(100);
   const [minLevel, setMinLevel] = useState<string | null>(null);
@@ -37,6 +43,8 @@ function SearchPage() {
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
   const [filterPanelOpen, setFilterPanelOpen] = useState<boolean>(true); // Filter panel visibility
   const [isMobile, setIsMobile] = useState<boolean>(false); // Track if mobile/tablet
+  const [filterModalOpen, setFilterModalOpen] = useState<boolean>(false); // Filter modal visibility
+  const [customizeModalOpen, setCustomizeModalOpen] = useState<boolean>(false); // Customize modal visibility
   // removed filmAvailMap (unused after suggestion source simplification)
 
   // Detect mobile/tablet screen
@@ -196,16 +204,31 @@ function SearchPage() {
         const order: string[] = [];
         const langMap: Record<string, string> = {};
         const typeMap: Record<string, string> = {};
+        const statsMap: Record<string, LevelFrameworkStats | null> = {};
         fs.forEach((f) => {
           titleMap[f.id] = f.title || f.id;
           order.push(f.id);
           if (f.main_language) langMap[f.id] = f.main_language;
           if (f.type) typeMap[f.id] = f.type;
+          // Parse level_framework_stats
+          if (f.level_framework_stats) {
+            try {
+              const parsed = typeof f.level_framework_stats === 'string'
+                ? JSON.parse(f.level_framework_stats)
+                : f.level_framework_stats;
+              statsMap[f.id] = Array.isArray(parsed) ? parsed : null;
+            } catch {
+              statsMap[f.id] = null;
+            }
+          } else {
+            statsMap[f.id] = null;
+          }
         });
         setFilmTitleMap(titleMap);
         setFilms(order);
         setFilmLangMap(langMap);
         setFilmTypeMap(typeMap);
+        setFilmStatsMap(statsMap);
       })
       .catch((e) => {
         console.warn(
@@ -227,16 +250,31 @@ function SearchPage() {
         const order: string[] = [];
         const langMap: Record<string, string> = {};
         const typeMap: Record<string, string> = {};
+        const statsMap: Record<string, LevelFrameworkStats | null> = {};
         fs.forEach((f) => {
           titleMap[f.id] = f.title || f.id;
           order.push(f.id);
           if (f.main_language) langMap[f.id] = f.main_language;
           if (f.type) typeMap[f.id] = f.type;
+          // Parse level_framework_stats
+          if (f.level_framework_stats) {
+            try {
+              const parsed = typeof f.level_framework_stats === 'string'
+                ? JSON.parse(f.level_framework_stats)
+                : f.level_framework_stats;
+              statsMap[f.id] = Array.isArray(parsed) ? parsed : null;
+            } catch {
+              statsMap[f.id] = null;
+            }
+          } else {
+            statsMap[f.id] = null;
+          }
         });
         setFilmTitleMap(titleMap);
         setFilms(order);
         setFilmLangMap(langMap);
         setFilmTypeMap(typeMap);
+        setFilmStatsMap(statsMap);
       }).catch(() => {});
     };
     window.addEventListener('content-updated', handler);
@@ -309,7 +347,7 @@ function SearchPage() {
   };
 
   return (
-    <div className={`search-layout-wrapper p-6`} onMouseMove={onMove} onMouseUp={stopDrag}>
+    <div className="search-layout-wrapper" onMouseMove={onMove} onMouseUp={stopDrag}>
       {/* Mobile/Tablet overlay - only show on small screens */}
       {isMobile && filterPanelOpen && (
         <div 
@@ -333,17 +371,12 @@ function SearchPage() {
             filmTitleMap={filmTitleMap}
             filmTypeMap={filmTypeMap}
             filmLangMap={filmLangMap}
+            filmStatsMap={filmStatsMap}
             allResults={allResults}
             contentCounts={contentCounts}
             totalCount={globalTotal}
             filmFilter={filmFilter}
             onSelectFilm={(id) => setFilmFilter(id)}
-            minDifficulty={minDifficulty}
-            maxDifficulty={maxDifficulty}
-            onDifficultyChange={(min, max) => { setMinDifficulty(min); setMaxDifficulty(max); }}
-            minLevel={minLevel}
-            maxLevel={maxLevel}
-            onLevelChange={(min, max) => { setMinLevel(min); setMaxLevel(max); }}
             mainLanguage={preferences.main_language || "en"}
           />
         </aside>
@@ -355,36 +388,88 @@ function SearchPage() {
           aria-label="Resize filters"
         />
         <main className="search-main flex-1">
-        <SearchBar
-          value={query}
-          onChange={(v) => setQuery(v)}
-          onSearch={(v) => runSearch(v)}
-          onClear={() => {
-            setFilmFilter(null);
-          }}
-          placeholder={`Search across all films...`}
-          buttonLabel="SEARCH"
-          loading={loading}
-        />
+        <div className="search-controls">
+          <div className="w-full flex gap-3 items-center mb-2">
+            <button
+              onClick={toggleFilterPanel}
+              className="filter-toggle-btn"
+              aria-label={filterPanelOpen ? "Close filters" : "Open filters"}
+              title={filterPanelOpen ? "Close filters" : "Open filters"}
+            >
+              <img 
+                src={rightAngleIcon} 
+                alt="Toggle" 
+                className={`filter-toggle-icon ${filterPanelOpen ? 'rotate' : ''}`}
+              />
+              <img src={mediaIcon} alt="Content" className="filter-toggle-icon" />
+            </button>
+            <SearchBar
+              value={query}
+              onChange={(v) => setQuery(v)}
+              onClear={() => {
+                setFilmFilter(null);
+              }}
+              placeholder={`Search across all films...`}
+              loading={loading}
+            />
+            <button 
+              className={`filter-toggle-icon-button ${filterModalOpen ? 'active' : ''}`}
+              onClick={() => setFilterModalOpen(true)}
+              aria-label="Open filters"
+            >
+              <img src={filterIcon} alt="Filters" className="filter-toggle-icon" />
+            </button>
+            <button 
+              className={`filter-toggle-icon-button ${customizeModalOpen ? 'active' : ''}`}
+              onClick={() => setCustomizeModalOpen(true)}
+              aria-label="Customize view"
+            >
+              <img src={customIcon} alt="Customize" className="filter-toggle-icon" />
+            </button>
+            
+            <FilterModal 
+              isOpen={filterModalOpen}
+              onClose={() => setFilterModalOpen(false)}
+              minDifficulty={minDifficulty}
+              maxDifficulty={maxDifficulty}
+              onDifficultyChange={(min, max) => { setMinDifficulty(min); setMaxDifficulty(max); }}
+              minLevel={minLevel}
+              maxLevel={maxLevel}
+              onLevelChange={(min, max) => { setMinLevel(min); setMaxLevel(max); }}
+              mainLanguage={preferences.main_language || "en"}
+            />
+            
+            <CustomizeModal 
+              isOpen={customizeModalOpen}
+              onClose={() => setCustomizeModalOpen(false)}
+              volume={80}
+              onVolumeChange={(vol) => console.log('Volume:', vol)}
+            />
+          </div>
 
-        {/* Subtitle language selection moved to NavBar */}
-
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={toggleFilterPanel}
-            className="filter-toggle-btn flex items-center justify-center w-10 h-10 bg-[#c75485] rounded-full transition-transform hover:scale-110 active:scale-95 cursor-pointer"
-            aria-label={filterPanelOpen ? "Close filters" : "Open filters"}
-            title={filterPanelOpen ? "Close filters" : "Open filters"}
-          >
-            <Filter className="w-4 h-4 text-[#1a0f26]" />
-          </button>
-          <span className="text-pink-500 text-2xl font-['Press_Start_2P']">›</span>
-          <span className="text-pink-200 font-['Press_Start_2P'] text-xs">
-            {loading ? "Searching..." : `${total} Results`}
-          </span>
+          <div className="flex justify-between items-center mb-4" style={{ paddingLeft: '8rem', paddingRight: '8rem' }}>
+            <div className="flex items-center gap-2 cursor-pointer">
+              <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
+                Search By
+              </span>
+              <img 
+                src={rightAngleIcon} 
+                alt="Dropdown" 
+                style={{ 
+                  width: '16px', 
+                  height: '16px', 
+                  transform: 'rotate(90deg)',
+                  filter: 'var(--icon-neutral-filter)'
+                }}
+              />
+            </div>
+            <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
+              {loading ? "Searching..." : `${total} Results`}
+            </span>
+          </div>
         </div>
 
-        <div className="mt-4 space-y-3">
+        <div className={filterPanelOpen ? '' : 'grid grid-cols-2 gap-4'}>
           {displayedResults.map((c) => (
             <SearchResultCard
               key={String(c.id)}

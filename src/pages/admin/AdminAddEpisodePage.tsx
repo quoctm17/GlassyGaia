@@ -11,19 +11,17 @@ import { canonicalizeLangCode, langLabel, countryCodeForLang, expandCanonicalToA
 import { detectSubtitleHeaders, categorizeHeaders } from '../../utils/csvDetection';
 import ProgressBar from '../../components/ProgressBar';
 import { Loader2, CheckCircle, RefreshCcw, AlertTriangle } from 'lucide-react';
-import CsvPreviewPanel from '../../components/CsvPreviewPanel';
-import '../../styles/admin/admin-forms.css';
+import CsvPreviewPanel from '../../components/admin/CsvPreviewPanel';
+import '../../styles/components/admin/admin-forms.css';
 
 // Page to add a new Episode (>=2) to an existing Content Item
 export default function AdminAddEpisodePage() {
   const { contentSlug } = useParams();
   const navigate = useNavigate();
-  const { user, adminKey } = useUser();
-  const allowedEmails = useMemo(() => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || '')
-    .split(',').map((s: string) => s.trim()).filter(Boolean), []);
+  const { user, adminKey, isAdmin: checkIsAdmin } = useUser();
   const pass = (import.meta.env.VITE_IMPORT_KEY || '').toString();
   const requireKey = !!pass;
-  const isAdmin = !!user && allowedEmails.includes(user.email || '') && (!requireKey || adminKey === pass);
+  const isAdmin = !!user && checkIsAdmin() && (!requireKey || adminKey === pass);
 
   // Existing film meta
   const [filmMainLang, setFilmMainLang] = useState('en');
@@ -294,9 +292,6 @@ export default function AdminAddEpisodePage() {
 
   // Derived: can create episode (align with Ingest page expectations)
   const canCreate = useMemo(() => {
-    const hasUser = !!user;
-    const emailOk = hasUser && allowedEmails.includes(user?.email || '');
-    const keyOk = !requireKey || adminKey === pass;
     const csvOk = csvValid === true;
     // Require at least some card media like Ingest (both images and audio)
     const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
@@ -304,8 +299,8 @@ export default function AdminAddEpisodePage() {
     const epAudioOk = !addEpAudio || hasEpAudioFile;
     const epVideoOk = !addEpVideo || hasEpVideoFile;
     const optionalUploadsOk = epCoverOk && epAudioOk && epVideoOk;
-    return !!(hasUser && emailOk && keyOk && csvOk && cardMediaOk && optionalUploadsOk);
-  }, [user, allowedEmails, requireKey, adminKey, pass, csvValid, imageFiles.length, audioFiles.length, addEpCover, addEpAudio, addEpVideo, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
+    return !!(isAdmin && csvOk && cardMediaOk && optionalUploadsOk);
+  }, [isAdmin, csvValid, imageFiles.length, audioFiles.length, addEpCover, addEpAudio, addEpVideo, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
 
   // Overall progress computation across all tasks (matches AdminContentIngestPage logic)
   useEffect(() => {

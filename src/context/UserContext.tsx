@@ -30,6 +30,9 @@ interface CtxValue {
   hasRole: (role: string) => boolean;
   isSuperAdmin: () => boolean;
   isAdmin: () => boolean;
+  // Theme
+  theme: "light" | "dark";
+  setTheme: (theme: "light" | "dark") => void;
 }
 
 const defaultPrefs: UserPreferences = { subtitle_languages: ["en"], require_all_langs: false, main_language: "en" };
@@ -60,6 +63,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [adminKey, setAdminKey] = useState<string>("");
   const [openLanguageSelector, setOpenLanguageSelector] = useState<"main" | "subtitle" | null>(null);
+  const [theme, setThemeState] = useState<"light" | "dark">(() => {
+    const saved = localStorage.getItem("theme");
+    return (saved === "light" || saved === "dark") ? saved : "dark";
+  });
 
   useEffect(() => {
     // Initialize preferences from localStorage
@@ -166,6 +173,22 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     if (adminKey) localStorage.setItem("admin_key", adminKey);
     else localStorage.removeItem("admin_key");
   }, [adminKey]);
+
+  // Apply theme to document
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.remove("light");
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.add("light");
+    }
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const setTheme = (newTheme: "light" | "dark") => {
+    setThemeState(newTheme);
+  };
 
   const setSubtitleLanguages = async (langs: string[]) => {
     setPreferences((p) => ({ subtitle_languages: langs, require_all_langs: p.require_all_langs ?? false, main_language: p.main_language }));
@@ -330,7 +353,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setOpenLanguageSelector,
         hasRole,
         isSuperAdmin,
-        isAdmin
+        isAdmin,
+        theme,
+        setTheme
       }}
     >
       {children}
