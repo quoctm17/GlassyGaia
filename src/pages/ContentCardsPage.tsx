@@ -52,7 +52,6 @@ export default function ContentCardsPage() {
           onChange={(v) => setQuery(v)}
           onSearch={(v) => setQuery(v)}
           placeholder={`Search in ${contentId} ${episodeId.toUpperCase()}...`}
-          buttonLabel="Search by"
         />
         <div className="mt-4 text-sm text-gray-400">
           {loading ? "Đang tải..." : `Có ${cards.length} cards`}

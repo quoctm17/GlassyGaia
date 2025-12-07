@@ -1,0 +1,203 @@
+/* ================= NavBar Base Styles (Common) ================= */
+
+.pixel-navbar {
+  position: relative;
+  padding: 10px 16px;
+}
+
+.pixel-tabs {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.pixel-tabs-desktop {
+  display: flex;
+  gap: 1rem;
+}
+
+.pixel-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+}
+
+.pixel-tab:focus-visible {
+  outline: 2px dashed #f472b6;
+  outline-offset: 2px;
+}
+
+/* Force pixel font across navbar unless explicitly overridden */
+.pixel-navbar :where(*) {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+
+.pixel-navbar :where(.font-sans, .font-sans *) {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+.pixel-logo-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+}
+
+.pixel-logo-img {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  padding: 4px;
+  object-fit: cover;
+}
+
+.pixel-logo-label {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  background: #f1aaf0;
+  color: #1a0f26;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 8px 20px;
+  line-height: 1.2;
+  border-radius: 16px;
+  letter-spacing: 1px;
+  text-shadow: none;
+  text-align: center;
+}
+
+.navbar-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-block;
+  object-fit: contain;
+  transition: filter 0.3s ease;
+}
+
+.dropdown-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-block;
+  object-fit: contain;
+  transition: filter 0.3s ease;
+}
+
+/* ================= User Dropdown ================= */
+
+.user-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 8px;
+  min-width: 200px;
+  background-color: var(--secondary);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 200;
+  padding: 6px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.user-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  color: var(--primary);
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  text-decoration: none;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+
+.user-dropdown-item:hover {
+  background-color: var(--hover-bg);
+  color: var(--hover-select);
+}
+
+/* ================= Theme-Aware Styles ================= */
+
+/* NavBar container */
+.pixel-navbar {
+  background-color: var(--primary);
+  border-bottom: 2px solid var(--primary);
+}
+
+/* Tabs */
+.pixel-tab {
+  color: var(--secondary);
+}
+
+.pixel-tab:hover {
+  color: var(--hover-select);
+  background-color: var(--hover-bg);
+}
+
+.pixel-tab.active {
+  color: var(--hover-select);
+  border-bottom: 3px solid var(--hover-select);
+  background-color: transparent;
+  font-weight: 600;
+}
+
+/* Sign In Button */
+.sign-in-btn {
+  background-color: var(--secondary);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+
+.sign-in-btn:hover {
+  background-color: var(--hover-select);
+  color: white;
+}
+
+/* ================= Icon Filters (Theme-Specific) ================= */
+/* Using CSS custom properties for icon filters */
+
+.pixel-tab .navbar-icon {
+  filter: var(--icon-secondary-filter);
+}
+
+.pixel-tab:hover .navbar-icon,
+.pixel-tab.active .navbar-icon {
+  filter: var(--icon-hover-select-filter);
+}
+
+.user-dropdown-item .dropdown-icon {
+  filter: var(--icon-primary-filter);
+}
+
+.user-dropdown-item:hover .dropdown-icon {
+  filter: var(--icon-hover-select-filter);
+}

@@ -1,0 +1,181 @@
+/* ================= Difficulty Filter Component ================= */
+
+.difficulty-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 8px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+
+.difficulty-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.difficulty-icon {
+  font-size: 18px;
+}
+
+.difficulty-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--hover-select);
+}
+
+.difficulty-range-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.difficulty-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.diff-label {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.difficulty-input input,
+.difficulty-input select {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 2px solid;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-align: center;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.difficulty-slider-container {
+  padding: 20px 0;
+}
+
+.difficulty-track {
+  position: relative;
+  height: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 2px solid var(--primary);
+}
+
+.difficulty-track-active {
+  position: absolute;
+  height: 100%;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.difficulty-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 3px solid;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.difficulty-handle:active {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.level-tick-mark {
+  position: absolute;
+  width: 3px;
+  height: 12px;
+  top: -2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  z-index: 1;
+}
+
+/* Dynamic theming */
+.difficulty-block {
+  background-color: var(--hover-bg);
+}
+
+.difficulty-title {
+  color: var(--hover-select);
+}
+
+.diff-label {
+  color: var(--primary);
+}
+
+.difficulty-input input,
+.difficulty-input select {
+  background-color: var(--secondary);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.difficulty-input input:focus,
+.difficulty-input select:focus {
+  border-color: var(--hover-select);
+}
+
+.light .difficulty-input input:focus,
+.light .difficulty-input select:focus {
+  background-color: white;
+}
+
+.dark .difficulty-input input:focus,
+.dark .difficulty-input select:focus {
+  background-color: rgba(148, 137, 121, 0.5);
+}
+
+.difficulty-track-active {
+  background-color: var(--hover-select);
+}
+
+.difficulty-handle {
+  background-color: var(--secondary);
+  border-color: var(--hover-select);
+}
+
+.difficulty-handle:hover {
+  border-color: var(--primary);
+}
+
+.light .difficulty-track {
+  background-color: rgba(242, 237, 229, 0.5);
+}
+
+.dark .difficulty-track {
+  background-color: rgba(148, 137, 121, 0.3);
+}
+
+.light .difficulty-handle:hover {
+  background-color: white;
+}
+
+.dark .difficulty-handle:hover {
+  background-color: rgba(148, 137, 121, 0.8);
+}
+
+.level-tick-mark {
+  background-color: var(--primary);
+}

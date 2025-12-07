@@ -1438,7 +1438,7 @@ export default {
         try {
           // Include available_subs aggregated from content_item_languages for each item
           const rows = await env.DB.prepare(`
-            SELECT ci.id as internal_id, ci.slug as id, ci.title, ci.main_language, ci.type, ci.release_year, ci.description, ci.total_episodes as episodes, ci.is_original,
+            SELECT ci.id as internal_id, ci.slug as id, ci.title, ci.main_language, ci.type, ci.release_year, ci.description, ci.total_episodes as episodes, ci.is_original, ci.level_framework_stats,
                    cil.language as lang
             FROM content_items ci
             LEFT JOIN content_item_languages cil ON cil.content_item_id = ci.id
@@ -1457,6 +1457,7 @@ export default {
                 description: r.description,
                 episodes: r.episodes,
                 is_original: r.is_original,
+                level_framework_stats: r.level_framework_stats ?? null,
                 available_subs: [],
               };
               map.set(key, it);
@@ -2937,6 +2938,133 @@ export default {
         }
       }
 
+      // Admin: Update image path in database (for JPG -> WebP migration)
+      if (path === '/admin/update-image-path' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { table, slug, field, newPath, episodeFolder, cardNumber } = body;
+          
+          if (!table || !newPath) {
+            return json({ error: 'Missing required fields (table, newPath)' }, { status: 400 });
+          }
+          
+          if (table === 'content_items') {
+            // Update content-level cover
+            if (!slug) {
+              return json({ error: 'slug required for content_items' }, { status: 400 });
+            }
+            
+            const validFields = ['cover_key', 'cover_landscape_key'];
+            if (!validFields.includes(field)) {
+              return json({ error: 'Invalid field for content_items table' }, { status: 400 });
+            }
+            
+            await env.DB.prepare(`
+              UPDATE content_items SET ${field} = ? WHERE slug = ?
+            `).bind(newPath, slug).run();
+            
+            return json({
+              success: true,
+              message: `Updated ${field} for content ${slug}`,
+              newPath
+            });
+            
+          } else if (table === 'episodes') {
+            // Update episode-level cover
+            if (!slug || !episodeFolder) {
+              return json({ error: 'slug and episodeFolder required for episodes' }, { status: 400 });
+            }
+            
+            const validFields = ['cover_key', 'cover_landscape_key'];
+            if (!validFields.includes(field)) {
+              return json({ error: 'Invalid field for episodes table' }, { status: 400 });
+            }
+            
+            // Find episode by content slug and episode number pattern
+            // episodeFolder is like "e1", "e2", etc.
+            const episodeNum = episodeFolder.match(/e?(\d+)/i)?.[1];
+            if (!episodeNum) {
+              return json({ error: 'Invalid episodeFolder format' }, { status: 400 });
+            }
+            
+            const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(slug).first();
+            if (!filmRow) {
+              return json({ error: `Content not found: ${slug}` }, { status: 404 });
+            }
+            
+            const episodeResult = await env.DB.prepare(`
+              SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
+            `).bind(filmRow.id, parseInt(episodeNum)).first();
+            
+            if (!episodeResult) {
+              return json({ error: `Episode not found for ${slug}/e${episodeNum}` }, { status: 404 });
+            }
+            
+            await env.DB.prepare(`
+              UPDATE episodes SET ${field} = ? WHERE id = ?
+            `).bind(newPath, episodeResult.id).run();
+            
+            return json({
+              success: true,
+              message: `Updated ${field} for episode ${slug}/e${episodeNum}`,
+              newPath
+            });
+            
+          } else if (table === 'cards') {
+            // Update card-level image
+            if (!slug || !episodeFolder || cardNumber === undefined) {
+              return json({ error: 'slug, episodeFolder, and cardNumber required for cards' }, { status: 400 });
+            }
+            
+            if (field !== 'image_key') {
+              return json({ error: 'Invalid field for cards table. Must be "image_key"' }, { status: 400 });
+            }
+            
+            // Find card by content slug, episode number, and card number
+            const episodeNum = episodeFolder.match(/e?(\d+)/i)?.[1];
+            if (!episodeNum) {
+              return json({ error: 'Invalid episodeFolder format' }, { status: 400 });
+            }
+            
+            const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(slug).first();
+            if (!filmRow) {
+              return json({ error: `Content not found: ${slug}` }, { status: 404 });
+            }
+            
+            const episodeResult = await env.DB.prepare(`
+              SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
+            `).bind(filmRow.id, parseInt(episodeNum)).first();
+            
+            if (!episodeResult) {
+              return json({ error: `Episode not found for ${slug}/e${episodeNum}` }, { status: 404 });
+            }
+            
+            const cardResult = await env.DB.prepare(`
+              SELECT id FROM cards WHERE episode_id = ? AND card_number = ?
+            `).bind(episodeResult.id, parseInt(cardNumber)).first();
+            
+            if (!cardResult) {
+              return json({ error: `Card not found: ${slug}/e${episodeNum}/card ${cardNumber}` }, { status: 404 });
+            }
+            
+            await env.DB.prepare(`
+              UPDATE cards SET image_key = ? WHERE id = ?
+            `).bind(newPath, cardResult.id).run();
+            
+            return json({
+              success: true,
+              message: `Updated image_key for card ${slug}/e${episodeNum}/${cardNumber}`,
+              newPath
+            });
+            
+          } else {
+            return json({ error: 'Invalid table. Must be "content_items", "episodes", or "cards"' }, { status: 400 });
+          }
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
       // Admin: Reindex FTS (ja) with mixed kanji/kana expansions from stored subtitles
       if (path === '/admin/reindex-fts-ja' && request.method === 'POST') {
         // Lightweight guard: require explicit confirm=1 query param
@@ -3333,47 +3461,34 @@ export default {
         }
       }
       
-      // Delete user (cascade delete related data)
+      // Delete user (deactivate only - set is_active to false)
       if (path.match(/^\/api\/users\/[^\/]+$/) && request.method === 'DELETE') {
         try {
           const userId = path.split('/').pop();
           
-          // Cascade delete in order (respect foreign key constraints)
-          // 1. Delete user progress
-          const progressResult = await env.DB.prepare(`DELETE FROM user_progress WHERE user_id = ?`).bind(userId).run();
+          const now = Date.now();
           
-          // 2. Delete user episode stats
-          const episodeStatsResult = await env.DB.prepare(`DELETE FROM user_episode_stats WHERE user_id = ?`).bind(userId).run();
+          // Deactivate user instead of deleting
+          const userResult = await env.DB.prepare(`
+            UPDATE users SET is_active = 0, updated_at = ? WHERE id = ?
+          `).bind(now, userId).run();
           
-          // 3. Delete user favorites
-          const favoritesResult = await env.DB.prepare(`DELETE FROM user_favorites WHERE user_id = ?`).bind(userId).run();
-          
-          // 4. Delete user study sessions
-          const sessionsResult = await env.DB.prepare(`DELETE FROM user_study_sessions WHERE user_id = ?`).bind(userId).run();
-          
-          // 5. Delete user preferences
-          const prefsResult = await env.DB.prepare(`DELETE FROM user_preferences WHERE user_id = ?`).bind(userId).run();
-          
-          // 6. Delete user roles
-          const rolesResult = await env.DB.prepare(`DELETE FROM user_roles WHERE user_id = ?`).bind(userId).run();
-          
-          // 7. Delete user logins
-          const loginsResult = await env.DB.prepare(`DELETE FROM user_logins WHERE user_id = ?`).bind(userId).run();
-          
-          // 8. Finally delete user
-          const userResult = await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
+          if (userResult.meta.changes === 0) {
+            return json({ error: 'User not found' }, { status: 404 });
+          }
           
           return json({
             success: true,
+            message: 'User deactivated successfully',
             deleted: {
               user: userResult.meta.changes || 0,
-              progress: progressResult.meta.changes || 0,
-              episode_stats: episodeStatsResult.meta.changes || 0,
-              favorites: favoritesResult.meta.changes || 0,
-              study_sessions: sessionsResult.meta.changes || 0,
-              preferences: prefsResult.meta.changes || 0,
-              roles: rolesResult.meta.changes || 0,
-              logins: loginsResult.meta.changes || 0,
+              progress: 0,
+              episode_stats: 0,
+              favorites: 0,
+              study_sessions: 0,
+              preferences: 0,
+              roles: 0,
+              logins: 0,
             }
           });
         } catch (e) {
@@ -3690,6 +3805,126 @@ export default {
         }
       }
 
+      // Get table data (superadmin only)
+      if (path.match(/^\/api\/admin\/table-data\/[a-z_]+$/i) && request.method === 'GET') {
+        try {
+          const tableName = path.split('/')[4];
+          const url = new URL(request.url);
+          const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+          
+          // Whitelist of allowed tables
+          const allowedTables = [
+            'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
+            'user_preferences', 'user_study_sessions', 'user_favorites',
+            'user_progress', 'user_episode_stats'
+          ];
+          
+          if (!allowedTables.includes(tableName)) {
+            return json({ error: 'Invalid table name' }, { status: 400 });
+          }
+          
+          const result = await env.DB.prepare(
+            `SELECT * FROM ${tableName} LIMIT ?`
+          ).bind(limit).all();
+          
+          return json(result.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Update table record (superadmin only)
+      if (path.match(/^\/api\/admin\/table-data\/[a-z_]+\/[^\/]+$/i) && request.method === 'PUT') {
+        try {
+          const parts = path.split('/');
+          const tableName = parts[4];
+          const recordId = parts[5];
+          const body = await request.json();
+          
+          // Whitelist of allowed tables
+          const allowedTables = [
+            'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
+            'user_preferences', 'user_study_sessions', 'user_favorites',
+            'user_progress', 'user_episode_stats'
+          ];
+          
+          if (!allowedTables.includes(tableName)) {
+            return json({ error: 'Invalid table name' }, { status: 400 });
+          }
+          
+          // Build UPDATE query dynamically
+          const fieldsToUpdate = Object.keys(body).filter(key => 
+            key !== 'id' && key !== 'uid' && key !== 'created_at' // Don't update primary keys or created_at
+          );
+          
+          if (fieldsToUpdate.length === 0) {
+            return json({ error: 'No fields to update' }, { status: 400 });
+          }
+          
+          const setClause = fieldsToUpdate.map(key => `${key} = ?`).join(', ');
+          const values = fieldsToUpdate.map(key => body[key]);
+          
+          // Determine primary key column (id or uid)
+          let primaryKeyColumn = 'id';
+          if (tableName === 'users' || tableName === 'user_logins' || tableName === 'user_roles' || 
+              tableName === 'user_preferences' || tableName === 'user_study_sessions' || 
+              tableName === 'user_favorites' || tableName === 'user_progress' || tableName === 'user_episode_stats') {
+            // Check if uid exists for this table
+            const hasUid = ['users', 'user_logins', 'user_roles', 'user_preferences', 
+                           'user_study_sessions', 'user_favorites', 'user_progress', 
+                           'user_episode_stats'].includes(tableName);
+            if (hasUid && body.uid) {
+              primaryKeyColumn = 'uid';
+            }
+          }
+          
+          const updateQuery = `UPDATE ${tableName} SET ${setClause}, updated_at = ? WHERE ${primaryKeyColumn} = ?`;
+          values.push(Date.now());
+          values.push(recordId);
+          
+          await env.DB.prepare(updateQuery).bind(...values).run();
+          
+          return json({ success: true });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Delete table record (superadmin only)
+      if (path.match(/^\/api\/admin\/table-data\/[a-z_]+\/[^\/]+$/i) && request.method === 'DELETE') {
+        try {
+          const parts = path.split('/');
+          const tableName = parts[4];
+          const recordId = parts[5];
+          
+          // Whitelist of allowed tables
+          const allowedTables = [
+            'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
+            'user_preferences', 'user_study_sessions', 'user_favorites',
+            'user_progress', 'user_episode_stats'
+          ];
+          
+          if (!allowedTables.includes(tableName)) {
+            return json({ error: 'Invalid table name' }, { status: 400 });
+          }
+          
+          // Determine primary key column (id or uid)
+          let primaryKeyColumn = 'id';
+          if (['users', 'user_logins', 'user_roles', 'user_preferences', 
+               'user_study_sessions', 'user_favorites', 'user_progress', 
+               'user_episode_stats'].includes(tableName)) {
+            primaryKeyColumn = 'uid';
+          }
+          
+          const deleteQuery = `DELETE FROM ${tableName} WHERE ${primaryKeyColumn} = ?`;
+          await env.DB.prepare(deleteQuery).bind(recordId).run();
+          
+          return json({ success: true });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
       // Sync admin roles from environment variable (admin only)
       if (path === '/api/admin/sync-roles' && request.method === 'POST') {
         try {
@@ -3763,6 +3998,82 @@ export default {
           `).bind(userId, Date.now()).all();
           
           return json(roles.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get user roles - Admin endpoint (returns array of role names)
+      if (path.match(/^\/api\/admin\/user-roles\/[^\/]+$/) && request.method === 'GET') {
+        try {
+          const userId = path.split('/')[4];
+          
+          const roles = await env.DB.prepare(`
+            SELECT role_name FROM user_roles WHERE user_id = ?
+          `).bind(userId).all();
+          
+          const roleNames = roles.results?.map(r => r.role_name) || [];
+          
+          return json({ roles: roleNames });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Update user roles - Admin endpoint (superadmin only)
+      if (path.match(/^\/api\/admin\/user-roles\/[^\/]+$/) && request.method === 'PUT') {
+        try {
+          const userId = path.split('/')[4];
+          const body = await request.json();
+          const { roles, requesterId } = body;
+          
+          if (!roles || !Array.isArray(roles)) {
+            return json({ error: 'roles array is required' }, { status: 400 });
+          }
+          
+          if (!requesterId) {
+            return json({ error: 'requesterId is required' }, { status: 400 });
+          }
+          
+          // Check if requester is superadmin
+          const requesterRoles = await env.DB.prepare(`
+            SELECT role_name FROM user_roles WHERE user_id = ?
+          `).bind(requesterId).all();
+          
+          const isSuperAdmin = requesterRoles.results?.some(r => r.role_name === 'superadmin');
+          
+          if (!isSuperAdmin) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+          
+          // Validate roles
+          const validRoles = ['user', 'admin', 'superadmin'];
+          for (const role of roles) {
+            if (!validRoles.includes(role)) {
+              return json({ error: `Invalid role: ${role}` }, { status: 400 });
+            }
+          }
+          
+          const now = Date.now();
+          
+          // Remove all existing roles for this user
+          await env.DB.prepare(`
+            DELETE FROM user_roles WHERE user_id = ?
+          `).bind(userId).run();
+          
+          // Insert new roles
+          for (const role of roles) {
+            await env.DB.prepare(`
+              INSERT INTO user_roles (user_id, role_name, granted_by, granted_at)
+              VALUES (?, ?, ?, ?)
+            `).bind(userId, role, requesterId, now).run();
+          }
+          
+          return json({
+            success: true,
+            message: `Updated roles for user ${userId}`,
+            roles: roles
+          });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }

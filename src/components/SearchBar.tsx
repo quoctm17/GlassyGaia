@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { Search, X, Loader2 } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
+import "../styles/components/search-bar.css";
+import searchIcon from "../assets/icons/search.svg";
 
 export interface SearchBarProps {
   value?: string; // controlled value
@@ -9,7 +11,6 @@ export interface SearchBarProps {
   onClear?: () => void; // fires when clear button clicked
   placeholder?: string;
   showClear?: boolean; // whether to show clear button when query non-empty
-  buttonLabel?: string; // override 'Search by'
   autoFocus?: boolean;
   loading?: boolean; // show loading indicator
   debounceMs?: number; // auto-search debounce
@@ -23,7 +24,6 @@ export default function SearchBar({
   onClear,
   placeholder = "SEARCH...",
   showClear = true,
-  buttonLabel = "SEARCH",
   autoFocus = false,
   loading = false,
   debounceMs = 400,
@@ -77,11 +77,12 @@ export default function SearchBar({
       <div className="pixel-input-wrapper">
         <div className="absolute inset-y-0 left-[14px] w-5 flex items-center justify-center">
           {loading ? (
-            <Loader2 className="w-5 h-5 text-[#f1aaf0] animate-spin" />
+            <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--primary)' }} />
           ) : (
-            <Search className="w-5 h-5 text-[#f1aaf0]" />
+            <img src={searchIcon} alt="Search" className="search-icon" />
           )}
         </div>
+        <div className="search-bar-divider" />
         <input
           value={q}
           onChange={(e) => handleChange(e.target.value)}
@@ -104,14 +105,6 @@ export default function SearchBar({
           </button>
         )}
       </div>
-      <button
-        className="pixel-search-btn"
-        type="button"
-        onClick={triggerSearch}
-        disabled={!q && buttonLabel.toLowerCase().includes("search")}
-      >
-        <span>{/search\s*by/i.test(buttonLabel) ? "SEARCH" : "SEARCH"}</span>
-      </button>
     </div>
   );
 }

@@ -142,6 +142,7 @@ export async function apiListItems(): Promise<FilmDoc[]> {
       if (typeof raw === 'boolean') return raw;
       return undefined;
     })(),
+    level_framework_stats: (f as Partial<FilmDoc> & { level_framework_stats?: string | LevelFrameworkStats[] | null }).level_framework_stats ?? null,
   }));
 }
 
@@ -943,10 +944,6 @@ export async function apiGetUser(userId: string): Promise<UserProfile | null> {
   }
 }
 
-export async function apiGetUserRoles(userId: string): Promise<UserRole[]> {
-  return getJson<UserRole[]>(`/users/${userId}/roles`);
-}
-
 export async function apiGetUserProgressData(userId: string): Promise<UserProgressData> {
   return getJson<UserProgressData>(`/users/${userId}/progress`);
 }
@@ -961,7 +958,7 @@ export async function apiSyncAdminRoles(params: {
   message: string;
 }> {
   assertApiBase();
-  const res = await fetch(`${API_BASE}/admin/sync-roles`, {
+  const res = await fetch(`${API_BASE}/api/admin/sync-roles`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -978,5 +975,131 @@ export async function apiSyncAdminRoles(params: {
 }
 
 export async function apiGetDatabaseStats(): Promise<Record<string, number>> {
-  return getJson<Record<string, number>>('/admin/database-stats');
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/admin/database-stats`;
+  
+  const res = await fetch(fullUrl, {
+    headers: { 
+      'Accept': 'application/json',
+    },
+    cache: 'no-store',
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch database stats: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiGetTableData(tableName: string, limit: number = 100): Promise<Array<Record<string, unknown>>> {
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/admin/table-data/${tableName}?limit=${limit}`;
+  
+  const res = await fetch(fullUrl, {
+    headers: { 
+      'Accept': 'application/json',
+    },
+    cache: 'no-store',
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch table data: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiUpdateTableRecord(
+  tableName: string, 
+  recordId: string | number, 
+  data: Record<string, unknown>
+): Promise<{ success: boolean }> {
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/admin/table-data/${tableName}/${recordId}`;
+  
+  const res = await fetch(fullUrl, {
+    method: 'PUT',
+    headers: { 
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to update record: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiDeleteTableRecord(
+  tableName: string, 
+  recordId: string | number
+): Promise<{ success: boolean }> {
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/admin/table-data/${tableName}/${recordId}`;
+  
+  const res = await fetch(fullUrl, {
+    method: 'DELETE',
+    headers: { 
+      'Accept': 'application/json',
+    },
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to delete record: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiUpdateUserRoles(
+  userId: string,
+  roles: string[],
+  requesterId: string
+): Promise<{ success: boolean; message: string }> {
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/admin/user-roles/${userId}`;
+  
+  const res = await fetch(fullUrl, {
+    method: 'PUT',
+    headers: { 
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ roles, requesterId }),
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to update user roles: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiGetUserRoles(userId: string): Promise<string[]> {
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/admin/user-roles/${userId}`;
+  
+  const res = await fetch(fullUrl, {
+    headers: { 
+      'Accept': 'application/json',
+    },
+    cache: 'no-store',
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch user roles: ${res.status} ${text}`);
+  }
+  
+  const data = await res.json();
+  return data.roles || [];
 }

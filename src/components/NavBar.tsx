@@ -1,26 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUser } from "../context/UserContext";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { ChevronDown, Shield } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import MainLanguageSelector from "./MainLanguageSelector";
 import SubtitleLanguageSelector from "./SubtitleLanguageSelector";
+import ThemeToggle from "./ThemeToggle";
+import searchIcon from "../assets/icons/search.svg";
+import mediaIcon from "../assets/icons/media.svg";
+import bookIcon from "../assets/icons/book.svg";
+import contentIcon from "../assets/icons/content.svg";
+import loginIcon from "../assets/icons/log-in.svg";
+import logoutIcon from "../assets/icons/log-out.svg";
+import adminIcon from "../assets/icons/xp-dimond.svg";
+import favoriteIcon from "../assets/icons/save-heart.svg";
+import "../styles/components/navbar.css";
 
 export default function NavBar() {
-  const { user, signOutApp } = useUser();
+  const { user, signOutApp, isAdmin } = useUser();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const allowedEmails = useMemo(
-    () =>
-      (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || "")
-        .split(",")
-        .map((s: string) => s.trim())
-        .filter((x: string) => Boolean(x)),
-    []
-  );
-  const isAdminEmail = !!user && allowedEmails.includes(user.email || "");
-  // Chỉ hiện link Admin khi email thuộc whitelist
-  const showAdminLinks = !!user && isAdminEmail;
+  // Show admin link if user has admin or superadmin role
+  const showAdminLinks = !!user && isAdmin;
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -38,10 +39,6 @@ export default function NavBar() {
       <div className="flex items-center gap-8">
         <Link to="/" className="pixel-logo-wrap">
           <img src="/favicon.jpg" alt="logo" className="pixel-logo-img" />
-          <span className="pixel-logo-label">
-            <span>GLASSY</span>
-            <span>GAIA</span>
-          </span>
         </Link>
         <div className="pixel-tabs pixel-tabs-desktop">
           <NavLink
@@ -50,15 +47,8 @@ export default function NavBar() {
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
+            <img src={searchIcon} alt="Search" className="navbar-icon" />
             Search
-          </NavLink>
-          <NavLink
-            to="/about"
-            className={({ isActive }) =>
-              `pixel-tab ${isActive ? "active" : ""}`
-            }
-          >
-            About
           </NavLink>
           <NavLink
             to="/content"
@@ -66,6 +56,7 @@ export default function NavBar() {
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
+            <img src={mediaIcon} alt="Movie" className="navbar-icon" />
             Movie
           </NavLink>
           <NavLink
@@ -74,6 +65,7 @@ export default function NavBar() {
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
+            <img src={mediaIcon} alt="Series" className="navbar-icon" />
             Series
           </NavLink>
           <NavLink
@@ -82,7 +74,17 @@ export default function NavBar() {
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
+            <img src={bookIcon} alt="Book" className="navbar-icon" />
             Book
+          </NavLink>
+          <NavLink
+            to="/about"
+            className={({ isActive }) =>
+              `pixel-tab ${isActive ? "active" : ""}`
+            }
+          >
+            <img src={contentIcon} alt="Portfolio" className="navbar-icon" />
+            Portfolio
           </NavLink>
         </div>
       </div>
@@ -92,6 +94,10 @@ export default function NavBar() {
           <MainLanguageSelector />
           <SubtitleLanguageSelector />
         </div>
+        
+        {/* Theme toggle */}
+        <ThemeToggle />
+        
         {user ? (
           <div className="relative" ref={menuRef}>
             <button
@@ -122,22 +128,23 @@ export default function NavBar() {
               />
             </button>
             {open && (
-              <div className="absolute right-0 mt-2 w-48 bg-[#241530] border-2 border-pink-500 rounded-md shadow-xl z-50 p-1 font-sans text-sm">
+              <div className="user-dropdown">
                 {showAdminLinks && (
                   <Link
                     to="/admin/content"
-                    className="flex items-center gap-2 px-3 py-2 text-sm text-amber-300 hover:bg-pink-600/30 rounded"
+                    className="user-dropdown-item"
                     onClick={() => setOpen(false)}
                   >
-                    <Shield className="w-4 h-4" />
+                    <img src={adminIcon} alt="Admin" className="dropdown-icon" />
                     Admin Panel
                   </Link>
                 )}
                 <Link
                   to="/favorites"
-                  className="block px-3 py-2 text-sm text-pink-100 hover:bg-pink-600/30 rounded"
+                  className="user-dropdown-item"
                   onClick={() => setOpen(false)}
                 >
+                  <img src={favoriteIcon} alt="Favorites" className="dropdown-icon" />
                   Favorites
                 </Link>
                 <button
@@ -145,8 +152,9 @@ export default function NavBar() {
                     setOpen(false);
                     signOutApp();
                   }}
-                  className="w-full text-left px-3 py-2 text-sm text-pink-100 hover:bg-pink-600/30 rounded"
+                  className="user-dropdown-item"
                 >
+                  <img src={logoutIcon} alt="Logout" className="dropdown-icon" />
                   Sign out
                 </button>
               </div>
@@ -157,6 +165,7 @@ export default function NavBar() {
             onClick={() => navigate('/auth/login')} 
             className="sign-in-btn"
           >
+            <img src={loginIcon} alt="Login" className="navbar-icon" />
             Sign In
           </button>
         )}

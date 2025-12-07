@@ -32,6 +32,7 @@ export interface UserProfile {
   created_at: number;
   updated_at: number;
   last_login_at?: number;
+  roles?: string[]; // Array of role names from user_roles table
   // Preferences (from view)
   main_language?: string;
   subtitle_languages?: string;

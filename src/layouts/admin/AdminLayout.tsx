@@ -1,15 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
-import '../../styles/admin/admin.css';
+import '../../styles/pages/admin/admin.css';
 import toast from 'react-hot-toast';
-import { Menu, Layers, HardDrive, Users, Database } from 'lucide-react';
+import { Menu, Layers, HardDrive, Users, Database, ImageIcon } from 'lucide-react';
 
 export default function AdminLayout() {
   const { user, loading, signInGoogle, adminKey, setAdminKey, isAdmin, isSuperAdmin } = useUser();
-  const allowedEmails = useMemo(() => (import.meta.env.VITE_IMPORT_ADMIN_EMAILS || '')
-    .split(',').map((s: string) => s.trim()).filter(Boolean), []);
-  const isAdminEmail = !!user && allowedEmails.includes(user.email || '');
   const pass = (import.meta.env.VITE_IMPORT_KEY || '').toString();
   const requireKey = !!pass;
   const location = useLocation();
@@ -64,10 +61,16 @@ export default function AdminLayout() {
             <span>Users</span>
           </NavLink>
           {isSuperAdmin() && (
-            <NavLink to="/admin/database" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-              <Database className="w-4 h-4 mr-2" />
-              <span>Database</span>
-            </NavLink>
+            <>
+              <NavLink to="/admin/database" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+                <Database className="w-4 h-4 mr-2" />
+                <span>Database</span>
+              </NavLink>
+              <NavLink to="/admin/image-migration" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+                <ImageIcon className="w-4 h-4 mr-2" />
+                <span>Image Migration</span>
+              </NavLink>
+            </>
           )}
         </nav>
         {!user && (
@@ -76,7 +79,9 @@ export default function AdminLayout() {
         {user && (
           <div className="admin-user-block">
             <div className="email" title={user.email || undefined}>{user.email}</div>
-            <div className={isAdminEmail? 'status ok':'status bad'}>{isAdminEmail? 'Admin email':'Not admin'}</div>
+            <div className={isAdmin()? 'status ok':'status bad'}>
+              {isSuperAdmin() ? 'SuperAdmin' : isAdmin() ? 'Admin' : 'No admin access'}
+            </div>
             {requireKey && (
               <div className="mt-2">
                 <label className="block text-xs mb-1">Admin Key</label>

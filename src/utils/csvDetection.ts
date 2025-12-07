@@ -44,6 +44,8 @@ export function buildLangAliasMap(): Record<string, string> {
   // These are 2-letter ISO codes that users might use directly
   aliasMap["es"] = "es_es"; // Spanish → Spanish (Spain) by default
   aliasMap["pt"] = "pt_pt"; // Portuguese → Portuguese (Portugal) by default
+  aliasMap["en"] = "en"; // English
+  aliasMap["english"] = "en"; // English (full name)
   
   // Common misspellings / fallbacks
   aliasMap["portugese"] = "pt_pt";
@@ -209,7 +211,11 @@ export function findHeaderForLang(
   const rawAliases = expandCanonicalToAliases(lang);
   const normalizedAliases = rawAliases.map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
   const variantAliases = rawAliases.filter(a => /\(.+\)/.test(a)).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
-  const headerNorms = headers.map(h => ({ orig: h, norm: h.toLowerCase().replace(/[_\s-]/g, "") }));
+  // Strip brackets/parentheses from headers (like [CC], (CC)) before normalizing
+  const headerNorms = headers.map(h => ({ 
+    orig: h, 
+    norm: h.toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "").replace(/[_\s-]/g, "") 
+  }));
   
   // Special case: if looking for 'id' (Indonesian) and user confirmed it
   if (lang.toLowerCase() === 'id' && confirmedAsLanguage) {

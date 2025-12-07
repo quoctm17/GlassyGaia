@@ -60,7 +60,6 @@ export default function FilmCardsPage() {
           onChange={(v) => setQuery(v)}
           onSearch={(v) => setQuery(v)}
           placeholder={`Search in ${filmId} ${episodeId.toUpperCase()}...`}
-          buttonLabel="Search by"
         />
         {/* Subtitle language selection moved to NavBar */}
         <div className="mt-4 text-sm text-gray-400">

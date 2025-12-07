@@ -7,9 +7,21 @@ import toast from 'react-hot-toast';
 import Pagination from '../../components/Pagination';
 import PortalDropdown from '../../components/PortalDropdown';
 import CustomSelect from '../../components/CustomSelect';
-import { apiSyncAdminRoles } from '../../services/cfApi';
+import RoleManagementModal from '../../components/admin/RoleManagementModal';
+import { apiSyncAdminRoles, apiUpdateUserRoles } from '../../services/cfApi';
 import { useUser } from '../../context/UserContext';
-import '../../styles/admin/admin-user-list.css';
+import '../../styles/pages/admin/admin-user-list.css';
+
+// Helper function to parse roles from string or array
+function parseRoles(roles: string | string[] | null | undefined): string[] {
+  if (!roles) return ['user'];
+  if (Array.isArray(roles)) return roles.length > 0 ? roles : ['user'];
+  if (typeof roles === 'string') {
+    const parsed = roles.split(',').map(r => r.trim()).filter(Boolean);
+    return parsed.length > 0 ? parsed : ['user'];
+  }
+  return ['user'];
+}
 
 export default function AdminUserListPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -30,6 +42,7 @@ export default function AdminUserListPage() {
   const [confirmDelete, setConfirmDelete] = useState<{ userId: string; userName: string; email: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [adminKeyInput, setAdminKeyInput] = useState('');
+  const [roleManagement, setRoleManagement] = useState<{ userId: string; userName: string; userEmail: string; roles: string[] } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -201,6 +214,19 @@ export default function AdminUserListPage() {
     return `${days} days ago`;
   };
 
+  // Handle update user roles
+  const handleUpdateUserRoles = async (userId: string, roles: string[]) => {
+    if (!currentUser?.uid) {
+      throw new Error('You must be logged in');
+    }
+
+    await apiUpdateUserRoles(userId, roles, currentUser.uid);
+    
+    // Reload users to see updated roles
+    const data = await getAllUsers();
+    setUsers(data);
+  };
+
   // Handle delete user
   const handleDeleteUser = async () => {
     if (!confirmDelete) return;
@@ -215,12 +241,13 @@ export default function AdminUserListPage() {
     
     setDeleting(true);
     try {
-      const result = await deleteUser(confirmDelete.userId);
+      await deleteUser(confirmDelete.userId);
       
-      toast.success(`Đã xóa user "${confirmDelete.userName}" và ${result.deleted.progress + result.deleted.episode_stats + result.deleted.favorites + result.deleted.study_sessions + result.deleted.preferences + result.deleted.roles + result.deleted.logins} bản ghi liên quan`);
+      toast.success(`Đã vô hiệu hóa user "${confirmDelete.userName}"`);
       
-      // Remove deleted user from list
-      setUsers(prev => prev.filter(u => u.id !== confirmDelete.userId));
+      // Reload users to see updated status
+      const data = await getAllUsers();
+      setUsers(data);
       
       setConfirmDelete(null);
       setAdminKeyInput('');
@@ -364,7 +391,7 @@ export default function AdminUserListPage() {
                     Email {sortColumn === 'email' && (sortDirection === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />)}
                   </th>
                   <th>Provider</th>
-                  <th>Role</th>
+                  <th>Roles</th>
                   <th>Status</th>
                   <th onClick={() => handleSort('created_at')} className="sortable">
                     Joined {sortColumn === 'created_at' && (sortDirection === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />)}
@@ -391,14 +418,21 @@ export default function AdminUserListPage() {
                       <span className="provider-badge">{user.auth_provider || 'local'}</span>
                     </td>
                     <td>
-                      {user.is_admin ? (
-                        <span className="role-badge admin">
-                          <Shield className="w-3 h-3" />
-                          Admin
-                        </span>
-                      ) : (
-                        <span className="role-badge user">User</span>
-                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {(() => {
+                          const userRoles = parseRoles(user.roles);
+                          return userRoles.map((role) => (
+                            <span 
+                              key={role} 
+                              className={`role-badge ${role === 'superadmin' ? 'superadmin' : role === 'admin' ? 'admin' : 'user'}`}
+                            >
+                              {role === 'superadmin' && <Shield className="w-3 h-3" />}
+                              {role === 'admin' && <Shield className="w-3 h-3" />}
+                              {role}
+                            </span>
+                          ));
+                        })()}
+                      </div>
                     </td>
                     <td>
                       {user.is_active ? (
@@ -476,6 +510,24 @@ export default function AdminUserListPage() {
                               <Pencil className="w-4 h-4" />
                               <span>Update</span>
                             </button>
+                            {currentUser && parseRoles(currentUser.roles).includes('superadmin') && (
+                              <button
+                                className="admin-dropdown-item"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuFor(null);
+                                  setRoleManagement({
+                                    userId: user.id,
+                                    userName: user.display_name || 'Unknown User',
+                                    userEmail: user.email || 'No email',
+                                    roles: parseRoles(user.roles)
+                                  });
+                                }}
+                              >
+                                <Shield className="w-4 h-4" />
+                                <span>Manage Roles</span>
+                              </button>
+                            )}
                             <button
                               className="admin-dropdown-item danger"
                               onClick={(e) => {
@@ -518,6 +570,20 @@ export default function AdminUserListPage() {
         </>
       )}
 
+      {/* Role Management Modal */}
+      {roleManagement && currentUser && (
+        <RoleManagementModal
+          isOpen={roleManagement !== null}
+          onClose={() => setRoleManagement(null)}
+          userId={roleManagement.userId}
+          userName={roleManagement.userName}
+          userEmail={roleManagement.userEmail}
+          currentRoles={roleManagement.roles}
+          currentUserId={currentUser.uid}
+          onSave={handleUpdateUserRoles}
+        />
+      )}
+
       {/* Delete Confirmation Modal */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)}>
@@ -525,23 +591,20 @@ export default function AdminUserListPage() {
             className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xóa User</h3>
-            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xóa user:</p>
+            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận vô hiệu hóa User</h3>
+            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn vô hiệu hóa user:</p>
             <p className="text-[#f9a8d4] font-semibold mb-1">"{confirmDelete.userName}"</p>
             <p className="text-sm text-[#c084fc] mb-4">{confirmDelete.email}</p>
             <p className="text-sm text-[#e9d5ff] mb-4">
-              Thao tác này sẽ xóa toàn bộ:
+              Thao tác này sẽ:
             </p>
             <ul className="text-xs text-[#e9d5ff] mb-6 list-disc list-inside space-y-1">
-              <li>User progress (tiến độ học tập)</li>
-              <li>Episode stats (thống kê)</li>
-              <li>Favorites (danh sách yêu thích)</li>
-              <li>Study sessions (phiên học)</li>
-              <li>Preferences (cài đặt)</li>
-              <li>Roles (vai trò)</li>
-              <li>Login history (lịch sử đăng nhập)</li>
+              <li>Đặt trạng thái user thành <strong>Inactive</strong></li>
+              <li>User sẽ không thể đăng nhập vào hệ thống</li>
+              <li>Tất cả dữ liệu của user vẫn được giữ nguyên (progress, favorites, preferences, v.v.)</li>
+              <li>Có thể kích hoạt lại user bất cứ lúc nào</li>
             </ul>
-            <p className="text-sm text-[#e9d5ff] mb-4 font-semibold">Không thể hoàn tác!</p>
+            <p className="text-sm text-[#e9d5ff] mb-4 font-semibold">Lưu ý: User không bị xóa vĩnh viễn!</p>
             
             <div className="mb-6">
               <label className="block text-xs text-gray-400 mb-2">Nhập Admin Key để xác nhận:</label>
@@ -578,7 +641,7 @@ export default function AdminUserListPage() {
                 onClick={handleDeleteUser}
                 disabled={deleting || !adminKeyInput}
               >
-                {deleting ? 'Đang xóa...' : 'Xác nhận xóa'}
+                {deleting ? 'Đang xử lý...' : 'Vô hiệu hóa User'}
               </button>
             </div>
           </div>

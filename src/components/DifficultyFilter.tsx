@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Flame } from 'lucide-react';
+import '../styles/components/difficulty-filter.css';
 
 interface DifficultyFilterProps {
   minDifficulty: number;
@@ -61,8 +62,6 @@ export default function DifficultyFilter({ minDifficulty, maxDifficulty, onDiffi
 
   return (
     <div className="difficulty-block">
-      <div className="difficulty-title">DIFFICULTY SCORE</div>
-      
       {/* Input fields */}
       <div className="difficulty-range-row">
         <div className="difficulty-input">
