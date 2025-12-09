@@ -3,9 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { apiGetEpisodeDetail, apiFetchCardsForFilm, apiDeleteCard, apiCalculateStats } from "../../services/cfApi";
 import type { EpisodeDetailDoc, LevelFrameworkStats, CardDoc } from "../../types";
 import { sortLevelsByDifficulty } from "../../utils/levelSort";
-import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown, CheckCircle, XCircle } from "lucide-react";
+import { getLevelBadgeColors } from "../../utils/levelColors";
+import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
 import PortalDropdown from "../../components/PortalDropdown";
-import AudioPlayer from "../../components/AudioPlayer";
 import toast from "react-hot-toast";
 
 export default function AdminEpisodeDetailPage() {
@@ -142,7 +142,10 @@ export default function AdminEpisodeDetailPage() {
             <Pencil className="w-4 h-4" />
             <span>Update</span>
           </button>
-          <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}`)}>← Back</button>
+          <button className="admin-btn secondary flex items-center gap-1.5" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}`)}>
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back</span>
+          </button>
         </div>
       </div>
 
@@ -152,35 +155,42 @@ export default function AdminEpisodeDetailPage() {
         <div className="space-y-4">
           {/* Episode Details Panel */}
           <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Episode Information</div>
+            <div className="typography-pressstart-1" style={{ fontSize: '12px', color: 'var(--primary)' }}>Episode Information</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Episode:</label>
-                <span className="text-gray-200">{String(ep.episode_number).padStart(3,'0')}</span>
+                <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Episode:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{String(ep.episode_number).padStart(3,'0')}</span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Title:</label>
-                <span className="text-gray-200">{ep.title || '-'}</span>
+                <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Title:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{ep.title || '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Status:</label>
-                <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                  (ep.is_available ?? true) ? 'bg-green-500/20 text-green-300 border-2 border-green-500' : 'bg-red-500/20 text-red-300 border-2 border-red-500'
-                }`} style={{ fontFamily: "'Press Start 2P', system-ui, sans-serif" }}>
-                  {(ep.is_available ?? true) ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                  {(ep.is_available ?? true) ? 'Available' : 'Unavailable'}
+                <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Status:</label>
+                <span className={`status-badge ${(ep.is_available ?? true) ? 'active' : 'inactive'}`}>
+                  {(ep.is_available ?? true) ? (
+                    <>
+                      <CheckCircle className="w-3 h-3" />
+                      Available
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-3 h-3" />
+                      Unavailable
+                    </>
+                  )}
                 </span>
               </div>
             </div>
             <div>
-              <label className="w-32 text-sm text-gray-400">Description:</label>
-              <div className="text-gray-200 mt-1">{ep.description || '-'}</div>
+              <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Description:</label>
+              <div className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)', marginTop: '0.25rem' }}>{ep.description || '-'}</div>
             </div>
             {/* Episode Cover (Landscape) */}
             {ep.cover_url && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-400">Cover (Landscape):</label>
+                  <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Landscape):</label>
                   <a href={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
                     <ExternalLink className="w-4 h-4" />
                     Open
@@ -189,65 +199,37 @@ export default function AdminEpisodeDetailPage() {
                 <img src={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} alt="cover landscape" className="w-64 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
               </div>
             )}
-            {/* Full Video */}
-            <div className="flex items-center gap-2">
-              <label className="w-32 text-sm text-gray-400">Full Video:</label>
-              {ep.full_video_url ? (
-                <a
-                  href={ep.full_video_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="admin-btn secondary inline-flex items-center gap-1"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Open
-                </a>
-              ) : (
-                <span className="text-gray-200">-</span>
-              )}
-            </div>
-
-            {/* Full Audio below */}
-            <div className="grid grid-cols-1 gap-3">
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Full Audio:</label>
-                {ep.full_audio_url ? (
-                  <div className="flex-1">
-                    <AudioPlayer src={ep.full_audio_url} />
-                  </div>
-                ) : (
-                  <span className="text-gray-200">-</span>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Stats Panel */}
           <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Statistics</div>
+            <div className="typography-pressstart-1" style={{ fontSize: '12px', color: 'var(--primary)' }}>Statistics</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Total Cards:</label>
-                <span className="text-gray-200">{ep.num_cards ?? '-'}</span>
+                <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Total Cards:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{ep.num_cards ?? '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Avg Difficulty:</label>
-                <span className="text-gray-200">{typeof ep.avg_difficulty_score === 'number' ? ep.avg_difficulty_score.toFixed(1) : '-'}</span>
+                <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Avg Difficulty:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{typeof ep.avg_difficulty_score === 'number' ? ep.avg_difficulty_score.toFixed(1) : '-'}</span>
               </div>
             </div>
             {levelStats && levelStats.length > 0 && (
               <div>
-                <div className="text-sm text-gray-400 mb-2">Level Distribution:</div>
+                <div className="typography-inter-4" style={{ color: 'var(--sub-language-text)', marginBottom: '0.5rem' }}>Level Distribution:</div>
                 <div className="space-y-2">
                   {levelStats.map((entry, idx) => (
-                    <div key={idx} className="bg-[#1a0f24] rounded-lg p-3 border-2 border-pink-500/50 shadow-[0_0_12px_rgba(236,72,153,0.25)]">
-                      <div className="text-sm text-pink-200 mb-2">{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
+                    <div key={idx} className="rounded-lg p-3 border-2" style={{ backgroundColor: 'var(--secondary)', borderColor: 'var(--primary)' }}>
+                      <div className="typography-inter-2 mb-2 font-bold" style={{ fontSize: '13px', color: 'var(--primary)' }}>{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
                       <div className="flex flex-wrap gap-2">
-                        {sortLevelsByDifficulty(entry.levels).map(([lvl, pct]) => (
-                          <div key={lvl} className="text-xs bg-gray-700/60 px-2 py-1 rounded">
-                            <span className="text-gray-300">{lvl}:</span> <span className="text-pink-300">{pct}%</span>
-                          </div>
-                        ))}
+                        {sortLevelsByDifficulty(entry.levels).map(([lvl, pct]) => {
+                          const colors = getLevelBadgeColors(lvl);
+                          return (
+                            <div key={lvl} className="typography-inter-4 px-2 py-1 rounded font-bold" style={{ backgroundColor: colors.background, color: colors.color }}>
+                              <span>{lvl}:</span> <span>{pct}%</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -335,7 +317,7 @@ export default function AdminEpisodeDetailPage() {
                   {(() => {
                     const available = (c.is_available ?? true) ? true : false;
                     return (
-                      <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${available ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'}`}>
+                      <span className={`status-badge ${available ? 'active' : 'inactive'}`}>
                         {available ? 'Available' : 'Unavailable'}
                       </span>
                     );

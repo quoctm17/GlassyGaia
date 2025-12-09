@@ -4,8 +4,8 @@ import Papa from 'papaparse';
 import { apiGetEpisodeDetail, apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from '../../services/cfApi';
 import type { EpisodeDetailDoc, FilmDoc } from '../../types';
 import toast from 'react-hot-toast';
-import { uploadEpisodeCoverImage, uploadEpisodeFullMedia, uploadMediaBatch, type MediaType } from '../../services/storageUpload';
-import { Loader2, RefreshCcw } from 'lucide-react';
+import { uploadEpisodeCoverImage, uploadMediaBatch, type MediaType } from '../../services/storageUpload';
+import { Loader2, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { importFilmFromCsv, type ImportFilmMeta } from '../../services/importer';
 import { canonicalizeLangCode, expandCanonicalToAliases, langLabel, countryCodeForLang } from '../../utils/lang';
 import { detectSubtitleHeaders, findHeaderForLang as findHeaderUtil, categorizeHeaders } from '../../utils/csvDetection';
@@ -31,8 +31,6 @@ export default function AdminEpisodeUpdatePage() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
-  const [uploadingAudio, setUploadingAudio] = useState(false);
-  const [uploadingVideo, setUploadingVideo] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
   const [saveStage, setSaveStage] = useState<'idle' | 'cover' | 'cover_landscape' | 'audio' | 'video' | 'metadata' | 'done'>('idle');
 
@@ -47,10 +45,6 @@ export default function AdminEpisodeUpdatePage() {
   const [imagesDone, setImagesDone] = useState(0);
   const [audioDone, setAudioDone] = useState(0);
   const [epCoverDone, setEpCoverDone] = useState(0);
-  const [epFullAudioDone, setEpFullAudioDone] = useState(0);
-  const [epFullVideoDone, setEpFullVideoDone] = useState(0);
-  const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
-  const [epFullVideoBytesTotal, setEpFullVideoBytesTotal] = useState(0);
   const uploadAbortRef = useRef<AbortController | null>(null);
   const cancelRequestedRef = useRef<boolean>(false);
 
@@ -250,8 +244,7 @@ export default function AdminEpisodeUpdatePage() {
       uploadAbortRef.current = new AbortController();
       
       // Reset progress counters
-      setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-      setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+      setImagesDone(0); setAudioDone(0); setEpCoverDone(0);
       
       // Skip episode deletion - preserve episode and media
       // Use mode='replace' in importFilmFromCsv to only update cards
@@ -319,6 +312,41 @@ export default function AdminEpisodeUpdatePage() {
         if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } 
       }
       
+      // Build extension maps from uploaded files
+      const imageExtensions: Record<string, string> = {};
+      const audioExtensions: Record<string, string> = {};
+      const buildExtMap = (files: File[], isImage: boolean) => {
+        let seq = startIndex;
+        const used = new Set<string>();
+        files.forEach(f => {
+          let cardId: string | null = null;
+          if (infer) {
+            const m = f.name.match(/(\d+)(?=\.[^.]+$)/);
+            if (m) {
+              const raw = m[1];
+              cardId = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0");
+            }
+          }
+          if (!cardId) {
+            cardId = String(seq).padStart(padDigits, "0");
+            seq += 1;
+          }
+          while (used.has(cardId)) {
+            const n = parseInt(cardId, 10);
+            if (!Number.isNaN(n)) {
+              cardId = String(n + 1).padStart(Math.max(padDigits, cardId.length), "0");
+            } else {
+              cardId = `${cardId}a`;
+            }
+          }
+          used.add(cardId);
+          const ext = isImage ? (f.type === "image/webp" ? "webp" : "jpg") : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav" : (f.type === "audio/opus" || f.type === "audio/ogg" ? "opus" : "mp3"));
+          if (isImage) { imageExtensions[cardId] = ext; } else { audioExtensions[cardId] = ext; }
+        });
+      };
+      buildExtMap(imageFiles, true);
+      buildExtMap(audioFiles, false);
+      
       // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian)
       const confirmedMap: Record<string, string> = {};
       confirmedAsLanguage.forEach((hdr) => {
@@ -333,7 +361,9 @@ export default function AdminEpisodeUpdatePage() {
         mode: 'replace', 
         cardStartIndex: startIndex, 
         cardPadDigits: padDigits, 
-        cardIds, 
+        cardIds,
+        imageExtensions,
+        audioExtensions,
         overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
         confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined,
       }, () => {});
@@ -358,43 +388,6 @@ export default function AdminEpisodeUpdatePage() {
       }
       
       if (cancelRequestedRef.current) throw new Error('User cancelled');
-      
-      // Upload full audio if provided
-      if (audioFile) {
-        try {
-          const key = await uploadEpisodeFullMedia({ filmId: contentSlug!, episodeNum, type: 'audio', file: audioFile });
-          setEpFullAudioDone(1);
-          await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, full_audio_key: key });
-          toast.success('Episode full audio uploaded');
-        } catch (e) {
-          console.error('Full audio upload failed:', e);
-        }
-      }
-      
-      if (cancelRequestedRef.current) throw new Error('User cancelled');
-      
-      // Upload full video if provided
-      if (videoFile) {
-        try {
-          setEpFullVideoBytesDone(0);
-          setEpFullVideoBytesTotal(videoFile.size);
-          const key = await uploadEpisodeFullMedia({ 
-            filmId: contentSlug!, 
-            episodeNum, 
-            type: 'video', 
-            file: videoFile,
-            onProgress: (done, total) => { 
-              setEpFullVideoBytesDone(done); 
-              setEpFullVideoBytesTotal(total); 
-            }
-          });
-          setEpFullVideoDone(1);
-          await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, full_video_key: key });
-          toast.success('Episode full video uploaded');
-        } catch (e) {
-          console.error('Full video upload failed:', e);
-        }
-      }
       
       // Step 5: Calculate statistics
       setReimportStage('stats');
@@ -440,11 +433,9 @@ export default function AdminEpisodeUpdatePage() {
     
     try {
       let coverUrl = ep?.cover_url;
-      let audioUrl = ep?.full_audio_url;
-      let videoUrl = ep?.full_video_url;
 
       // Calculate total steps
-      const totalSteps = (coverFile ? 1 : 0) + (audioFile ? 1 : 0) + (videoFile ? 1 : 0) + 1; // +1 for metadata
+      const totalSteps = (coverFile ? 1 : 0) + 1; // +1 for metadata
       let completedSteps = 0;
 
       // Upload portrait cover if selected
@@ -465,42 +456,6 @@ export default function AdminEpisodeUpdatePage() {
         }
       }
 
-      // Upload audio if selected
-      if (audioFile) {
-        setSaveStage('audio');
-        setUploadingAudio(true);
-        try {
-          const key = await uploadEpisodeFullMedia({ filmId: contentSlug, episodeNum, type: 'audio', file: audioFile });
-          const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
-          audioUrl = r2Base ? `${r2Base}/${key}` : `/${key}`;
-          completedSteps++;
-          setSaveProgress(Math.floor((completedSteps / totalSteps) * 100));
-          toast.success('Audio uploaded');
-        } catch (e) {
-          toast.error(`Audio upload failed: ${(e as Error).message}`);
-        } finally {
-          setUploadingAudio(false);
-        }
-      }
-
-      // Upload video if selected
-      if (videoFile) {
-        setSaveStage('video');
-        setUploadingVideo(true);
-        try {
-          const key = await uploadEpisodeFullMedia({ filmId: contentSlug, episodeNum, type: 'video', file: videoFile });
-          const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
-          videoUrl = r2Base ? `${r2Base}/${key}` : `/${key}`;
-          completedSteps++;
-          setSaveProgress(Math.floor((completedSteps / totalSteps) * 100));
-          toast.success('Video uploaded');
-        } catch (e) {
-          toast.error(`Video upload failed: ${(e as Error).message}`);
-        } finally {
-          setUploadingVideo(false);
-        }
-      }
-
       // Update episode metadata
       setSaveStage('metadata');
       await apiUpdateEpisodeMeta({
@@ -509,8 +464,6 @@ export default function AdminEpisodeUpdatePage() {
         title: title || undefined,
         description: description || undefined,
         cover_url: coverUrl || undefined,
-        full_audio_url: audioUrl || undefined,
-        full_video_url: videoUrl || undefined,
         is_available: isAvailable ? 1 : 0,
       });
       completedSteps++;
@@ -544,61 +497,62 @@ export default function AdminEpisodeUpdatePage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
-      <div className="text-lg">Admin: Update Episode</div>
-
+    <div className="admin-content p-6 max-w-5xl mx-auto space-y-4">
       <div className="admin-section-header">
-        <h2 className="admin-title">Update Episode: {episodeSlug}</h2>
-        <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${episodeSlug}`)}>← Back</button>
+        <h2 className="admin-title typography-pressstart-1">Update Episode: {episodeSlug}</h2>
+        <button className="admin-btn secondary flex items-center gap-1.5" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${episodeSlug}`)}>
+          <ArrowLeft size={14} />
+          <span>Back</span>
+        </button>
       </div>
 
       {/* Quick Guide */}
       {ep && (
         <div className="admin-panel space-y-3">
-          <div className="text-sm font-semibold">Hướng dẫn nhanh</div>
-          <div className="admin-subpanel text-xs space-y-3">
-            <div className="text-gray-300 font-semibold">A) Cập nhật Media (Save)</div>
-            <ul className="list-disc pl-5 space-y-1 text-gray-400">
-              <li><span className="text-gray-300">Save</span>: Chỉ cập nhật media của episode (Cover, Full Audio, Full Video) mà không thay đổi cards.</li>
-              <li><span className="text-gray-300">Title</span>: Tiêu đề của episode.</li>
-              <li><span className="text-gray-300">Cover Image</span>: Ảnh bìa episode (.jpg).</li>
-              <li><span className="text-gray-300">Full Audio</span>: File audio đầy đủ (.mp3 hoặc .wav).</li>
-              <li><span className="text-gray-300">Full Video</span>: File video đầy đủ (.mp4).</li>
-              <li className="text-yellow-400">Lưu ý: Save chỉ cập nhật những file bạn chọn, không ảnh hưởng đến cards hiện tại.</li>
+          <div className="typography-inter-2" style={{ color: 'var(--text)' }}>Hướng dẫn nhanh</div>
+          <div className="admin-subpanel typography-inter-4 space-y-3">
+            <div style={{ color: 'var(--text)' }} className="font-semibold">A) Cập nhật Media (Save)</div>
+            <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
+              <li><span style={{ color: 'var(--text)' }}>Save</span>: Chỉ cập nhật media của episode (Cover, Full Audio, Full Video) mà không thay đổi cards.</li>
+              <li><span style={{ color: 'var(--text)' }}>Title</span>: Tiêu đề của episode.</li>
+              <li><span style={{ color: 'var(--text)' }}>Cover Image</span>: Ảnh bìa episode (.webp).</li>
+              <li><span style={{ color: 'var(--text)' }}>Full Audio</span>: File audio đầy đủ (.opus hoặc .wav).</li>
+              <li><span style={{ color: 'var(--text)' }}>Full Video</span>: File video đầy đủ (.mp4).</li>
+              <li style={{ color: 'var(--warning-text, #fbbf24)' }}>Lưu ý: Save chỉ cập nhật những file bạn chọn, không ảnh hưởng đến cards hiện tại.</li>
             </ul>
-            <div className="text-gray-300 font-semibold">B) Thay thế toàn bộ Episode (Replace Episode)</div>
-            <ul className="list-disc pl-5 space-y-1 text-gray-400">
-              <li><span className="text-gray-300">Replace Episode</span>: Xóa toàn bộ episode cũ (cards + media), sau đó tạo lại episode mới với CSV và media mới.</li>
-              <li><span className="text-gray-300">CSV</span>: Cột bắt buộc: <code>start</code>, <code>end</code>. Phải có cột phụ đề cho Main Language (<span className="text-pink-300">{filmMainLang}</span>).</li>
-              <li><span className="text-gray-300">Card Media Files</span>: Images (.jpg) và Audio (.mp3/.wav) cho cards (bắt buộc).</li>
-              <li><span className="text-gray-300">Infer IDs</span>: Tự động lấy số từ tên file làm card ID. Nếu tắt, dùng Pad Digits + Start Index.</li>
-              <li><span className="text-gray-300">Episode Media</span> (tuỳ chọn): Cover, Full Audio, Full Video sẽ được upload sau khi import CSV thành công.</li>
-              <li className="text-red-400">Cảnh báo: Replace Episode sẽ XÓA TẤT CẢ cards và media cũ. Hành động này KHÔNG THỂ HOÀN TÁC.</li>
-              <li className="text-yellow-400">Nếu cần rollback: Nhấn Stop trong quá trình upload và chọn OK để xóa episode đã tạo.</li>
+            <div style={{ color: 'var(--text)' }} className="font-semibold">B) Thay thế toàn bộ Episode (Replace Episode)</div>
+            <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
+              <li><span style={{ color: 'var(--text)' }}>Replace Episode</span>: Xóa toàn bộ episode cũ (cards + media), sau đó tạo lại episode mới với CSV và media mới.</li>
+              <li><span style={{ color: 'var(--text)' }}>CSV</span>: Cột bắt buộc: <code>start</code>, <code>end</code>. Phải có cột phụ đề cho Main Language (<span style={{ color: 'var(--primary)' }}>{filmMainLang}</span>).</li>
+              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: Images (.webp) và Audio (.opus) cho cards (bắt buộc).</li>
+              <li><span style={{ color: 'var(--text)' }}>Infer IDs</span>: Tự động lấy số từ tên file làm card ID. Nếu tắt, dùng Pad Digits + Start Index.</li>
+              <li><span style={{ color: 'var(--text)' }}>Episode Media</span> (tuỳ chọn): Cover, Full Audio, Full Video sẽ được upload sau khi import CSV thành công.</li>
+              <li style={{ color: 'var(--error-text, #f87171)' }}>Cảnh báo: Replace Episode sẽ XÓA TẤT CẢ cards và media cũ. Hành động này KHÔNG THỂ HOÀN TÁC.</li>
+              <li style={{ color: 'var(--warning-text, #fbbf24)' }}>Nếu cần rollback: Nhấn Stop trong quá trình upload và chọn OK để xóa episode đã tạo.</li>
             </ul>
-            <div className="text-[10px] text-gray-500 italic space-y-1">
-              <div>Main Language hiện tại: <span className="text-pink-300">{langLabel(filmMainLang)} ({filmMainLang})</span></div>
+            <div className="text-[10px]" style={{ color: 'var(--neutral)', fontStyle: 'italic' }}>
+              <div>Main Language hiện tại: <span style={{ color: 'var(--primary)' }}>{langLabel(filmMainLang)} ({filmMainLang})</span></div>
               <div>CSV phải có cột phụ đề tương ứng (vd: <code>en</code>, <code>vi</code>, <code>ja</code>, v.v.).</div>
             </div>
           </div>
         </div>
       )}
 
-      {loading && <div className="admin-info">Loading…</div>}
-      {error && <div className="admin-error">{error}</div>}
+      {loading && <div className="admin-info typography-inter-2">Loading…</div>}
+      {error && <div className="admin-error typography-inter-2">{error}</div>}
       {ep && (
         <div className="admin-panel space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="flex items-center gap-2">
-              <label className="w-40 text-sm">Episode</label>
-              <input className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none" value={episodeSlug} disabled readOnly />
+            <div className="admin-form-row">
+              <label className="admin-form-label">Episode</label>
+              <input className="admin-input" value={episodeSlug} disabled readOnly style={{ opacity: 0.5, cursor: 'not-allowed' }} />
             </div>
-            <div className="flex items-center gap-2">
-              <label className="w-40 text-sm">Title</label>
+            <div className="admin-form-row">
+              <label className="admin-form-label">Title</label>
               <input className="admin-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Episode title" />
             </div>
-            <div className="flex items-center gap-2">
-              <label className="w-40 text-sm">Description</label>
+            <div className="admin-form-row">
+              <label className="admin-form-label">Description</label>
               <input 
                 className="admin-input" 
                 value={description} 
@@ -607,10 +561,10 @@ export default function AdminEpisodeUpdatePage() {
               />
             </div>
 
-            <div className="pt-2 border-t border-pink-500/30">
+            <div className="pt-2" style={{ borderTop: '2px solid var(--border)' }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">Status:</span>
+                  <span className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Status:</span>
                   <span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
                     isAvailable ? 'bg-green-600/20 text-green-300 border-green-500/60' : 'bg-red-600/20 text-red-300 border-red-500/60'
                   }`}>
@@ -625,55 +579,55 @@ export default function AdminEpisodeUpdatePage() {
                   Toggle to {isAvailable ? 'Unavailable' : 'Available'}
                 </button>
               </div>
-              <div className="text-xs text-gray-500 mt-2">
+              <div className="typography-inter-4 mt-2" style={{ color: 'var(--neutral)' }}>
                 {isAvailable ? 'Episode xuất hiện trong kết quả search' : 'Episode bị ẩn khỏi search'}
               </div>
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="w-40 text-sm">Cover Image (Portrait)</label>
+              <label className="admin-form-label">Cover Image (Portrait)</label>
               <div className="space-y-2">
                 {ep.cover_url && (
-                  <div className="text-xs text-gray-400">
-                    Current: <a href={ep.cover_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
+                  <div className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
+                    Current: <a href={ep.cover_url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>View</a>
                   </div>
                 )}
                 <input 
                   type="file" 
-                  accept="image/jpeg" 
+                  accept="image/jpeg,image/webp" 
                   onChange={(e) => setCoverFile(e.target.files?.[0] || null)} 
                   className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
                 />
-                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
+                <div className="typography-inter-4" style={{ color: 'var(--neutral)', fontSize: '11px' }}>Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
-              <label className="w-40 text-sm">Full Audio</label>
+              <label className="admin-form-label">Full Audio</label>
             <div className="space-y-2">
               {ep.full_audio_url && (
-                <div className="text-xs text-gray-400">
-                  Current: <a href={ep.full_audio_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
+                <div className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
+                  Current: <a href={ep.full_audio_url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>View</a>
                 </div>
               )}
               <input 
                 type="file" 
-                accept="audio/mpeg,audio/wav" 
+                accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus" 
                 onChange={(e) => setAudioFile(e.target.files?.[0] || null)} 
                 className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
               />
-              <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/audio.mp3</div>
+              <div className="typography-inter-4" style={{ color: 'var(--neutral)', fontSize: '11px' }}>Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/audio.mp3</div>
             </div>
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="w-40 text-sm">Full Video</label>
+            <label className="admin-form-label">Full Video</label>
             <div className="space-y-2">
               {ep.full_video_url && (
-                <div className="text-xs text-gray-400">
-                  Current: <a href={ep.full_video_url} target="_blank" rel="noreferrer" className="text-pink-300 underline">View</a>
+                <div className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
+                  Current: <a href={ep.full_video_url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>View</a>
                 </div>
               )}
               <input 
@@ -682,25 +636,25 @@ export default function AdminEpisodeUpdatePage() {
                 onChange={(e) => setVideoFile(e.target.files?.[0] || null)} 
                 className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
               />
-              <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
+              <div className="typography-inter-4" style={{ color: 'var(--neutral)', fontSize: '11px' }}>Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
             </div>
           </div>
         </div>          <div className="flex items-center gap-3 justify-end">
             <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${episodeSlug}`)}>Cancel</button>
             <button
               className="admin-btn primary flex items-center gap-2"
-              disabled={saving || uploadingCover || uploadingAudio || uploadingVideo}
+              disabled={saving || uploadingCover}
               onClick={handleSave}
             >
-              {(saving || uploadingCover || uploadingAudio || uploadingVideo) && <Loader2 className="w-4 h-4 animate-spin" />}
+              {(saving || uploadingCover) && <Loader2 className="w-4 h-4 animate-spin" />}
               <span>{saving ? 'Saving…' : 'Save'}</span>
             </button>
           </div>
 
           {/* Save Progress Display */}
           {(saving || saveStage === 'done') && (
-            <div className="admin-panel text-xs space-y-2 mt-4">
-              <div className="text-sm font-semibold text-pink-300 mb-2">Upload Progress</div>
+            <div className="admin-panel typography-inter-4 space-y-2 mt-4">
+              <div className="typography-inter-2 mb-2" style={{ color: 'var(--primary)' }}>Upload Progress</div>
               {coverFile && (
                 <div className="flex justify-between">
                   <span>Cover Image</span>
@@ -792,13 +746,13 @@ export default function AdminEpisodeUpdatePage() {
             {/* Ambiguous column checkboxes */}
             {ambiguousHeaders.length > 0 && (
               <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg space-y-2">
-                <div className="text-sm font-semibold text-yellow-300">⚠️ Xác nhận cột có thể là ngôn ngữ hoặc cột hệ thống:</div>
+                <div className="typography-inter-4 font-semibold text-yellow-300">⚠️ Xác nhận cột có thể là ngôn ngữ hoặc cột hệ thống:</div>
                 {ambiguousHeaders.map(col => {
                   const isId = col.toLowerCase() === 'id';
                   const isIn = col.toLowerCase() === 'in';
                   const isConfirmed = confirmedAsLanguage.has(col);
                   return (
-                    <div key={col} className="flex items-start gap-3 text-sm p-2 bg-black/20 rounded">
+                    <div key={col} className="flex items-start gap-3 typography-inter-4 p-2 bg-black/20 rounded">
                       <input
                         id={`ambiguous-${col}`}
                         type="checkbox"
@@ -819,9 +773,9 @@ export default function AdminEpisodeUpdatePage() {
                         {isConfirmed ? (
                           <span className="text-green-300"> ✓ Được dùng như ngôn ngữ Indonesian</span>
                         ) : (
-                          <span className="text-gray-400"> → Sẽ bị bỏ qua (cột hệ thống)</span>
+                          <span style={{ color: 'var(--sub-language-text)' }}> → Sẽ bị bỏ qua (cột hệ thống)</span>
                         )}
-                        <div className="text-xs text-gray-500 mt-0.5">
+                        <div className="text-xs" style={{ color: 'var(--neutral)', marginTop: '2px' }}>
                           {isId && "Tick để dùng như ngôn ngữ Indonesian (id), bỏ trống để ignore như cột ID."}
                           {isIn && "Tick để dùng như ngôn ngữ Indonesian (in), bỏ trống để ignore như cột hệ thống."}
                         </div>
@@ -835,14 +789,14 @@ export default function AdminEpisodeUpdatePage() {
 
           {/* Card Media Files */}
           <div className="admin-subpanel space-y-3">
-            <div className="text-sm font-semibold">Card Media Files</div>
+            <div className="typography-inter-2" style={{ color: 'var(--text)' }}>Card Media Files</div>
             {/* File count validation warnings */}
             {csvRows.length > 0 && (imageFiles.length > 0 || audioFiles.length > 0) && (
               <div className="space-y-2">
                 {imageFiles.length !== csvRows.length && (
                   <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
                     <span className="text-yellow-400 text-lg">⚠️</span>
-                    <div className="flex-1 text-sm">
+                    <div className="flex-1 typography-inter-4">
                       <div className="font-semibold text-yellow-300 mb-1">Số lượng ảnh không khớp với số cards</div>
                       <div className="text-yellow-200/90 space-y-1">
                         <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
@@ -859,7 +813,7 @@ export default function AdminEpisodeUpdatePage() {
                 {audioFiles.length !== csvRows.length && (
                   <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
                     <span className="text-yellow-400 text-lg">⚠️</span>
-                    <div className="flex-1 text-sm">
+                    <div className="flex-1 typography-inter-4">
                       <div className="font-semibold text-yellow-300 mb-1">Số lượng audio không khớp với số cards</div>
                       <div className="text-yellow-200/90 space-y-1">
                         <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
@@ -876,7 +830,7 @@ export default function AdminEpisodeUpdatePage() {
                 {imageFiles.length !== audioFiles.length && imageFiles.length > 0 && audioFiles.length > 0 && (
                   <div className="flex items-start gap-2 p-3 bg-orange-900/20 border border-orange-600/40 rounded-lg">
                     <span className="text-orange-400 text-lg">⚠️</span>
-                    <div className="flex-1 text-sm">
+                    <div className="flex-1 typography-inter-4">
                       <div className="font-semibold text-orange-300 mb-1">Số lượng ảnh và audio không bằng nhau</div>
                       <div className="text-orange-200/90 space-y-1">
                         <div>• Ảnh: <span className="font-semibold text-orange-100">{imageFiles.length}</span></div>
@@ -891,7 +845,7 @@ export default function AdminEpisodeUpdatePage() {
                 {imageFiles.length === csvRows.length && audioFiles.length === csvRows.length && imageFiles.length > 0 && (
                   <div className="flex items-start gap-2 p-3 bg-green-900/20 border border-green-600/40 rounded-lg">
                     <span className="text-green-400 text-lg">✓</span>
-                    <div className="flex-1 text-sm">
+                    <div className="flex-1 typography-inter-4">
                       <div className="font-semibold text-green-300">Số lượng files khớp hoàn hảo!</div>
                       <div className="text-green-200/90 text-xs mt-1">{csvRows.length} cards = {imageFiles.length} ảnh = {audioFiles.length} audio</div>
                     </div>
@@ -901,27 +855,27 @@ export default function AdminEpisodeUpdatePage() {
             )}
             <div className="grid gap-3 md:grid-cols-2">
               <div className="admin-subpanel">
-                <div className="text-xs text-gray-400 mb-2">Images (.jpg) - {imageFiles.length} selected</div>
-                <input type="file" accept="image/jpeg" multiple onChange={(e) => setImageFiles(Array.from(e.target.files||[]))} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="typography-inter-4 mb-2" style={{ color: 'var(--sub-language-text)' }}>Images (.webp recommended) - {imageFiles.length} selected</div>
+                <input type="file" accept="image/jpeg,image/webp" multiple onChange={(e) => setImageFiles(Array.from(e.target.files||[]))} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
               </div>
               <div className="admin-subpanel">
-                <div className="text-xs text-gray-400 mb-2">Audio (.mp3 / .wav) - {audioFiles.length} selected</div>
-                <input type="file" accept="audio/mpeg,audio/wav" multiple onChange={(e) => setAudioFiles(Array.from(e.target.files||[]))} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <div className="typography-inter-4 mb-2" style={{ color: 'var(--sub-language-text)' }}>Audio (.opus recommended) - {audioFiles.length} selected</div>
+                <input type="file" accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus" multiple onChange={(e) => setAudioFiles(Array.from(e.target.files||[]))} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
               </div>
               <div className="flex flex-col gap-3 md:col-span-2">
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex items-center gap-2 flex-1">
-                    <label className="w-32 text-sm">Pad Digits</label>
+                  <div className="admin-form-row flex-1">
+                    <label className="admin-form-label w-32">Pad Digits</label>
                     <input type="number" min={1} value={padDigits} onChange={e => setPadDigits(Math.max(1, Number(e.target.value)||1))} className="admin-input disabled:opacity-50" disabled={infer} />
                   </div>
-                  <div className="flex items-center gap-2 flex-1">
-                    <label className="w-32 text-sm">Start Index</label>
+                  <div className="admin-form-row flex-1">
+                    <label className="admin-form-label w-32">Start Index</label>
                     <input type="number" min={0} value={startIndex} onChange={e => setStartIndex(Math.max(0, Number(e.target.value)||0))} className="admin-input disabled:opacity-50" disabled={infer} />
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <input id="infer-ids" type="checkbox" checked={infer} onChange={e => setInfer(e.target.checked)} />
-                  <label htmlFor="infer-ids" className="text-sm select-none">Infer IDs from filenames</label>
+                  <label htmlFor="infer-ids" className="typography-inter-4 select-none" style={{ color: 'var(--text)' }}>Infer IDs from filenames</label>
                 </div>
               </div>
             </div>
@@ -937,10 +891,10 @@ export default function AdminEpisodeUpdatePage() {
               {reimportBusy && reimportStage !== 'done' && (
                 <button type="button" className="admin-btn danger" onClick={onCancelReimport} title="Cancel current upload/import">Stop</button>
               )}
-              <div className="text-xs text-gray-400">Stage: {reimportStage}</div>
+              <div className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Stage: {reimportStage}</div>
             </div>
             {(reimportBusy || reimportStage === 'done') && (
-              <div className="admin-panel text-xs space-y-2">
+              <div className="admin-panel typography-inter-4 space-y-2">
                 <div className="flex justify-between">
                   <span>1. Delete Old Episode</span>
                   <span>
@@ -962,23 +916,8 @@ export default function AdminEpisodeUpdatePage() {
                 {coverFile && (
                   <ProgressItem label="5. Episode Cover" done={epCoverDone > 0} pending={reimportStage === 'uploading_episode_media' && epCoverDone === 0} />
                 )}
-                {audioFile && (
-                  <ProgressItem label="6. Episode Full Audio" done={epFullAudioDone > 0} pending={reimportStage === 'uploading_episode_media' && epFullAudioDone === 0} />
-                )}
-                {videoFile && (
-                  <div className="flex justify-between">
-                    <span>7. Episode Full Video</span>
-                    <span>
-                      {epFullVideoDone > 0
-                        ? '✓'
-                        : reimportStage === 'uploading_episode_media' && epFullVideoBytesTotal > 0
-                          ? `${Math.min(100, Math.round((epFullVideoBytesDone / epFullVideoBytesTotal) * 100))}%`
-                          : (reimportStage === 'stats' || reimportStage === 'done' ? 'waiting' : 'pending')}
-                    </span>
-                  </div>
-                )}
                 <div className="flex justify-between">
-                  <span>8. Calculating Stats</span>
+                  <span>6. Calculating Stats</span>
                   <span>{reimportStage === 'done' ? '✓' : reimportStage === 'stats' ? '...' : (reimportStage === 'uploading_episode_media' || reimportStage === 'import' ? 'waiting' : 'pending')}</span>
                 </div>
                 {/* Progress bar */}
@@ -998,24 +937,13 @@ export default function AdminEpisodeUpdatePage() {
                   totalSteps++;
                   if (reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media') completedSteps++;
 
-                  // 5-8. Episode-level media (optional)
+                  // 5-6. Episode-level media (optional)
                   if (coverFile) {
                     totalSteps++;
                     if (epCoverDone > 0) completedSteps++;
                   }
-                  if (audioFile) {
-                    totalSteps++;
-                    if (epFullAudioDone > 0) completedSteps++;
-                  }
-                  if (videoFile) {
-                    totalSteps++;
-                    if (epFullVideoDone > 0) completedSteps += 1;
-                    else if (reimportStage === 'uploading_episode_media' && epFullVideoBytesTotal > 0) {
-                      completedSteps += Math.max(0, Math.min(1, epFullVideoBytesDone / epFullVideoBytesTotal));
-                    }
-                  }
 
-                  // 8. Calculate Stats (required)
+                  // 6. Calculate Stats (required)
                   totalSteps++;
                   if (reimportStage === 'done') completedSteps++;
 
@@ -1057,8 +985,7 @@ export default function AdminEpisodeUpdatePage() {
                   cancelRequestedRef.current = true;
                   try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
                   setReimportStage('idle');
-                  setImagesDone(0); setAudioDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-                  setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+                  setImagesDone(0); setAudioDone(0); setEpCoverDone(0);
                   setReimportBusy(false);
                   toast('Đã hủy tiến trình');
                 }}

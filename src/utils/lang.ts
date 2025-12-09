@@ -332,7 +332,7 @@ export function countryCodeForLang(code: string): string {
     ro: "ro",
     ru: "ru",
     es: "es",
-    es_la: "mx",
+    es_la: "es",
     es_es: "es",
     fa: "ir",
     ku: "iq",

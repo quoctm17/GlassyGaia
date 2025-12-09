@@ -52,6 +52,8 @@ export interface UserPreferences {
   subtitle_languages: string[]; // chosen by user
   require_all_langs?: boolean; // when true, show only cards that include all selected languages
   main_language?: string; // user's preferred primary language (overrides film default in UI contexts)
+  volume?: number; // global audio volume (0-100)
+  resultLayout?: 'default' | '1-column' | '2-column'; // search results layout preference
 }
 
 export interface AppUser {

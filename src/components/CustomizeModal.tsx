@@ -7,13 +7,17 @@ interface CustomizeModalProps {
   onClose: () => void;
   volume?: number;
   onVolumeChange?: (volume: number) => void;
+  resultLayout?: 'default' | '1-column' | '2-column';
+  onLayoutChange?: (layout: 'default' | '1-column' | '2-column') => void;
 }
 
 export default function CustomizeModal({
   isOpen,
   onClose,
   volume = 80,
-  onVolumeChange
+  onVolumeChange,
+  resultLayout = 'default',
+  onLayoutChange
 }: CustomizeModalProps) {
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -71,6 +75,38 @@ export default function CustomizeModal({
               <span className="volume-value">{volume}%</span>
             </div>
           </div>
+
+          <div className="modal-divider"></div>
+
+          <div className="modal-section">
+            <div className="modal-section-header">
+              <span className="modal-section-icon">📐</span>
+              <h3 className="modal-section-title">LAYOUT</h3>
+            </div>
+            <div className="layout-control">
+              <button
+                className={`layout-btn ${resultLayout === 'default' ? 'active' : ''}`}
+                onClick={() => onLayoutChange?.('default')}
+              >
+                <span className="layout-icon">☰</span>
+                <span>Default</span>
+              </button>
+              <button
+                className={`layout-btn ${resultLayout === '1-column' ? 'active' : ''}`}
+                onClick={() => onLayoutChange?.('1-column')}
+              >
+                <span className="layout-icon">▐</span>
+                <span>1 Column</span>
+              </button>
+              <button
+                className={`layout-btn ${resultLayout === '2-column' ? 'active' : ''}`}
+                onClick={() => onLayoutChange?.('2-column')}
+              >
+                <span className="layout-icon">▐▐</span>
+                <span>2 Columns</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
@@ -79,6 +115,7 @@ export default function CustomizeModal({
             className="modal-btn modal-btn-secondary"
             onClick={() => {
               if (onVolumeChange) onVolumeChange(80);
+              if (onLayoutChange) onLayoutChange('default');
             }}
           >
             RESET

@@ -1,15 +1,19 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { listContentByType } from '../services/firestore';
 import { apiGetFilm } from '../services/cfApi';
-import type { FilmDoc } from '../types';
-import ContentDetailModal from './ContentDetailModal';
+import type { FilmDoc, LevelFrameworkStats } from '../types';
 import { CONTENT_TYPE_LABELS, type ContentType } from '../types/content';
 import { useUser } from '../context/UserContext';
 import { canonicalizeLangCode } from '../utils/lang';
 import SearchBar from './SearchBar';
-import ContentFilterPanel from './ContentFilterPanel';
-import PortalDropdown from './PortalDropdown';
-import { ArrowUpDown } from 'lucide-react';
+import rightAngleIcon from '../assets/icons/right-angle.svg';
+import enterMovieIcon from '../assets/icons/enter-movie-view.svg';
+import saveHeartIcon from '../assets/icons/save-heart.svg';
+import watchlistIcon from '../assets/icons/watchlist.svg';
+import LanguageTag from './LanguageTag';
+import { X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import '../styles/components/content-type-grid.css';
 
 interface ContentTypeGridProps {
   type: ContentType; // 'movie' | 'series' | 'book' | 'audio'
@@ -18,27 +22,24 @@ interface ContentTypeGridProps {
   onlySelectedMainLanguage?: boolean; // filter by user's selected main language
 }
 
-export default function ContentTypeGrid({ type, headingOverride, limit, onlySelectedMainLanguage }: ContentTypeGridProps) {
+export default function ContentTypeGrid({ type, headingOverride, onlySelectedMainLanguage }: ContentTypeGridProps) {
   const [allItems, setAllItems] = useState<FilmDoc[]>([]); // all items from API
-  const [selectedFilm, setSelectedFilm] = useState<FilmDoc | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [expandedFilmId, setExpandedFilmId] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true); // loading state for API
   const { preferences } = useUser();
   const selectedMain = preferences?.main_language || 'en';
+  const navigate = useNavigate();
 
-  // Search & filter state
+  // Search state
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedYear, setSelectedYear] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<'title' | 'year' | 'difficulty'>('title');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   
-  // Sort dropdown state
-  const [sortOpen, setSortOpen] = useState(false);
-  const [sortClosing, setSortClosing] = useState(false);
-  const sortBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Collapsed state for each level group
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let mounted = true;
     (async () => {
+      setLoading(true);
       try {
         const base = await listContentByType(type);
         const detailed = await Promise.all(base.map(async (f) => {
@@ -56,10 +57,67 @@ export default function ContentTypeGrid({ type, headingOverride, limit, onlySele
         setAllItems(filtered);
       } catch {
         if (mounted) setAllItems([]);
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
     return () => { mounted = false; };
   }, [type, onlySelectedMainLanguage, selectedMain]);
+
+  // Get dominant level for a film based on level_framework_stats
+  const getDominantLevel = (film: FilmDoc): string | null => {
+    const stats = film.level_framework_stats as unknown as LevelFrameworkStats;
+    if (!stats || !Array.isArray(stats) || stats.length === 0) {
+      return null;
+    }
+    
+    // Find the framework entry with highest percentage level
+    let maxLevel: string | null = null;
+    let maxPercent = 0;
+    
+    for (const entry of stats) {
+      if (!entry.levels || typeof entry.levels !== 'object') continue;
+      
+      for (const [level, percent] of Object.entries(entry.levels)) {
+        if (typeof percent === 'number' && percent > maxPercent) {
+          maxPercent = percent;
+          maxLevel = level.toUpperCase(); // Normalize to uppercase (N5, A1, etc.)
+        }
+      }
+    }
+    
+    return maxLevel;
+  };
+
+  // Normalize level to group key (JLPT, CEFR, HSK → unified groups)
+  const normalizeLevelToGroup = (level: string | null): string => {
+    if (!level) return 'Unknown';
+    
+    const upper = level.toUpperCase();
+    
+    // JLPT: N5, N4, N3, N2, N1
+    if (/^N[1-5]$/.test(upper)) return upper;
+    
+    // CEFR: A1→N5, A2→N4, B1→N3, B2→N2, C1/C2→N1
+    const cefrMap: Record<string, string> = {
+      'A1': 'A1',
+      'A2': 'A2', 
+      'B1': 'B1',
+      'B2': 'B2',
+      'C1': 'C1',
+      'C2': 'C2'
+    };
+    if (cefrMap[upper]) return cefrMap[upper];
+    
+    // HSK: 1-2→N5, 3→N4, 4-5→N3, 6-7→N2, 8-9→N1
+    const hskMatch = upper.match(/^(?:HSK[\s-]?)?([1-9])$/);
+    if (hskMatch) {
+      const num = parseInt(hskMatch[1]);
+      if (num >= 1 && num <= 9) return `HSK${num}`;
+    }
+    
+    return 'Unknown';
+  };
 
   // Apply search and filters
   const filteredItems = useMemo(() => {
@@ -74,170 +132,282 @@ export default function ContentTypeGrid({ type, headingOverride, limit, onlySele
       );
     }
 
-    // Year filter
-    if (selectedYear !== null) {
-      result = result.filter(item => String(item.release_year) === selectedYear);
+    return result;
+  }, [allItems, searchQuery]);
+
+  // Group by dominant level
+  const groupedByLevel = useMemo(() => {
+    const groups: Record<string, FilmDoc[]> = {
+      // JLPT
+      'N5': [],
+      'N4': [],
+      'N3': [],
+      'N2': [],
+      'N1': [],
+      // CEFR
+      'A1': [],
+      'A2': [],
+      'B1': [],
+      'B2': [],
+      'C1': [],
+      'C2': [],
+      // HSK
+      'HSK1': [],
+      'HSK2': [],
+      'HSK3': [],
+      'HSK4': [],
+      'HSK5': [],
+      'HSK6': [],
+      'HSK7': [],
+      'HSK8': [],
+      'HSK9': [],
+      'Unknown': []
+    };
+
+    for (const film of filteredItems) {
+      const level = getDominantLevel(film);
+      const groupKey = normalizeLevelToGroup(level);
+      
+      if (groups[groupKey]) {
+        groups[groupKey].push(film);
+      } else {
+        groups['Unknown'].push(film);
+      }
     }
 
-    // Sort
-    result = [...result].sort((a, b) => {
-      let comparison = 0;
-      if (sortBy === 'title') {
-        comparison = (a.title || '').localeCompare(b.title || '');
-      } else if (sortBy === 'year') {
-        comparison = (a.release_year || 0) - (b.release_year || 0);
-      } else if (sortBy === 'difficulty') {
-        comparison = (a.avg_difficulty_score || 0) - (b.avg_difficulty_score || 0);
+    return groups;
+  }, [filteredItems]);
+
+  // Get all non-empty groups
+  const nonEmptyGroups = useMemo(() => {
+    const result: Array<{ level: string; films: FilmDoc[] }> = [];
+    
+    // Order: JLPT → CEFR → HSK → Unknown
+    const levelsOrder = [
+      'N5', 'N4', 'N3', 'N2', 'N1',
+      'A1', 'A2', 'B1', 'B2', 'C1', 'C2',
+      'HSK1', 'HSK2', 'HSK3', 'HSK4', 'HSK5', 'HSK6', 'HSK7', 'HSK8', 'HSK9',
+      'Unknown'
+    ];
+    
+    for (const level of levelsOrder) {
+      const films = groupedByLevel[level] || [];
+      if (films.length > 0) {
+        result.push({ level, films });
       }
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
+    }
+    
+    return result;
+  }, [groupedByLevel]);
 
-    // Apply limit if specified
-    return limit ? result.slice(0, limit) : result;
-  }, [allItems, searchQuery, selectedYear, limit, sortBy, sortOrder]);
-
-  const openModal = (f: FilmDoc) => {
-    setSelectedFilm(f);
-    window.setTimeout(() => setModalOpen(true), 0);
+  const toggleGroup = (level: string) => {
+    const newSet = new Set(collapsedGroups);
+    if (newSet.has(level)) {
+      newSet.delete(level);
+    } else {
+      newSet.add(level);
+    }
+    setCollapsedGroups(newSet);
   };
-  const closeModal = () => {
-    setModalOpen(false);
-    window.setTimeout(() => setSelectedFilm(null), 500);
+
+  const toggleExpand = (filmId: string) => {
+    setExpandedFilmId(prev => prev === filmId ? null : filmId);
   };
 
   const label = headingOverride || CONTENT_TYPE_LABELS[type] || type;
   const R2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
 
-  const handleSortClose = () => {
-    if (!sortClosing) {
-      setSortClosing(true);
-      setTimeout(() => { setSortOpen(false); setSortClosing(false); }, 200);
-    }
+  // Horizontal scroll handler for each level group
+  const scrollRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const scroll = (level: string, direction: 'left' | 'right') => {
+    const container = scrollRef.current[level];
+    if (!container) return;
+    const scrollAmount = direction === 'left' ? -800 : 800;
+    container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold mb-4">{label}</h1>
+    <div className="content-type-grid-container">
+      <h1 className="content-type-grid-title">{label}</h1>
       
       {/* Search bar */}
-      <div className="mb-4">
+      <div className="content-type-grid-search">
         <SearchBar
           value={searchQuery}
           onChange={setSearchQuery}
           placeholder="Search by title..."
           showClear
+          loading={loading}
         />
       </div>
 
-      {/* Filter and Sort controls - same row */}
-      <div className="mb-4 flex items-center gap-3">
-        <ContentFilterPanel
-          items={allItems}
-          selectedYear={selectedYear}
-          onYearChange={setSelectedYear}
-        />
+      {/* Level groups */}
+      <div className="level-groups-container">
+        {loading ? (
+          <div style={{ 
+            padding: '40px', 
+            textAlign: 'center', 
+            color: 'var(--neutral)',
+            fontFamily: "'Press Start 2P', monospace",
+            fontSize: '14px'
+          }}>
+            Loading...
+          </div>
+        ) : nonEmptyGroups.length === 0 ? (
+          <div style={{ 
+            padding: '40px', 
+            textAlign: 'center', 
+            color: 'var(--neutral)',
+            fontFamily: "'Press Start 2P', monospace",
+            fontSize: '14px'
+          }}>
+            No content found
+          </div>
+        ) : (
+          nonEmptyGroups.map(({ level, films }) => {
+            const isCollapsed = collapsedGroups.has(level);
 
-        {/* Sort Button (same style as Filter) */}
-        <button
-          ref={sortBtnRef}
-          onClick={() => {
-            if (sortOpen) {
-              handleSortClose();
-            } else {
-              setSortOpen(true);
-            }
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-pink-600/20 hover:bg-pink-600/30 text-pink-400 rounded-lg transition-colors border border-pink-500/50 hover:border-pink-500"
-        >
-          <ArrowUpDown size={16} className="text-pink-400" />
-          <span className="font-medium text-sm">Sort</span>
-        </button>
+            return (
+              <div key={level} className="level-group">
+                <div className="level-group-header" onClick={() => toggleGroup(level)}>
+                  <div className="level-group-badge">
+                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px', marginRight: '8px' }}>Level</span>
+                    <span className={`level-badge level-${level.toLowerCase()}`}>{level}</span>
+                    <span className="level-count">({films.length})</span>
+                  </div>
+                  <button className="level-collapse-btn">
+                    {isCollapsed ? '+' : '−'}
+                  </button>
+                </div>
 
-        {(sortOpen || sortClosing) && sortBtnRef.current && (
-          <PortalDropdown
-            anchorEl={sortBtnRef.current}
-            onClose={handleSortClose}
-            align="left"
-            offset={8}
-            className="language-dropdown"
-            durationMs={200}
-            closing={sortClosing}
-            minWidth={220}
-          >
-            {/* Sort By Section */}
-            <div className="language-options-header">Sort By</div>
-            <div className="language-options-list border-b border-gray-700/50 pb-2">
-              <button
-                onClick={() => setSortBy('title')}
-                className={`language-option ${sortBy === 'title' ? 'active' : ''}`}
-              >
-                <span>Title</span>
-              </button>
-              <button
-                onClick={() => setSortBy('year')}
-                className={`language-option ${sortBy === 'year' ? 'active' : ''}`}
-              >
-                <span>Release Year</span>
-              </button>
-              <button
-                onClick={() => setSortBy('difficulty')}
-                className={`language-option ${sortBy === 'difficulty' ? 'active' : ''}`}
-              >
-                <span>Difficulty</span>
-              </button>
-            </div>
-
-            {/* Sort Order Section */}
-            <div className="language-options-header mt-2">Order</div>
-            <div className="language-options-list">
-              <button
-                onClick={() => setSortOrder('asc')}
-                className={`language-option ${sortOrder === 'asc' ? 'active' : ''}`}
-              >
-                <span>↑ Ascending</span>
-              </button>
-              <button
-                onClick={() => setSortOrder('desc')}
-                className={`language-option ${sortOrder === 'desc' ? 'active' : ''}`}
-              >
-                <span>↓ Descending</span>
-              </button>
-            </div>
-          </PortalDropdown>
+                {!isCollapsed && (
+                  <div className="level-group-content">
+                    <button 
+                      className="scroll-btn scroll-btn-left"
+                      onClick={() => scroll(level, 'left')}
+                    >
+                      <img src={rightAngleIcon} alt="Previous" style={{ transform: 'rotate(180deg)' }} />
+                    </button>
+                    
+                    <div 
+                      className="level-films-scroll"
+                      ref={(el) => { scrollRef.current[level] = el; }}
+                    >
+                      {films.map(f => {
+                        const cover = f.cover_url || (R2Base ? `${R2Base}/items/${f.id}/cover_image/cover.jpg` : `/items/${f.id}/cover_image/cover.jpg`);
+                        const dominantLevel = getDominantLevel(f);
+                        const levelKey = normalizeLevelToGroup(dominantLevel);
+                        const isExpanded = expandedFilmId === f.id;
+                        
+                        return (
+                          <div
+                            key={f.id}
+                            className={`film-card ${isExpanded ? 'expanded' : ''}`}
+                          >
+                            <div className="film-card-image" onClick={() => toggleExpand(f.id)}>
+                              {cover && (
+                                <img
+                                  src={cover}
+                                  alt={String(f.title || f.id)}
+                                  className="film-cover"
+                                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                                  draggable={false}
+                                  onContextMenu={(e) => e.preventDefault()}
+                                />
+                              )}
+                              {levelKey && (
+                                <div className={`film-card-level-badge level-badge level-${levelKey.toLowerCase()}`}>
+                                  {levelKey}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Inline Detail Panel */}
+                            <div className="film-detail-panel">
+                              <button className="film-detail-close" onClick={(e) => { e.stopPropagation(); toggleExpand(f.id); }}>
+                                <X size={16} />
+                              </button>
+                              
+                              <h3 className="film-detail-title">{f.title || f.id}</h3>
+                              
+                              {(f.available_subs && f.available_subs.length > 0) && (
+                                <div className="film-detail-subs-section">
+                                  <button 
+                                    className="subs-scroll-btn subs-scroll-btn-left"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const container = e.currentTarget.parentElement?.querySelector('.film-detail-subs');
+                                      if (container) container.scrollBy({ left: -200, behavior: 'smooth' });
+                                    }}
+                                  >
+                                    <img src={rightAngleIcon} alt="Previous" style={{ transform: 'rotate(180deg)', width: '12px', height: '12px' }} />
+                                  </button>
+                                  
+                                  <div className="film-detail-subs">
+                                    {f.available_subs.map(l => (
+                                      <LanguageTag key={l} code={l} size="md" withName={false} />
+                                    ))}
+                                  </div>
+                                  
+                                  <button 
+                                    className="subs-scroll-btn subs-scroll-btn-right"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const container = e.currentTarget.parentElement?.querySelector('.film-detail-subs');
+                                      if (container) container.scrollBy({ left: 200, behavior: 'smooth' });
+                                    }}
+                                  >
+                                    <img src={rightAngleIcon} alt="Next" style={{ width: '12px', height: '12px' }} />
+                                  </button>
+                                </div>
+                              )}
+                              
+                              {f.description && (
+                                <p className="film-detail-description" title={f.description}>
+                                  {f.description}
+                                </p>
+                              )}
+                              
+                              <div className="film-detail-actions">
+                                <button
+                                  className="film-detail-learn-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/watch/${encodeURIComponent(f.id)}`);
+                                  }}
+                                >
+                                  <img src={enterMovieIcon} alt="Learn" className="learn-icon" />
+                                  <span>Learn</span>
+                                </button>
+                                
+                                <div className="film-detail-action-icons">
+                                  <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
+                                    <img src={saveHeartIcon} alt="Save" className="action-icon" />
+                                  </button>
+                                  <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
+                                    <img src={watchlistIcon} alt="Watchlist" className="action-icon" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    <button 
+                      className="scroll-btn scroll-btn-right"
+                      onClick={() => scroll(level, 'right')}
+                    >
+                      <img src={rightAngleIcon} alt="Next" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-        {filteredItems.map(f => {
-          const cover = f.cover_url || (R2Base ? `${R2Base}/items/${f.id}/cover_image/cover.jpg` : `/items/${f.id}/cover_image/cover.jpg`);
-          return (
-            <div
-              key={f.id}
-              className="group relative rounded-lg transition-all duration-300 cursor-pointer border border-transparent hover:border-pink-500 hover:shadow-[0_0_0_2px_rgba(236,72,153,0.85),0_0_14px_rgba(236,72,153,0.55)] hover:bg-black/30"
-              style={{ pointerEvents: modalOpen ? 'none' : 'auto' }}
-              onClick={() => openModal(f)}
-            >
-              <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-black/40 flex items-center justify-center">
-                {cover && (
-                  <img
-                    src={cover}
-                    alt={String(f.title || f.id)}
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    draggable={false}
-                    onContextMenu={(e) => e.preventDefault()}
-                  />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-              <div className="pt-2 px-1">
-                <div className="font-medium text-xs text-center text-gray-200 whitespace-normal break-words">{f.title || f.id}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <ContentDetailModal film={selectedFilm} open={modalOpen} onClose={closeModal} />
     </div>
   );
 }

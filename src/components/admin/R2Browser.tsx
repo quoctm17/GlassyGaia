@@ -254,11 +254,11 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
               ← Back
             </button>
           )}
-          <h2 className="admin-title">R2 Object Storage</h2>
+          <h2 className="admin-title" style={{ color: 'var(--primary)' }}>R2 Object Storage</h2>
         </div>
         {selected.size > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-pink-200">
+            <span className="text-sm" style={{ color: 'var(--text)' }}>
               Selected: {selected.size}
             </span>
             <button
@@ -284,7 +284,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
         </button>
       </div>
       {/* Breadcrumbs / Directories Path */}
-      <div className="flex items-center gap-2 text-sm text-pink-200 mt-1 mb-3">
+      <div className="flex items-center gap-2 text-sm mt-1 mb-3" style={{ color: 'var(--sub-language-text)' }}>
         <span className="opacity-80">Path:</span>
         {(() => {
           const norm = prefix.replace(/\/$/, "");

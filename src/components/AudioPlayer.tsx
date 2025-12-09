@@ -4,6 +4,7 @@ import { Play, Pause } from "lucide-react";
 interface AudioPlayerProps {
   src: string;
   className?: string;
+  volume?: number; // 0-100
   onTimeUpdate?: (currentTime: number) => void;
   onEnded?: () => void;
 }
@@ -25,7 +26,7 @@ function formatTime(sec: number) {
 // Global registry to ensure only one audio plays at a time
 const activeAudioInstances = new Set<HTMLAudioElement>();
 
-const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, className, onTimeUpdate, onEnded }, ref) => {
+const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, className, volume = 80, onTimeUpdate, onEnded }, ref) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -87,6 +88,13 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
     };
   }, [onTimeUpdate, onEnded]);
 
+  // Sync volume from props (0-100) to audio element (0-1)
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = Math.max(0, Math.min(100, volume)) / 100;
+  }, [volume]);
+
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -138,13 +146,14 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
   return (
     <div
       className={
-        "pixel-audio-player flex items-center gap-3 w-full px-3 py-2 rounded-xl bg-[#18101e] border-2 border-pink-400 shadow-lg relative " +
+        "pixel-audio-player flex items-center gap-3 w-full px-3 py-2 rounded-xl border-2 shadow-lg relative " +
         (className || "")
       }
-      style={{ minHeight: 54 }}
+      style={{ minHeight: 54, backgroundColor: '#18101e', borderColor: 'var(--primary)' }}
     >
       <button
-        className="group p-1.5 rounded-full bg-pink-200 hover:bg-pink-300 text-pink-700 shadow relative"
+        className="group p-1.5 rounded-full shadow relative"
+        style={{ backgroundColor: 'var(--primary)', color: '#FFFFFF' }}
         onClick={togglePlay}
         aria-label={playing ? "Pause" : "Play"}
         data-tooltip={playing ? "Pause (Space)" : "Play (Space)"}
@@ -154,7 +163,7 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
           {playing ? "Pause (Space)" : "Play (Space)"}
         </span>
       </button>
-      <span className="text-xs font-bold text-pink-200 min-w-[48px] text-right">
+      <span className="typography-inter-4 font-bold min-w-[48px] text-right" style={{ color: 'var(--text)' }}>
         {formatTime(current)}
       </span>
       <input
@@ -164,10 +173,13 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
         step={0.01}
         value={current}
         onChange={onSeek}
-        className="mx-2 flex-1 accent-pink-400 h-1 bg-pink-100 rounded-lg outline-none transition-all"
-        style={{ background: `linear-gradient(90deg,#c75485 ${(current/(duration||1))*100}%,#aee0e7 ${(current/(duration||1))*100}%)` }}
+        className="mx-2 flex-1 h-1 rounded-lg outline-none transition-all"
+        style={{ 
+          background: `linear-gradient(90deg, var(--primary) ${(current/(duration||1))*100}%, var(--neutral) ${(current/(duration||1))*100}%)`,
+          accentColor: 'var(--primary)'
+        }}
       />
-      <span className="text-xs font-bold text-pink-200 min-w-[48px]">
+      <span className="typography-inter-4 font-bold min-w-[48px]" style={{ color: 'var(--text)' }}>
         {formatTime(duration)}
       </span>
       <audio 

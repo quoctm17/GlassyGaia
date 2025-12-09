@@ -12,11 +12,12 @@
 }
 
 .detail-header h1 {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
   margin: 12px 0 0 0;
-  color: #f5d0fe;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--text);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .back-btn {
@@ -24,26 +25,31 @@
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border: 2px solid #ec4899;
+  border: 2px solid var(--primary);
   border-radius: 8px;
-  background: #2a1b3b;
-  color: #f472b6;
-  font-size: 11px;
+  background: var(--background);
+  color: var(--hover-select);
+  font-size: 9px;
   cursor: pointer;
   transition: all 0.2s;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
+}
+
+.back-btn svg {
+  color: var(--primary);
 }
 
 .back-btn:hover {
-  background: #3a254f;
-  border-color: #f472b6;
+  background: var(--hover-bg);
+  border-color: var(--hover-select);
   box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
 }
 
 /* Cards */
 .detail-card {
-  background: #2a1b3b;
-  border: 3px solid #ec4899;
+  background: var(--background);
+  border: 3px solid var(--primary);
   border-radius: 10px;
   box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
   padding: 20px;
@@ -56,18 +62,19 @@
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 2px solid #ec4899;
+  border-bottom: 2px solid var(--primary);
 }
 
 .card-header h2 {
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 600;
   margin: 0;
-  color: #f5d0fe;
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .status-badges {
@@ -82,20 +89,21 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 600;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .badge-admin {
   background: rgba(236, 72, 153, 0.2);
-  color: #f472b6;
-  border: 1px solid #ec4899;
+  color: var(--hover-select);
+  border: 1px solid var(--primary);
 }
 
 .badge-user {
-  background: #3a254f;
-  color: #c084fc;
+  background: var(--background);
+  color: var(--neutral);
   border: 1px solid #a855f7;
 }
 
@@ -123,7 +131,7 @@
   height: 100px;
   border-radius: 50%;
   object-fit: cover;
-  border: 3px solid #ec4899;
+  border: 3px solid var(--primary);
   flex-shrink: 0;
   box-shadow: 0 0 12px rgba(236, 72, 153, 0.5);
 }
@@ -143,26 +151,28 @@
 
 .info-row .label {
   font-weight: 600;
-  color: #f9a8d4;
+  color: var(--neutral);
   min-width: 140px;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-size: 9px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .info-row .value {
-  color: #f5d0fe;
+  color: var(--text);
   flex: 1;
-  font-size: 12px;
+  font-size: 10px;
+  font-family: 'Courier New', monospace;
 }
 
 .monospace {
   font-family: 'Courier New', monospace;
-  font-size: 11px;
-  background: #1a0f26;
-  color: #c084fc;
+  font-size: 9px;
+  background: var(--background);
+  color: var(--neutral);
   padding: 4px 8px;
   border-radius: 4px;
   border: 1px solid #a855f7;
@@ -180,21 +190,23 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: #1a0f26;
+  background: var(--background);
   border-radius: 8px;
   border: 1px solid #a855f7;
 }
 
 .pref-label {
   font-weight: 600;
-  color: #f9a8d4;
-  font-size: 10px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--neutral);
+  font-size: 8px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .pref-value {
-  color: #f5d0fe;
-  font-size: 12px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: 'Courier New', monospace;
 }
 
 /* Statistics Grid */
@@ -210,16 +222,16 @@
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: #1a0f26;
+  background: var(--background);
   border-radius: 8px;
-  border: 2px solid #ec4899;
+  border: 2px solid var(--primary);
   box-shadow: 0 0 8px rgba(236, 72, 153, 0.3);
 }
 
 .stat-icon {
   width: 36px;
   height: 36px;
-  color: #f472b6;
+  color: var(--hover-select);
   flex-shrink: 0;
 }
 
@@ -229,18 +241,19 @@
 }
 
 .stat-value {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
-  color: #f5d0fe;
+  color: var(--text);
   line-height: 1;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .stat-label {
-  font-size: 10px;
-  color: #f9a8d4;
+  font-size: 8px;
+  color: var(--neutral);
   margin-top: 6px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 /* Timeline */
@@ -248,7 +261,7 @@
   display: flex;
   justify-content: space-around;
   padding: 16px;
-  background: #1a0f26;
+  background: var(--background);
   border-radius: 8px;
   border: 1px solid #a855f7;
 }
@@ -261,28 +274,31 @@
 }
 
 .timeline-label {
-  font-size: 10px;
-  color: #f9a8d4;
+  font-size: 8px;
+  color: var(--neutral);
   font-weight: 600;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .timeline-value {
-  font-size: 12px;
-  color: #f5d0fe;
+  font-size: 10px;
+  color: var(--text);
   font-weight: 600;
+  font-family: 'Courier New', monospace;
 }
 
 /* Episode Progress */
 .episode-count {
   background: rgba(236, 72, 153, 0.2);
-  color: #f472b6;
+  color: var(--hover-select);
   padding: 6px 12px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 600;
-  border: 1px solid #ec4899;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  border: 1px solid var(--primary);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .episode-progress-list {
@@ -293,7 +309,7 @@
 
 .episode-progress-item {
   padding: 16px;
-  background: #1a0f26;
+  background: var(--background);
   border-radius: 8px;
   border: 2px solid #a855f7;
 }
@@ -313,14 +329,16 @@
 
 .episode-film {
   font-weight: 600;
-  color: #f5d0fe;
-  font-size: 12px;
+  color: var(--text);
+  font-size: 10px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .episode-id {
-  font-size: 10px;
-  color: #c084fc;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-size: 8px;
+  color: var(--neutral);
+  font-family: 'Courier New', monospace;
 }
 
 .episode-completion {
@@ -331,21 +349,21 @@
 }
 
 .completion-percentage {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
-  color: #f472b6;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--hover-select);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .completion-fraction {
-  font-size: 10px;
-  color: #f9a8d4;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-size: 8px;
+  color: var(--neutral);
+  font-family: 'Courier New', monospace;
 }
 
 .episode-progress-bar {
   height: 10px;
-  background: #3a254f;
+  background: var(--background);
   border-radius: 4px;
   overflow: hidden;
   margin-bottom: 8px;
@@ -354,7 +372,7 @@
 
 .episode-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #ec4899 0%, #f472b6 100%);
+  background: linear-gradient(90deg, var(--primary) 0%, var(--hover-select) 100%);
   border-radius: 4px;
   transition: width 0.3s ease;
   box-shadow: 0 0 8px rgba(236, 72, 153, 0.6);
@@ -363,21 +381,22 @@
 .episode-meta {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
-  color: #c084fc;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-size: 8px;
+  color: var(--neutral);
+  font-family: 'Courier New', monospace;
 }
 
 /* Recent Cards Table */
 .card-count {
   background: rgba(236, 72, 153, 0.2);
-  color: #f472b6;
+  color: var(--hover-select);
   padding: 6px 12px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 600;
-  border: 1px solid #ec4899;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  border: 1px solid var(--primary);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .recent-cards-table {
@@ -390,30 +409,31 @@
 }
 
 .recent-cards-table thead {
-  background: #1a0f26;
-  border-bottom: 2px solid #ec4899;
+  background: var(--background);
+  border-bottom: 2px solid var(--primary);
 }
 
 .recent-cards-table th {
   padding: 12px 16px;
   text-align: left;
   font-weight: 600;
-  font-size: 10px;
-  color: #f9a8d4;
+  font-size: 8px;
+  color: var(--neutral);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .recent-cards-table td {
   padding: 10px 16px;
-  border-bottom: 1px solid #3a254f;
-  font-size: 11px;
-  color: #f5d0fe;
+  border-bottom: 1px solid rgba(236, 72, 153, 0.2);
+  font-size: 9px;
+  color: var(--text);
+  font-family: 'Courier New', monospace;
 }
 
 .recent-cards-table tbody tr:hover {
-  background: #3a254f;
+  background: var(--hover-bg);
 }
 
 .recent-cards-table tbody tr:last-child td {
@@ -422,23 +442,24 @@
 
 .card-index {
   font-weight: 600;
-  color: #f472b6;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--hover-select);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .card-id {
   font-family: 'Courier New', monospace;
-  font-size: 10px;
-  color: #c084fc;
+  font-size: 8px;
+  color: var(--neutral);
 }
 
 /* Empty State */
 .empty-state {
   text-align: center;
   padding: 48px;
-  color: #f9a8d4;
-  font-size: 12px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--neutral);
+  font-size: 10px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 /* States */
@@ -446,9 +467,10 @@
 .error-state {
   text-align: center;
   padding: 48px;
-  color: #f9a8d4;
-  font-size: 14px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--neutral);
+  font-size: 12px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .error-state {

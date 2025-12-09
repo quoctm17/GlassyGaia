@@ -1,0 +1,766 @@
+/* Admin Migration Pages - Unified styles for Image Migration, Media Cleanup, and Audio Migration */
+
+/* Main Container */
+.migration-page-container {
+  padding: 1.5rem;
+  max-width: 80rem;
+  margin: 0 auto;
+}
+
+/* Header Section */
+.migration-header {
+  margin-bottom: 1.5rem;
+}
+
+.migration-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 1.25rem;
+  color: var(--primary);
+  margin-bottom: 0.75rem;
+  line-height: 1.5;
+}
+
+.migration-description {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  color: var(--text);
+  line-height: 1.6;
+  max-width: 60rem;
+}
+
+/* Warning Banner */
+.migration-warning-banner {
+  background-color: var(--warning-bg);
+  border: 2px solid var(--warning);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.migration-warning-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.migration-warning-icon {
+  flex-shrink: 0;
+  color: var(--warning);
+  margin-top: 0.125rem;
+}
+
+.migration-warning-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.75rem;
+  color: var(--warning);
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.migration-warning-text {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.migration-warning-text code {
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8125rem;
+}
+
+.migration-warning-text strong {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* Configuration Panel */
+.migration-config-panel {
+  background-color: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.migration-panel-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.875rem;
+  color: var(--primary);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.migration-config-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .migration-config-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.migration-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.migration-field-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.migration-field-input {
+  padding: 0.625rem;
+  background-color: var(--background);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 0.375rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  transition: border-color 0.2s;
+}
+
+.migration-field-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.migration-field-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.migration-field-hint {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  color: var(--sub-language-text);
+  line-height: 1.4;
+}
+
+.migration-input-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.migration-input-group .migration-field-input {
+  flex: 1;
+}
+
+/* Checkbox */
+.migration-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.migration-checkbox {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.migration-checkbox-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.migration-checkbox-label strong {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* Range Slider */
+.migration-range-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.migration-range-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.migration-range-label .range-value {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.migration-range-input {
+  width: 100%;
+  height: 0.375rem;
+  background: var(--border);
+  border-radius: 0.5rem;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.migration-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: var(--primary);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.migration-range-input::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  background: var(--primary);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+/* Statistics Panel */
+.migration-stats-panel {
+  background-color: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.migration-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .migration-stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 768px) {
+  .migration-stats-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.migration-stat-card {
+  background-color: var(--background);
+  border: 2px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.migration-stat-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.migration-stat-value {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.migration-stat-card.total .migration-stat-value {
+  color: var(--primary);
+}
+
+.migration-stat-card.processed .migration-stat-value {
+  color: var(--info);
+}
+
+.migration-stat-card.success .migration-stat-value {
+  color: var(--success);
+}
+
+.migration-stat-card.error .migration-stat-value {
+  color: var(--error);
+}
+
+.migration-stat-card.warning .migration-stat-value {
+  color: var(--warning);
+}
+
+/* Progress Bar */
+.migration-progress-wrapper {
+  margin-bottom: 1.5rem;
+}
+
+.migration-progress-bar {
+  width: 100%;
+  height: 2rem;
+  background-color: var(--background);
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.migration-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--info));
+  transition: width 0.3s ease;
+}
+
+.migration-progress-text {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  color: var(--text);
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+/* Action Buttons */
+.migration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.migration-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.625rem;
+  line-height: 1.5;
+  border: 2px solid;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  background-color: var(--background);
+}
+
+.migration-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.migration-btn.primary {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.migration-btn.primary:hover:not(:disabled) {
+  background-color: var(--primary);
+  color: var(--background);
+}
+
+.migration-btn.success {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.migration-btn.success:hover:not(:disabled) {
+  background-color: var(--success);
+  color: var(--background);
+}
+
+.migration-btn.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.migration-btn.danger:hover:not(:disabled) {
+  background-color: var(--error);
+  color: var(--background);
+}
+
+.migration-btn.warning {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.migration-btn.warning:hover:not(:disabled) {
+  background-color: var(--warning);
+  color: var(--background);
+}
+
+.migration-btn.info {
+  border-color: var(--info);
+  color: var(--info);
+}
+
+.migration-btn.info:hover:not(:disabled) {
+  background-color: var(--info);
+  color: var(--background);
+}
+
+.migration-btn.secondary {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.migration-btn.secondary:hover:not(:disabled) {
+  background-color: var(--hover-bg);
+}
+
+/* Logs Panel */
+.migration-logs-panel {
+  background-color: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.migration-logs-container {
+  background-color: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+/* Custom scrollbar for logs */
+.migration-logs-container::-webkit-scrollbar {
+  width: 0.5rem;
+}
+
+.migration-logs-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0.25rem;
+}
+
+.migration-logs-container::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 0.25rem;
+}
+
+.migration-logs-container::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+.migration-logs-empty {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.migration-log-entry {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  margin-bottom: 0.375rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.migration-log-time {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.migration-log-message {
+  flex: 1;
+}
+
+.migration-log-entry.info .migration-log-message {
+  color: var(--info);
+}
+
+.migration-log-entry.success .migration-log-message {
+  color: var(--success);
+}
+
+.migration-log-entry.error .migration-log-message {
+  color: var(--error);
+}
+
+.migration-log-entry.warning .migration-log-message {
+  color: var(--warning);
+}
+
+.migration-log-details {
+  color: var(--text-muted);
+  font-style: italic;
+  margin-left: 2rem;
+}
+
+/* Files List */
+.migration-files-list {
+  background-color: var(--card-bg);
+  border: 2px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.migration-files-list summary {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.875rem;
+  color: var(--primary);
+  cursor: pointer;
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+}
+
+.migration-files-list[open] summary {
+  margin-bottom: 1rem;
+}
+
+.migration-files-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.migration-file-item {
+  background-color: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.625rem;
+}
+
+.migration-file-path {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.migration-file-meta {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.6875rem;
+  color: var(--sub-language-text);
+  margin-top: 0.25rem;
+}
+
+/* Folder Picker Modal */
+.migration-folder-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.migration-folder-modal {
+  background-color: var(--card-bg);
+  border: 2px solid var(--primary);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  max-width: 42rem;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.migration-folder-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.migration-folder-header h3 {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.875rem;
+  color: var(--primary);
+  line-height: 1.5;
+}
+
+.migration-folder-close-btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+
+.migration-folder-close-btn:hover {
+  color: var(--error);
+}
+
+.migration-folder-breadcrumb {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: var(--text);
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.migration-breadcrumb-label {
+  color: var(--text-muted);
+  margin-right: 0.25rem;
+}
+
+.migration-breadcrumb-item {
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.migration-folder-search {
+  position: relative;
+  margin-bottom: 0.75rem;
+}
+
+.migration-folder-search-input {
+  width: 100%;
+  padding: 0.625rem;
+  padding-right: 2rem;
+  background-color: var(--background);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 0.375rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+}
+
+.migration-folder-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.migration-folder-clear-btn {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 1rem;
+  transition: color 0.2s;
+}
+
+.migration-folder-clear-btn:hover {
+  color: var(--error);
+}
+
+.migration-folder-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.migration-folder-actions .migration-btn {
+  font-size: 0.5625rem;
+  padding: 0.5rem 1rem;
+}
+
+.migration-folder-list {
+  background-color: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.migration-folder-loading,
+.migration-folder-empty {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.migration-folder-count {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  color: var(--sub-language-text);
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.migration-folder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  color: var(--text);
+  background-color: transparent;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background-color 0.2s;
+}
+
+.migration-folder-item:hover {
+  background-color: var(--hover-bg);
+}
+
+.migration-folder-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.migration-folder-name {
+  flex: 1;
+  word-break: break-all;
+}
+
+.migration-chevron-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Utility Classes */
+.migration-hidden {
+  display: none;
+}
+
+.migration-animate-spin {
+  animation: migration-spin 1s linear infinite;
+}
+
+@keyframes migration-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

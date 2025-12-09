@@ -215,10 +215,10 @@ export default function AdminDatabasePage() {
     <div className="admin-section">
       <div className="admin-section-header">
         <div className="flex items-center gap-3">
-          <Database className="w-6 h-6 text-pink-400" />
+          <Database className="w-6 h-6" style={{ color: 'var(--primary)' }} />
           <div>
-            <h2 className="admin-title">Database Management</h2>
-            <p className="text-sm text-gray-400 mt-1">Quản lý CRUD cho các bảng trong D1 Database</p>
+            <h2 className="admin-title" style={{ color: 'var(--primary)' }}>Database Management</h2>
+            <p className="typography-inter-4" style={{ color: 'var(--sub-language-text)', marginTop: '0.25rem' }}>Quản lý CRUD cho các bảng trong D1 Database</p>
           </div>
         </div>
       </div>

@@ -57,10 +57,11 @@ export function buildR2MediaUrl(params: {
   episodeId: string; // accepts e1, e001, 1, filmSlug_1
   cardId: string; // display/card id; will be padded to 4 digits if numeric
   type: "audio" | "image";
+  ext?: string; // optional: specify extension (webp, jpg, opus, mp3, wav)
 }): string {
   // New naming convention:
   // items/{filmId}/episodes/{filmId}_{episode3}/{type}/{filmId}_{episode3}_{card4}.{ext}
-  const { filmId, episodeId, cardId, type } = params;
+  const { filmId, episodeId, cardId, type, ext: providedExt } = params;
   let epNum = Number(String(episodeId || "e1").replace(/^e/i, ""));
   if (!epNum || Number.isNaN(epNum)) {
     const m = String(episodeId || "").match(/_(\d+)$/);
@@ -69,7 +70,7 @@ export function buildR2MediaUrl(params: {
   const epPadded = String(epNum).padStart(3, "0");
   const isDigits = /^[0-9]+$/.test(String(cardId));
   const cardPadded = isDigits ? String(cardId).padStart(4, "0") : String(cardId);
-  const ext = type === "image" ? "jpg" : "mp3";
+  const ext = providedExt || (type === "image" ? "jpg" : "mp3"); // default to legacy if not provided
   const rel = `items/${filmId}/episodes/${filmId}_${epPadded}/${type}/${filmId}_${epPadded}_${cardPadded}.${ext}`;
   return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${rel}` : `/${rel}`;
 }

@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { useUser } from '../../context/UserContext';
 import { uploadCoverImage } from '../../services/storageUpload';
 import { apiUpdateFilmMeta } from '../../services/cfApi';
-import { Film, Clapperboard, Book as BookIcon, AudioLines } from 'lucide-react';
+import { Film, Clapperboard, Book as BookIcon, AudioLines, ArrowLeft } from 'lucide-react';
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from '../../types/content';
 import '../../styles/components/admin/admin-forms.css';
 
@@ -127,7 +127,10 @@ export default function AdminContentUpdatePage() {
 		<div className="p-6 max-w-5xl mx-auto space-y-4">
 			<div className="admin-section-header">
 				<h2 className="admin-title">Update Content Metadata</h2>
-				<button className="admin-btn secondary" onClick={() => window.location.href = `/admin/content/${contentSlug}`}>← Back</button>
+				<button className="admin-btn secondary flex items-center gap-1.5" onClick={() => window.location.href = `/admin/content/${contentSlug}`}>
+					<ArrowLeft className="w-4 h-4" />
+					<span>Back</span>
+				</button>
 			</div>
 
 			{!user && (
@@ -138,19 +141,19 @@ export default function AdminContentUpdatePage() {
 			)}
 
 			{user && (
-				<div className="admin-panel space-y-2 text-sm">
-					<div>Signed in as <span className="text-gray-300">{user.email}</span></div>
+				<div className="admin-panel space-y-2 text-sm" style={{ color: 'var(--text)' }}>
+					<div>Signed in as <span style={{ color: 'var(--primary)' }}>{user.email}</span></div>
 					{requireKey && (
-						<div className="text-xs text-gray-400">Admin Key required — set it once in the SideNav.</div>
+						<div className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Admin Key required — set it once in the SideNav.</div>
 					)}
-					<div>Access: {isAdmin ? <span className="text-green-400">granted (Admin role)</span> : <span className="text-red-400">denied (No admin role)</span>}</div>
+					<div>Access: {isAdmin ? <span style={{ color: 'var(--success)' }}>granted (Admin role)</span> : <span style={{ color: 'var(--error)' }}>denied (No admin role)</span>}</div>
 				</div>
 			)}
 
 			{isAdmin && (
 				<div className="admin-panel space-y-4">
 					<div className="text-sm font-semibold">Hướng dẫn</div>
-					<div className="text-xs space-y-2 text-gray-300">
+					<div className="text-xs space-y-2" style={{ color: 'var(--text)' }}>
 						<p>Có thể sửa các trường metadata: <code>Title</code>, <code>Description</code>, <code>Cover (Portrait)</code>, <code>Cover Landscape</code>, <code>Type</code> (tùy chọn), <code>Release Year</code> (tùy chọn). Không đổi slug để tránh mất liên kết tới media/cards.</p>
 						<p>Ảnh bìa portrait sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover.jpg</code>.</p>
 						<p>Ảnh bìa landscape sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover_landscape.jpg</code>.</p>
@@ -161,7 +164,8 @@ export default function AdminContentUpdatePage() {
 						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Content Slug</label>
 							<input
-								className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none"
+								className="admin-input opacity-50 cursor-not-allowed pointer-events-none"
+								style={{ backgroundColor: 'var(--card-bg)', color: 'var(--sub-language-text)', borderColor: 'var(--border)' }}
 								value={contentSlug}
 								placeholder="god_of_gamblers_2"
 								disabled
@@ -193,7 +197,7 @@ export default function AdminContentUpdatePage() {
 													: CONTENT_TYPE_LABELS[contentType as keyof typeof CONTENT_TYPE_LABELS]}
 										</span>
 									</span>
-									<span className="text-gray-400">▼</span>
+									<span style={{ color: 'var(--sub-language-text)' }}>▼</span>
 								</button>
 								{typeOpen && (
 									<div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
@@ -217,7 +221,7 @@ export default function AdminContentUpdatePage() {
 							<div className="relative w-full">
 								<button type="button" className="admin-input flex items-center justify-between" onClick={() => setYearOpen(v => !v)} title="Năm phát hành (không bắt buộc)">
 									<span>{releaseYear === undefined ? 'Unchanged' : (releaseYear === null ? 'Cleared' : releaseYear)}</span>
-									<span className="text-gray-400">▼</span>
+									<span style={{ color: 'var(--sub-language-text)' }}>▼</span>
 								</button>
 								{yearOpen && (
 									<div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
@@ -248,12 +252,12 @@ export default function AdminContentUpdatePage() {
 
 						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Cover Portrait (jpg)</label>
-							<input id="update-cover-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+							<input id="update-cover-file" type="file" accept="image/jpeg,image/webp" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
 						</div>
 
 						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Cover Landscape (jpg)</label>
-							<input id="update-cover-landscape-file" type="file" accept="image/jpeg" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+							<input id="update-cover-landscape-file" type="file" accept="image/jpeg,image/webp" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
 						</div>
 
 					<div className="flex items-start gap-2 md:col-span-2">
@@ -270,11 +274,13 @@ export default function AdminContentUpdatePage() {
 					<div className="flex items-center gap-2 md:col-span-2">
 						<label className="w-40 text-sm">Availability</label>
 						<div className="flex items-center gap-3">
-							<span className={`px-3 py-0.5 rounded-full text-xs font-semibold border ${
-								(isAvailable === 1 || isAvailable === true) ? 'bg-green-600/20 text-green-300 border-green-500/60' : 
-								(isAvailable === 0 || isAvailable === false) ? 'bg-red-600/20 text-red-300 border-red-500/60' :
-								'bg-gray-600/20 text-gray-300 border-gray-500/60'
-							}`}>
+							<span className={`status-badge ${(isAvailable === 1 || isAvailable === true) ? 'active' : (isAvailable === 0 || isAvailable === false) ? 'inactive' : ''}`} style={{
+								...(isAvailable !== 1 && isAvailable !== true && isAvailable !== 0 && isAvailable !== false && {
+									backgroundColor: 'var(--neutral-bg)',
+									color: 'var(--text)',
+									borderColor: 'var(--neutral)'
+								})
+							}}>
 								{(isAvailable === 1 || isAvailable === true) ? 'Available' : 
 								 (isAvailable === 0 || isAvailable === false) ? 'Unavailable' : 'Unchanged'}
 							</span>
@@ -291,7 +297,7 @@ export default function AdminContentUpdatePage() {
 							>
 								Toggle
 							</button>
-							<span className="text-xs text-gray-500">
+							<span className="text-xs typography-inter-4" style={{ color: 'var(--neutral)' }}>
 								{(isAvailable === 1 || isAvailable === true) ? 'Content xuất hiện trong search' : 
 								 (isAvailable === 0 || isAvailable === false) ? 'Content bị ẩn khỏi search' : 'Giữ nguyên giá trị hiện tại'}
 							</span>
@@ -306,7 +312,7 @@ export default function AdminContentUpdatePage() {
 						>
 							{busy ? 'Updating...' : 'Update Metadata'}
 						</button>
-						<div className="text-xs text-gray-400">Stage: {stage}</div>
+						<div className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Stage: {stage}</div>
 					</div>
 					{(stage === 'done') && (
 						<div className="text-xs space-y-1">

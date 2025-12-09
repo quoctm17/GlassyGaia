@@ -1,5 +1,5 @@
 // Cloudflare R2 upload via signed URLs
-import { r2UploadViaSignedUrl, r2BatchSignUpload, r2MultipartUpload } from "./cfApi";
+import { r2UploadViaSignedUrl, r2BatchSignUpload } from "./cfApi";
 
 export type MediaType = "image" | "audio";
 
@@ -46,11 +46,11 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
     // Enforce content type compatibility with import pattern
-    if (isImage && !/jpe?g$/i.test(f.type) && f.type !== "image/jpeg") {
-      throw new Error(`File ${f.name} is not JPEG (image/jpeg)`);
+    if (isImage && !/jpe?g$/i.test(f.type) && f.type !== "image/jpeg" && !/webp$/i.test(f.type) && f.type !== "image/webp") {
+      throw new Error(`File ${f.name} is not JPEG or WebP (image/jpeg, image/webp)`);
     }
-    if (!isImage && !/mpeg$/i.test(f.type) && f.type !== "audio/mpeg" && !/wav$/i.test(f.type) && f.type !== "audio/wav" && f.type !== "audio/x-wav") {
-      throw new Error(`File ${f.name} is not MP3 or WAV (audio/mpeg, audio/wav)`);
+    if (!isImage && !/mpeg$/i.test(f.type) && f.type !== "audio/mpeg" && !/wav$/i.test(f.type) && f.type !== "audio/wav" && f.type !== "audio/x-wav" && !/opus$/i.test(f.type) && f.type !== "audio/opus" && f.type !== "audio/ogg") {
+      throw new Error(`File ${f.name} is not MP3, WAV, or Opus (audio/mpeg, audio/wav, audio/opus)`);
     }
 
     // Previously: skipped WAV >8MB to avoid timeouts.
@@ -96,11 +96,17 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   // Pre-compute all paths and fetch signed URLs in batches
   const uploadPlan: Array<{ file: File; cardId: string; newPath: string; legacyPath: string; contentType: string }> = [];
   for (const item of plan) {
-    const ext = isImage ? "jpg" : (item.file.type === "audio/wav" || item.file.type === "audio/x-wav" ? "wav" : "mp3");
+    const ext = isImage 
+      ? (item.file.type === "image/webp" ? "webp" : "jpg")
+      : (item.file.type === "audio/wav" || item.file.type === "audio/x-wav" ? "wav" 
+        : (item.file.type === "audio/opus" || item.file.type === "audio/ogg" ? "opus" : "mp3"));
     const fileName = `${filmId}_${paddedEp}_${item.cardId}.${ext}`;
     const newPath = `items/${filmId}/episodes/${filmId}_${paddedEp}/${type}/${fileName}`;
     const legacyPath = `items/${filmId}/episodes/${filmId}_${episodeNum}/${type}/${fileName}`;
-    const contentType = isImage ? "image/jpeg" : (item.file.type === "audio/wav" || item.file.type === "audio/x-wav" ? "audio/wav" : "audio/mpeg");
+    const contentType = isImage 
+      ? (item.file.type === "image/webp" ? "image/webp" : "image/jpeg")
+      : (item.file.type === "audio/wav" || item.file.type === "audio/x-wav" ? "audio/wav" 
+        : (item.file.type === "audio/opus" || item.file.type === "audio/ogg" ? "audio/opus" : "audio/mpeg"));
     uploadPlan.push({ file: item.file, cardId: item.cardId, newPath, legacyPath, contentType });
   }
 
@@ -194,110 +200,39 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   await runBatch();
 }
 
-// Upload cover image (JPEG) to items/{filmId}/cover_image/cover.jpg or cover_landscape.jpg
+// Upload cover image (JPEG/WebP) to items/{filmId}/cover_image/cover.jpg or cover_landscape.jpg
 export async function uploadCoverImage(params: { filmId: string; episodeNum: number; file: File; landscape?: boolean }) {
   const { filmId, /* episodeNum */ file, landscape } = params;
-  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg') {
-    throw new Error('Cover must be a JPEG image');
+  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg' && !/webp$/i.test(file.type) && file.type !== 'image/webp') {
+    throw new Error('Cover must be a JPEG or WebP image');
   }
-  const filename = landscape ? 'cover_landscape.jpg' : 'cover.jpg';
+  const isWebP = file.type === 'image/webp';
+  const ext = isWebP ? 'webp' : 'jpg';
+  const contentType = isWebP ? 'image/webp' : 'image/jpeg';
+  const filename = landscape ? `cover_landscape.${ext}` : `cover.${ext}`;
   const bucketPath = `items/${filmId}/cover_image/${filename}`;
-  await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'image/jpeg' });
+  await r2UploadViaSignedUrl({ bucketPath, file, contentType });
 }
 
-// Upload episode cover image (JPEG) to items/{filmId}/episodes/{filmId}_{episodeNum}/cover/cover.jpg or cover_landscape.jpg
+// Upload episode cover image (JPEG/WebP) to items/{filmId}/episodes/{filmId}_{episodeNum}/cover/cover.jpg or cover_landscape.jpg
 export async function uploadEpisodeCoverImage(params: { filmId: string; episodeNum: number; file: File; landscape?: boolean }) {
   const { filmId, episodeNum, file, landscape } = params;
-  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg') {
-    throw new Error('Episode cover must be a JPEG image');
+  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg' && !/webp$/i.test(file.type) && file.type !== 'image/webp') {
+    throw new Error('Episode cover must be a JPEG or WebP image');
   }
-  const filename = landscape ? 'cover_landscape.jpg' : 'cover.jpg';
+  const isWebP = file.type === 'image/webp';
+  const ext = isWebP ? 'webp' : 'jpg';
+  const contentType = isWebP ? 'image/webp' : 'image/jpeg';
+  const filename = landscape ? `cover_landscape.${ext}` : `cover.${ext}`;
   const epFolderPadded = `${filmId}_${String(episodeNum).padStart(3,'0')}`;
   const epFolderLegacy = `${filmId}_${episodeNum}`;
   const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/cover/${filename}`;
   const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/cover/${filename}`;
   try {
-    await r2UploadViaSignedUrl({ bucketPath: bucketPathNew, file, contentType: 'image/jpeg' });
+    await r2UploadViaSignedUrl({ bucketPath: bucketPathNew, file, contentType });
     return bucketPathNew;
   } catch {
-    await r2UploadViaSignedUrl({ bucketPath: bucketPathLegacy, file, contentType: 'image/jpeg' });
+    await r2UploadViaSignedUrl({ bucketPath: bucketPathLegacy, file, contentType });
     return bucketPathLegacy;
-  }
-}
-
-// Upload full media for a film (top-level, not per-episode)
-export async function uploadFilmFullMedia(params: { filmId: string; type: 'audio' | 'video'; file: File }) {
-  const { filmId, type, file } = params;
-  if (type === 'audio') {
-    if (!/mpeg$/i.test(file.type) && file.type !== 'audio/mpeg') {
-      throw new Error('Full audio must be MP3 (audio/mpeg)');
-    }
-    const bucketPath = `items/${filmId}/full/audio.mp3`;
-    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'audio/mpeg' });
-    return bucketPath;
-  } else {
-    if (!/mp4$/i.test(file.type) && file.type !== 'video/mp4') {
-      throw new Error('Full video must be MP4 (video/mp4)');
-    }
-    const bucketPath = `items/${filmId}/full/video.mp4`;
-    await r2UploadViaSignedUrl({ bucketPath, file, contentType: 'video/mp4' });
-    return bucketPath;
-  }
-}
-
-// Upload full media for a specific episode
-export async function uploadEpisodeFullMedia(params: { filmId: string; episodeNum: number; type: 'audio' | 'video'; file: File; onProgress?: (doneBytes: number, totalBytes: number) => void }) {
-  const { filmId, episodeNum, type, file, onProgress } = params;
-  const epFolderPadded = `${filmId}_${String(episodeNum).padStart(3,'0')}`;
-  const epFolderLegacy = `${filmId}_${episodeNum}`;
-  if (type === 'audio') {
-    // Accept mp3 and wav
-    if (!/mpeg$/i.test(file.type) && file.type !== 'audio/mpeg' && !/wav$/i.test(file.type) && file.type !== 'audio/wav' && file.type !== 'audio/x-wav') {
-      throw new Error('Episode full audio must be MP3 or WAV (audio/mpeg, audio/wav)');
-    }
-    const isWav = file.type === 'audio/wav' || file.type === 'audio/x-wav';
-    const ext = isWav ? 'wav' : 'mp3';
-    const contentType = isWav ? 'audio/wav' : 'audio/mpeg';
-    const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/full/audio.${ext}`;
-    const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/full/audio.${ext}`;
-    // Use multipart for reliability on larger files (>= 8MB), else direct PUT
-    const useMultipart = file.size >= 8 * 1024 * 1024;
-    if (useMultipart) {
-      try {
-        await r2MultipartUpload({ key: bucketPathNew, file, contentType, partSizeBytes: 8 * 1024 * 1024, concurrency: 3, onProgress: (d,t)=>onProgress?.(d,t) });
-        return bucketPathNew;
-      } catch (e) {
-        console.warn('Multipart audio upload failed for padded path, retrying legacy path...', e);
-        await r2MultipartUpload({ key: bucketPathLegacy, file, contentType, partSizeBytes: 8 * 1024 * 1024, concurrency: 3, onProgress: (d,t)=>onProgress?.(d,t) });
-        return bucketPathLegacy;
-      }
-    } else {
-      try {
-        await r2UploadViaSignedUrl({ bucketPath: bucketPathNew, file, contentType });
-        return bucketPathNew;
-      } catch {
-        await r2UploadViaSignedUrl({ bucketPath: bucketPathLegacy, file, contentType });
-        return bucketPathLegacy;
-      }
-    }
-  } else {
-    if (!/mp4$/i.test(file.type) && file.type !== 'video/mp4') {
-      throw new Error('Episode full video must be MP4 (video/mp4)');
-    }
-    const bucketPathNew = `items/${filmId}/episodes/${epFolderPadded}/full/video.mp4`;
-    const bucketPathLegacy = `items/${filmId}/episodes/${epFolderLegacy}/full/video.mp4`;
-    // Prefer multipart for reliability; if it fails, try legacy path
-    try {
-      await r2MultipartUpload({ key: bucketPathNew, file, contentType: 'video/mp4', partSizeBytes: 8 * 1024 * 1024, concurrency: 3, onProgress: (done, total) => {
-        onProgress?.(done, total);
-      }});
-      return bucketPathNew;
-    } catch (e) {
-      console.warn('Multipart upload failed for padded path, retrying legacy path with multipart...', e);
-      await r2MultipartUpload({ key: bucketPathLegacy, file, contentType: 'video/mp4', partSizeBytes: 8 * 1024 * 1024, concurrency: 3, onProgress: (done, total) => {
-        onProgress?.(done, total);
-      }});
-      return bucketPathLegacy;
-    }
   }
 }

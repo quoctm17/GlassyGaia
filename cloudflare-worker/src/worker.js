@@ -1448,6 +1448,14 @@ export default {
             const key = r.id;
             let it = map.get(key);
             if (!it) {
+              // Parse level_framework_stats from JSON string to object
+              let levelStats = null;
+              if (r.level_framework_stats) {
+                try {
+                  levelStats = JSON.parse(r.level_framework_stats);
+                } catch {}
+              }
+              
               it = {
                 id: r.id,
                 title: r.title,
@@ -1457,7 +1465,7 @@ export default {
                 description: r.description,
                 episodes: r.episodes,
                 is_original: r.is_original,
-                level_framework_stats: r.level_framework_stats ?? null,
+                level_framework_stats: levelStats,
                 available_subs: [],
               };
               map.set(key, it);
@@ -1545,7 +1553,16 @@ export default {
           const episodesMeta = (Number.isFinite(episodesMetaRaw) && episodesMetaRaw > 0) ? episodesMetaRaw : null;
           const episodesOut = episodesMeta !== null ? episodesMeta : episodes;
           const isOriginal = (film.is_original == null) ? 1 : film.is_original; // default true when absent
-          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: film.level_framework_stats ?? null, is_available: film.is_available ?? 1 });
+          
+          // Parse level_framework_stats from JSON string to object
+          let levelStats = null;
+          if (film.level_framework_stats) {
+            try {
+              levelStats = JSON.parse(film.level_framework_stats);
+            } catch {}
+          }
+          
+          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: levelStats, is_available: film.is_available ?? 1 });
         } catch (e) {
           return new Response('Not found', { status: 404, headers: withCors() });
         }
@@ -1561,11 +1578,11 @@ export default {
           let rows;
           try {
             // New schema (episode_number)
-            rows = await env.DB.prepare('SELECT episode_number,title,slug,description,cover_key,full_audio_key,full_video_key,is_available,num_cards FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
+            rows = await env.DB.prepare('SELECT episode_number,title,slug,description,cover_key,is_available,num_cards FROM episodes WHERE content_item_id=? ORDER BY episode_number ASC').bind(filmRow.id).all();
           } catch (e) {
             // Backward compatibility: older column name episode_num
             try {
-              rows = await env.DB.prepare('SELECT episode_num AS episode_number,title,slug,cover_key,full_audio_key,full_video_key,is_available FROM episodes WHERE content_item_id=? ORDER BY episode_num ASC').bind(filmRow.id).all();
+              rows = await env.DB.prepare('SELECT episode_num AS episode_number,title,slug,cover_key,is_available FROM episodes WHERE content_item_id=? ORDER BY episode_num ASC').bind(filmRow.id).all();
             } catch (e2) {
               rows = { results: [] };
             }
@@ -1577,8 +1594,6 @@ export default {
             slug: r.slug || `${filmSlug}_${r.episode_number}`,
             description: r.description || null,
             cover_url: r.cover_key ? (base ? `${base}/${r.cover_key}` : `/${r.cover_key}`) : null,
-            full_audio_url: r.full_audio_key ? (base ? `${base}/${r.full_audio_key}` : `/${r.full_audio_key}`) : null,
-            full_video_url: r.full_video_key ? (base ? `${base}/${r.full_video_key}` : `/${r.full_video_key}`) : null,
             is_available: r.is_available ?? 1,
             num_cards: typeof r.num_cards === 'number' ? r.num_cards : Number(r.num_cards ?? 0),
           }));
@@ -1712,7 +1727,7 @@ export default {
           mediaKeys.add(`items/${filmRow.slug}/full/video.mp4`);
 
           // Episodes + cards keys
-          const episodeRows = await env.DB.prepare('SELECT id, episode_number, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=?').bind(filmRow.id).all().catch(() => ({ results: [] }));
+          const episodeRows = await env.DB.prepare('SELECT id, episode_number, cover_key FROM episodes WHERE content_item_id=?').bind(filmRow.id).all().catch(() => ({ results: [] }));
           const episodesResults = episodeRows.results || [];
           const episodeIds = episodesResults.map(r => r.id);
           let cardsResults = [];
@@ -1726,18 +1741,12 @@ export default {
             const epFolderLegacy = `${filmRow.slug}_${epNum}`;
             const epFolderPadded = `${filmRow.slug}_${String(epNum).padStart(3,'0')}`;
             if (ep.cover_key) mediaKeys.add(normalizeKey(ep.cover_key));
-            if (ep.full_audio_key) mediaKeys.add(normalizeKey(ep.full_audio_key));
-            if (ep.full_video_key) mediaKeys.add(normalizeKey(ep.full_video_key));
             // Conventional episode-level paths
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover.jpg`);
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover_landscape.jpg`);
-            mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/audio.mp3`);
-            mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/video.mp4`);
             // New padded variants
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/cover/cover.jpg`);
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/cover/cover_landscape.jpg`);
-            mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/audio.mp3`);
-            mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/video.mp4`);
           }
           for (const c of cardsResults) {
             if (c.image_key) mediaKeys.add(normalizeKey(c.image_key));
@@ -1933,9 +1942,9 @@ export default {
           // Resolve episode row
           let episode;
           try {
-            episode = await env.DB.prepare('SELECT id, episode_number, slug, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+            episode = await env.DB.prepare('SELECT id, episode_number, slug, cover_key FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
           } catch (e) {
-            try { episode = await env.DB.prepare('SELECT id, episode_num AS episode_number, slug, cover_key, full_audio_key, full_video_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch {}
+            try { episode = await env.DB.prepare('SELECT id, episode_num AS episode_number, slug, cover_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch {}
           }
           if (!episode) return json({ error: 'Not found' }, { status: 404 });
           const epId = episode.id;
@@ -1957,18 +1966,12 @@ export default {
           const mediaErrors = [];
           const normalizeKey = (k) => (k ? String(k).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '') : null);
           if (episode.cover_key) mediaKeys.add(normalizeKey(episode.cover_key));
-          if (episode.full_audio_key) mediaKeys.add(normalizeKey(episode.full_audio_key));
-          if (episode.full_video_key) mediaKeys.add(normalizeKey(episode.full_video_key));
           // Add conventional episode media locations (both legacy and padded)
           const epPadded = String(epNum).padStart(3,'0');
           const epFolderLegacy = `${filmRow.slug}_${epNum}`;
           const epFolderPadded = `${filmRow.slug}_${epPadded}`;
           mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover.jpg`);
-          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/audio.mp3`);
-          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/full/video.mp4`);
           mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/cover/cover.jpg`);
-          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/audio.mp3`);
-          mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderPadded}/full/video.mp4`);
           // Collect card keys
           let cardsRows = { results: [] };
           try {
@@ -2025,11 +2028,11 @@ export default {
           }
           let episode;
           try {
-            episode = await env.DB.prepare('SELECT id, title, slug, description, cover_key, full_audio_key, full_video_key, is_available, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+            episode = await env.DB.prepare('SELECT id, title, slug, description, cover_key, is_available, num_cards, avg_difficulty_score, level_framework_stats FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
           } catch (e) {
             // Fallback older schema
             try {
-              episode = await env.DB.prepare('SELECT id, title, slug, cover_key, full_audio_key, full_video_key, is_available FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
+              episode = await env.DB.prepare('SELECT id, title, slug, cover_key, is_available FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
             } catch {}
           }
           if (!episode) return json({ error: 'Not found' }, { status: 404 });
@@ -2043,8 +2046,6 @@ export default {
               slug: episode.slug || `${filmSlug}_${epNum}`,
               description: episode.description || null,
               cover_url: episode.cover_key ? (base ? `${base}/${episode.cover_key}` : `/${episode.cover_key}`) : null,
-              full_audio_url: episode.full_audio_key ? (base ? `${base}/${episode.full_audio_key}` : `/${episode.full_audio_key}`) : null,
-              full_video_url: episode.full_video_key ? (base ? `${base}/${episode.full_video_key}` : `/${episode.full_video_key}`) : null,
               display_id: `e${padded}`,
               num_cards: episode.num_cards ?? null,
               avg_difficulty_score: episode.avg_difficulty_score ?? null,
@@ -2070,18 +2071,6 @@ export default {
             const coverKey = String(coverKeyRaw).replace(/^https?:\/\/[^/]+\//, '');
             setClauses.push('cover_key=?');
             values.push(coverKey);
-          }
-          const fullAudioKeyRaw = body.full_audio_key || body.full_audio_url;
-          if (typeof fullAudioKeyRaw === 'string' && fullAudioKeyRaw.trim() !== '') {
-            const fullAudioKey = String(fullAudioKeyRaw).replace(/^https?:\/\/[^/]+\//, '');
-            setClauses.push('full_audio_key=?');
-            values.push(fullAudioKey);
-          }
-          const fullVideoKeyRaw = body.full_video_key || body.full_video_url;
-          if (typeof fullVideoKeyRaw === 'string' && fullVideoKeyRaw.trim() !== '') {
-            const fullVideoKey = String(fullVideoKeyRaw).replace(/^https?:\/\/[^/]+\//, '');
-            setClauses.push('full_video_key=?');
-            values.push(fullVideoKey);
           }
           // is_available flag (boolean or number → 0/1)
           if (typeof body.is_available === 'boolean' || typeof body.is_available === 'number') {
@@ -2942,7 +2931,7 @@ export default {
       if (path === '/admin/update-image-path' && request.method === 'POST') {
         try {
           const body = await request.json();
-          const { table, slug, field, newPath, episodeFolder, cardNumber } = body;
+          const { table, slug, field, newPath, episodeFolder, episodeNum, cardNumber, cardId } = body;
           
           if (!table || !newPath) {
             return json({ error: 'Missing required fields (table, newPath)' }, { status: 400 });
@@ -3011,19 +3000,18 @@ export default {
             });
             
           } else if (table === 'cards') {
-            // Update card-level image
-            if (!slug || !episodeFolder || cardNumber === undefined) {
-              return json({ error: 'slug, episodeFolder, and cardNumber required for cards' }, { status: 400 });
+            // Update card-level image or audio
+            // Support both old format (episodeFolder + cardNumber) and new format (episodeNum + cardId)
+            const epNum = episodeNum !== undefined ? parseInt(episodeNum) : (episodeFolder ? parseInt(episodeFolder.match(/e?(\d+)/i)?.[1]) : null);
+            const cNum = cardNumber !== undefined ? parseInt(cardNumber) : (cardId !== undefined ? parseInt(cardId) : null);
+            
+            if (!slug || epNum === null || cNum === null) {
+              return json({ error: 'slug and (episodeNum or episodeFolder) and (cardNumber or cardId) required for cards' }, { status: 400 });
             }
             
-            if (field !== 'image_key') {
-              return json({ error: 'Invalid field for cards table. Must be "image_key"' }, { status: 400 });
-            }
-            
-            // Find card by content slug, episode number, and card number
-            const episodeNum = episodeFolder.match(/e?(\d+)/i)?.[1];
-            if (!episodeNum) {
-              return json({ error: 'Invalid episodeFolder format' }, { status: 400 });
+            const validFields = ['image_key', 'audio_key'];
+            if (!validFields.includes(field)) {
+              return json({ error: 'Invalid field for cards table. Must be "image_key" or "audio_key"' }, { status: 400 });
             }
             
             const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(slug).first();
@@ -3033,33 +3021,220 @@ export default {
             
             const episodeResult = await env.DB.prepare(`
               SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
-            `).bind(filmRow.id, parseInt(episodeNum)).first();
+            `).bind(filmRow.id, epNum).first();
             
             if (!episodeResult) {
-              return json({ error: `Episode not found for ${slug}/e${episodeNum}` }, { status: 404 });
+              return json({ error: `Episode not found for ${slug}/e${epNum}` }, { status: 404 });
             }
             
             const cardResult = await env.DB.prepare(`
               SELECT id FROM cards WHERE episode_id = ? AND card_number = ?
-            `).bind(episodeResult.id, parseInt(cardNumber)).first();
+            `).bind(episodeResult.id, cNum).first();
             
             if (!cardResult) {
-              return json({ error: `Card not found: ${slug}/e${episodeNum}/card ${cardNumber}` }, { status: 404 });
+              return json({ error: `Card not found: ${slug}/e${epNum}/card ${cNum}` }, { status: 404 });
             }
             
             await env.DB.prepare(`
-              UPDATE cards SET image_key = ? WHERE id = ?
+              UPDATE cards SET ${field} = ? WHERE id = ?
             `).bind(newPath, cardResult.id).run();
             
             return json({
               success: true,
-              message: `Updated image_key for card ${slug}/e${episodeNum}/${cardNumber}`,
+              message: `Updated ${field} for card ${slug}/e${epNum}/${cNum}`,
               newPath
             });
             
           } else {
             return json({ error: 'Invalid table. Must be "content_items", "episodes", or "cards"' }, { status: 400 });
           }
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Admin: Update audio path in database (for MP3 -> Opus migration)
+      if (path === '/admin/update-audio-path' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { slug, episodeFolder, field, newPath } = body;
+          
+          if (!slug || !episodeFolder || !field || !newPath) {
+            return json({ error: 'Missing required fields (slug, episodeFolder, field, newPath)' }, { status: 400 });
+          }
+          
+          // Validate field
+          if (field !== 'preview_audio_key') {
+            return json({ error: 'Invalid field for audio update. Must be "preview_audio_key"' }, { status: 400 });
+          }
+          
+          // Find episode by content slug and episode folder
+          const episodeNum = episodeFolder.match(/e?(\d+)/i)?.[1];
+          if (!episodeNum) {
+            return json({ error: 'Invalid episodeFolder format' }, { status: 400 });
+          }
+          
+          const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(slug).first();
+          if (!filmRow) {
+            return json({ error: `Content not found: ${slug}` }, { status: 404 });
+          }
+          
+          const episodeResult = await env.DB.prepare(`
+            SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
+          `).bind(filmRow.id, parseInt(episodeNum)).first();
+          
+          if (!episodeResult) {
+            return json({ error: `Episode not found for ${slug}/e${episodeNum}` }, { status: 404 });
+          }
+          
+          await env.DB.prepare(`
+            UPDATE episodes SET ${field} = ? WHERE id = ?
+          `).bind(newPath, episodeResult.id).run();
+          
+          return json({
+            success: true,
+            message: `Updated ${field} for episode ${slug}/e${episodeNum}`,
+            newPath
+          });
+          
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Admin: Bulk migrate all database paths from .jpg/.mp3 to .webp/.opus
+      if (path === '/admin/migrate-paths' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { dryRun = true, imageExtension = 'webp', audioExtension = 'opus' } = body;
+          
+          const stats = {
+            contentCovers: 0,
+            contentLandscapes: 0,
+            episodeCovers: 0,
+            episodeLandscapes: 0,
+            cardImages: 0,
+            cardAudios: 0,
+            total: 0
+          };
+
+          // Helper function to replace extension in path
+          const replaceExt = (path, oldExt, newExt) => {
+            if (!path) return path;
+            const regex = new RegExp(`\\.${oldExt}$`, 'i');
+            return path.replace(regex, `.${newExt}`);
+          };
+
+          if (dryRun) {
+            // DRY RUN: Count what would be updated
+            
+            // Count content_items covers
+            const contentCovers = await env.DB.prepare(
+              `SELECT COUNT(*) as count FROM content_items WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'`
+            ).first();
+            stats.contentCovers = contentCovers?.count || 0;
+            
+            const contentLandscapes = await env.DB.prepare(
+              `SELECT COUNT(*) as count FROM content_items WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg'`
+            ).first();
+            stats.contentLandscapes = contentLandscapes?.count || 0;
+            
+            // Count episodes covers
+            const episodeCovers = await env.DB.prepare(
+              `SELECT COUNT(*) as count FROM episodes WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'`
+            ).first();
+            stats.episodeCovers = episodeCovers?.count || 0;
+            
+            // Note: episodes.cover_landscape_key column has been removed
+            stats.episodeLandscapes = 0;
+            
+            // Count cards images
+            const cardImages = await env.DB.prepare(
+              `SELECT COUNT(*) as count FROM cards WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg'`
+            ).first();
+            stats.cardImages = cardImages?.count || 0;
+            
+            // Count cards audios
+            const cardAudios = await env.DB.prepare(
+              `SELECT COUNT(*) as count FROM cards WHERE audio_key LIKE '%.mp3'`
+            ).first();
+            stats.cardAudios = cardAudios?.count || 0;
+            
+            stats.total = stats.contentCovers + stats.contentLandscapes + stats.episodeCovers + 
+                         stats.episodeLandscapes + stats.cardImages + stats.cardAudios;
+            
+            return json({
+              success: true,
+              dryRun: true,
+              message: `Would update ${stats.total} paths`,
+              stats
+            });
+          }
+
+          // LIVE MODE: Actually update the database
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
+          
+          try {
+            // Update content_items.cover_key (.jpg -> .webp)
+            const r1 = await env.DB.prepare(`
+              UPDATE content_items 
+              SET cover_key = REPLACE(REPLACE(cover_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'
+            `).run();
+            stats.contentCovers = r1.meta?.changes || 0;
+            
+            // Update content_items.cover_landscape_key (.jpg -> .webp)
+            const r2 = await env.DB.prepare(`
+              UPDATE content_items 
+              SET cover_landscape_key = REPLACE(REPLACE(cover_landscape_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg'
+            `).run();
+            stats.contentLandscapes = r2.meta?.changes || 0;
+            
+            // Update episodes.cover_key (.jpg -> .webp)
+            const r3 = await env.DB.prepare(`
+              UPDATE episodes 
+              SET cover_key = REPLACE(REPLACE(cover_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'
+            `).run();
+            stats.episodeCovers = r3.meta?.changes || 0;
+            
+            // Note: episodes.cover_landscape_key column has been removed
+            stats.episodeLandscapes = 0;
+            
+            // Update cards.image_key (.jpg -> .webp)
+            const r5 = await env.DB.prepare(`
+              UPDATE cards 
+              SET image_key = REPLACE(REPLACE(image_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg'
+            `).run();
+            stats.cardImages = r5.meta?.changes || 0;
+            
+            // Update cards.audio_key (.mp3 -> .opus)
+            const r6 = await env.DB.prepare(`
+              UPDATE cards 
+              SET audio_key = REPLACE(audio_key, '.mp3', '.${audioExtension}')
+              WHERE audio_key LIKE '%.mp3'
+            `).run();
+            stats.cardAudios = r6.meta?.changes || 0;
+            
+            stats.total = stats.contentCovers + stats.contentLandscapes + stats.episodeCovers + 
+                         stats.episodeLandscapes + stats.cardImages + stats.cardAudios;
+            
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
+            
+            return json({
+              success: true,
+              dryRun: false,
+              message: `Updated ${stats.total} paths successfully`,
+              stats
+            });
+            
+          } catch (e) {
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
+            throw e;
+          }
+          
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }

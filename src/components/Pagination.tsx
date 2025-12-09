@@ -47,9 +47,9 @@ export default function Pagination(props: PaginationProps) {
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const clamp = (p: number) => Math.min(totalPages, Math.max(1, p));
     return (
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <label className="flex items-center gap-2 text-xs whitespace-nowrap">
-          <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>Page size:</span>
+          <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>Size:</span>
           <select
             value={pageSize}
             onChange={(e) => onPageSizeChange?.(Number(e.currentTarget.value) || pageSize)}
@@ -62,7 +62,8 @@ export default function Pagination(props: PaginationProps) {
               color: 'var(--primary)',
               fontFamily: 'var(--font-family)',
               fontSize: '12px',
-              fontWeight: 500
+              fontWeight: 500,
+              minWidth: '70px'
             }}
           >
             {sizes.map(s => <option key={s} value={s}>{s}</option>)}
@@ -167,9 +168,9 @@ export default function Pagination(props: PaginationProps) {
   // cursor mode
   const { pageIndex, pageSize, hasPrev, hasNext, onPrev, onNext, onPageSizeChange, totalPages } = props;
   return (
-    <div className="flex items-center gap-3 flex-wrap">
+    <div className="flex items-center justify-between gap-3 flex-wrap">
       <label className="flex items-center gap-2 text-xs whitespace-nowrap">
-        <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>Page size:</span>
+        <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-family)', fontWeight: 500 }}>Size:</span>
         <select
           value={pageSize}
           onChange={(e) => onPageSizeChange?.(Number(e.currentTarget.value) || pageSize)}
@@ -182,7 +183,8 @@ export default function Pagination(props: PaginationProps) {
             color: 'var(--primary)',
             fontFamily: 'var(--font-family)',
             fontSize: '12px',
-            fontWeight: 500
+            fontWeight: 500,
+            minWidth: '70px'
           }}
         >
           {sizes.map(s => <option key={s} value={s}>{s}</option>)}

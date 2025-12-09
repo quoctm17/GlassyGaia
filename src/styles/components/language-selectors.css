@@ -5,16 +5,21 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 4px 6px;
   border: none;
   border-radius: 4px;
   background: transparent;
   color: var(--secondary);
   cursor: pointer;
   transition: all 0.3s ease;
-  font-weight: 600;
+}
+
+/* Apply typography from typography.css */
+.language-selector-btn {
   font-family: 'Press Start 2P', 'Courier New', monospace;
   font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
   letter-spacing: 0.5px;
 }
 
@@ -39,16 +44,22 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 50;
   padding: 0;
-  min-width: 280px;
+  min-width: 260px;
+  max-width: 320px;
 }
 
 .language-options-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--neutral);
-  font-weight: 600;
   color: var(--primary);
-  font-size: 14px;
+}
+
+/* Apply typography from typography.css */
+.language-options-header {
   font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
   letter-spacing: 0.5px;
 }
 
@@ -62,11 +73,17 @@
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-size: 14px;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
-  letter-spacing: 0.5px;
   width: 100%;
   text-align: left;
+}
+
+/* Apply typography from typography.css */
+.language-option {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
 }
 
 .language-option:hover {
@@ -113,10 +130,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-weight: 600;
   color: var(--primary);
-  font-size: 14px;
+}
+
+/* Apply typography from typography.css */
+.subtitle-options-header {
   font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
   letter-spacing: 0.5px;
 }
 
@@ -132,20 +154,26 @@
   transition: all 0.2s ease;
 }
 
-/* Clear button styled like Done */
+/* Clear button styled like filter modal CLEAR button */
 .subtitle-clear-btn {
-  padding: 4px 8px;
-  background-color: var(--neutral);
-  color: white;
+  background: transparent;
   border: none;
-  border-radius: 3px;
+  color: var(--primary);
+  text-decoration: underline;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: all 0.2s ease;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  transition: all 0.15s ease;
 }
 
-.subtitle-clear-btn:hover,
+.subtitle-clear-btn:hover {
+  color: var(--hover-select);
+  transform: translateY(-2px);
+}
+
 .subtitle-done-btn:hover {
   background-color: var(--hover-select);
   color: white;

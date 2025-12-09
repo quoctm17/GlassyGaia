@@ -1,8 +1,9 @@
 /* ================= Search Page Layout ================= */
+/* Breakpoints reference: xs=480px, sm=640px, md=768px, lg=1024px, xl=1280px, 2xl=1440px, 3xl=1920px */
 
 .search-layout-wrapper {
   min-height: 100vh;
-  padding: 24px;
+  padding: 0;
   position: relative;
   overflow-x: hidden;
   height: 100vh;
@@ -92,10 +93,46 @@
   flex-shrink: 0;
 }
 
-/* Mobile/Tablet responsive */
-@media (max-width: 768px) {
+/* ================= Responsive Design ================= */
+/* Breakpoints: xs=480px, sm=640px, md=768px, lg=1024px, xl=1280px, 2xl=1440px, 3xl=1920px */
+
+/* Large Desktop and below (2xl: 1440px) */
+@media (max-width: 1440px) {
   .search-layout-wrapper {
     padding: 16px;
+  }
+
+  .search-controls {
+    padding: 12px 16px;
+  }
+}
+
+/* Desktop and below (xl: 1280px) */
+@media (max-width: 1280px) {
+  .search-layout-wrapper {
+    padding: 12px;
+  }
+}
+
+/* Laptop and below (lg: 1024px) */
+@media (max-width: 1024px) {
+  .search-layout-wrapper {
+    padding: 12px;
+  }
+
+  .search-controls {
+    padding: 10px 12px;
+  }
+
+  .filter-panel {
+    width: 280px !important;
+  }
+}
+
+/* Mobile/Tablet (md: 768px and below) */
+@media (max-width: 768px) {
+  .search-layout-wrapper {
+    padding: 8px;
   }
 
   .filter-panel {
@@ -129,6 +166,37 @@
 
   .vertical-resizer {
     display: none !important;
+  }
+
+  .search-controls {
+    padding: 8px;
+  }
+}
+
+/* Small Mobile (sm: 640px and below) */
+@media (max-width: 640px) {
+  .search-layout-wrapper {
+    padding: 4px;
+  }
+
+  .search-controls {
+    padding: 6px;
+  }
+}
+
+/* Extra Small Mobile (xs: 480px and below) */
+@media (max-width: 480px) {
+  .search-layout-wrapper {
+    padding: 0;
+  }
+
+  .search-controls {
+    padding: 4px;
+  }
+
+  .filter-panel {
+    width: 280px !important;
+    max-width: 90vw;
   }
 }
 

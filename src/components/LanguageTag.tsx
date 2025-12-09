@@ -1,4 +1,4 @@
-import { countryCodeForLang, langLabel } from "../utils/lang";
+import { langLabel, getFlagImageForLang } from "../utils/lang";
 
 type Props = {
   code: string;
@@ -8,11 +8,12 @@ type Props = {
 };
 
 export default function LanguageTag({ code, className = "", withName = true, size = "md" }: Props) {
-  const cc = countryCodeForLang(code);
   const flagSize = size === "sm" ? "w-4 h-3" : "w-5 h-3.5";
+  const flagUrl = getFlagImageForLang(code);
+  
   return (
     <span title={code} className={`inline-flex items-center gap-1 ${className}`}>
-      <span className={`fi fi-${cc} ${flagSize}`}></span>
+      <img src={flagUrl} alt={`${code} flag`} className={`${flagSize} rounded`} />
       {withName && <span>{langLabel(code)}</span>}
     </span>
   );

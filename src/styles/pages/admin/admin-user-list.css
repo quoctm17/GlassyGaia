@@ -19,6 +19,10 @@
   gap: 12px;
 }
 
+.admin-user-list-header .header-left svg {
+  color: var(--primary);
+}
+
 .admin-user-list-header .header-right {
   display: flex;
   align-items: center;
@@ -26,18 +30,20 @@
 }
 
 .admin-user-list-header h1 {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
   margin: 0;
-  color: #f5d0fe;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--text);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .admin-user-list-header .subtitle {
-  color: #f9a8d4;
-  font-size: 12px;
+  color: var(--neutral);
+  font-size: 10px;
   margin-top: 4px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 /* Controls */
@@ -58,25 +64,26 @@
 .search-box input {
   width: 100%;
   padding: 10px 12px 10px 40px;
-  border: 2px solid #ec4899;
+  border: 2px solid var(--primary);
   border-radius: 8px;
-  font-size: 13px;
-  background: #2a1b3b;
-  color: #f5d0fe;
+  font-size: 11px;
+  background: var(--background);
+  color: var(--text);
   transition: all 0.2s;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .search-box input::placeholder {
-  color: #c084fc;
+  color: var(--neutral);
   opacity: 0.6;
 }
 
 .search-box input:focus {
   outline: none;
-  border-color: #f472b6;
+  border-color: var(--hover-select);
   box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
-  background: #3a254f;
+  background: var(--background);
 }
 
 .search-icon {
@@ -86,7 +93,7 @@
   transform: translateY(-50%);
   width: 16px;
   height: 16px;
-  color: #f9a8d4;
+  color: var(--neutral);
   pointer-events: none;
 }
 
@@ -98,31 +105,32 @@
 
 .filter-select {
   padding: 10px 14px;
-  border: 2px solid #ec4899;
+  border: 2px solid var(--primary);
   border-radius: 8px;
-  font-size: 11px;
-  background: #2a1b3b;
-  color: #f5d0fe;
+  font-size: 9px;
+  background: var(--background);
+  color: var(--text);
   cursor: pointer;
   transition: all 0.2s;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .filter-select:hover {
-  background: #3a254f;
-  border-color: #f472b6;
+  background: var(--hover-bg);
+  border-color: var(--hover-select);
 }
 
 .filter-select:focus {
   outline: none;
-  border-color: #f472b6;
+  border-color: var(--hover-select);
   box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
 }
 
 /* Table */
 .user-table-container {
-  background: #2a1b3b;
-  border: 3px solid #ec4899;
+  background: var(--background);
+  border: 3px solid var(--primary);
   border-radius: 10px;
   overflow: hidden;
   margin-bottom: 16px;
@@ -135,19 +143,19 @@
 }
 
 .user-table thead {
-  background: #1a0f26;
-  border-bottom: 2px solid #ec4899;
+  background: var(--background);
+  border-bottom: 2px solid var(--primary);
 }
 
 .user-table th {
   padding: 12px 16px;
   text-align: left;
   font-weight: 600;
-  font-size: 11px;
-  color: #f9a8d4;
+  font-size: 9px;
+  color: var(--neutral);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .user-table th.sortable {
@@ -157,17 +165,17 @@
 }
 
 .user-table th.sortable:hover {
-  background: #2a1b3b;
+  background: var(--hover-bg);
   color: #fff;
 }
 
 .user-table tbody tr {
-  border-bottom: 1px solid #3a254f;
+  border-bottom: 1px solid rgba(236, 72, 153, 0.2);
   transition: background 0.2s;
 }
 
 .user-table tbody tr:hover {
-  background: #3a254f;
+  background: var(--hover-bg);
 }
 
 .user-table tbody tr:last-child {
@@ -176,8 +184,10 @@
 
 .user-table td {
   padding: 12px 16px;
-  font-size: 12px;
-  color: #f5d0fe;
+  font-size: 13px;
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-weight: 400;
 }
 
 /* User Cell */
@@ -192,14 +202,14 @@
   height: 32px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #ec4899;
+  border: 2px solid var(--primary);
   box-shadow: 0 0 8px rgba(236, 72, 153, 0.4);
 }
 
 .email-cell {
-  color: #c084fc;
+  color: var(--neutral);
   font-family: 'Courier New', monospace;
-  font-size: 11px;
+  font-size: 9px;
 }
 
 /* Badges */
@@ -208,13 +218,14 @@
   align-items: center;
   padding: 4px 10px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 600;
-  background: #3a254f;
-  color: #f9a8d4;
+  background: var(--background);
+  color: var(--neutral);
   text-transform: capitalize;
-  border: 1px solid #ec4899;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  border: 1px solid var(--primary);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .role-badge {
@@ -223,9 +234,10 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 600;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .role-badge.superadmin {
@@ -236,13 +248,13 @@
 
 .role-badge.admin {
   background: rgba(236, 72, 153, 0.2);
-  color: #f472b6;
-  border: 1px solid #ec4899;
+  color: var(--hover-select);
+  border: 1px solid var(--primary);
 }
 
 .role-badge.user {
-  background: #3a254f;
-  color: #c084fc;
+  background: var(--background);
+  color: var(--neutral);
   border: 1px solid #a855f7;
 }
 
@@ -252,21 +264,22 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 600;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .status-badge.active {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
-  border: 1px solid #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--primary);
+  border: 2px solid var(--primary);
 }
 
 .status-badge.inactive {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid #ef4444;
+  background: rgba(100, 100, 100, 0.15);
+  color: var(--sub-language-text);
+  border: 2px solid var(--sub-language-text);
 }
 
 /* Date Cell */
@@ -277,9 +290,10 @@
 }
 
 .date-relative {
-  font-size: 10px;
-  color: #c084fc;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-size: 8px;
+  color: var(--neutral);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 /* Action Button */
@@ -289,19 +303,20 @@
   justify-content: center;
   gap: 6px;
   padding: 8px;
-  border: 2px solid #ec4899;
+  border: 2px solid var(--primary);
   border-radius: 8px;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  background: #2a1b3b;
-  color: #f472b6;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  background: var(--background);
+  color: var(--hover-select);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .action-btn:hover {
-  background: #ec4899;
+  background: var(--primary);
   color: #fff;
   box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
   transform: translateY(-1px);
@@ -320,16 +335,17 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  font-size: 12px;
-  color: #f5d0fe;
+  font-size: 10px;
+  color: var(--text);
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
   background: transparent;
   border: none;
   width: 100%;
   text-align: left;
+  letter-spacing: 0.5px;
 }
 
 .admin-dropdown-item:hover {
@@ -358,9 +374,10 @@
 .error-state {
   text-align: center;
   padding: 48px;
-  color: #f9a8d4;
-  font-size: 14px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Arial, sans-serif;
+  color: var(--neutral);
+  font-size: 12px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.5px;
 }
 
 .error-state {

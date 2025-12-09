@@ -2,9 +2,10 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGetCardByPath } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
-import { ExternalLink, Pencil, CheckCircle, XCircle } from 'lucide-react';
-import { langLabel, countryCodeForLang, languageCssBase } from '../../utils/lang';
+import { ExternalLink, Pencil, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
+import { langLabel, languageCssBase } from '../../utils/lang';
 import AudioPlayer from '../../components/AudioPlayer';
+import LanguageTag from '../../components/LanguageTag';
 
 export default function AdminContentCardDetailPage() {
   const { contentSlug, episodeId, cardId } = useParams();
@@ -44,7 +45,10 @@ export default function AdminContentCardDetailPage() {
             <Pencil className="w-4 h-4" />
             <span>Update</span>
           </button>
-          <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${encodeURIComponent(episodeId!)}`)}>← Back</button>
+          <button className="admin-btn secondary flex items-center gap-1.5" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug!)}/episodes/${encodeURIComponent(episodeId!)}`)}>
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back</span>
+          </button>
         </div>
       </div>
       {loading && <div className="admin-info">Loading...</div>}
@@ -53,18 +57,18 @@ export default function AdminContentCardDetailPage() {
         <div className="space-y-4">
           {/* Basic Info Panel */}
           <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Basic Information</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Episode:</label>
-                <span className="text-gray-200">{episodeId}</span>
+            <div className="typography-pressstart-1 admin-panel-title">Basic Information</div>
+            <div className="admin-card-info-grid">
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">Episode:</label>
+                <span className="admin-card-value typography-inter-2">{episodeId}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Card ID:</label>
-                <span className="text-gray-200">{cardId}</span>
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">Card ID:</label>
+                <span className="admin-card-value typography-inter-2">{cardId}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Status:</label>
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">Status:</label>
                 <span className={`status-badge ${(card.is_available ?? true) ? 'active' : 'inactive'}`}>
                   {(card.is_available ?? true) ? (
                     <>
@@ -79,80 +83,80 @@ export default function AdminContentCardDetailPage() {
                   )}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Start:</label>
-                <span className="text-gray-200">{card.start}s</span>
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">Start:</label>
+                <span className="admin-card-value typography-inter-2">{card.start}s</span>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">End:</label>
-                <span className="text-gray-200">{card.end}s</span>
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">End:</label>
+                <span className="admin-card-value typography-inter-2">{card.end}s</span>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Duration:</label>
-                <span className="text-gray-200">{card.duration}s</span>
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">Duration:</label>
+                <span className="admin-card-value typography-inter-2">{card.duration}s</span>
               </div>
             </div>
           </div>
 
           {/* Difficulty Panel */}
           <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Difficulty</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">CEFR Level:</label>
-                <span className="text-gray-200">{card.CEFR_Level || '-'}</span>
+            <div className="typography-pressstart-1 admin-panel-title">Difficulty</div>
+            <div className="admin-card-info-grid">
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">CEFR Level:</label>
+                <span className="admin-card-value typography-inter-2">{card.CEFR_Level || '-'}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Difficulty Score:</label>
-                <span className="text-gray-200">{card.difficulty_score ?? '-'}</span>
+              <div className="admin-card-info-row">
+                <label className="admin-card-label typography-inter-4">Difficulty Score:</label>
+                <span className="admin-card-value typography-inter-2">{card.difficulty_score ?? '-'}</span>
               </div>
             </div>
           </div>
 
           {/* Sentence Panel */}
           <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Sentence</div>
-            <div className="text-gray-200 bg-[#1a0f24] rounded-lg p-4 border-2 border-pink-500/50 shadow-[0_0_15px_rgba(236,72,153,0.3)]">
-              {card.sentence || <span className="text-gray-500 italic">No sentence</span>}
+            <div className="typography-pressstart-1 admin-panel-title">Sentence</div>
+            <div className="admin-sentence-container">
+              {card.sentence || <span className="admin-sentence-empty">No sentence</span>}
             </div>
           </div>
 
           {/* Subtitles and Media Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="admin-card-media-grid">
             {/* Subtitles Panel - Left */}
-            <div className="admin-panel flex flex-col">
-              <div className="text-sm font-semibold text-pink-300 mb-3">Subtitles</div>
+            <div className="admin-panel admin-subtitles-panel">
+              <div className="typography-pressstart-1 admin-subtitles-title">Subtitles</div>
               {subtitleEntries.length > 0 ? (
-                <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
+                <div className="admin-subtitles-container custom-scrollbar">
                   {subtitleEntries.map(([lang, text]) => {
                     const langClass = getLanguageClass(lang);
                     return (
-                      <div key={lang} className="bg-[#1a0f24] rounded-lg p-3 border-2 border-pink-500/50 shadow-[0_0_12px_rgba(236,72,153,0.25)]">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`fi fi-${countryCodeForLang(lang)} w-6 h-4`}></span>
-                          <span className="text-sm font-semibold text-pink-200">{langLabel(lang)}</span>
-                          <span className="text-xs text-gray-500">({lang})</span>
+                      <div key={lang} className="admin-subtitle-item">
+                        <div className="admin-subtitle-header">
+                          <LanguageTag code={lang} withName={false} size="md" />
+                          <span className="typography-inter-4 admin-subtitle-lang">{langLabel(lang)}</span>
+                          <span className="typography-inter-4 admin-subtitle-code">({lang})</span>
                         </div>
-                        <div className={`${langClass}-sub !m-0 !text-left`}>{text}</div>
+                        <div className={`${langClass}-sub admin-subtitle-text`}>{text}</div>
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <div className="text-gray-500 italic">No subtitles</div>
+                <div className="admin-subtitles-empty">No subtitles</div>
               )}
             </div>
 
             {/* Media Panel - Right */}
-            <div className="admin-panel space-y-4">
-              <div className="text-sm font-semibold text-pink-300">Media</div>
+            <div className="admin-panel admin-media-panel">
+              <div className="typography-pressstart-1 admin-media-title">Media</div>
               
               {/* Image */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">Image:</span>
+              <div className="admin-media-section">
+                <div className="admin-media-header">
+                  <span className="typography-inter-4 admin-media-label">Image:</span>
                   {card.image_url && (
-                    <a href={card.image_url} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1 !py-0.5 !px-2 text-xs">
+                    <a href={card.image_url} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
                       <ExternalLink className="w-3 h-3" />
                       <span>Open</span>
                     </a>
@@ -162,19 +166,19 @@ export default function AdminContentCardDetailPage() {
                   <img 
                     src={card.image_url} 
                     alt="card" 
-                    className="w-full rounded-lg border-3 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_20px_rgba(236,72,153,0.5)]" 
+                    className="admin-media-image" 
                   />
                 ) : (
-                  <div className="text-xs text-gray-500 italic p-4 bg-[#1a0f24] rounded-lg border-2 border-pink-500/30 text-center">No image</div>
+                  <div className="typography-inter-4 admin-media-placeholder">No image</div>
                 )}
               </div>
 
               {/* Audio */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">Audio:</span>
+              <div className="admin-media-section">
+                <div className="admin-media-header">
+                  <span className="typography-inter-4 admin-media-label">Audio:</span>
                   {card.audio_url && (
-                    <a href={card.audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1 !py-0.5 !px-2 text-xs">
+                    <a href={card.audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
                       <ExternalLink className="w-3 h-3" />
                       <span>Open</span>
                     </a>
@@ -183,7 +187,7 @@ export default function AdminContentCardDetailPage() {
                 {card.audio_url ? (
                   <AudioPlayer src={card.audio_url} />
                 ) : (
-                  <div className="text-xs text-gray-500 italic p-4 bg-[#1a0f24] rounded-lg border-2 border-pink-500/30 text-center">No audio</div>
+                  <div className="typography-inter-4 admin-media-placeholder">No audio</div>
                 )}
               </div>
             </div>

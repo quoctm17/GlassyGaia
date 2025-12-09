@@ -1,0 +1,48 @@
+/* ================= Responsive Breakpoints ================= */
+/* Global breakpoint variables for consistent responsive design across all CSS files */
+
+:root {
+  /* Breakpoint values - use in @media queries */
+  --breakpoint-xs: 480px;      /* Extra Small - Mobile Portrait */
+  --breakpoint-sm: 640px;      /* Small - Mobile Landscape */
+  --breakpoint-md: 768px;      /* Medium - Tablet Portrait */
+  --breakpoint-lg: 1024px;     /* Large - Tablet Landscape / Small Laptop */
+  --breakpoint-xl: 1280px;     /* Extra Large - Desktop */
+  --breakpoint-2xl: 1440px;    /* 2X Large - Large Desktop */
+  --breakpoint-3xl: 1920px;    /* 3X Large - Full HD */
+  --breakpoint-4xl: 2560px;    /* 4X Large - 2K/QHD */
+}
+
+/* Usage Example:
+ * @media (max-width: 768px) { } // Instead use var(--breakpoint-md) in comment for clarity
+ * @media (min-width: 1024px) { } // --breakpoint-lg
+ * @media (min-width: 1440px) { } // --breakpoint-2xl
+ * @media (min-width: 1920px) { } // --breakpoint-3xl
+ * 
+ * Note: CSS variables cannot be used directly in @media queries,
+ * but this file serves as a reference for all breakpoints.
+ * Always use these exact pixel values for consistency.
+ */
+
+/* Breakpoint Reference Guide:
+ * 
+ * Mobile First Approach:
+ * - Base styles: Mobile (< 480px)
+ * - @media (min-width: 480px): xs and up
+ * - @media (min-width: 640px): sm and up  
+ * - @media (min-width: 768px): md and up (Tablet)
+ * - @media (min-width: 1024px): lg and up (Laptop)
+ * - @media (min-width: 1280px): xl and up (Desktop)
+ * - @media (min-width: 1440px): 2xl and up (Large Desktop)
+ * - @media (min-width: 1920px): 3xl and up (Full HD)
+ * 
+ * Desktop First Approach:
+ * - Base styles: Desktop (> 1920px)
+ * - @media (max-width: 1920px): Below Full HD
+ * - @media (max-width: 1440px): Below Large Desktop
+ * - @media (max-width: 1280px): Below Desktop
+ * - @media (max-width: 1024px): Below Laptop
+ * - @media (max-width: 768px): Mobile/Tablet only
+ * - @media (max-width: 640px): Mobile only
+ * - @media (max-width: 480px): Small mobile only
+ */

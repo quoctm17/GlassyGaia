@@ -2,7 +2,7 @@
 
 .pixel-navbar {
   position: relative;
-  padding: 10px 16px;
+  padding: 5px 16px;
 }
 
 .pixel-tabs {
@@ -21,7 +21,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 4px 6px;
   background: transparent;
   text-decoration: none;
   border-radius: 4px;
@@ -54,10 +54,10 @@
 }
 
 .pixel-logo-img {
-  width: 60px;
-  height: 60px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  padding: 4px;
+  padding: 2px;
   object-fit: cover;
 }
 
@@ -79,8 +79,8 @@
 }
 
 .navbar-icon {
-  width: 30px;
-  height: 30px;
+  width: 15px;
+  height: 15px;
   display: inline-block;
   object-fit: contain;
   transition: filter 0.3s ease;

@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { toast } from "react-hot-toast";
 import { apiR2Delete, r2UploadViaSignedUrl, apiR2ListFlatPage, apiR2ListPaged } from "../../services/cfApi";
-import { Folder, ChevronRight, Image, AlertTriangle } from "lucide-react";
+import { Folder, ChevronRight, Music, AlertTriangle } from "lucide-react";
 import "../../styles/pages/admin/migration-pages.css";
 
 interface MigrationStats {
@@ -19,16 +19,16 @@ interface MigrationLog {
   details?: string;
 }
 
-interface ImageFile {
+interface AudioFile {
   key: string;
   size: number;
   modified: string;
 }
 
-export default function AdminImageMigrationPage() {
+export default function AdminAudioMigrationPage() {
   const [scanning, setScanning] = useState(false);
   const [migrating, setMigrating] = useState(false);
-  const [images, setImages] = useState<ImageFile[]>([]);
+  const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [stats, setStats] = useState<MigrationStats>({
     total: 0,
     processed: 0,
@@ -37,10 +37,10 @@ export default function AdminImageMigrationPage() {
     skipped: 0
   });
   const [logs, setLogs] = useState<MigrationLog[]>([]);
-  const [quality, setQuality] = useState(85);
+  const [bitrate, setBitrate] = useState(64); // kbps for Opus
   const [deleteOriginal, setDeleteOriginal] = useState(false);
   const [dryRun, setDryRun] = useState(true);
-  const [concurrency, setConcurrency] = useState(50); // Parallel processing - optimized for speed
+  const [concurrency, setConcurrency] = useState(20); // Optimized for audio conversion
   const [skipDbUpdate, setSkipDbUpdate] = useState(false); // Skip database updates for faster processing
   const [scanPrefix, setScanPrefix] = useState('items/');
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -48,7 +48,6 @@ export default function AdminImageMigrationPage() {
   const [folderPickerItems, setFolderPickerItems] = useState<Array<{key: string; name: string; type: 'directory' | 'file'}>>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
-  const abortControllerRef = useRef<AbortController | null>(null);
   const abortScanRef = useRef(false);
 
   const addLog = (type: MigrationLog['type'], message: string, details?: string) => {
@@ -58,26 +57,25 @@ export default function AdminImageMigrationPage() {
       message,
       details
     };
-    setLogs(prev => [log, ...prev].slice(0, 1000)); // Keep last 1000 logs
+    setLogs(prev => [log, ...prev].slice(0, 1000));
   };
 
-  const scanImages = async () => {
+  const scanAudioFiles = async () => {
     setScanning(true);
     setLogs([]);
-    setImages([]);
+    setAudioFiles([]);
     setStats({ total: 0, processed: 0, converted: 0, failed: 0, skipped: 0 });
     abortScanRef.current = false;
     
     try {
       const prefix = scanPrefix.trim() || 'items/';
       addLog('info', `🔍 Scanning R2 bucket: ${prefix} (recursive)`);
-      addLog('info', '💡 Tip: Click "Stop Scan" to abort early');
+      addLog('info', '💡 Looking for all .mp3 files');
       
-      // Use flat list to recursively scan all files in prefix
-      const jpgFiles: Array<{ key: string; size?: number; modified?: string | null }> = [];
+      const mp3Files: Array<{ key: string; size?: number; modified?: string | null }> = [];
       let cursor: string | null = null;
       let pageCount = 0;
-      const MAX_JPG_FILES = 10000; // Safety limit
+      const MAX_FILES = 10000;
       
       do {
         if (abortScanRef.current) {
@@ -87,46 +85,54 @@ export default function AdminImageMigrationPage() {
         
         const page = await apiR2ListFlatPage(prefix, cursor || undefined, 5000);
         
-        // Filter JPG/JPEG immediately on each page
-        const pageJpgFiles = page.objects.filter(obj => 
-          obj.key.toLowerCase().endsWith('.jpg') || 
-          obj.key.toLowerCase().endsWith('.jpeg')
-        );
+        // Filter ALL MP3 files (not just preview)
+        const pageMp3Files = page.objects.filter(obj => {
+          const key = obj.key || '';
+          return key.toLowerCase().endsWith('.mp3');
+        });
         
-        jpgFiles.push(...pageJpgFiles);
+        mp3Files.push(...pageMp3Files);
         cursor = page.cursor;
         pageCount++;
         
         // Log only every 5 pages to reduce UI overhead
         if (pageCount % 5 === 0 || !cursor) {
-          addLog('info', `📄 Page ${pageCount}: Found ${jpgFiles.length} JPG/JPEG files so far`);
+          addLog('info', `📄 Page ${pageCount}: Found ${mp3Files.length} MP3 files so far`);
         }
         
-        // Safety check: stop if too many JPG files found
-        if (jpgFiles.length >= MAX_JPG_FILES) {
-          addLog('warning', `⚠️ Reached safety limit of ${MAX_JPG_FILES} JPG files. Stopping scan.`);
+        if (mp3Files.length >= MAX_FILES) {
+          addLog('warning', `⚠️ Reached safety limit of ${MAX_FILES} files. Stopping scan.`);
           break;
         }
       } while (cursor);
       
-      setImages(jpgFiles.map(f => ({
+      setAudioFiles(mp3Files.map(f => ({
         key: f.key,
         size: Number(f.size || 0),
         modified: f.modified || ''
       })));
       
-      setStats(prev => ({ ...prev, total: jpgFiles.length }));
+      setStats(prev => ({ ...prev, total: mp3Files.length }));
       
       if (!abortScanRef.current) {
-        addLog('success', `✅ Scan complete: Found ${jpgFiles.length} JPG/JPEG images`);
-        
-        // Group by type
-        const coverImages = jpgFiles.filter(f => f.key.includes('/cover_image/'));
-        const episodeCovers = jpgFiles.filter(f => f.key.includes('/episodes/') && f.key.includes('/cover/'));
-        
-        addLog('info', `📊 Breakdown:`);
-        addLog('info', `   - Content covers: ${coverImages.length}`);
-        addLog('info', `   - Episode covers: ${episodeCovers.length}`);
+        if (mp3Files.length > 0) {
+          const totalSize = mp3Files.reduce((acc, f) => acc + Number(f.size || 0), 0);
+          addLog('success', `✅ Scan complete: Found ${mp3Files.length} MP3 files (${(totalSize / (1024 * 1024)).toFixed(2)} MB)`);
+          
+          // Show breakdown by location
+          const previewFiles = mp3Files.filter(f => f.key.includes('/preview/'));
+          const fullFiles = mp3Files.filter(f => f.key.includes('/full/'));
+          const otherFiles = mp3Files.filter(f => !f.key.includes('/preview/') && !f.key.includes('/full/'));
+          
+          if (previewFiles.length > 0 || fullFiles.length > 0 || otherFiles.length > 0) {
+            addLog('info', `📊 Breakdown:`);
+            if (previewFiles.length > 0) addLog('info', `   - Preview audio: ${previewFiles.length}`);
+            if (fullFiles.length > 0) addLog('info', `   - Full audio: ${fullFiles.length}`);
+            if (otherFiles.length > 0) addLog('info', `   - Other locations: ${otherFiles.length}`);
+          }
+        } else {
+          addLog('warning', '⚠️ No MP3 files found in the selected folder');
+        }
       }
       
     } catch (error) {
@@ -148,18 +154,14 @@ export default function AdminImageMigrationPage() {
   const loadFolderPickerItems = async (prefix: string) => {
     setLoadingFolders(true);
     try {
-      // Load ALL folders with pagination
       const allDirs: Array<{key: string; name: string; type: 'directory' | 'file'}> = [];
       let cursor: string | null = null;
       
       do {
         const res = await apiR2ListPaged(prefix, cursor || undefined, 1000);
         const items = Array.isArray(res.items) ? res.items : [];
-        
-        // Only directories
         const dirs = items.filter(item => item.type === 'directory');
         allDirs.push(...dirs as Array<{key: string; name: string; type: 'directory' | 'file'}>);
-        
         cursor = res.truncated ? res.cursor : null;
       } while (cursor);
       
@@ -205,183 +207,185 @@ export default function AdminImageMigrationPage() {
     toast.success(`Selected: ${folderKey}`);
   };
 
-  const convertImageToWebP = async (blob: Blob, quality: number): Promise<Blob> => {
+  const convertAudioToOpus = async (mp3Blob: Blob, targetBitrate: number): Promise<Blob> => {
     return new Promise((resolve, reject) => {
-      const img = document.createElement('img') as HTMLImageElement;
-      const url = URL.createObjectURL(blob);
-      
-      img.onload = () => {
+      const convert = async () => {
         try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
+          console.log('Converting audio:', { type: mp3Blob.type, size: mp3Blob.size, bitrate: targetBitrate });
           
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            URL.revokeObjectURL(url);
-            reject(new Error('Failed to get canvas context'));
+          // Create audio context
+          const audioContext = new AudioContext();
+          
+          // Decode MP3 to audio buffer
+          const arrayBuffer = await mp3Blob.arrayBuffer();
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+          
+          console.log('Audio decoded:', { 
+            duration: audioBuffer.duration, 
+            sampleRate: audioBuffer.sampleRate,
+            channels: audioBuffer.numberOfChannels 
+          });
+          
+          // Create a MediaStream from audio buffer using AudioContext
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          
+          // Create MediaStreamDestination
+          const destination = audioContext.createMediaStreamDestination();
+          source.connect(destination);
+          
+          // Setup MediaRecorder with Opus codec
+          const mimeType = 'audio/webm;codecs=opus';
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            audioContext.close();
+            reject(new Error('Opus codec not supported in this browser'));
             return;
           }
           
-          ctx.drawImage(img, 0, 0);
+          const chunks: Blob[] = [];
+          const mediaRecorder = new MediaRecorder(destination.stream, {
+            mimeType,
+            audioBitsPerSecond: targetBitrate * 1000 // Convert kbps to bps
+          });
           
-          canvas.toBlob(
-            (webpBlob) => {
-              URL.revokeObjectURL(url);
-              if (webpBlob) {
-                resolve(webpBlob);
-              } else {
-                reject(new Error('Failed to create WebP blob'));
-              }
-            },
-            'image/webp',
-            quality / 100
-          );
-        } catch (err) {
-          URL.revokeObjectURL(url);
-          reject(err);
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              chunks.push(e.data);
+            }
+          };
+          
+          mediaRecorder.onstop = () => {
+            const opusBlob = new Blob(chunks, { type: 'audio/opus' });
+            console.log('Opus encoding complete:', { size: opusBlob.size });
+            audioContext.close();
+            resolve(opusBlob);
+          };
+          
+          mediaRecorder.onerror = () => {
+            audioContext.close();
+            reject(new Error('Audio encoding failed'));
+          };
+          
+          // Start recording
+          mediaRecorder.start();
+          
+          // Start playback (this feeds data to MediaRecorder)
+          source.start(0);
+          
+          // Stop recording after audio duration + buffer
+          setTimeout(() => {
+            if (mediaRecorder.state !== 'inactive') {
+              mediaRecorder.stop();
+            }
+          }, (audioBuffer.duration * 1000) + 500);
+          
+        } catch (error) {
+          console.error('Audio conversion error:', error);
+          reject(error);
         }
       };
       
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        // Try to provide more context
-        if (blob.size === 0) {
-          reject(new Error('Blob is empty (0 bytes)'));
-        } else if (!blob.type.startsWith('image/')) {
-          reject(new Error(`Invalid blob type: ${blob.type}`));
-        } else {
-          reject(new Error('Failed to load image from blob'));
-        }
-      };
-      
-      // Don't set crossOrigin for blob URLs (not needed and can cause issues)
-      img.src = url;
+      convert();
     });
   };
 
-  const migrateImage = async (imageKey: string, logVerbose: boolean = false): Promise<boolean> => {
+  const migrateAudio = async (audioKey: string, logVerbose: boolean = false): Promise<boolean> => {
     const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
     
     try {
-      // 1. Download original JPG via Worker proxy (to avoid CORS)
-      if (logVerbose) addLog('info', `⬇️ Downloading: ${imageKey}`);
-      const downloadUrl = `${apiBase}/media/${imageKey}`;
+      if (logVerbose) addLog('info', `⬇️ Downloading: ${audioKey}`);
+      
+      // Generate new key
+      const opusKey = audioKey.replace(/\.mp3$/i, '.opus');
+      
+      if (dryRun) {
+        if (logVerbose) {
+          addLog('warning', `[DRY RUN] Would convert: ${audioKey} → ${opusKey}`);
+          addLog('info', `   Settings: ${bitrate} kbps Opus`);
+        }
+        return true;
+      }
+      
+      // Download original MP3 via Worker proxy
+      const downloadUrl = `${apiBase}/media/${audioKey}`;
       const response = await fetch(downloadUrl);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       
-      const blob = await response.blob();
+      const mp3Blob = await response.blob();
       
-      // Validate blob
-      if (!blob || blob.size === 0) {
+      if (!mp3Blob || mp3Blob.size === 0) {
         throw new Error('Downloaded file is empty');
       }
       
-      const originalSize = blob.size;
+      const originalSize = mp3Blob.size;
       
-      // 2. Convert to WebP
-      if (logVerbose) addLog('info', `🔄 Converting to WebP (quality: ${quality})...`);
-      const webpBlob = await convertImageToWebP(blob, quality);
-      const webpSize = webpBlob.size;
-      const savings = ((1 - webpSize / originalSize) * 100).toFixed(1);
+      // Convert to Opus
+      if (logVerbose) addLog('info', `🔄 Converting to Opus (${bitrate} kbps)...`);
+      const opusBlob = await convertAudioToOpus(mp3Blob, bitrate);
+      const opusSize = opusBlob.size;
+      const savings = ((1 - opusSize / originalSize) * 100).toFixed(1);
       
-      // 3. Generate new key
-      const webpKey = imageKey.replace(/\.jpe?g$/i, '.webp');
-      
-      if (dryRun) {
-        if (logVerbose) {
-          addLog('warning', `[DRY RUN] Would upload: ${webpKey}`);
-          addLog('info', `   Original: ${(originalSize / 1024).toFixed(1)} KB → WebP: ${(webpSize / 1024).toFixed(1)} KB (${savings}% smaller)`);
-        }
-        return true;
-      }
-      
-      // 4. Upload WebP
-      if (logVerbose) addLog('info', `⬆️ Uploading WebP: ${webpKey}`);
-      const webpFile = new File([webpBlob], 'image.webp', { type: 'image/webp' });
+      // Upload Opus file
+      if (logVerbose) addLog('info', `⬆️ Uploading Opus: ${opusKey}`);
+      const opusFile = new File([opusBlob], 'audio.opus', { type: 'audio/opus' });
       
       await r2UploadViaSignedUrl({
-        bucketPath: webpKey,
-        file: webpFile,
-        contentType: 'image/webp'
+        bucketPath: opusKey,
+        file: opusFile,
+        contentType: 'audio/opus'
       });
       
-      if (logVerbose) addLog('success', `✅ Uploaded: ${webpKey} (${savings}% smaller)`);
-      
-      // 5. Update D1 database path (optional)
-      if (!skipDbUpdate) {
-        if (logVerbose) addLog('info', `💾 Updating database path...`);
-        await updateDatabasePath(imageKey, webpKey);
+      if (logVerbose) {
+        addLog('success', `✅ Uploaded: ${opusKey} (${savings}% smaller)`);
+        addLog('info', `   Original: ${(originalSize / 1024).toFixed(1)} KB → Opus: ${(opusSize / 1024).toFixed(1)} KB`);
       }
       
-      // 6. Delete original if requested
+      // Update database path (optional)
+      if (!skipDbUpdate) {
+        if (logVerbose) addLog('info', `💾 Updating database path...`);
+        await updateDatabasePath(audioKey, opusKey);
+      }
+      
+      // Delete original if requested
       if (deleteOriginal) {
-        if (logVerbose) addLog('info', `🗑️ Deleting original: ${imageKey}`);
-        await apiR2Delete(imageKey);
-        if (logVerbose) addLog('success', `✅ Deleted original: ${imageKey}`);
+        if (logVerbose) addLog('info', `🗑️ Deleting original: ${audioKey}`);
+        await apiR2Delete(audioKey);
+        if (logVerbose) addLog('success', `✅ Deleted original: ${audioKey}`);
       }
       
       return true;
       
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      addLog('error', `❌ Failed to migrate: ${imageKey}`, message);
+      addLog('error', `❌ Failed to migrate: ${audioKey}`, message);
       return false;
     }
   };
 
   const updateDatabasePath = async (oldKey: string, newKey: string): Promise<void> => {
-    // Determine which type of image and update accordingly
     const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
     
     try {
-      // Pattern: items/{slug}/cover_image/cover.jpg or cover_landscape.jpg
-      if (oldKey.includes('/cover_image/')) {
-        // Content-level cover
-        const slug = oldKey.match(/items\/([^/]+)/)?.[1];
-        const isLandscape = oldKey.includes('_landscape');
-        
-        if (!slug) throw new Error('Could not extract slug from path');
-        
-        const field = isLandscape ? 'cover_landscape_key' : 'cover_key';
-        
-        const response = await fetch(`${apiBase}/admin/update-image-path`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            table: 'content_items',
-            slug,
-            field,
-            newPath: newKey
-          })
-        });
-        
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Database update failed');
-        }
-        
-      } else if (oldKey.includes('/episodes/') && oldKey.includes('/cover/')) {
-        // Episode-level cover
-        // Pattern: items/{slug}/episodes/{episodeFolder}/cover/cover.jpg
+      // Pattern 1: Episode preview audio - items/{slug}/episodes/{episodeFolder}/preview/audio.mp3
+      if (oldKey.includes('/preview/')) {
         const match = oldKey.match(/items\/([^/]+)\/episodes\/([^/]+)/);
-        if (!match) throw new Error('Could not extract slug/episode from path');
+        if (!match) {
+          addLog('warning', `⚠️ Could not extract slug/episode from path: ${oldKey}`);
+          return;
+        }
         
         const [, slug, episodeFolder] = match;
-        const isLandscape = oldKey.includes('_landscape');
-        const field = isLandscape ? 'cover_landscape_key' : 'cover_key';
         
-        const response = await fetch(`${apiBase}/admin/update-image-path`, {
+        const response = await fetch(`${apiBase}/admin/update-audio-path`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            table: 'episodes',
             slug,
             episodeFolder,
-            field,
+            field: 'preview_audio_key',
             newPath: newKey
           })
         });
@@ -391,50 +395,15 @@ export default function AdminImageMigrationPage() {
           throw new Error(error.error || 'Database update failed');
         }
         
-      } else if (oldKey.includes('/episodes/') && oldKey.includes('/image/')) {
-        // Card-level image (NEW STRUCTURE)
-        // Pattern: items/{slug}/episodes/{slug}_{episode}/image/{slug}_{episode}_{cardId}.jpg
-        // Example: items/anne_with_an_e_s1/episodes/anne_with_an_e_s1_005/image/anne_with_an_e_s1_005_0069.jpg
-        const match = oldKey.match(/items\/([^/]+)\/episodes\/[^/]+\/image\/.*_(\d+)\.(jpg|jpeg|webp)$/i);
-        if (!match) {
-          addLog('warning', `⚠️ Could not parse card image path: ${oldKey}`);
-          return;
-        }
+        addLog('success', `✅ Database updated: ${oldKey} → ${newKey}`);
         
-        const [, slug, cardIdStr] = match;
-        const cardId = cardIdStr.padStart(4, '0'); // Ensure 4-digit padding
-        
-        // Extract episode number from path (e.g., anne_with_an_e_s1_005 -> 5)
-        const episodeMatch = oldKey.match(/episodes\/[^/]+_(\d+)\//);
-        if (!episodeMatch) {
-          addLog('warning', `⚠️ Could not extract episode number from: ${oldKey}`);
-          return;
-        }
-        const episodeNum = parseInt(episodeMatch[1]);
-        
-        const response = await fetch(`${apiBase}/admin/update-image-path`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            table: 'cards',
-            slug,
-            episodeNum,
-            cardId,
-            field: 'image_key',
-            newPath: newKey
-          })
-        });
-        
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Database update failed');
-        }
-        
-      } else if (oldKey.includes('/episodes/') && oldKey.includes('/cards/')) {
-        // Card-level image (LEGACY STRUCTURE)
-        // Pattern: items/{slug}/episodes/{episodeFolder}/cards/{cardNumber}_image.jpg
+      } else if (oldKey.includes('/cards/')) {
+        // Pattern 2: Card audio - items/{slug}/episodes/{episodeFolder}/cards/{cardNumber}_audio.mp3
         const match = oldKey.match(/items\/([^/]+)\/episodes\/([^/]+)\/cards\/(\d+)_/);
-        if (!match) throw new Error('Could not extract slug/episode/card from path');
+        if (!match) {
+          addLog('warning', `⚠️ Could not extract slug/episode/card from path: ${oldKey}`);
+          return;
+        }
         
         const [, slug, episodeFolder, cardNumberStr] = match;
         const cardNumber = parseInt(cardNumberStr);
@@ -447,7 +416,7 @@ export default function AdminImageMigrationPage() {
             slug,
             episodeFolder,
             cardNumber,
-            field: 'image_key',
+            field: 'audio_key',
             newPath: newKey
           })
         });
@@ -457,38 +426,36 @@ export default function AdminImageMigrationPage() {
           throw new Error(error.error || 'Database update failed');
         }
         
+        addLog('success', `✅ Database updated (card audio): ${oldKey} → ${newKey}`);
+        
       } else {
-        addLog('warning', `⚠️ Unknown image type, skipping DB update: ${oldKey}`);
-        return;
+        // Skip database update for non-preview/non-card files (full audio, etc.)
+        addLog('info', `ℹ️ Skipping DB update for non-preview/non-card audio: ${oldKey}`);
       }
-      
-      addLog('success', `✅ Database updated: ${oldKey} → ${newKey}`);
       
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       addLog('warning', `⚠️ Database update failed: ${message}`);
-      // Don't throw - we still want to continue migration
     }
   };
 
   const startMigration = async () => {
-    if (images.length === 0) {
-      toast.error('Please scan for images first');
+    if (audioFiles.length === 0) {
+      toast.error('Please scan for audio files first');
       return;
     }
     
     if (!dryRun && !window.confirm(
-      `⚠️ WARNING: This will convert ${images.length} images to WebP.\n\n` +
+      `⚠️ WARNING: This will convert ${audioFiles.length} MP3 files to Opus.\n\n` +
       `Delete originals: ${deleteOriginal ? 'YES' : 'NO'}\n` +
-      `Quality: ${quality}%\n` +
+      `Bitrate: ${bitrate} kbps\n` +
       `Parallel processing: ${concurrency} files at a time\n\n` +
-      `This operation cannot be easily undone. Continue?`
+      `This operation may take a long time. Continue?`
     )) {
       return;
     }
     
     setMigrating(true);
-    abortControllerRef.current = new AbortController();
     
     setStats(prev => ({
       ...prev,
@@ -499,7 +466,7 @@ export default function AdminImageMigrationPage() {
     }));
     
     const mode = dryRun ? '[DRY RUN]' : '[LIVE]';
-    addLog('info', `🚀 ${mode} Starting migration of ${images.length} images (${concurrency} concurrent)...`);
+    addLog('info', `🚀 ${mode} Starting audio migration of ${audioFiles.length} files (${concurrency} concurrent)...`);
     
     let processed = 0;
     let converted = 0;
@@ -507,69 +474,55 @@ export default function AdminImageMigrationPage() {
     let lastStatsUpdate = Date.now();
     
     try {
-      // Process in batches with concurrency control
-      const processInBatches = async () => {
-        let index = 0;
+      let index = 0;
+      
+      while (index < audioFiles.length) {
+        const batch = audioFiles.slice(index, index + concurrency);
         
-        while (index < images.length) {
-          if (abortControllerRef.current?.signal.aborted) {
-            addLog('warning', '⚠️ Migration aborted by user');
-            break;
+        // Process batch in parallel (log only every 10th file for performance)
+        const results = await Promise.allSettled(
+          batch.map((audio, batchIdx) => {
+            const globalIdx = index + batchIdx;
+            const shouldLog = globalIdx % 10 === 0 || globalIdx === audioFiles.length - 1;
+            return migrateAudio(audio.key, shouldLog);
+          })
+        );
+        
+        results.forEach(result => {
+          processed++;
+          if (result.status === 'fulfilled' && result.value) {
+            converted++;
+          } else {
+            failed++;
           }
-          
-          // Get batch of images
-          const batch = images.slice(index, index + concurrency);
-          
-          // Process batch in parallel (log only every 10th file for performance)
-          const results = await Promise.allSettled(
-            batch.map((image, batchIdx) => {
-              const globalIdx = index + batchIdx;
-              const shouldLog = globalIdx % 10 === 0 || globalIdx === images.length - 1;
-              return migrateImage(image.key, shouldLog);
-            })
-          );
-          
-          // Count results
-          results.forEach(result => {
-            processed++;
-            if (result.status === 'fulfilled' && result.value) {
-              converted++;
-            } else {
-              failed++;
-            }
-          });
-          
-          // Update stats only every 100ms to reduce UI overhead
-          const now = Date.now();
-          if (now - lastStatsUpdate > 100 || processed === images.length) {
-            setStats(prev => ({
-              ...prev,
-              processed,
-              converted,
-              failed
-            }));
-            lastStatsUpdate = now;
-          }
-          
-          index += concurrency;
-          
-          // Log progress every 100 files
-          if (processed % 100 === 0) {
-            addLog('info', `📊 Progress: ${processed}/${images.length} (${((processed / images.length) * 100).toFixed(1)}%)`);
-          }
+        });
+        
+        // Update stats only every 100ms to reduce UI overhead
+        const now = Date.now();
+        if (now - lastStatsUpdate > 100 || processed === audioFiles.length) {
+          setStats(prev => ({
+            ...prev,
+            processed,
+            converted,
+            failed
+          }));
+          lastStatsUpdate = now;
         }
-      };
-      
-      await processInBatches();
-      
-      if (!abortControllerRef.current?.signal.aborted) {
-        addLog('success', `🎉 ${mode} Migration complete!`);
-        addLog('info', `   Processed: ${processed}/${images.length}`);
-        addLog('info', `   Converted: ${converted}`);
-        addLog('info', `   Failed: ${failed}`);
         
-        toast.success(`Migration complete! Converted ${converted}/${images.length} images`);
+        index += concurrency;
+        
+        // Log progress every 50 files
+        if (processed % 50 === 0) {
+          addLog('info', `📊 Progress: ${processed}/${audioFiles.length} (${((processed / audioFiles.length) * 100).toFixed(1)}%)`);
+        }
       }
+      
+      addLog('success', `🎉 ${mode} Migration complete!`);
+      addLog('info', `   Processed: ${processed}/${audioFiles.length}`);
+      addLog('info', `   Converted: ${converted}`);
+      addLog('info', `   Failed: ${failed}`);
+      
+      toast.success(`Migration complete! Converted ${converted}/${audioFiles.length} files`);
       
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -577,14 +530,6 @@ export default function AdminImageMigrationPage() {
       toast.error('Migration failed: ' + message);
     } finally {
       setMigrating(false);
-      abortControllerRef.current = null;
-    }
-  };
-
-  const stopMigration = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      addLog('warning', '⏸️ Stopping migration...');
     }
   };
 
@@ -592,9 +537,9 @@ export default function AdminImageMigrationPage() {
     <div className="migration-page-container">
       {/* Header */}
       <div className="migration-header">
-        <h1 className="migration-title">Image Migration JPG to WebP</h1>
+        <h1 className="migration-title">Audio Migration MP3 to Opus</h1>
         <p className="migration-description">
-          Convert all JPG/JPEG images in R2 storage to WebP format for better performance and smaller file sizes.
+          Convert all MP3 preview audio files to Opus format for better compression and smaller file sizes while maintaining quality.
         </p>
       </div>
 
@@ -605,8 +550,9 @@ export default function AdminImageMigrationPage() {
           <div>
             <h3 className="migration-warning-title">Important Notes</h3>
             <p className="migration-warning-text">
-              This tool scans for <code>.jpg</code> and <code>.jpeg</code> files and converts them to <code>.webp</code> format.
-              Database paths are automatically updated. <strong>Always test with Dry Run first!</strong>
+              This tool scans for all <code>.mp3</code> files and converts them to <code>.opus</code> format.
+              Opus provides better compression than MP3 at similar quality. Database paths are automatically updated for preview audio files.
+              <strong> Always test with Dry Run first!</strong> Audio conversion happens client-side using Web Audio API.
             </p>
           </div>
         </div>
@@ -651,7 +597,7 @@ export default function AdminImageMigrationPage() {
               <input
                 type="range"
                 min="1"
-                max="100"
+                max="50"
                 value={concurrency}
                 onChange={(e) => setConcurrency(Number(e.target.value))}
                 disabled={migrating}
@@ -659,28 +605,29 @@ export default function AdminImageMigrationPage() {
               />
             </div>
             <span className="migration-field-hint">
-              Higher = faster but more CPU/network usage. Recommended: 50-100 for maximum speed
+              Audio conversion is CPU intensive. Recommended: 20-30 for optimal speed
             </span>
           </div>
 
           <div className="migration-config-field">
-            <label className="migration-field-label">WebP Quality</label>
+            <label className="migration-field-label">Opus Bitrate</label>
             <div className="migration-range-wrapper">
               <div className="migration-range-label">
-                <span className="range-value">{quality}</span>%
+                <span className="range-value">{bitrate}</span> kbps
               </div>
               <input
                 type="range"
-                min="50"
-                max="100"
-                value={quality}
-                onChange={(e) => setQuality(Number(e.target.value))}
+                min="32"
+                max="128"
+                step="16"
+                value={bitrate}
+                onChange={(e) => setBitrate(Number(e.target.value))}
                 disabled={migrating}
                 className="migration-range-input"
               />
             </div>
             <span className="migration-field-hint">
-              Higher = better quality but larger files. Recommended: 80-90
+              Higher = better quality but larger files. Recommended: 64 kbps for speech
             </span>
           </div>
         </div>
@@ -709,20 +656,20 @@ export default function AdminImageMigrationPage() {
             className="migration-checkbox"
           />
           <label htmlFor="delete-original" className="migration-checkbox-label">
-            Delete original JPG files after conversion
+            Delete original MP3 files after conversion
           </label>
         </div>
 
         <div className="migration-checkbox-wrapper">
           <input
-            id="skip-db-update"
+            id="skip-db-update-audio"
             type="checkbox"
             checked={skipDbUpdate}
             onChange={(e) => setSkipDbUpdate(e.target.checked)}
             disabled={migrating}
             className="migration-checkbox"
           />
-          <label htmlFor="skip-db-update" className="migration-checkbox-label">
+          <label htmlFor="skip-db-update-audio" className="migration-checkbox-label">
             <strong>Skip Database Update</strong> — Faster processing, only convert & upload files
           </label>
         </div>
@@ -733,7 +680,7 @@ export default function AdminImageMigrationPage() {
         <h2 className="migration-panel-title">Statistics</h2>
         <div className="migration-stats-grid">
           <div className="migration-stat-card total">
-            <div className="migration-stat-label">Total Images</div>
+            <div className="migration-stat-label">Total Files</div>
             <div className="migration-stat-value">{stats.total}</div>
           </div>
           <div className="migration-stat-card processed">
@@ -775,7 +722,7 @@ export default function AdminImageMigrationPage() {
       {/* Action Buttons */}
       <div className="migration-actions">
         <button
-          onClick={scanning ? stopScan : scanImages}
+          onClick={scanning ? stopScan : scanAudioFiles}
           disabled={migrating}
           className={`migration-btn ${scanning ? 'danger' : 'primary'}`}
         >
@@ -785,41 +732,32 @@ export default function AdminImageMigrationPage() {
             </>
           ) : (
             <>
-              <Image size={16} /> Scan for Images
+              <Music size={16} /> Scan for Audio Files
             </>
           )}
         </button>
         
         <button
           onClick={startMigration}
-          disabled={scanning || migrating || images.length === 0}
+          disabled={scanning || migrating || audioFiles.length === 0}
           className={`migration-btn ${dryRun ? 'info' : 'success'}`}
         >
           {migrating ? (
             <>
               <span className="migration-animate-spin">⏳</span>
-              {dryRun ? 'Previewing...' : 'Migrating...'}
+              {dryRun ? 'Previewing...' : 'Converting...'}
             </>
           ) : (
             <>
-              {dryRun ? '👁️ Start Preview' : '🚀 Start Migration'}
+              {dryRun ? '👁️ Start Preview' : '🚀 Start Conversion'}
             </>
           )}
         </button>
         
-        {migrating && (
-          <button
-            onClick={stopMigration}
-            className="migration-btn danger"
-          >
-            ⏸️ Stop
-          </button>
-        )}
-        
         <button
           onClick={() => {
             setLogs([]);
-            setImages([]);
+            setAudioFiles([]);
             setStats({ total: 0, processed: 0, converted: 0, failed: 0, skipped: 0 });
           }}
           disabled={scanning || migrating}
@@ -834,7 +772,7 @@ export default function AdminImageMigrationPage() {
         <h2 className="migration-panel-title">Migration Logs</h2>
         <div className="migration-logs-container">
           {logs.length === 0 ? (
-            <div className="migration-logs-empty">No logs yet. Start by scanning for images.</div>
+            <div className="migration-logs-empty">No logs yet. Start by scanning for audio files.</div>
           ) : (
             logs.map((log, idx) => (
               <div key={idx} className={`migration-log-entry ${log.type}`}>
@@ -849,16 +787,16 @@ export default function AdminImageMigrationPage() {
         </div>
       </div>
 
-      {/* Images List */}
-      {images.length > 0 && (
+      {/* Audio Files List */}
+      {audioFiles.length > 0 && (
         <details className="migration-files-list">
-          <summary>Found Images ({images.length})</summary>
+          <summary>Found Audio Files ({audioFiles.length})</summary>
           <div className="migration-files-grid">
-            {images.map((img, idx) => (
+            {audioFiles.map((audio, idx) => (
               <div key={idx} className="migration-file-item">
-                <div className="migration-file-path">{img.key}</div>
+                <div className="migration-file-path">{audio.key}</div>
                 <div className="migration-file-meta">
-                  {(img.size / 1024).toFixed(1)} KB • {new Date(img.modified).toLocaleDateString()}
+                  {(audio.size / 1024).toFixed(1)} KB • {new Date(audio.modified).toLocaleDateString()}
                 </div>
               </div>
             ))}
