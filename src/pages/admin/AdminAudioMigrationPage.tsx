@@ -49,6 +49,7 @@ export default function AdminAudioMigrationPage() {
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
   const abortScanRef = useRef(false);
+  const abortMigrationRef = useRef(false);
 
   const addLog = (type: MigrationLog['type'], message: string, details?: string) => {
     const log: MigrationLog = {
@@ -478,6 +479,7 @@ export default function AdminAudioMigrationPage() {
     }
     
     setMigrating(true);
+    abortMigrationRef.current = false;
     
     setStats(prev => ({
       ...prev,
@@ -499,6 +501,15 @@ export default function AdminAudioMigrationPage() {
       let index = 0;
       
       while (index < audioFiles.length) {
+        // Check if user requested to stop
+        if (abortMigrationRef.current) {
+          addLog('warning', '⚠️ Migration stopped by user');
+          addLog('info', `   Processed: ${processed}/${audioFiles.length}`);
+          addLog('info', `   Converted: ${converted}`);
+          addLog('info', `   Failed: ${failed}`);
+          break;
+        }
+        
         const batch = audioFiles.slice(index, index + concurrency);
         
         // Process batch in parallel (log only every 10th file for performance)
@@ -552,7 +563,13 @@ export default function AdminAudioMigrationPage() {
       toast.error('Migration failed: ' + message);
     } finally {
       setMigrating(false);
+      abortMigrationRef.current = false;
     }
+  };
+
+  const stopMigration = () => {
+    abortMigrationRef.current = true;
+    addLog('warning', '🛑 Stopping migration...');
   };
 
   return (
@@ -760,14 +777,14 @@ export default function AdminAudioMigrationPage() {
         </button>
         
         <button
-          onClick={startMigration}
-          disabled={scanning || migrating || audioFiles.length === 0}
-          className={`migration-btn ${dryRun ? 'info' : 'success'}`}
+          onClick={migrating ? stopMigration : startMigration}
+          disabled={scanning || audioFiles.length === 0}
+          className={`migration-btn ${migrating ? 'danger' : (dryRun ? 'info' : 'success')}`}
         >
           {migrating ? (
             <>
               <span className="migration-animate-spin">⏳</span>
-              {dryRun ? 'Previewing...' : 'Converting...'}
+              {dryRun ? '🛑 Stop Preview' : '🛑 Stop Conversion'}
             </>
           ) : (
             <>
