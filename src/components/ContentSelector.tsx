@@ -19,7 +19,7 @@ interface ContentSelectorProps {
 }
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
-export default function ContentSelector({ value, onChange, allResults, contentCounts, totalCount, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage }: ContentSelectorProps) {
+export default function ContentSelector({ value, onChange, allResults, contentCounts, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage }: ContentSelectorProps) {
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -143,11 +143,6 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     }
     return { map, other };
   }, [visibleIds, filmTypeMap]);
-
-  const totalCountComputed = useMemo(() => {
-    if (typeof totalCount === 'number') return totalCount;
-    return allResults.length;
-  }, [totalCount, allResults.length]);
 
   const toggleGroup = (key: string) => {
     setOpenGroups(prev => {
