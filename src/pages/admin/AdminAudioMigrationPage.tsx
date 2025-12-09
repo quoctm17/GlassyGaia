@@ -212,20 +212,12 @@ export default function AdminAudioMigrationPage() {
     return new Promise((resolve, reject) => {
       const convert = async () => {
         try {
-          console.log('Converting audio:', { type: mp3Blob.type, size: mp3Blob.size, bitrate: targetBitrate });
-          
           // Create audio context
           const audioContext = new AudioContext();
           
           // Decode MP3 to audio buffer
           const arrayBuffer = await mp3Blob.arrayBuffer();
           const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          
-          console.log('Audio decoded:', { 
-            duration: audioBuffer.duration, 
-            sampleRate: audioBuffer.sampleRate,
-            channels: audioBuffer.numberOfChannels 
-          });
           
           // Create a MediaStream from audio buffer using AudioContext
           const source = audioContext.createBufferSource();
@@ -257,7 +249,6 @@ export default function AdminAudioMigrationPage() {
           
           mediaRecorder.onstop = () => {
             const opusBlob = new Blob(chunks, { type: 'audio/opus' });
-            console.log('Opus encoding complete:', { size: opusBlob.size });
             audioContext.close();
             resolve(opusBlob);
           };
@@ -281,7 +272,6 @@ export default function AdminAudioMigrationPage() {
           }, (audioBuffer.duration * 1000) + 500);
           
         } catch (error) {
-          console.error('Audio conversion error:', error);
           reject(error);
         }
       };
