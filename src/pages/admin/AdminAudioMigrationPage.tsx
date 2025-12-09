@@ -290,21 +290,28 @@ export default function AdminAudioMigrationPage() {
   };
 
   const migrateAudio = async (audioKey: string, logVerbose: boolean = false): Promise<boolean> => {
-    const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
-    
     try {
-      if (logVerbose) addLog('info', `⬇️ Downloading: ${audioKey}`);
-      
       // Generate new key
       const opusKey = audioKey.replace(/\.mp3$/i, '.opus');
       
       if (dryRun) {
+        // In dry run mode, just log what would happen
         if (logVerbose) {
           addLog('warning', `[DRY RUN] Would convert: ${audioKey} → ${opusKey}`);
           addLog('info', `   Settings: ${bitrate} kbps Opus`);
         }
+        // Simulate a small delay to make it feel more realistic
+        await new Promise(resolve => setTimeout(resolve, 10));
         return true;
       }
+      
+      // Validate API base URL
+      const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
+      if (!apiBase) {
+        throw new Error('Missing VITE_CF_API_BASE or VITE_WORKER_BASE environment variable');
+      }
+      
+      if (logVerbose) addLog('info', `⬇️ Downloading: ${audioKey}`);
       
       // Download original MP3 via Worker proxy
       const downloadUrl = `${apiBase}/media/${audioKey}`;
@@ -312,6 +319,11 @@ export default function AdminAudioMigrationPage() {
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.startsWith('audio/')) {
+        throw new Error(`Invalid content type: ${contentType}. Expected audio file.`);
       }
       
       const mp3Blob = await response.blob();
@@ -443,6 +455,16 @@ export default function AdminAudioMigrationPage() {
     if (audioFiles.length === 0) {
       toast.error('Please scan for audio files first');
       return;
+    }
+    
+    // Validate API base URL for live mode
+    if (!dryRun) {
+      const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
+      if (!apiBase) {
+        toast.error('Missing VITE_CF_API_BASE or VITE_WORKER_BASE environment variable');
+        addLog('error', '❌ Configuration error: No API base URL configured');
+        return;
+      }
     }
     
     if (!dryRun && !window.confirm(
