@@ -262,15 +262,25 @@ export default function AdminImageMigrationPage() {
 
   const migrateImage = async (imageKey: string, logVerbose: boolean = false): Promise<boolean> => {
     const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
+    const r2PublicBase = import.meta.env.VITE_R2_PUBLIC_BASE || '';
     
     try {
       // 1. Download original JPG via Worker proxy (to avoid CORS)
       if (logVerbose) addLog('info', `⬇️ Downloading: ${imageKey}`);
       
-      // IMPORTANT: Must use full worker URL, not relative path
+      // IMPORTANT: Must use full worker URL or R2 public URL, not relative path
       // On production, relative /media/ paths resolve to frontend domain (not worker)
-      const workerBase = apiBase.replace(/\/$/, ''); // Remove trailing slash
-      const downloadUrl = `${workerBase}/media/${imageKey}`;
+      // Priority: Worker /media proxy > R2 public URL
+      let downloadUrl: string;
+      if (apiBase) {
+        const workerBase = apiBase.replace(/\/$/, '');
+        downloadUrl = `${workerBase}/media/${imageKey}`;
+      } else if (r2PublicBase) {
+        const r2Base = r2PublicBase.replace(/\/$/, '');
+        downloadUrl = `${r2Base}/${imageKey}`;
+      } else {
+        throw new Error('Missing VITE_WORKER_BASE or VITE_R2_PUBLIC_BASE environment variable');
+      }
       
       const response = await fetch(downloadUrl);
       

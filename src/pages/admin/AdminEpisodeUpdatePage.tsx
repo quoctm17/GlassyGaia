@@ -499,7 +499,7 @@ export default function AdminEpisodeUpdatePage() {
   return (
     <div className="admin-content p-6 max-w-5xl mx-auto space-y-4">
       <div className="admin-section-header">
-        <h2 className="admin-title typography-pressstart-1">Update Episode: {episodeSlug}</h2>
+        <h2 className="admin-title typography-inter-1">Update Episode: {episodeSlug}</h2>
         <button className="admin-btn secondary flex items-center gap-1.5" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${episodeSlug}`)}>
           <ArrowLeft size={14} />
           <span>Back</span>
