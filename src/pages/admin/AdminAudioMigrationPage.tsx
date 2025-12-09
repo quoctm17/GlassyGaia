@@ -49,6 +49,7 @@ export default function AdminAudioMigrationPage() {
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
   const abortScanRef = useRef(false);
+  const abortMigrationRef = useRef(false);
 
   const addLog = (type: MigrationLog['type'], message: string, details?: string) => {
     const log: MigrationLog = {
@@ -211,20 +212,12 @@ export default function AdminAudioMigrationPage() {
     return new Promise((resolve, reject) => {
       const convert = async () => {
         try {
-          console.log('Converting audio:', { type: mp3Blob.type, size: mp3Blob.size, bitrate: targetBitrate });
-          
           // Create audio context
           const audioContext = new AudioContext();
           
           // Decode MP3 to audio buffer
           const arrayBuffer = await mp3Blob.arrayBuffer();
           const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          
-          console.log('Audio decoded:', { 
-            duration: audioBuffer.duration, 
-            sampleRate: audioBuffer.sampleRate,
-            channels: audioBuffer.numberOfChannels 
-          });
           
           // Create a MediaStream from audio buffer using AudioContext
           const source = audioContext.createBufferSource();
@@ -256,7 +249,6 @@ export default function AdminAudioMigrationPage() {
           
           mediaRecorder.onstop = () => {
             const opusBlob = new Blob(chunks, { type: 'audio/opus' });
-            console.log('Opus encoding complete:', { size: opusBlob.size });
             audioContext.close();
             resolve(opusBlob);
           };
@@ -280,7 +272,6 @@ export default function AdminAudioMigrationPage() {
           }, (audioBuffer.duration * 1000) + 500);
           
         } catch (error) {
-          console.error('Audio conversion error:', error);
           reject(error);
         }
       };
@@ -290,21 +281,28 @@ export default function AdminAudioMigrationPage() {
   };
 
   const migrateAudio = async (audioKey: string, logVerbose: boolean = false): Promise<boolean> => {
-    const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
-    
     try {
-      if (logVerbose) addLog('info', `⬇️ Downloading: ${audioKey}`);
-      
       // Generate new key
       const opusKey = audioKey.replace(/\.mp3$/i, '.opus');
       
       if (dryRun) {
+        // In dry run mode, just log what would happen
         if (logVerbose) {
           addLog('warning', `[DRY RUN] Would convert: ${audioKey} → ${opusKey}`);
           addLog('info', `   Settings: ${bitrate} kbps Opus`);
         }
+        // Simulate a small delay to make it feel more realistic
+        await new Promise(resolve => setTimeout(resolve, 10));
         return true;
       }
+      
+      // Validate API base URL
+      const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
+      if (!apiBase) {
+        throw new Error('Missing VITE_CF_API_BASE or VITE_WORKER_BASE environment variable');
+      }
+      
+      if (logVerbose) addLog('info', `⬇️ Downloading: ${audioKey}`);
       
       // Download original MP3 via Worker proxy
       const downloadUrl = `${apiBase}/media/${audioKey}`;
@@ -312,6 +310,11 @@ export default function AdminAudioMigrationPage() {
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.startsWith('audio/')) {
+        throw new Error(`Invalid content type: ${contentType}. Expected audio file.`);
       }
       
       const mp3Blob = await response.blob();
@@ -445,6 +448,16 @@ export default function AdminAudioMigrationPage() {
       return;
     }
     
+    // Validate API base URL for live mode
+    if (!dryRun) {
+      const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
+      if (!apiBase) {
+        toast.error('Missing VITE_CF_API_BASE or VITE_WORKER_BASE environment variable');
+        addLog('error', '❌ Configuration error: No API base URL configured');
+        return;
+      }
+    }
+    
     if (!dryRun && !window.confirm(
       `⚠️ WARNING: This will convert ${audioFiles.length} MP3 files to Opus.\n\n` +
       `Delete originals: ${deleteOriginal ? 'YES' : 'NO'}\n` +
@@ -456,6 +469,7 @@ export default function AdminAudioMigrationPage() {
     }
     
     setMigrating(true);
+    abortMigrationRef.current = false;
     
     setStats(prev => ({
       ...prev,
@@ -477,6 +491,15 @@ export default function AdminAudioMigrationPage() {
       let index = 0;
       
       while (index < audioFiles.length) {
+        // Check if user requested to stop
+        if (abortMigrationRef.current) {
+          addLog('warning', '⚠️ Migration stopped by user');
+          addLog('info', `   Processed: ${processed}/${audioFiles.length}`);
+          addLog('info', `   Converted: ${converted}`);
+          addLog('info', `   Failed: ${failed}`);
+          break;
+        }
+        
         const batch = audioFiles.slice(index, index + concurrency);
         
         // Process batch in parallel (log only every 10th file for performance)
@@ -530,7 +553,13 @@ export default function AdminAudioMigrationPage() {
       toast.error('Migration failed: ' + message);
     } finally {
       setMigrating(false);
+      abortMigrationRef.current = false;
     }
+  };
+
+  const stopMigration = () => {
+    abortMigrationRef.current = true;
+    addLog('warning', '🛑 Stopping migration...');
   };
 
   return (
@@ -738,14 +767,14 @@ export default function AdminAudioMigrationPage() {
         </button>
         
         <button
-          onClick={startMigration}
-          disabled={scanning || migrating || audioFiles.length === 0}
-          className={`migration-btn ${dryRun ? 'info' : 'success'}`}
+          onClick={migrating ? stopMigration : startMigration}
+          disabled={scanning || audioFiles.length === 0}
+          className={`migration-btn ${migrating ? 'danger' : (dryRun ? 'info' : 'success')}`}
         >
           {migrating ? (
             <>
               <span className="migration-animate-spin">⏳</span>
-              {dryRun ? 'Previewing...' : 'Converting...'}
+              {dryRun ? '🛑 Stop Preview' : '🛑 Stop Conversion'}
             </>
           ) : (
             <>
