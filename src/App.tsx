@@ -96,11 +96,53 @@ function App() {
             </Routes>
           </div>
           <BottomNav />
-          <Toaster position="top-right" toastOptions={{
-            style: { background: '#241530', color: '#f5d0fe', border: '2px solid #f472b6' },
-            success: { iconTheme: { primary: '#ec4899', secondary: '#241530' } },
-            error: { iconTheme: { primary: '#fda4af', secondary: '#241530' } }
-          }} />
+          <Toaster 
+            position="top-right" 
+            toastOptions={{
+              duration: 4000,
+              style: {
+                fontFamily: 'Inter, system-ui, sans-serif',
+                fontSize: '14px',
+                fontWeight: '500',
+                padding: '16px',
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+              },
+              success: {
+                style: {
+                  background: 'var(--success)',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                },
+                iconTheme: {
+                  primary: '#FFFFFF',
+                  secondary: 'var(--success)',
+                },
+              },
+              error: {
+                style: {
+                  background: 'var(--error)',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                },
+                iconTheme: {
+                  primary: '#FFFFFF',
+                  secondary: 'var(--error)',
+                },
+              },
+              loading: {
+                style: {
+                  background: 'var(--info)',
+                  color: '#FFFFFF',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                },
+                iconTheme: {
+                  primary: '#FFFFFF',
+                  secondary: 'var(--info)',
+                },
+              },
+            }} 
+          />
         </div>
       </BrowserRouter>
     </UserProvider>
