@@ -764,7 +764,7 @@ export default function AdminContentIngestPage() {
       {/* Quick Guide */}
       {isAdmin && (
         <div className="admin-panel space-y-3">
-          <div className="typography-pressstart-1 admin-panel-title">Quick Guide</div>
+          <div className="typography-inter-1 admin-panel-title">Quick Guide</div>
             <div className="admin-subpanel text-xs space-y-3">
             <div style={{ color: 'var(--text)' }} className="font-semibold">A) Các trường nhập</div>
             <ul className="list-disc pl-5 space-y-1 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
@@ -797,7 +797,7 @@ export default function AdminContentIngestPage() {
 
       {/* Content meta */}
       <div className="admin-panel space-y-4">
-        <div className="typography-pressstart-1 admin-panel-title">Content Meta</div>
+        <div className="typography-inter-1 admin-panel-title">Content Meta</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Content Slug</label>
@@ -975,7 +975,7 @@ export default function AdminContentIngestPage() {
 
       {/* Episode 1 meta (number locked) */}
       <div className="admin-panel space-y-4">
-        <div className="typography-pressstart-1 admin-panel-title">Episode 1</div>
+        <div className="typography-inter-1 admin-panel-title">Episode 1</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm flex items-center gap-1">
@@ -1026,7 +1026,7 @@ export default function AdminContentIngestPage() {
 
       {/* CSV */}
       <div className="admin-panel space-y-3">
-        <div className="typography-pressstart-1 admin-panel-title">Cards CSV</div>
+        <div className="typography-inter-1 admin-panel-title">Cards CSV</div>
         <div className="flex items-center gap-2 flex-wrap">
           <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={onPickCsv} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border" style={{ borderColor: 'var(--primary)' }} />
           <button type="button" title="Refresh / Re-import CSV" onClick={() => { if (csvRef.current) { csvRef.current.value = ""; csvRef.current.click(); } }} className="admin-btn secondary flex items-center gap-1">
@@ -1120,7 +1120,7 @@ export default function AdminContentIngestPage() {
 
       {/* Card Media */}
       <div className="admin-panel space-y-3">
-        <div className="typography-pressstart-1 admin-panel-title">Card Media Files</div>
+        <div className="typography-inter-1 admin-panel-title">Card Media Files</div>
         {/* File count validation warnings */}
         {csvRows.length > 0 && (imageFiles.length > 0 || audioFiles.length > 0) && (
           <div className="space-y-2">

@@ -592,7 +592,7 @@ export default function AdminAddEpisodePage() {
       {/* Quick Guide */}
       {isAdmin && (
         <div className="admin-panel space-y-3">
-          <div className="typography-pressstart-1 admin-panel-title">Quick Guide (Add Episode)</div>
+          <div className="typography-inter-1 admin-panel-title">Quick Guide (Add Episode)</div>
           <div className="admin-subpanel text-xs space-y-2">
             <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--text-muted)' }}>
               <li>Content Slug cố định: {contentSlug}</li>
@@ -610,7 +610,7 @@ export default function AdminAddEpisodePage() {
         <div className="text-sm font-semibold" style={{ color: 'var(--sub-language-text)' }}>Episode Meta</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex items-center gap-2">
-            <label className="w-40 text-sm typography-pressstart-1" style={{ fontSize: '10px' }}>Main Language</label>
+            <label className="w-40 text-sm typography-inter-3" style={{ fontSize: '10px' }}>Main Language</label>
             <div className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none flex items-center gap-2">
               <LanguageTag code={filmMainLang} withName={true} size="md" />
             </div>
