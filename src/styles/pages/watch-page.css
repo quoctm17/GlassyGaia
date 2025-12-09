@@ -3,7 +3,7 @@
 /* Main container */
 .watch-page {
   min-height: 100vh;
-  background-color: #1a0f26;
+  background-color: var(--background);
   padding-top: 1.5rem;
   padding-bottom: 1.5rem;
 }
@@ -28,28 +28,33 @@
 
 /* Content info panel */
 .watch-content-info {
-  background-color: #1a0f26;
-  border: 2px solid #f3a1d6;
-  border-radius: 0.5rem;
+  background-color: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 50px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
+  box-shadow: 4px 4px 0 var(--primary);
 }
 
 .watch-content-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: white;
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--text);
   margin-bottom: 0.5rem;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  line-height: 1.6;
 }
 
 .watch-content-subtitle {
-  color: #9ca3af;
-  font-size: 0.875rem;
+  color: var(--neutral);
+  font-size: 0.75rem;
   margin-bottom: 1rem;
+  font-family: 'Courier New', monospace;
 }
 
 .watch-content-description {
-  color: #d1d5db;
+  color: var(--text);
+  font-family: 'Courier New', monospace;
 }
 
 /* Mobile: Smaller padding and text */
@@ -97,10 +102,10 @@
   top: 50%;
   transform: translateY(-50%);
   z-index: 10;
-  background-color: rgba(243, 161, 214, 0.9);
-  color: #000;
-  border: none;
-  border-radius: 50%;
+  background-color: var(--primary);
+  color: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 8px;
   width: 48px;
   height: 48px;
   display: flex;
@@ -108,12 +113,13 @@
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 3px 3px 0 var(--primary);
 }
 
 .watch-nav-button:hover:not(:disabled) {
-  background-color: rgba(243, 161, 214, 1);
-  transform: translateY(-50%) scale(1.1);
+  background-color: var(--hover-select);
+  transform: translateY(-50%) scale(1.05);
+  box-shadow: 4px 4px 0 var(--primary);
 }
 
 .watch-nav-button:hover:not(:disabled)::before {
@@ -122,14 +128,16 @@
   top: -40px;
   left: 50%;
   transform: translateX(-50%);
-  background-color: rgba(0, 0, 0, 0.9);
-  color: #f3a1d6;
+  background-color: var(--background);
+  color: var(--primary);
   padding: 0.5rem 0.75rem;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
   white-space: nowrap;
   pointer-events: none;
-  border: 1px solid #f3a1d6;
+  border: 2px solid var(--primary);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  box-shadow: 3px 3px 0 var(--primary);
 }
 
 .watch-nav-button:disabled {
@@ -176,15 +184,16 @@
 
 /* Video/Audio player container */
 .watch-media-container {
-  background-color: #1a0f26;
-  border: 2px solid #f3a1d6;
-  border-radius: 0.5rem;
+  background-color: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 12px;
   overflow: hidden;
   flex: 1;
   height: 100%;
   position: relative;
   display: flex;
   flex-direction: column;
+  box-shadow: 4px 4px 0 var(--primary);
 }
 
 /* Mobile: Smaller border */
@@ -200,56 +209,58 @@
   top: 1rem;
   right: 1rem;
   z-index: 20;
-  background-color: #1a0f26;
-  border: 2px solid #f3a1d6;
-  border-radius: 2rem;
+  background-color: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 50px;
   padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-weight: 600;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  font-weight: 400;
+  box-shadow: 3px 3px 0 var(--primary);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .watch-card-counter-current {
-  color: #f3a1d6;
-  font-size: 1.125rem;
+  color: var(--primary);
+  font-size: 0.9rem;
   min-width: 2ch;
   text-align: center;
 }
 
 .watch-card-counter-current:hover {
-  background-color: rgba(243, 161, 214, 0.1);
+  background-color: var(--hover-bg);
   border-radius: 4px;
   padding: 0 4px;
 }
 
 .watch-card-counter-input {
   width: 3.5rem;
-  background-color: rgba(243, 161, 214, 0.1);
-  color: #f3a1d6;
-  border: 1px solid #f3a1d6;
+  background-color: var(--secondary);
+  color: var(--primary);
+  border: 2px solid var(--primary);
   border-radius: 4px;
   padding: 2px 6px;
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 400;
   text-align: center;
   outline: none;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .watch-card-counter-input:focus {
-  background-color: rgba(243, 161, 214, 0.2);
-  box-shadow: 0 0 0 2px rgba(243, 161, 214, 0.5);
+  background-color: var(--hover-bg);
+  box-shadow: 0 0 0 2px var(--hover-select);
 }
 
 .watch-card-counter-separator {
-  color: #9ca3af;
-  font-size: 1rem;
+  color: var(--neutral);
+  font-size: 0.8rem;
 }
 
 .watch-card-counter-total {
-  color: #d1d5db;
-  font-size: 1rem;
+  color: var(--neutral);
+  font-size: 0.8rem;
 }
 
 /* Mobile: Smaller counter */
@@ -277,7 +288,7 @@
 .watch-media-wrapper {
   width: 100%;
   flex: 1;
-  background-color: #1a0f26;
+  background-color: var(--secondary);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -298,38 +309,45 @@
 .watch-completion-btn {
   min-width: 140px;
   padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  border: none;
+  border-radius: 50px;
+  border: 3px solid;
   color: white;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 400;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
 }
 
 .watch-completion-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 4px 4px 0 currentColor;
 }
 
 .watch-completion-btn-complete {
-  background: #34d399;
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 3px 3px 0 var(--primary);
 }
 
 .watch-completion-btn-complete:hover {
-  background: #10b981;
+  background: var(--hover-select);
+  border-color: var(--hover-select);
 }
 
 .watch-completion-btn-incomplete {
-  background: #f87171;
+  background: var(--sub-language-text);
+  border-color: var(--sub-language-text);
+  box-shadow: 3px 3px 0 var(--sub-language-text);
 }
 
 .watch-completion-btn-incomplete:hover {
-  background: #ef4444;
+  background: var(--neutral);
+  border-color: var(--neutral);
 }
 
 /* Mobile: Smaller buttons */
@@ -411,17 +429,19 @@
 
 /* Card Carousel */
 .watch-card-carousel {
-  background-color: #1a0f26;
-  border: 2px solid #f3a1d6;
-  border-radius: 0.5rem;
+  background-color: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 12px;
   padding: 0.75rem;
   overflow-x: auto;
   overflow-y: hidden;
   height: 110px;
   flex-shrink: 0;
+  box-shadow: 3px 3px 0 var(--primary);
   /* Hide scrollbar but keep functionality */
   scrollbar-width: thin;
-  scrollbar-color: #f3a1d6 #1a1a1a;
+  scrollbar-color: var(--primary) var(--background);
+  margin-bottom: 0;
 }
 
 /* Mobile: Smaller carousel */
@@ -478,11 +498,11 @@
   flex-shrink: 0;
   width: 100px;
   height: 75px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 0.25rem;
+  border: 3px solid var(--neutral);
+  border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  background-color: #1a1a1a;
+  background-color: var(--background);
   transition: all 0.2s;
   padding: 0;
 }
@@ -492,7 +512,7 @@
   .watch-card-thumbnail {
     width: 80px;
     height: 60px;
-    border-width: 1px;
+    border-width: 2px;
   }
 }
 
@@ -505,13 +525,14 @@
 }
 
 .watch-card-thumbnail:hover {
-  border-color: #f3a1d6;
+  border-color: var(--primary);
   transform: translateY(-2px);
+  box-shadow: 3px 3px 0 var(--primary);
 }
 
 .watch-card-thumbnail.active {
-  border-color: #f3a1d6;
-  box-shadow: 0 0 0 2px rgba(243, 161, 214, 0.3);
+  border-color: var(--hover-select);
+  box-shadow: 0 0 0 2px var(--hover-select);
 }
 
 .watch-card-thumbnail.completed {
@@ -523,7 +544,7 @@
   position: absolute;
   top: 4px;
   right: 4px;
-  background-color: #c45484;
+  background-color: var(--primary);
   color: white;
   width: 20px;
   height: 20px;
@@ -570,7 +591,7 @@
   left: 0;
   right: 0;
   height: 3px;
-  background-color: #f3a1d6;
+  background-color: var(--primary);
 }
 
 /* Loading indicator in carousel */
@@ -669,12 +690,13 @@
 
 /* Subtitles panel */
 .watch-subtitles-panel {
-  background-color: #1a0f26;
-  border: 2px solid #f3a1d6;
-  border-radius: 0.5rem;
+  background-color: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 12px;
   overflow: hidden;
   position: sticky;
   top: 1.5rem;
+  box-shadow: 3px 3px 0 var(--primary);
 }
 
 /* Mobile: Not sticky, smaller border */
@@ -688,7 +710,7 @@
 
 .watch-subtitles-search {
   padding: 1rem;
-  background-color: #1a0f26;
+  background-color: var(--secondary);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -701,8 +723,8 @@
 
 .watch-subtitles-search-input {
   width: 100%;
-  background-color: #1a0f26;
-  color: white;
+  background-color: var(--secondary);
+  color: var(--text);
   font-size: 0.875rem;
   padding: 0.5rem 0.75rem;
   border-radius: 0.25rem;
@@ -711,16 +733,16 @@
 }
 
 .watch-subtitles-search-input::placeholder {
-  color: #9ca3af;
+  color: var(--neutral);
 }
 
 .watch-subtitles-search-input:focus {
-  box-shadow: 0 0 0 2px #ec4899;
+  box-shadow: 0 0 0 2px var(--primary);
 }
 
 .watch-subtitles-list {
   padding: 1rem;
-  background-color: #1a0f26;
+  background-color: var(--secondary);
   scroll-behavior: smooth;
 }
 
@@ -743,10 +765,10 @@
 .watch-subtitle-card {
   width: 100%;
   text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 0.5rem;
+  border: 2px solid var(--neutral);
+  border-radius: 8px;
   padding: 1rem;
-  color: white;
+  color: var(--text);
   transition: all 0.2s;
   cursor: pointer;
   background: transparent;
@@ -756,23 +778,26 @@
 @media (max-width: 640px) {
   .watch-subtitle-card {
     padding: 0.75rem;
-    border-radius: 0.375rem;
+    border-radius: 6px;
   }
 }
 
 .watch-subtitle-card:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--hover-bg);
+  border-color: var(--primary);
 }
 
 .watch-subtitle-card.active {
-  border-color: #f3a1d6;
-  background-color: rgba(243, 161, 214, 0.1);
+  border-color: var(--hover-select);
+  background-color: var(--hover-bg);
+  box-shadow: 0 0 0 2px var(--hover-select);
 }
 
 .watch-subtitle-card.completed {
   position: relative;
-  border-color: rgba(196, 84, 132, 0.3);
-  background-color: rgba(196, 84, 132, 0.05);
+  border-color: var(--primary);
+  background-color: var(--hover-bg);
+  opacity: 0.6;
 }
 
 .watch-subtitle-card.completed::before {
@@ -780,7 +805,7 @@
   position: absolute;
   top: 0.75rem;
   left: 0.75rem;
-  background-color: #c45484;
+  background-color: var(--primary);
   color: white;
   width: 24px;
   height: 24px;
@@ -826,14 +851,14 @@
 
 .watch-subtitle-timestamp {
   font-size: 0.75rem;
-  color: #c084fc;
+  color: var(--primary);
   margin-left: 0.5rem;
   white-space: nowrap;
 }
 
 .watch-subtitle-secondary-text {
   font-size: 0.875rem;
-  color: #9ca3af;
+  color: var(--neutral);
 }
 
 /* Mobile: Smaller text */
@@ -860,7 +885,7 @@
 }
 
 .watch-subtitles-empty {
-  color: #9ca3af;
+  color: var(--neutral);
   text-align: center;
   padding: 2rem 0;
 }
@@ -915,17 +940,20 @@
 
 /* Episodes list */
 .watch-episodes-panel {
-  background-color: #1a0f26;
-  border: 2px solid #f3a1d6;
-  border-radius: 0.5rem;
+  background-color: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 12px;
   padding: 1.5rem;
+  box-shadow: 3px 3px 0 var(--primary);
 }
 
 .watch-episodes-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: white;
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--text);
   margin-bottom: 1rem;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  line-height: 1.6;
 }
 
 /* Mobile: Smaller padding and text */
@@ -1111,6 +1139,7 @@
     flex-direction: column;
     height: 700px;
     max-height: 700px;
+    overflow: hidden;
   }
   
   .watch-grid-col-1 {
@@ -1138,5 +1167,9 @@
   .watch-grid-col-1 {
     height: 750px;
     max-height: 750px;
+  }
+  
+  .watch-grid-col-2 {
+    overflow: hidden;
   }
 }

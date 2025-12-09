@@ -17,7 +17,7 @@ import customIcon from "../assets/icons/custom.svg";
 import "../styles/pages/search-page.css";
 
 function SearchPage() {
-  const { preferences } = useUser();
+  const { preferences, setVolume, setResultLayout } = useUser();
   const location = useLocation();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -442,8 +442,10 @@ function SearchPage() {
             <CustomizeModal 
               isOpen={customizeModalOpen}
               onClose={() => setCustomizeModalOpen(false)}
-              volume={80}
-              onVolumeChange={(vol) => console.log('Volume:', vol)}
+              volume={preferences.volume || 80}
+              onVolumeChange={(vol) => setVolume(vol)}
+              resultLayout={preferences.resultLayout || 'default'}
+              onLayoutChange={(layout) => setResultLayout(layout)}
             />
           </div>
 
@@ -469,7 +471,13 @@ function SearchPage() {
           </div>
         </div>
 
-        <div className={filterPanelOpen ? '' : 'grid grid-cols-2 gap-4'}>
+        <div className={
+          preferences.resultLayout === 'default' 
+            ? (filterPanelOpen ? '' : 'grid grid-cols-2 gap-4')
+            : preferences.resultLayout === '2-column'
+            ? 'grid grid-cols-2 gap-4'
+            : ''
+        }>
           {displayedResults.map((c) => (
             <SearchResultCard
               key={String(c.id)}

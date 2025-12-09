@@ -5,11 +5,12 @@ import toast from 'react-hot-toast';
 import { useUser } from '../../context/UserContext';
 import { importFilmFromCsv, type ImportFilmMeta } from '../../services/importer';
 import { apiGetFilm, apiListEpisodes, apiUpdateEpisodeMeta, apiCalculateStats, apiDeleteEpisode } from '../../services/cfApi';
-import { uploadEpisodeCoverImage, uploadEpisodeFullMedia, uploadMediaBatch } from '../../services/storageUpload';
+import { uploadEpisodeCoverImage, uploadMediaBatch } from '../../services/storageUpload';
 import type { MediaType } from '../../services/storageUpload';
-import { canonicalizeLangCode, langLabel, countryCodeForLang, expandCanonicalToAliases } from '../../utils/lang';
+import { canonicalizeLangCode, langLabel, expandCanonicalToAliases } from '../../utils/lang';
 import { detectSubtitleHeaders, categorizeHeaders } from '../../utils/csvDetection';
 import ProgressBar from '../../components/ProgressBar';
+import LanguageTag from '../../components/LanguageTag';
 import { Loader2, CheckCircle, RefreshCcw, AlertTriangle } from 'lucide-react';
 import CsvPreviewPanel from '../../components/admin/CsvPreviewPanel';
 import '../../styles/components/admin/admin-forms.css';
@@ -35,8 +36,6 @@ export default function AdminAddEpisodePage() {
   const [episodeTitle, setEpisodeTitle] = useState('');
   const [episodeDescription, setEpisodeDescription] = useState('');
   const [addEpCover, setAddEpCover] = useState(false);
-  const [addEpAudio, setAddEpAudio] = useState(false);
-  const [addEpVideo, setAddEpVideo] = useState(false);
 
   // CSV & cards media
   const [csvText, setCsvText] = useState('');
@@ -64,15 +63,11 @@ export default function AdminAddEpisodePage() {
   const [epNumStatus, setEpNumStatus] = useState<'idle' | 'checking' | 'new' | 'duplicate'>('idle');
   // File presence flags for selected episode-level uploads
   const [hasEpCoverFile, setHasEpCoverFile] = useState(false);
-  const [hasEpAudioFile, setHasEpAudioFile] = useState(false);
-  const [hasEpVideoFile, setHasEpVideoFile] = useState(false);
 
   // Progress
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState('idle');
   const [epCoverDone, setEpCoverDone] = useState(0);
-  const [epFullAudioDone, setEpFullAudioDone] = useState(0);
-  const [epFullVideoDone, setEpFullVideoDone] = useState(0);
   const [imagesDone, setImagesDone] = useState(0);
   const [audioDone, setAudioDone] = useState(0);
   const [imagesTotal, setImagesTotal] = useState(0);
@@ -80,8 +75,6 @@ export default function AdminAddEpisodePage() {
   const [importDone, setImportDone] = useState(false);
   const [statsDone, setStatsDone] = useState(false);
   const [progress, setProgress] = useState(0); // percent progress
-  const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
-  const [epFullVideoBytesTotal, setEpFullVideoBytesTotal] = useState(0);
   // Cancel / abort controls
   const uploadAbortRef = useRef<AbortController | null>(null);
   const cancelRequestedRef = useRef<boolean>(false);
@@ -287,8 +280,6 @@ export default function AdminAddEpisodePage() {
 
   // Reset file flags when toggles are turned off
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
-  useEffect(() => { if (!addEpAudio) setHasEpAudioFile(false); }, [addEpAudio]);
-  useEffect(() => { if (!addEpVideo) setHasEpVideoFile(false); }, [addEpVideo]);
 
   // Derived: can create episode (align with Ingest page expectations)
   const canCreate = useMemo(() => {
@@ -296,11 +287,9 @@ export default function AdminAddEpisodePage() {
     // Require at least some card media like Ingest (both images and audio)
     const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
     const epCoverOk = !addEpCover || hasEpCoverFile;
-    const epAudioOk = !addEpAudio || hasEpAudioFile;
-    const epVideoOk = !addEpVideo || hasEpVideoFile;
-    const optionalUploadsOk = epCoverOk && epAudioOk && epVideoOk;
+    const optionalUploadsOk = epCoverOk;
     return !!(isAdmin && csvOk && cardMediaOk && optionalUploadsOk);
-  }, [isAdmin, csvValid, imageFiles.length, audioFiles.length, addEpCover, addEpAudio, addEpVideo, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
+  }, [isAdmin, csvValid, imageFiles.length, audioFiles.length, addEpCover, hasEpCoverFile]);
 
   // Overall progress computation across all tasks (matches AdminContentIngestPage logic)
   useEffect(() => {
@@ -321,22 +310,7 @@ export default function AdminAddEpisodePage() {
       if (epCoverDone > 0) completedSteps++;
     }
 
-    // 4. Episode Full Audio (optional)
-    if (addEpAudio && hasEpAudioFile) {
-      totalSteps++;
-      if (epFullAudioDone > 0) completedSteps++;
-    }
-
-    // 4. Episode Full Video (optional with byte-level progress)
-    if (addEpVideo && hasEpVideoFile) {
-      totalSteps++;
-      if (epFullVideoDone > 0) completedSteps += 1;
-      else if (stage === 'ep_full_video' && epFullVideoBytesTotal > 0) {
-        completedSteps += Math.max(0, Math.min(1, epFullVideoBytesDone / epFullVideoBytesTotal));
-      }
-    }
-
-    // 5. Calculate Stats (required)
+    // 4. Calculate Stats (required)
     totalSteps++;
     if (statsDone) completedSteps++;
 
@@ -354,16 +328,8 @@ export default function AdminAddEpisodePage() {
     audioDone,
     importDone,
     addEpCover,
-    addEpAudio,
-    addEpVideo,
     hasEpCoverFile,
-    hasEpAudioFile,
-    hasEpVideoFile,
     epCoverDone,
-    epFullAudioDone,
-    epFullVideoDone,
-    epFullVideoBytesDone,
-    epFullVideoBytesTotal,
     statsDone,
     stage,
     progress
@@ -391,19 +357,7 @@ export default function AdminAddEpisodePage() {
       }
     }
   };
-  const doUploadEpisodeFull = async () => {
-    const aFile=(document.getElementById('ep-full-audio') as HTMLInputElement)?.files?.[0];
-    const vFile=(document.getElementById('ep-full-video') as HTMLInputElement)?.files?.[0];
-    if(addEpAudio && aFile){ setStage('ep_full_audio'); const key=await uploadEpisodeFullMedia({ filmId: contentSlug!, episodeNum, type:'audio', file:aFile }); setEpFullAudioDone(1); try{ await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, full_audio_key: key }); }catch{ toast.error('Audio meta fail'); } }
-    if(addEpVideo && vFile){ 
-      setStage('ep_full_video'); 
-      setEpFullVideoBytesDone(0); 
-      setEpFullVideoBytesTotal(vFile.size);
-      const key=await uploadEpisodeFullMedia({ filmId: contentSlug!, episodeNum, type:'video', file:vFile, onProgress: (done, total) => { setEpFullVideoBytesDone(done); setEpFullVideoBytesTotal(total); } }); 
-      setEpFullVideoDone(1); 
-      try{ await apiUpdateEpisodeMeta({ filmSlug: contentSlug!, episodeNum, full_video_key: key }); }catch{ toast.error('Video meta fail'); } 
-    }
-  };
+
   const doUploadMedia = async (type: MediaType, files: File[], signal?: AbortSignal) => {
     if (!files.length) return;
     setStage(type === 'image' ? 'images' : 'audio');
@@ -437,7 +391,7 @@ export default function AdminAddEpisodePage() {
       cancelRequestedRef.current = false;
       uploadAbortRef.current = new AbortController();
       importSucceededRef.current = false;
-      setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
+      setEpCoverDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
       await Promise.all([
         doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
         doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)
@@ -459,6 +413,42 @@ export default function AdminAddEpisodePage() {
       };
       let cardIds: string[]|undefined = undefined;
       if(infer){ const all=[...imageFiles, ...audioFiles]; const set=new Set<string>(); all.forEach(f=>{ const m=f.name.match(/(\d+)(?=\.[^.]+$)/); if(m){ const raw=m[1]; const id= raw.length>=padDigits? raw: raw.padStart(padDigits,'0'); set.add(id);} }); if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } }
+      
+      // Build extension maps from uploaded files
+      const imageExtensions: Record<string, string> = {};
+      const audioExtensions: Record<string, string> = {};
+      const buildExtMap = (files: File[], isImage: boolean) => {
+        let seq = startIndex;
+        const used = new Set<string>();
+        files.forEach(f => {
+          let cardId: string | null = null;
+          if (infer) {
+            const m = f.name.match(/(\d+)(?=\.[^.]+$)/);
+            if (m) {
+              const raw = m[1];
+              cardId = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0");
+            }
+          }
+          if (!cardId) {
+            cardId = String(seq).padStart(padDigits, "0");
+            seq += 1;
+          }
+          while (used.has(cardId)) {
+            const n = parseInt(cardId, 10);
+            if (!Number.isNaN(n)) {
+              cardId = String(n + 1).padStart(Math.max(padDigits, cardId.length), "0");
+            } else {
+              cardId = `${cardId}a`;
+            }
+          }
+          used.add(cardId);
+          const ext = isImage ? (f.type === "image/webp" ? "webp" : "jpg") : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav" : (f.type === "audio/opus" || f.type === "audio/ogg" ? "opus" : "mp3"));
+          if (isImage) { imageExtensions[cardId] = ext; } else { audioExtensions[cardId] = ext; }
+        });
+      };
+      buildExtMap(imageFiles, true);
+      buildExtMap(audioFiles, false);
+      
       try {
         // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian)
         const confirmedMap: Record<string, string> = {};
@@ -466,7 +456,7 @@ export default function AdminAddEpisodePage() {
           const low = hdr.trim().toLowerCase();
           if (low === 'id' || low === 'in') confirmedMap['id'] = hdr;
         });
-        await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds, overrideMainSubtitleHeader: mainLangHeaderOverride || undefined, confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined }, () => {});
+        await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds, imageExtensions, audioExtensions, overrideMainSubtitleHeader: mainLangHeaderOverride || undefined, confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined }, () => {});
         importSucceededRef.current = true;
         setImportDone(true);
         toast.success('Import completed');
@@ -478,8 +468,6 @@ export default function AdminAddEpisodePage() {
       // Upload episode-level media AFTER episode row exists
       if (cancelRequestedRef.current) throw new Error('User cancelled');
       await doUploadEpisodeCover().catch(() => {});
-      if (cancelRequestedRef.current) throw new Error('User cancelled');
-      await doUploadEpisodeFull().catch(() => {});
       if (cancelRequestedRef.current) throw new Error('User cancelled');
       // Calculate stats immediately after import
       setStage('calculating_stats');
@@ -552,8 +540,7 @@ export default function AdminAddEpisodePage() {
           cancelRequestedRef.current = true;
           try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
           setStage('idle');
-          setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-          setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+          setEpCoverDone(0);
           setImagesDone(0); setAudioDone(0);
           setImportDone(false); setStatsDone(false);
           importSucceededRef.current = false;
@@ -578,8 +565,7 @@ export default function AdminAddEpisodePage() {
       cancelRequestedRef.current = true;
       try { uploadAbortRef.current?.abort(); } catch (err) { void err; }
       setStage('idle');
-      setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-      setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+      setEpCoverDone(0);
       setImagesDone(0); setAudioDone(0);
       setImportDone(false); setStatsDone(false);
       importSucceededRef.current = false;
@@ -606,14 +592,14 @@ export default function AdminAddEpisodePage() {
       {/* Quick Guide */}
       {isAdmin && (
         <div className="admin-panel space-y-3">
-          <div className="text-sm font-semibold">Hướng dẫn nhanh (Thêm Episode)</div>
+          <div className="typography-pressstart-1 admin-panel-title">Quick Guide (Add Episode)</div>
           <div className="admin-subpanel text-xs space-y-2">
-            <ul className="list-disc pl-5 space-y-1 text-gray-400">
+            <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--text-muted)' }}>
               <li>Content Slug cố định: {contentSlug}</li>
               <li>Episode Num: chọn số tập mới (tránh trùng, sẽ hiện cảnh báo nếu trùng).</li>
               <li>CSV bắt buộc: start,end + cột phụ đề cho main language {filmMainLang} (sentence auto, type tùy chọn).</li>
               <li>Media tuỳ chọn: Cover tập, Full Audio/Video tập.</li>
-              <li>Card media: ảnh (.jpg) & audio (.mp3/.wav) cho từng card.</li>
+              <li>Card media: ảnh (.webp) & audio (.opus) cho từng card.</li>
             </ul>
           </div>
         </div>
@@ -621,13 +607,12 @@ export default function AdminAddEpisodePage() {
 
       {/* Episode meta */}
       <div className="admin-panel space-y-4">
-        <div className="text-sm font-semibold">Episode Meta</div>
+        <div className="text-sm font-semibold" style={{ color: 'var(--sub-language-text)' }}>Episode Meta</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Main Language</label>
+            <label className="w-40 text-sm typography-pressstart-1" style={{ fontSize: '10px' }}>Main Language</label>
             <div className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none flex items-center gap-2">
-              <span className={`fi fi-${countryCodeForLang(filmMainLang)}`}></span>
-              <span>{langLabel(filmMainLang)} ({canonicalizeLangCode(filmMainLang) || filmMainLang})</span>
+              <LanguageTag code={filmMainLang} withName={true} size="md" />
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -675,39 +660,14 @@ export default function AdminAddEpisodePage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
-              <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} />
-              <label htmlFor="chk-ep-cover" className="cursor-pointer">Add Cover (Portrait/Episode)</label>
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
+              <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} style={{ flexShrink: 0 }} />
+              <label htmlFor="chk-ep-cover" className="cursor-pointer" style={{ lineHeight: '1' }}>Add Cover (Portrait/Episode)</label>
             </div>
             {addEpCover && (
               <>
-                <input id="ep-cover-file" type="file" accept="image/jpeg" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+                <input id="ep-cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
                 <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug + '_' + episodeNum}/cover/cover.jpg</div>
-              </>
-            )}
-          </div>
-
-          <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
-              <input id="chk-ep-audio" type="checkbox" checked={addEpAudio} onChange={e => setAddEpAudio(e.target.checked)} />
-              <label htmlFor="chk-ep-audio" className="cursor-pointer">Add Full Audio</label>
-            </div>
-            {addEpAudio && (
-              <>
-                <input id="ep-full-audio" type="file" accept="audio/mpeg,audio/wav" onChange={e => setHasEpAudioFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug + '_' + episodeNum}/full/audio.mp3</div>
-              </>
-            )}
-          </div>
-          <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
-              <input id="chk-ep-video" type="checkbox" checked={addEpVideo} onChange={e => setAddEpVideo(e.target.checked)} />
-              <label htmlFor="chk-ep-video" className="cursor-pointer">Add Full Video</label>
-            </div>
-            {addEpVideo && (
-              <>
-                <input id="ep-full-video" type="file" accept="video/mp4" onChange={e => setHasEpVideoFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug + '_' + episodeNum}/full/video.mp4</div>
               </>
             )}
           </div>
@@ -716,7 +676,7 @@ export default function AdminAddEpisodePage() {
 
       {/* CSV */}
       <div className="admin-panel space-y-3">
-        <div className="text-sm font-semibold">Cards CSV</div>
+        <div className="text-sm font-semibold" style={{ color: 'var(--sub-language-text)' }}>Cards CSV</div>
         <div className="flex items-center gap-2 flex-wrap">
           <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={onPickCsv} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500" />
           <button type="button" title="Refresh / Re-import CSV" onClick={() => { if (csvRef.current) { csvRef.current.value = ''; csvRef.current.click(); } }} className="admin-btn secondary flex items-center gap-1">
@@ -784,8 +744,9 @@ export default function AdminAddEpisodePage() {
                       setConfirmedAsLanguage(newSet);
                     }}
                     className="mt-0.5"
+                    style={{ flexShrink: 0 }}
                   />
-                  <label htmlFor={`ambiguous-${col}`} className="cursor-pointer select-none flex-1">
+                  <label htmlFor={`ambiguous-${col}`} className="cursor-pointer select-none flex-1" style={{ lineHeight: '1.4' }}>
                     <span className="text-yellow-200 font-semibold">"{col}"</span>
                     {isConfirmed ? (
                       <span className="text-green-300"> ✓ Được dùng như ngôn ngữ Indonesian</span>
@@ -872,12 +833,12 @@ export default function AdminAddEpisodePage() {
         )}
         <div className="grid gap-3 md:grid-cols-2">
           <div className="admin-subpanel">
-            <div className="text-xs text-gray-400 mb-2">Images (.jpg)</div>
-            <input type="file" accept="image/jpeg" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+            <div className="text-xs mb-2" style={{ color: 'var(--sub-language-text)' }}>Images (.webp recommended)</div>
+            <input type="file" accept="image/jpeg,image/webp" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
           </div>
           <div className="admin-subpanel">
-            <div className="text-xs text-gray-400 mb-2">Audio (.mp3 / .wav)</div>
-            <input type="file" accept="audio/mpeg,audio/wav" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+            <div className="text-xs mb-2" style={{ color: 'var(--sub-language-text)' }}>Audio (.opus recommended)</div>
+            <input type="file" accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
           </div>
           <div className="flex flex-col gap-3 md:col-span-2">
             <div className="flex flex-col sm:flex-row gap-3">
@@ -892,12 +853,12 @@ export default function AdminAddEpisodePage() {
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex items-center gap-2 flex-1">
-                <input id="infer-ids" type="checkbox" checked={infer} onChange={e => setInfer(e.target.checked)} />
-                <label htmlFor="infer-ids" className="text-sm select-none">Infer IDs</label>
+                <input id="infer-ids" type="checkbox" checked={infer} onChange={e => setInfer(e.target.checked)} style={{ flexShrink: 0 }} />
+                <label htmlFor="infer-ids" className="text-sm select-none" style={{ lineHeight: '1' }}>Infer IDs</label>
               </div>
               <div className="flex items-center gap-2 flex-1">
-                <input id="replace-cards" type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
-                <label htmlFor="replace-cards" className="text-sm select-none">Replace existing cards</label>
+                <input id="replace-cards" type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} style={{ flexShrink: 0 }} />
+                <label htmlFor="replace-cards" className="text-sm select-none" style={{ lineHeight: '1' }}>Replace existing cards</label>
               </div>
             </div>
           </div>
@@ -911,7 +872,7 @@ export default function AdminAddEpisodePage() {
           {busy && stage !== 'done' && (
             <button type="button" className="admin-btn danger" onClick={onCancelAll} title="Cancel current upload/import">Stop</button>
           )}
-          <div className="text-xs text-gray-400">Stage: {stage}</div>
+          <div className="text-xs" style={{ color: 'var(--sub-language-text)' }}>Stage: {stage}</div>
         </div>
         {(busy || stage === 'done') && (
           <div className="admin-panel text-xs space-y-2">
@@ -928,24 +889,9 @@ export default function AdminAddEpisodePage() {
             {addEpCover && hasEpCoverFile && (
               <ProgressItem label="4. Episode Cover" done={epCoverDone > 0} pending={stage === 'ep_cover' || (importDone && epCoverDone === 0)} />
             )}
-            {addEpAudio && hasEpAudioFile && (
-              <ProgressItem label="5. Episode Full Audio" done={epFullAudioDone > 0} pending={stage === 'ep_full_audio' || (importDone && epFullAudioDone === 0)} />
-            )}
-            {addEpVideo && hasEpVideoFile && (
-              <div className="flex justify-between">
-                <span>6. Episode Full Video</span>
-                <span>
-                  {epFullVideoDone > 0
-                    ? '✓'
-                    : stage === 'ep_full_video' && epFullVideoBytesTotal > 0
-                      ? `${Math.min(100, Math.round((epFullVideoBytesDone / epFullVideoBytesTotal) * 100))}%`
-                      : (importDone ? 'waiting' : 'pending')}
-                </span>
-              </div>
-            )}
-            {/* 7. Calculate Stats (final step) */}
+            {/* 5. Calculate Stats (final step) */}
             <div className="flex justify-between">
-              <span>7. Calculating Stats</span>
+              <span>5. Calculating Stats</span>
               <span>{statsDone ? '✓' : stage === 'calculating_stats' ? '...' : (importDone ? 'waiting' : 'pending')}</span>
             </div>
             {/* Progress bar */}
@@ -966,7 +912,7 @@ export default function AdminAddEpisodePage() {
                 <h3 className="text-xl font-bold text-[#f5d0fe]">Đang rollback...</h3>
                 <div className="text-sm text-[#e9d5ff] space-y-2">
                   <div><span className="text-[#f9a8d4] font-semibold">{deletionProgress.stage}</span></div>
-                  <div className="text-xs text-gray-400">{deletionProgress.details}</div>
+                  <div className="text-xs" style={{ color: 'var(--sub-language-text)' }}>{deletionProgress.details}</div>
                 </div>
                 <ProgressBar percent={deletionPercent} />
               </div>

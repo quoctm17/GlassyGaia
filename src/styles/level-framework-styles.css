@@ -157,3 +157,10 @@
   color: #7f1d1d;
   border-color: #dc2626;
 }
+
+/* ================= Unknown Level Color ================= */
+.level-badge.level-unknown {
+  background: #94a3b8;
+  color: #1e293b;
+  border-color: #64748b;
+}

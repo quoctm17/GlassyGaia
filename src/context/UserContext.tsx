@@ -21,6 +21,8 @@ interface CtxValue {
   setSubtitleLanguages: (langs: string[]) => Promise<void>;
   setSubtitleRequireAll: (requireAll: boolean) => Promise<void>;
   setMainLanguage: (lang: string) => Promise<void>;
+  setVolume: (volume: number) => void;
+  setResultLayout: (layout: 'default' | '1-column' | '2-column') => void;
   favoriteIds: Set<string>;
   setFavoriteLocal: (cardId: string, val: boolean) => void;
   // Language selector coordination: only one can be open at a time
@@ -35,7 +37,13 @@ interface CtxValue {
   setTheme: (theme: "light" | "dark") => void;
 }
 
-const defaultPrefs: UserPreferences = { subtitle_languages: ["en"], require_all_langs: false, main_language: "en" };
+const defaultPrefs: UserPreferences = { 
+  subtitle_languages: ["en"], 
+  require_all_langs: false, 
+  main_language: "en",
+  volume: 80,
+  resultLayout: 'default'
+};
 
 const UserCtx = createContext<CtxValue | undefined>(undefined);
 
@@ -72,10 +80,19 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     // Initialize preferences from localStorage
     const localLangs = localStorage.getItem("subtitle_languages");
     const localMode = localStorage.getItem("subtitle_require_all");
-  const langs = localLangs ? JSON.parse(localLangs) : defaultPrefs.subtitle_languages;
+    const langs = localLangs ? JSON.parse(localLangs) : defaultPrefs.subtitle_languages;
     const requireAll = localMode ? localMode === "1" : (defaultPrefs.require_all_langs ?? false);
-  const mainLang = localStorage.getItem("main_language") || defaultPrefs.main_language || "en";
-  setPreferences({ subtitle_languages: Array.isArray(langs) && langs.length ? langs : defaultPrefs.subtitle_languages, require_all_langs: requireAll, main_language: mainLang });
+    const mainLang = localStorage.getItem("main_language") || defaultPrefs.main_language || "en";
+    const volume = Number(localStorage.getItem("volume")) || defaultPrefs.volume || 80;
+    const resultLayout = (localStorage.getItem("resultLayout") as 'default' | '1-column' | '2-column') || defaultPrefs.resultLayout || 'default';
+    
+    setPreferences({ 
+      subtitle_languages: Array.isArray(langs) && langs.length ? langs : defaultPrefs.subtitle_languages, 
+      require_all_langs: requireAll, 
+      main_language: mainLang,
+      volume,
+      resultLayout
+    });
     // Load persisted admin key (if any)
     const savedKey = localStorage.getItem("admin_key");
     if (savedKey) setAdminKey(savedKey);
@@ -140,18 +157,26 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           } catch (error) {
             console.error('Failed to register user in database:', error);
             // Fallback to local state
-            setUser({ uid: u.uid, displayName: u.displayName, email: u.email, photoURL: u.photoURL || undefined });
             setPreferences(defaultPrefs);
           }
           
-          // Load user roles
+          // Load user roles before setting user (to avoid race condition)
+          let roleNames: string[] = [];
           try {
             const roles = await getUserRoles(u.uid);
-            const roleNames = roles.map(r => r.role_name);
-            setUser(prev => prev ? { ...prev, roles: roleNames } : null);
+            roleNames = roles.map(r => r.role_name);
           } catch (error) {
             console.error('Failed to load user roles:', error);
           }
+          
+          // Set user with roles included
+          setUser({ 
+            uid: u.uid, 
+            displayName: u.displayName, 
+            email: u.email, 
+            photoURL: u.photoURL || undefined,
+            roles: roleNames
+          });
         } else {
           setUser(null);
           setPreferences(defaultPrefs);
@@ -191,7 +216,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   };
 
   const setSubtitleLanguages = async (langs: string[]) => {
-    setPreferences((p) => ({ subtitle_languages: langs, require_all_langs: p.require_all_langs ?? false, main_language: p.main_language }));
+    setPreferences((p) => ({ ...p, subtitle_languages: langs }));
     
     // Save to database if user is signed in
     if (user?.uid) {
@@ -207,7 +232,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   };
 
   const setSubtitleRequireAll = async (requireAll: boolean) => {
-    setPreferences((p) => ({ subtitle_languages: p.subtitle_languages, require_all_langs: requireAll, main_language: p.main_language }));
+    setPreferences((p) => ({ ...p, require_all_langs: requireAll }));
     
     // Save to database if user is signed in
     if (user?.uid) {
@@ -222,7 +247,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   };
 
   const setMainLanguage = async (lang: string) => {
-    setPreferences((p) => ({ subtitle_languages: p.subtitle_languages, require_all_langs: p.require_all_langs, main_language: lang }));
+    setPreferences((p) => ({ ...p, main_language: lang }));
     
     // Save to database if user is signed in
     if (user?.uid) {
@@ -234,6 +259,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }
     
     localStorage.setItem("main_language", lang);
+  };
+
+  const setVolume = (volume: number) => {
+    setPreferences((p) => ({ ...p, volume }));
+    localStorage.setItem("volume", String(volume));
+  };
+
+  const setResultLayout = (resultLayout: 'default' | '1-column' | '2-column') => {
+    setPreferences((prev) => ({ ...prev, resultLayout }));
+    localStorage.setItem("resultLayout", resultLayout);
   };
 
   const setFavoriteLocal = (cardId: string, val: boolean) => {
@@ -262,12 +297,22 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: result.error || 'Login failed' };
       }
       
-      // Set user in context
+      // Load user roles first
+      let roleNames: string[] = [];
+      try {
+        const roles = await getUserRoles(result.user.id);
+        roleNames = roles.map(r => r.role_name);
+      } catch (error) {
+        console.error('Failed to load user roles:', error);
+      }
+      
+      // Set user in context with roles
       setUser({
         uid: result.user.id,
         displayName: result.user.display_name,
         email: result.user.email,
         photoURL: result.user.photo_url,
+        roles: roleNames,
       });
       
       // Load user preferences from database
@@ -292,15 +337,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setFavoriteIds(new Set(favs.map((f) => f.card_id)));
       } catch (error) {
         console.error('Failed to load favorites:', error);
-      }
-      
-      // Load user roles
-      try {
-        const roles = await getUserRoles(result.user.id);
-        const roleNames = roles.map(r => r.role_name);
-        setUser(prev => prev ? { ...prev, roles: roleNames } : null);
-      } catch (error) {
-        console.error('Failed to load user roles:', error);
       }
       
       return { success: true };
@@ -348,7 +384,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setSubtitleRequireAll, 
         favoriteIds, 
         setFavoriteLocal, 
-        setMainLanguage, 
+        setMainLanguage,
+        setVolume,
+        setResultLayout,
         openLanguageSelector, 
         setOpenLanguageSelector,
         hasRole,

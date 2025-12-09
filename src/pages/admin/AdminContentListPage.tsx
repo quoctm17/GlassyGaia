@@ -309,8 +309,8 @@ export default function AdminContentListPage() {
           {/* Left: Title + Search aligned to left */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="shrink-0">
-              <h2 className="admin-title">Content</h2>
-              <p className="text-xs text-[#f9a8d4] mt-1 font-['Press_Start_2P']">
+              <h2 className="admin-title" style={{ color: 'var(--primary)' }}>Content</h2>
+              <p className="typography-inter-4 mt-1" style={{ color: 'var(--hover-select)' }}>
                 {filteredRows.length} content{filteredRows.length !== 1 ? 's' : ''} {filteredRows.length !== rows.length && `(filtered from ${rows.length})`}
               </p>
             </div>

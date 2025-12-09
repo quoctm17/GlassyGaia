@@ -51,6 +51,10 @@ export interface ImportOptions {
   // Optional: user-confirmed ambiguous headers mapped to language codes
   // e.g., { id: 'id' } when the CSV uses an 'id' column for Indonesian
   confirmedLanguageHeaders?: Record<string, string>;
+  // Optional: actual file extensions for uploaded media (to match database keys with uploaded files)
+  // Maps cardId -> extension (e.g., { "0001": "webp", "0002": "jpg" })
+  imageExtensions?: Record<string, string>;
+  audioExtensions?: Record<string, string>;
 }
 
 function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; detectedLangs: string[]; primary?: string } {
@@ -303,8 +307,14 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
     }
 
     const episodeSlug = `${filmSlug}_${String(episodeNum).padStart(3,'0')}`; // padded for consistency with storage paths
-    const image_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image" });
-    const audio_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "audio" });
+    
+    // Determine actual file extensions from uploaded files (if provided), otherwise default to legacy
+    const cardIdStr = String(displayId).padStart(4, '0');
+    const imageExt = opts.imageExtensions?.[cardIdStr] || opts.imageExtensions?.[String(displayId)] || "jpg";
+    const audioExt = opts.audioExtensions?.[cardIdStr] || opts.audioExtensions?.[String(displayId)] || "mp3";
+    
+    const image_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image", ext: imageExt });
+    const audio_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "audio", ext: audioExt });
 
     const subtitle: Record<string, string> = {};
     Object.entries(mapping.subtitles || {}).forEach(([canon, header]) => {

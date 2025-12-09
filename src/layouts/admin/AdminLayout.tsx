@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import '../../styles/pages/admin/admin.css';
 import toast from 'react-hot-toast';
-import { Menu, Layers, HardDrive, Users, Database, ImageIcon } from 'lucide-react';
+import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Trash2, Music } from 'lucide-react';
 
 export default function AdminLayout() {
   const { user, loading, signInGoogle, adminKey, setAdminKey, isAdmin, isSuperAdmin } = useUser();
@@ -60,18 +60,29 @@ export default function AdminLayout() {
             <Users className="w-4 h-4 mr-2" />
             <span>Users</span>
           </NavLink>
+          <NavLink to="/admin/media-cleanup" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <Trash2 className="w-4 h-4 mr-2" />
+            <span>Media Cleanup</span>
+          </NavLink>
+          <NavLink to="/admin/image-migration" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <ImageIcon className="w-4 h-4 mr-2" />
+            <span>Image Migration</span>
+          </NavLink>
+          <NavLink to="/admin/path-migration" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <Database className="w-4 h-4 mr-2" />
+            <span>Path Migration</span>
+          </NavLink>
+          <NavLink to="/admin/audio-migration" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <Music className="w-4 h-4 mr-2" />
+            <span>Audio Migration</span>
+          </NavLink>
+          
           {isSuperAdmin() && (
-            <>
-              <NavLink to="/admin/database" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-                <Database className="w-4 h-4 mr-2" />
-                <span>Database</span>
-              </NavLink>
-              <NavLink to="/admin/image-migration" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-                <ImageIcon className="w-4 h-4 mr-2" />
-                <span>Image Migration</span>
-              </NavLink>
-            </>
-          )}
+            <NavLink to="/admin/database" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+              <Database className="w-4 h-4 mr-2" />
+              <span>Database</span>
+            </NavLink>
+          )}  
         </nav>
         {!user && (
           <button className="admin-btn" onClick={signInGoogle}>Sign in</button>

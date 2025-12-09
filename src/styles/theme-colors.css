@@ -9,7 +9,33 @@
   --light-neutral: #9E9E9E;
   --light-hover-select: #AA3F55;
   --light-hover-bg: rgba(254, 228, 228, 0.5);
+  --light-text: #000000;
   --light-main-language-text: #000000;
+  --light-sub-language-text: #6B7280;
+  --light-success: #10B981;
+  --light-error: #EF4444;
+  --light-warning: #F59E0B;
+  --light-info: #3B82F6;
+  --light-teal: #14B8A6;
+  --light-orange: #FB923C;
+  --light-purple: #A855F7;
+  --light-amber: #F59E0B;
+  --light-border: #D1D5DB;
+  --light-header-bg: #F9FAFB;
+  --light-text-muted: #6B7280;
+  --light-text-secondary: #374151;
+  --light-required-bg: rgba(254, 202, 202, 0.3);
+  --light-subtitle-bg: rgba(191, 219, 254, 0.2);
+  --light-warning-bg-subtle: rgba(254, 243, 199, 0.2);
+  --light-reserved-bg: rgba(229, 231, 235, 0.3);
+  --light-hover-bg-subtle: rgba(254, 202, 202, 0.1);
+  --light-error-bg: rgba(254, 226, 226, 0.3);
+  --light-error-text: #991B1B;
+  --light-warning-bg: rgba(254, 243, 199, 0.3);
+  --light-warning-text: #92400E;
+  --light-teal-bg: rgba(204, 251, 241, 0.3);
+  --light-teal-text: #115E59;
+  --light-success-text: #065F46;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -19,7 +45,33 @@
   --dark-neutral: #9E9E9E;
   --dark-hover-select: #FDAAAA;
   --dark-hover-bg: rgba(45, 36, 41, 0.88);
+  --dark-text: #F2EDE5;
   --dark-main-language-text: #F2EDE5;
+  --dark-sub-language-text: #948979;
+  --dark-success: #10B981;
+  --dark-error: #F87171;
+  --dark-warning: #FBBF24;
+  --dark-info: #60A5FA;
+  --dark-teal: #2DD4BF;
+  --dark-orange: #FB923C;
+  --dark-purple: #C084FC;
+  --dark-amber: #FCD34D;
+  --dark-border: #374151;
+  --dark-header-bg: #1A0F24;
+  --dark-text-muted: #9CA3AF;
+  --dark-text-secondary: #D1D5DB;
+  --dark-required-bg: rgba(159, 18, 57, 0.3);
+  --dark-subtitle-bg: rgba(30, 64, 175, 0.2);
+  --dark-warning-bg-subtle: rgba(180, 83, 9, 0.2);
+  --dark-reserved-bg: rgba(55, 65, 81, 0.3);
+  --dark-hover-bg-subtle: rgba(159, 18, 57, 0.1);
+  --dark-error-bg: rgba(127, 29, 29, 0.3);
+  --dark-error-text: #FCA5A5;
+  --dark-warning-bg: rgba(146, 64, 14, 0.3);
+  --dark-warning-text: #FCD34D;
+  --dark-teal-bg: rgba(19, 78, 74, 0.3);
+  --dark-teal-text: #5EEAD4;
+  --dark-success-text: #6EE7B7;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -44,7 +96,33 @@
   --neutral: var(--light-neutral);
   --hover-select: var(--light-hover-select);
   --hover-bg: var(--light-hover-bg);
+  --text: var(--light-text);
   --main-language-text: var(--light-main-language-text);
+  --sub-language-text: var(--light-sub-language-text);
+  --success: var(--light-success);
+  --error: var(--light-error);
+  --warning: var(--light-warning);
+  --info: var(--light-info);
+  --teal: var(--light-teal);
+  --orange: var(--light-orange);
+  --purple: var(--light-purple);
+  --amber: var(--light-amber);
+  --border: var(--light-border);
+  --header-bg: var(--light-header-bg);
+  --text-muted: var(--light-text-muted);
+  --text-secondary: var(--light-text-secondary);
+  --required-bg: var(--light-required-bg);
+  --subtitle-bg: var(--light-subtitle-bg);
+  --warning-bg-subtle: var(--light-warning-bg-subtle);
+  --reserved-bg: var(--light-reserved-bg);
+  --hover-bg-subtle: var(--light-hover-bg-subtle);
+  --error-bg: var(--light-error-bg);
+  --error-text: var(--light-error-text);
+  --warning-bg: var(--light-warning-bg);
+  --warning-text: var(--light-warning-text);
+  --teal-bg: var(--light-teal-bg);
+  --teal-text: var(--light-teal-text);
+  --success-text: var(--light-success-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -65,7 +143,33 @@
   --neutral: var(--dark-neutral);
   --hover-select: var(--dark-hover-select);
   --hover-bg: var(--dark-hover-bg);
+  --text: var(--dark-text);
   --main-language-text: var(--dark-main-language-text);
+  --sub-language-text: var(--dark-sub-language-text);
+  --success: var(--dark-success);
+  --error: var(--dark-error);
+  --warning: var(--dark-warning);
+  --info: var(--dark-info);
+  --teal: var(--dark-teal);
+  --orange: var(--dark-orange);
+  --purple: var(--dark-purple);
+  --amber: var(--dark-amber);
+  --border: var(--dark-border);
+  --header-bg: var(--dark-header-bg);
+  --text-muted: var(--dark-text-muted);
+  --text-secondary: var(--dark-text-secondary);
+  --required-bg: var(--dark-required-bg);
+  --subtitle-bg: var(--dark-subtitle-bg);
+  --warning-bg-subtle: var(--dark-warning-bg-subtle);
+  --reserved-bg: var(--dark-reserved-bg);
+  --hover-bg-subtle: var(--dark-hover-bg-subtle);
+  --error-bg: var(--dark-error-bg);
+  --error-text: var(--dark-error-text);
+  --warning-bg: var(--dark-warning-bg);
+  --warning-text: var(--dark-warning-text);
+  --teal-bg: var(--dark-teal-bg);
+  --teal-text: var(--dark-teal-text);
+  --success-text: var(--dark-success-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);

@@ -807,6 +807,7 @@ export default function WatchPage() {
                             ref={mediaRef}
                             key={`card-${currentCardIndex}`}
                             src={getCurrentCardAudioUrl()}
+                            volume={preferences.volume || 80}
                             onEnded={handleAudioEnd}
                           />
                         ) : (

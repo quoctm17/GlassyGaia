@@ -1,7 +1,6 @@
 import NavBar from './components/NavBar';
 import BottomNav from './components/BottomNav';
 import SearchPage from './pages/SearchPage';
-import Footer from './components/Footer';
 import { UserProvider } from './context/UserContext';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import ContentCardsPage from './pages/ContentCardsPage';
@@ -27,6 +26,9 @@ import AdminUserListPage from './pages/admin/AdminUserListPage';
 import AdminUserDetailPage from './pages/admin/AdminUserDetailPage';
 import AdminDatabasePage from './pages/admin/AdminDatabasePage';
 import AdminImageMigrationPage from './pages/admin/AdminImageMigrationPage';
+import AdminPathMigrationPage from './pages/admin/AdminPathMigrationPage';
+import AdminMediaCleanupPage from './pages/admin/AdminMediaCleanupPage';
+import AdminAudioMigrationPage from './pages/admin/AdminAudioMigrationPage';
 import AuthLoginPage from './pages/authentication/LoginPage';
 import AuthSignupPage from './pages/authentication/SignupPage';
 import { Toaster } from 'react-hot-toast';
@@ -79,8 +81,14 @@ function App() {
                 <Route path="users/:userId" element={<AdminUserDetailPage />} />
                 {/* Admin Database Management */}
                 <Route path="database" element={<AdminDatabasePage />} />
+                {/* Admin Media Cleanup */}
+                <Route path="media-cleanup" element={<AdminMediaCleanupPage />} />
                 {/* Admin Image Migration */}
                 <Route path="image-migration" element={<AdminImageMigrationPage />} />
+                {/* Admin Path Migration */}
+                <Route path="path-migration" element={<AdminPathMigrationPage />} />
+                {/* Admin Audio Migration */}
+                <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />
@@ -88,7 +96,6 @@ function App() {
             </Routes>
           </div>
           <BottomNav />
-          <Footer />
           <Toaster position="top-right" toastOptions={{
             style: { background: '#241530', color: '#f5d0fe', border: '2px solid #f472b6' },
             success: { iconTheme: { primary: '#ec4899', secondary: '#241530' } },

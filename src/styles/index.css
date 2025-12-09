@@ -1,5 +1,6 @@
 @import './theme-colors.css';
 @import './typography.css';
+@import './breakpoints.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -1318,11 +1319,11 @@ html {
   bottom: 0;
   left: 0;
   right: 0;
-  background: #1a0f26;
-  border-top: 3px solid #f1aaf0;
+  background: var(--primary);
+  border-top: 2px solid var(--hover-select);
   padding: 8px 0;
   z-index: 100;
-  box-shadow: 0 -4px 12px rgba(236, 72, 153, 0.25);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.25);
 }
 
 @media (max-width: 1024px) {
@@ -1350,7 +1351,7 @@ html {
   justify-content: center;
   gap: 4px;
   padding: 8px 12px;
-  color: #f1a7fd;
+  color: var(--secondary);
   text-decoration: none;
   border-radius: 12px;
   transition: all 0.2s ease;
@@ -1377,8 +1378,8 @@ html {
 }
 
 .bottom-nav-item.active {
-  background: #f1aaf0;
-  color: #1a0f26;
+  background: var(--hover-select);
+  color: white;
 }
 
 .bottom-nav-item.active .bottom-nav-icon {

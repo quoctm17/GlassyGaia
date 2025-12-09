@@ -45,23 +45,23 @@ export default function CsvPreviewPanel({
   if (csvHeaders.length === 0) return null;
 
   return (
-    <div className="space-y-3">
+    <div className="csv-preview-container">
       {/* Validation Status */}
       {csvValid !== null && (
-        <div className={`flex items-start gap-2 text-sm ${csvValid ? "text-green-400" : "text-red-400"}`}>
+        <div className={csvValid ? "csv-status-valid" : "csv-status-invalid"}>
           {csvValid ? <CheckCircle className="w-4 h-4 mt-0.5" /> : <XCircle className="w-4 h-4 mt-0.5" />}
-          <div>
+          <div className="csv-status-content">
             {csvValid ? (
               <span>CSV hợp lệ.</span>
             ) : (
-              <div className="space-y-1">
+              <>
                 <div>CSV cần chỉnh sửa:</div>
-                <ul className="list-disc pl-5 text-xs">
+                <ul className="csv-error-list">
                   {csvErrors.map((er, i) => (
                     <li key={i}>{er}</li>
                   ))}
                 </ul>
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -69,9 +69,9 @@ export default function CsvPreviewPanel({
 
         {/* Subtitle Missing Warnings (non-blocking, teal) */}
         {csvSubtitleWarnings.length > 0 && (
-          <div className="flex items-start gap-2 text-xs text-teal-300">
+          <div className="csv-warning-subtitle">
             <AlertTriangle className="w-4 h-4 mt-0.5" />
-            <div className="space-y-1">
+            <div className="csv-warning-content">
               {csvSubtitleWarnings.map((warn, i) => (
                 <div key={i}>{warn}</div>
               ))}
@@ -81,9 +81,9 @@ export default function CsvPreviewPanel({
 
         {/* CSV Warnings (non-blocking) */}
         {csvWarnings.length > 0 && (
-          <div className="flex items-start gap-2 text-xs text-orange-400">
+          <div className="csv-warning-general">
             <AlertTriangle className="w-4 h-4 mt-0.5" />
-            <div className="space-y-1">
+            <div className="csv-warning-content">
               {csvWarnings.map((warn, i) => (
                 <div key={i}>{warn}</div>
               ))}
@@ -93,7 +93,7 @@ export default function CsvPreviewPanel({
 
       {/* Unrecognized Headers Warning */}
       {unrecognizedHeaders.length > 0 && (
-        <div className="flex items-start gap-2 text-xs text-yellow-400">
+        <div className="csv-warning-unrecognized">
           <AlertTriangle className="w-4 h-4 mt-0.5" />
           <div>Các cột không nhận diện được (sẽ bị bỏ qua): {unrecognizedHeaders.join(', ')}</div>
         </div>
@@ -101,18 +101,18 @@ export default function CsvPreviewPanel({
 
       {/* Reserved Headers Info */}
       {effectiveReservedHeaders.length > 0 && (
-        <div className="flex items-start gap-2 text-xs text-purple-400">
+        <div className="csv-info-reserved">
           <span className="mt-0.5">◆</span>
           <div>Các cột hệ thống (chủ động bỏ qua): {effectiveReservedHeaders.join(', ')}</div>
         </div>
       )}
 
       {/* CSV Table Preview */}
-      <div className="overflow-auto border border-gray-700 rounded max-h-[480px]">
-        <table className="w-full text-[12px] border-collapse">
-          <thead className="sticky top-0 bg-[#1a0f24] z-10">
+      <div className="csv-table-container">
+        <table className="csv-table">
+          <thead>
             <tr>
-              <th className="border border-gray-700 px-2 py-1 text-left">#</th>
+              <th>#</th>
               {csvHeaders.map((h, i) => {
                 const isRequired = requiredOriginals.includes(h);
                 const selectedMainHeader = mainLangHeaderOverride || mainLangHeader;
@@ -124,15 +124,15 @@ export default function CsvPreviewPanel({
                 return (
                   <th
                     key={i}
-                    className={`border border-gray-700 px-2 py-1 text-left ${
+                    className={`${
                       isRequired || isMainLang
-                        ? 'bg-pink-900/30 font-semibold'
+                        ? 'csv-header-required'
                         : isSubtitle
-                        ? 'bg-blue-900/20'
+                        ? 'csv-header-subtitle'
                         : isUnrecognized
-                        ? 'bg-yellow-900/20'
+                        ? 'csv-header-unrecognized'
                         : isReserved
-                        ? 'bg-gray-700/30'
+                        ? 'csv-header-reserved'
                         : ''
                     }`}
                     title={
@@ -150,11 +150,11 @@ export default function CsvPreviewPanel({
                     }
                   >
                     {h}
-                    {isRequired && <span className="text-red-400 ml-1">*</span>}
-                    {isMainLang && <span className="text-amber-400 ml-1">★</span>}
-                    {isSubtitle && !isMainLang && <span className="text-blue-400 ml-1">§</span>}
-                    {isUnrecognized && <span className="text-yellow-400 ml-1">⚠</span>}
-                    {isReserved && <span className="text-purple-400 ml-1">◆</span>}
+                    {isRequired && <span className="csv-icon-required">*</span>}
+                    {isMainLang && <span className="csv-icon-main">★</span>}
+                    {isSubtitle && !isMainLang && <span className="csv-icon-subtitle">§</span>}
+                    {isUnrecognized && <span className="csv-icon-unrecognized">⚠</span>}
+                    {isReserved && <span className="csv-icon-reserved">◆</span>}
                   </th>
                 );
               })}
@@ -162,8 +162,8 @@ export default function CsvPreviewPanel({
           </thead>
           <tbody>
             {csvRows.map((row, i) => (
-              <tr key={i} className="hover:bg-pink-900/10">
-                <td className="border border-gray-700 px-2 py-1 text-gray-500">{i + 1}</td>
+              <tr key={i}>
+                <td className="csv-cell-index">{i + 1}</td>
                 {csvHeaders.map((h, j) => {
                   const val = row[h] || '';
                   const isRequired = requiredOriginals.includes(h);
@@ -181,14 +181,14 @@ export default function CsvPreviewPanel({
                   return (
                     <td
                       key={j}
-                      className={`border border-gray-700 px-2 py-1 ${
+                      className={`${
                         isEmpty && isRequired
-                          ? 'bg-red-900/30 text-red-300'
+                          ? 'csv-cell-required-empty'
                           : isEmpty && isMainLang
-                          ? 'bg-orange-900/30 text-orange-300'
+                          ? 'csv-cell-main-empty'
                           : isEmpty && isSubtitle
-                          ? 'bg-teal-900/30 text-teal-300'
-                          : 'text-gray-300'
+                          ? 'csv-cell-subtitle-empty'
+                          : 'csv-cell-normal'
                       }`}
                       title={
                         isEmpty && isRequired ? 'Ô trống - CSV không hợp lệ' :
@@ -204,15 +204,15 @@ export default function CsvPreviewPanel({
             ))}
           </tbody>
         </table>
-        <div className="text-[10px] text-gray-500 px-2 py-1">
-          <span className="text-red-400">*</span> = Required column |{' '}
-          <span className="text-amber-400">★</span> = Main Language column |{' '}
-          <span className="text-blue-400">§</span> = Subtitle column |{' '}
-          <span className="text-yellow-400">⚠</span> = Unrecognized column |{' '}
-          <span className="text-purple-400">◆</span> = Reserved column (actively ignored) |{' '}
-          <span className="bg-red-900/30 text-red-300 px-1">Ô đỏ (Required)</span> = Blocking error |{' '}
-          <span className="bg-orange-900/30 text-orange-300 px-1">Ô cam (Main)</span> = Card unavailable |{' '}
-          <span className="bg-teal-900/30 text-teal-300 px-1">Ô xanh ngọc (Subtitle)</span> = Thiếu subtitle (sẽ bỏ qua khi upload)
+        <div className="csv-legend">
+          <span className="csv-icon-required">*</span> = Required column |{' '}
+          <span className="csv-icon-main">★</span> = Main Language column |{' '}
+          <span className="csv-icon-subtitle">§</span> = Subtitle column |{' '}
+          <span className="csv-icon-unrecognized">⚠</span> = Unrecognized column |{' '}
+          <span className="csv-icon-reserved">◆</span> = Reserved column (actively ignored) |{' '}
+          <span className="csv-legend-sample-required">Ô đỏ (Required)</span> = Blocking error |{' '}
+          <span className="csv-legend-sample-main">Ô cam (Main)</span> = Card unavailable |{' '}
+          <span className="csv-legend-sample-subtitle">Ô xanh ngọc (Subtitle)</span> = Thiếu subtitle (sẽ bỏ qua khi upload)
         </div>
       </div>
     </div>

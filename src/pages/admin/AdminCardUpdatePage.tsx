@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiGetCardByPath } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
-import { ExternalLink, Upload, X, Search, ChevronDown, CheckCircle, XCircle } from 'lucide-react';
+import { ExternalLink, Upload, X, Search, ChevronDown, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import { langLabel, countryCodeForLang } from '../../utils/lang';
 import { r2UploadViaSignedUrl } from '../../services/cfApi';
 import PortalDropdown from '../../components/PortalDropdown';
@@ -156,24 +156,36 @@ export default function AdminCardUpdatePage() {
     <div className="admin-section">
       <div className="admin-section-header">
         <h2 className="admin-title">Update Card: {cardId}</h2>
-        <button className="admin-btn secondary" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${encodeURIComponent(episodeId || '')}`)}>← Back</button>
+        <button className="admin-btn secondary flex items-center gap-1.5" onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${encodeURIComponent(episodeId || '')}`)}>
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back</span>
+        </button>
       </div>
       {loading && <div className="admin-info">Loading…</div>}
       {error && <div className="admin-error">{error}</div>}
       {card && (
-        <div className="space-y-4">
+        <div className="card-update-container">
           {/* Basic Info (read-only) */}
-          <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Card Information (Read-only)</div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-              <div><span className="text-gray-400">Start:</span> <span className="text-gray-200">{card.start}s</span></div>
-              <div><span className="text-gray-400">End:</span> <span className="text-gray-200">{card.end}s</span></div>
-              <div><span className="text-gray-400">Duration:</span> <span className="text-gray-200">{card.duration}s</span></div>
+          <div className="admin-panel card-info-panel">
+            <div className="card-info-title">Card Information (Read-only)</div>
+            <div className="card-info-grid">
+              <div className="card-info-item">
+                <span className="card-info-label">Start:</span>
+                <span className="card-info-value">{card.start}s</span>
+              </div>
+              <div className="card-info-item">
+                <span className="card-info-label">End:</span>
+                <span className="card-info-value">{card.end}s</span>
+              </div>
+              <div className="card-info-item">
+                <span className="card-info-label">Duration:</span>
+                <span className="card-info-value">{card.duration}s</span>
+              </div>
             </div>
-            <div className="pt-2 border-t border-pink-500/30">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-400">Status:</span>
+            <div className="card-status-section">
+              <div className="card-status-row">
+                <div className="card-status-info">
+                  <span className="card-info-label">Status:</span>
                   <span className={`status-badge ${isAvailable ? 'active' : 'inactive'}`}>
                     {isAvailable ? (
                       <>
@@ -196,18 +208,18 @@ export default function AdminCardUpdatePage() {
                   Toggle to {isAvailable ? 'Unavailable' : 'Available'}
                 </button>
               </div>
-              <div className="text-xs text-gray-500 mt-2">
+              <div className="card-status-hint">
                 {isAvailable ? 'Card xuất hiện trong kết quả search' : 'Card bị ẩn khỏi search'}
               </div>
             </div>
           </div>
 
           {/* Two Column Layout: Subtitles Left, Media Right */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="card-content-grid">
             {/* Subtitles Editor - Left */}
-            <div className="admin-panel space-y-3 flex flex-col h-[600px]">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-pink-300">Subtitles</div>
+            <div className="admin-panel subtitles-panel">
+              <div className="subtitles-header">
+                <div className="card-info-title">Subtitles</div>
                 <button
                   className="admin-btn secondary !py-1 !px-2 text-xs flex items-center gap-1"
                   onClick={(e) => {
@@ -236,9 +248,9 @@ export default function AdminCardUpdatePage() {
                     onClose={() => { setLangDropdown(null); setLangQuery(''); }}
                     className="admin-dropdown-panel p-3"
                   >
-                    <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                    <div className="lang-dropdown-content">
+                      <div className="lang-search-wrapper">
+                        <Search className="lang-search-icon" />
                         <input
                           type="text"
                           placeholder="Search languages..."
@@ -248,40 +260,40 @@ export default function AdminCardUpdatePage() {
                           autoFocus
                         />
                       </div>
-                      <div className="max-h-[240px] overflow-y-auto custom-scrollbar space-y-1">
+                      <div className="lang-options-list custom-scrollbar">
                         {FILTERED_LANG_OPTIONS.filter(l => !subtitles[l]).map(l => (
                           <button
                             key={l}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left hover:bg-pink-500/10 rounded transition-colors"
+                            className="lang-option-item"
                             onClick={() => handleAddLanguage(l)}
                           >
-                            <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
-                            <span className="text-pink-100">{langLabel(l)}</span>
-                            <span className="text-gray-500">({l})</span>
+                            <span className={`fi fi-${countryCodeForLang(l)} lang-option-flag`}></span>
+                            <span className="lang-option-label">{langLabel(l)}</span>
+                            <span className="lang-option-code">({l})</span>
                           </button>
                         ))}
                         {FILTERED_LANG_OPTIONS.filter(l => !subtitles[l]).length === 0 && (
-                          <div className="text-xs text-gray-500 italic text-center py-2">No languages found</div>
+                          <div className="lang-option-item lang-option-disabled">No languages found</div>
                         )}
                       </div>
                     </div>
                   </PortalDropdown>
                 )}
               </div>
-              <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-2 custom-scrollbar">
+              <div className="subtitles-list custom-scrollbar">
                 {Object.keys(subtitles).length === 0 && (
-                  <div className="text-gray-500 italic text-sm">No subtitles. Click "Add Language" to start.</div>
+                  <div className="subtitle-empty-state">No subtitles. Click "Add Language" to start.</div>
                 )}
                 {Object.entries(subtitles).map(([lang, text]) => (
-                  <div key={lang} className="bg-[#1a0f24] rounded-lg p-3 border-2 border-pink-500/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
+                  <div key={lang} className="subtitle-item">
+                    <div className="subtitle-header">
+                      <div className="subtitle-lang">
                         <span className={`fi fi-${countryCodeForLang(lang)} w-5 h-3.5`}></span>
-                        <span className="text-sm font-semibold text-pink-200">{langLabel(lang)}</span>
-                        <span className="text-xs text-gray-500">({lang})</span>
+                        <span className="subtitle-lang-label">{langLabel(lang)}</span>
+                        <span className="subtitle-lang-code">({lang})</span>
                       </div>
                       <button
-                        className="admin-btn secondary !py-0.5 !px-1.5 text-xs hover:bg-red-500/20"
+                        className="subtitle-remove-btn"
                         onClick={() => setConfirmRemove({ lang })}
                         title="Remove language"
                       >
@@ -289,7 +301,7 @@ export default function AdminCardUpdatePage() {
                       </button>
                     </div>
                     <textarea
-                      className="admin-input !min-h-[80px] resize-y"
+                      className="subtitle-textarea"
                       value={text}
                       onChange={(e) => handleSubtitleChange(lang, e.target.value)}
                       placeholder={`Enter subtitle in ${langLabel(lang)}...`}
@@ -300,20 +312,20 @@ export default function AdminCardUpdatePage() {
             </div>
 
             {/* Media - Right */}
-            <div className="space-y-4 h-[600px] overflow-y-auto custom-scrollbar">
+            <div className="media-panel custom-scrollbar">
               {/* Audio Upload */}
-              <div className="admin-panel space-y-3">
-                <div className="text-sm font-semibold text-pink-300">Audio</div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-400">Current:</span>
+              <div className="media-section">
+                <div className="media-section-title">Audio</div>
+                <div>
+                  <div className="media-current">
+                    <span className="card-info-label">Current:</span>
                     {card.audio_url ? (
-                      <a href={card.audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1 !py-0.5 !px-2 text-xs">
+                      <a href={card.audio_url} target="_blank" rel="noreferrer" className="media-link">
                         <ExternalLink className="w-3 h-3" />
                         <span>Open</span>
                       </a>
                     ) : (
-                      <span className="text-gray-500 text-sm">No audio</span>
+                      <span className="media-no-file">No audio</span>
                     )}
                   </div>
                   {card.audio_url && (
@@ -322,43 +334,45 @@ export default function AdminCardUpdatePage() {
                     </div>
                   )}
                   <div>
-                    <label className="admin-btn primary inline-flex items-center gap-2 cursor-pointer">
+                    <label className="admin-btn primary media-upload-btn">
                       <Upload className="w-4 h-4" />
                       <span>{audioFile ? 'Change Audio' : 'Upload New Audio'}</span>
                       <input
                         type="file"
-                        accept="audio/*"
+                        accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus"
                         className="hidden"
                         onChange={(e) => setAudioFile(e.target.files?.[0] || null)}
                       />
                     </label>
                     {audioFile && (
-                      <div className="mt-2 text-sm text-pink-200">Selected: {audioFile.name}</div>
+                      <div className="media-file-selected">
+                        <div className="media-file-name">Selected: {audioFile.name}</div>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Image Upload */}
-              <div className="admin-panel space-y-3">
-                <div className="text-sm font-semibold text-pink-300">Image</div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-400">Current:</span>
+              <div className="media-section">
+                <div className="media-section-title">Image</div>
+                <div>
+                  <div className="media-current">
+                    <span className="card-info-label">Current:</span>
                     {card.image_url ? (
-                      <a href={card.image_url} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1 !py-0.5 !px-2 text-xs">
+                      <a href={card.image_url} target="_blank" rel="noreferrer" className="media-link">
                         <ExternalLink className="w-3 h-3" />
                         <span>Open</span>
                       </a>
                     ) : (
-                      <span className="text-gray-500 text-sm">No image</span>
+                      <span className="media-no-file">No image</span>
                     )}
                   </div>
                   {card.image_url && (
-                    <img src={card.image_url} alt="card" className="w-full rounded-lg border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_20px_rgba(236,72,153,0.5)]" />
+                    <img src={card.image_url} alt="card" className="media-image-preview" />
                   )}
                   <div>
-                    <label className="admin-btn primary inline-flex items-center gap-2 cursor-pointer">
+                    <label className="admin-btn primary media-upload-btn">
                       <Upload className="w-4 h-4" />
                       <span>{imageFile ? 'Change Image' : 'Upload New Image'}</span>
                       <input
@@ -369,12 +383,12 @@ export default function AdminCardUpdatePage() {
                       />
                     </label>
                     {imageFile && (
-                      <div className="mt-2 space-y-2">
-                        <div className="text-sm text-pink-200">Selected: {imageFile.name}</div>
+                      <div className="media-file-selected">
+                        <div className="media-file-name">Selected: {imageFile.name}</div>
                         <img
                           src={URL.createObjectURL(imageFile)}
                           alt="preview"
-                          className="w-full rounded-lg border-2 border-pink-400 hover:border-pink-300 transition-colors"
+                          className="media-preview-image"
                         />
                       </div>
                     )}
@@ -385,7 +399,7 @@ export default function AdminCardUpdatePage() {
           </div>
 
           {/* Save Button */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t-2 border-pink-500/30">
+          <div className="card-save-actions">
             <button
               className="admin-btn secondary"
               onClick={() => navigate(`/admin/content/${encodeURIComponent(contentSlug || '')}/episodes/${encodeURIComponent(episodeId || '')}`)}
@@ -406,20 +420,20 @@ export default function AdminCardUpdatePage() {
 
       {/* Confirmation Modal for Remove Language */}
       {confirmRemove && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setConfirmRemove(null)}>
+        <div className="confirm-modal-overlay" onClick={() => setConfirmRemove(null)}>
           <div
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]"
+            className="confirm-modal-content"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xoá ngôn ngữ</h3>
-            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xoá phụ đề:</p>
-            <div className="flex items-center gap-2 mb-4">
+            <h3 className="confirm-modal-title">Xác nhận xoá ngôn ngữ</h3>
+            <p className="confirm-modal-text">Bạn có chắc muốn xoá phụ đề:</p>
+            <div className="confirm-modal-lang">
               <span className={`fi fi-${countryCodeForLang(confirmRemove.lang)} w-6 h-4`}></span>
-              <span className="text-[#f9a8d4] font-semibold text-lg">{langLabel(confirmRemove.lang)}</span>
-              <span className="text-gray-400">({confirmRemove.lang})</span>
+              <span className="confirm-modal-lang-label">{langLabel(confirmRemove.lang)}</span>
+              <span className="confirm-modal-lang-code">({confirmRemove.lang})</span>
             </div>
-            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xoá phụ đề của ngôn ngữ này khỏi card.</p>
-            <div className="flex gap-3 justify-end">
+            <p className="confirm-modal-hint">Thao tác này sẽ xoá phụ đề của ngôn ngữ này khỏi card.</p>
+            <div className="confirm-modal-actions">
               <button className="admin-btn secondary" onClick={() => setConfirmRemove(null)}>Huỷ</button>
               <button
                 className="admin-btn primary"

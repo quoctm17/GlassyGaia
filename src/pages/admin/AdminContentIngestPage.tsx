@@ -7,12 +7,11 @@ import {
   uploadCoverImage,
   uploadMediaBatch,
   uploadEpisodeCoverImage,
-  uploadEpisodeFullMedia,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
 import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
-import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw } from "lucide-react";
+import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw, ArrowLeft } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
 import { langLabel, canonicalizeLangCode, expandCanonicalToAliases, getFlagImageForLang } from "../../utils/lang";
@@ -118,9 +117,6 @@ export default function AdminContentIngestPage() {
   const [addCover, setAddCover] = useState(false);
   const [addCoverLandscape, setAddCoverLandscape] = useState(false);
   const [addEpCover, setAddEpCover] = useState(false);
-  const [addEpAudio, setAddEpAudio] = useState(false);
-  const [addEpVideo, setAddEpVideo] = useState(false);
-  const [epFullAudioExt, setEpFullAudioExt] = useState<'mp3' | 'wav'>('mp3');
 
   // Progress state
   const [busy, setBusy] = useState(false);
@@ -128,10 +124,6 @@ export default function AdminContentIngestPage() {
   const [coverDone, setCoverDone] = useState(0);
   const [coverLandscapeDone, setCoverLandscapeDone] = useState(0);
   const [epCoverDone, setEpCoverDone] = useState(0);
-  const [epFullAudioDone, setEpFullAudioDone] = useState(0);
-  const [epFullVideoDone, setEpFullVideoDone] = useState(0);
-  const [epFullVideoBytesDone, setEpFullVideoBytesDone] = useState(0);
-  const [epFullVideoBytesTotal, setEpFullVideoBytesTotal] = useState(0);
   const [imagesDone, setImagesDone] = useState(0);
   const [audioDone, setAudioDone] = useState(0);
   const [imagesTotal, setImagesTotal] = useState(0);
@@ -153,8 +145,6 @@ export default function AdminContentIngestPage() {
   const [hasCoverFile, setHasCoverFile] = useState(false);
   const [hasCoverLandscapeFile, setHasCoverLandscapeFile] = useState(false);
   const [hasEpCoverFile, setHasEpCoverFile] = useState(false);
-  const [hasEpAudioFile, setHasEpAudioFile] = useState(false);
-  const [hasEpVideoFile, setHasEpVideoFile] = useState(false);
 
   const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, "") || "";
 
@@ -372,8 +362,6 @@ export default function AdminContentIngestPage() {
   useEffect(() => { if (!addCover) setHasCoverFile(false); }, [addCover]);
   useEffect(() => { if (!addCoverLandscape) setHasCoverLandscapeFile(false); }, [addCoverLandscape]);
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
-  useEffect(() => { if (!addEpAudio) setHasEpAudioFile(false); }, [addEpAudio]);
-  useEffect(() => { if (!addEpVideo) setHasEpVideoFile(false); }, [addEpVideo]);
 
   // Debounced slug availability auto-check
   useEffect(() => {
@@ -403,11 +391,9 @@ export default function AdminContentIngestPage() {
     const coverOk = !addCover || hasCoverFile;
     const coverLandscapeOk = !addCoverLandscape || hasCoverLandscapeFile;
     const epCoverOk = !addEpCover || hasEpCoverFile;
-    const epAudioOk = !addEpAudio || hasEpAudioFile;
-    const epVideoOk = !addEpVideo || hasEpVideoFile;
-    const optionalUploadsOk = coverOk && coverLandscapeOk && epCoverOk && epAudioOk && epVideoOk;
+    const optionalUploadsOk = coverOk && coverLandscapeOk && epCoverOk;
     return !!(isAdmin && slugOk && csvOk && titleOk && typeOk && cardMediaOk && optionalUploadsOk);
-  }, [isAdmin, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, addEpAudio, addEpVideo, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile, hasEpAudioFile, hasEpVideoFile]);
+  }, [isAdmin, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile]);
 
   // Handlers
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -478,33 +464,7 @@ export default function AdminContentIngestPage() {
     }
   };
 
-  const doUploadEpisodeFull = async () => {
-    const aFile = (document.getElementById("ep-full-audio") as HTMLInputElement)?.files?.[0];
-    const vFile = (document.getElementById("ep-full-video") as HTMLInputElement)?.files?.[0];
-    if (addEpAudio && aFile) {
-      setStage("ep_full_audio");
-      const key = await uploadEpisodeFullMedia({ filmId, episodeNum, type: "audio", file: aFile });
-      setEpFullAudioDone(1);
-      try {
-        await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, full_audio_key: key });
-      } catch (e) {
-        console.error("Episode full audio meta update failed", e);
-        toast.error("Không cập nhật được full audio meta tập (schema?)");
-      }
-    }
-    if (addEpVideo && vFile) {
-      setStage("ep_full_video");
-      setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(vFile.size);
-      const key = await uploadEpisodeFullMedia({ filmId, episodeNum, type: "video", file: vFile, onProgress: (done, total) => { setEpFullVideoBytesDone(done); setEpFullVideoBytesTotal(total); } });
-      setEpFullVideoDone(1);
-      try {
-        await apiUpdateEpisodeMeta({ filmSlug: filmId, episodeNum, full_video_key: key });
-      } catch (e) {
-        console.error("Episode full video meta update failed", e);
-        toast.error("Không cập nhật được full video meta tập (schema?)");
-      }
-    }
-  };
+
   const doUploadMedia = async (type: MediaType, files: File[], signal?: AbortSignal) => {
     if (!files.length) return;
     setStage(type === "image" ? "images" : "audio");
@@ -531,7 +491,7 @@ export default function AdminContentIngestPage() {
       createdFilmRef.current = null;
       createdEpisodeNumRef.current = null;
       importSucceededRef.current = false;
-      setCoverDone(0); setCoverLandscapeDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
+      setCoverDone(0); setCoverLandscapeDone(0); setEpCoverDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
       // 1. Upload cover for content (if any)
       const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
       await doUploadCoverLandscape().catch(() => undefined);
@@ -566,6 +526,53 @@ export default function AdminContentIngestPage() {
         all.forEach(f => { const m = f.name.match(/(\d+)(?=\.[^.]+$)/); if (m) { const raw = m[1]; const id = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0"); set.add(id); } });
         if (set.size) { cardIds = Array.from(set).sort((a,b)=>parseInt(a,10)-parseInt(b,10)); }
       }
+      
+      // Build extension maps from uploaded files to ensure DB paths match R2 files
+      const imageExtensions: Record<string, string> = {};
+      const audioExtensions: Record<string, string> = {};
+      
+      const buildExtMap = (files: File[], isImage: boolean) => {
+        let seq = startIndex;
+        const used = new Set<string>();
+        files.forEach(f => {
+          let cardId: string | null = null;
+          if (infer) {
+            const m = f.name.match(/(\d+)(?=\.[^.]+$)/);
+            if (m) {
+              const raw = m[1];
+              cardId = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0");
+            }
+          }
+          if (!cardId) {
+            cardId = String(seq).padStart(padDigits, "0");
+            seq += 1;
+          }
+          while (used.has(cardId)) {
+            const n = parseInt(cardId, 10);
+            if (!Number.isNaN(n)) {
+              cardId = String(n + 1).padStart(Math.max(padDigits, cardId.length), "0");
+            } else {
+              cardId = `${cardId}a`;
+            }
+          }
+          used.add(cardId);
+          
+          const ext = isImage
+            ? (f.type === "image/webp" ? "webp" : "jpg")
+            : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav" 
+              : (f.type === "audio/opus" || f.type === "audio/ogg" ? "opus" : "mp3"));
+          
+          if (isImage) {
+            imageExtensions[cardId] = ext;
+          } else {
+            audioExtensions[cardId] = ext;
+          }
+        });
+      };
+      
+      buildExtMap(imageFiles, true);
+      buildExtMap(audioFiles, false);
+      
       try {
         // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian)
         const confirmedMap: Record<string, string> = {};
@@ -582,6 +589,8 @@ export default function AdminContentIngestPage() {
           cardStartIndex: startIndex,
           cardPadDigits: padDigits,
           cardIds,
+          imageExtensions,
+          audioExtensions,
           overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
           confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined,
         }, () => {});
@@ -596,10 +605,8 @@ export default function AdminContentIngestPage() {
         toast.error("Import failed: " + (importErr as Error).message);
         throw importErr; // Re-throw to stop the process
       }
-      // 4. Upload episode-level media (cover, full audio, full video) AFTER episode row exists
+      // 4. Upload episode-level media (cover) AFTER episode row exists
       await doUploadEpisodeCover().catch(() => {});
-      if (cancelRequestedRef.current) throw new Error("User cancelled");
-      await doUploadEpisodeFull().catch(() => {});
       if (cancelRequestedRef.current) throw new Error("User cancelled");
       // 5. Calculate stats immediately after import
       setStage("calculating_stats");
@@ -716,8 +723,7 @@ export default function AdminContentIngestPage() {
     cancelRequestedRef.current = true;
     try { uploadAbortRef.current?.abort(); } catch { /* ignore abort errors */ }
     setStage('idle');
-    setCoverDone(0); setCoverLandscapeDone(0); setEpCoverDone(0); setEpFullAudioDone(0); setEpFullVideoDone(0);
-    setEpFullVideoBytesDone(0); setEpFullVideoBytesTotal(0);
+    setCoverDone(0); setCoverLandscapeDone(0); setEpCoverDone(0);
     setImagesDone(0); setAudioDone(0); setImagesTotal(0); setAudioTotal(0);
     setImportDone(false); setStatsDone(false);
     importSucceededRef.current = false;
@@ -733,17 +739,20 @@ export default function AdminContentIngestPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="admin-section-header">
         <h2 className="admin-title">Create New Content (Episode 1)</h2>
-        <button className="admin-btn secondary" onClick={() => window.location.href = '/admin/content'}>← Back</button>
+        <button className="admin-btn secondary flex items-center gap-1.5" onClick={() => window.location.href = '/admin/content'}>
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back</span>
+        </button>
       </div>
 
       {/* Auth */}
       {user ? (
         <div className="admin-panel space-y-2">
-          <div className="text-sm">Signed in as <span className="text-gray-300">{user.email}</span></div>
+          <div className="text-sm" style={{ color: 'var(--text)' }}>Signed in as <span style={{ color: 'var(--primary)' }}>{user.email}</span></div>
           {requireKey && (
-            <div className="text-xs text-gray-400">Admin Key required — set it once in the SideNav.</div>
+            <div className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Admin Key required — set it once in the SideNav.</div>
           )}
-          <div className="text-sm">Access: {isAdmin ? <span className="text-green-400">granted (Admin role)</span> : <span className="text-red-400">denied (No admin role)</span>}</div>
+          <div className="text-sm" style={{ color: 'var(--text)' }}>Access: {isAdmin ? <span style={{ color: 'var(--success)' }}>granted (Admin role)</span> : <span style={{ color: 'var(--error)' }}>denied (No admin role)</span>}</div>
         </div>
       ) : (
         <div className="admin-panel">
@@ -755,22 +764,22 @@ export default function AdminContentIngestPage() {
       {/* Quick Guide */}
       {isAdmin && (
         <div className="admin-panel space-y-3">
-          <div className="text-sm font-semibold">Hướng dẫn nhanh</div>
+          <div className="typography-pressstart-1 admin-panel-title">Quick Guide</div>
             <div className="admin-subpanel text-xs space-y-3">
-            <div className="text-gray-300 font-semibold">A) Các trường nhập</div>
-            <ul className="list-disc pl-5 space-y-1 text-gray-400">
-              <li><span className="text-gray-300">Content Slug</span>: slug không dấu (vd. <code>cinderella</code>). Dùng nút Check để xác thực không trùng.</li>
-              <li><span className="text-gray-300">Main Language</span>: ngôn ngữ chính.</li>
-              <li><span className="text-gray-300">Title</span>, <span className="text-gray-300">Description</span> mô tả.</li>
-              <li><span className="text-gray-300">Episode 1</span>: tự động tạo, không chỉnh sửa số tập ở đây.</li>
-              <li><span className="text-gray-300">Episode Title</span> (tuỳ chọn).</li>
-              <li><span className="text-gray-300">Type</span>: cleaned text for the card (should be the main-language snippet used for study; remove audio/pronunciation cues like <code>[music]</code> or <code>(sfx)</code>). Not used to classify content type.</li>
-              <li><span className="text-gray-300">Release Year</span> (tuỳ chọn) helps categorize.</li>
-              <li><span className="text-gray-300">Media tuỳ chọn</span>: Cover (content + episode), Full Audio/Video cho Episode.</li>
-              <li><span className="text-gray-300">Card Media Files</span>: ảnh (.jpg) & audio (.mp3) cho cards (bắt buộc).</li>
+            <div style={{ color: 'var(--text)' }} className="font-semibold">A) Các trường nhập</div>
+            <ul className="list-disc pl-5 space-y-1 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
+              <li><span style={{ color: 'var(--text)' }}>Content Slug</span>: slug không dấu (vd. <code>cinderella</code>). Dùng nút Check để xác thực không trùng.</li>
+              <li><span style={{ color: 'var(--text)' }}>Main Language</span>: ngôn ngữ chính.</li>
+              <li><span style={{ color: 'var(--text)' }}>Title</span>, <span style={{ color: 'var(--text)' }}>Description</span> mô tả.</li>
+              <li><span style={{ color: 'var(--text)' }}>Episode 1</span>: tự động tạo, không chỉnh sửa số tập ở đây.</li>
+              <li><span style={{ color: 'var(--text)' }}>Episode Title</span> (tuỳ chọn).</li>
+              <li><span style={{ color: 'var(--text)' }}>Type</span>: cleaned text for the card (should be the main-language snippet used for study; remove audio/pronunciation cues like <code>[music]</code> or <code>(sfx)</code>). Not used to classify content type.</li>
+              <li><span style={{ color: 'var(--text)' }}>Release Year</span> (tuỳ chọn) helps categorize.</li>
+              <li><span style={{ color: 'var(--text)' }}>Media tuỳ chọn</span>: Cover (content + episode), Full Audio/Video cho Episode.</li>
+              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: ảnh (.webp) & audio (.opus) cho cards (bắt buộc).</li>
             </ul>
-            <div className="text-gray-300 font-semibold">B) CSV cần</div>
-            <ul className="list-disc pl-5 space-y-1 text-gray-400">
+            <div className="admin-instructions-title">B) CSV cần</div>
+            <ul className="admin-instructions-list typography-inter-4">
               <li>Cột bắt buộc: <code>start,end</code>.</li>
               <li>Phải có cột phụ đề cho Main Language ({mainLanguage}).</li>
               <li><code>type</code> tùy chọn; <code>sentence</code> tự động lấy từ phụ đề của Main Language.</li>
@@ -778,7 +787,7 @@ export default function AdminContentIngestPage() {
               <li><code>difficulty_score</code> (0-100) + alias; framework <code>cefr</code>/<code>jlpt</code>/<code>hsk</code> tuỳ chọn.</li>
               <li>Infer IDs: lấy số cuối tên file làm card id; nếu tắt dùng Pad + Start Index.</li>
             </ul>
-            <div className="text-[10px] text-gray-500 italic space-y-1">
+            <div className="admin-instructions-note">
               <div>Ví dụ tối thiểu: <code>start,end,type,en</code></div>
               <div>Đảm bảo thời gian tăng dần để hiển thị ổn định.</div>
             </div>
@@ -788,7 +797,7 @@ export default function AdminContentIngestPage() {
 
       {/* Content meta */}
       <div className="admin-panel space-y-4">
-        <div className="text-sm font-semibold">Content Meta</div>
+        <div className="typography-pressstart-1 admin-panel-title">Content Meta</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Content Slug</label>
@@ -814,34 +823,34 @@ export default function AdminContentIngestPage() {
                 placeholder="cinderella"
               />
               {(slugChecking || slugChecked) && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 text-pink-400 group">
-                  {slugChecking && <Loader2 className="w-4 h-4 animate-spin text-gray-500" />}
-                  {!slugChecking && slugChecked && slugAvailable === true && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {!slugChecking && slugChecked && slugAvailable === false && <XCircle className="w-4 h-4 text-red-400" />}
+                <div className="admin-form-input-icon group">
+                  {slugChecking && <Loader2 className="w-4 h-4 animate-spin checking" />}
+                  {!slugChecking && slugChecked && slugAvailable === true && <CheckCircle className="w-4 h-4 success" />}
+                  {!slugChecking && slugChecked && slugAvailable === false && <XCircle className="w-4 h-4 error" />}
                   {/* Pretty tooltip */}
-                  <div className="absolute right-0 mt-2 translate-y-2 hidden group-hover:block whitespace-nowrap px-2 py-1 text-[11px] leading-tight rounded border shadow-lg bg-[#241530] border-pink-500/50 text-pink-100">
+                  <div className="admin-form-tooltip">
                     {slugChecking ? 'Đang kiểm tra…' : (slugAvailable ? 'Slug khả dụng - có thể tạo.' : 'Slug đã tồn tại - chọn slug khác.')}
                   </div>
                 </div>
               )}
             </div>
           </div>
-          <div className="col-span-full text-[11px] text-gray-400 italic">
+          <div className="admin-form-help typography-inter-4">
             💡 Slug tự động chuẩn hóa: bỏ dấu tiếng Việt/Unicode, chỉ giữ a-z, 0-9, _ (ví dụ: "vẽ chuyện" → "ve_chuyen")
           </div>
-          <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Main Language</label>
-            <div className="relative w-full" ref={langDropdownRef}>
-              <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
-                <span className="inline-flex items-center gap-2">
-                  <img src={getFlagImageForLang(mainLanguage)} alt={`${mainLanguage} flag`} className="w-5 h-3.5 rounded" />
+          <div className="admin-form-row">
+            <label className="admin-form-label">Main Language</label>
+            <div className="admin-form-input-wrapper" ref={langDropdownRef}>
+              <button type="button" className="admin-input admin-dropdown-button" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
+                <span className="admin-dropdown-button-content">
+                  <img src={getFlagImageForLang(mainLanguage)} alt={`${mainLanguage} flag`} className="admin-flag-icon" />
                   <span>{langLabel(mainLanguage)} ({mainLanguage})</span>
                 </span>
-                <span className="text-gray-400">▼</span>
+                <span className="admin-dropdown-arrow">▼</span>
               </button>
               {langOpen && (
-                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
-                  <div className="sticky top-0 z-10 bg-[#241530] p-2 border-b border-pink-500/50">
+                <div className="admin-dropdown-container admin-dropdown-panel">
+                  <div className="admin-dropdown-search-header">
                     <input
                       autoFocus
                       value={langQuery}
@@ -852,7 +861,7 @@ export default function AdminContentIngestPage() {
                   </div>
                   {FILTERED_LANG_OPTIONS.map(l => (
                     <div key={l} className="admin-dropdown-item" onClick={() => { setMainLanguage(l); setLangOpen(false); setLangQuery(""); }}>
-                      <img src={getFlagImageForLang(l)} alt={`${l} flag`} className="w-5 h-3.5 rounded" />
+                      <img src={getFlagImageForLang(l)} alt={`${l} flag`} className="admin-flag-icon" />
                       <span className="text-sm">{langLabel(l)} ({l})</span>
                     </div>
                   ))}
@@ -863,8 +872,8 @@ export default function AdminContentIngestPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Title <span className="text-red-500">*</span></label>
+          <div className="admin-form-row">
+            <label className="admin-form-label admin-form-label-required">Title</label>
             <input className="admin-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" />
           </div>
                     <div className="flex items-center gap-2">
@@ -872,7 +881,7 @@ export default function AdminContentIngestPage() {
             <div className="relative w-full" ref={yearDropdownRef}>
               <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setYearOpen(v => !v); }}>
                 <span>{releaseYear !== "" ? releaseYear : "(optional)"}</span>
-                <span className="text-gray-400">▼</span>
+                <span style={{ color: 'var(--sub-language-text)' }}>▼</span>
               </button>
               {yearOpen && (
                 <div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
@@ -895,7 +904,7 @@ export default function AdminContentIngestPage() {
                   {contentType === "audio" && <AudioLines className="w-4 h-4" />}
                   <span>{contentType ? CONTENT_TYPE_LABELS[contentType] : "(required)"}</span>
                 </span>
-                <span className="text-gray-400">▼</span>
+                <span style={{ color: 'var(--sub-language-text)' }}>▼</span>
               </button>
               {typeOpen && (
                 <div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
@@ -918,7 +927,7 @@ export default function AdminContentIngestPage() {
             <label className="w-40 text-sm">Original Version</label>
             <div className="flex items-center gap-3">
               <input id="chk-original" type="checkbox" checked={isOriginal} onChange={e => setIsOriginal(e.target.checked)} />
-              <label htmlFor="chk-original" className="text-xs text-gray-300 cursor-pointer">This is the original version (source language).</label>
+              <label htmlFor="chk-original" className="text-xs cursor-pointer whitespace-nowrap" style={{ color: 'var(--text)' }}>This is the original version (source language).</label>
             </div>
           </div>
         </div>
@@ -930,34 +939,34 @@ export default function AdminContentIngestPage() {
         {/* Existing Episodes panel removed for E1-only creation */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
               <input id="chk-cover" type="checkbox" checked={addCover} onChange={e => setAddCover(e.target.checked)} />
-              <label htmlFor="chk-cover" className="cursor-pointer">Add Cover Portrait (jpg)</label>
+              <label htmlFor="chk-cover" className="cursor-pointer whitespace-nowrap">Add Cover Portrait (jpg)</label>
               <span className="relative group inline-flex">
-                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa dọc (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover.jpg</span>
+                <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa dọc (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover.jpg</span>
               </span>
             </div>
             {addCover && (
               <>
-                <input id="cover-file" type="file" accept="image/jpeg" onChange={e => setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/cover_image/cover.jpg</div>
+                <input id="cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover.jpg</div>
               </>
             )}
           </div>
           <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
               <input id="chk-cover-landscape" type="checkbox" checked={addCoverLandscape} onChange={e => setAddCoverLandscape(e.target.checked)} />
-              <label htmlFor="chk-cover-landscape" className="cursor-pointer">Add Cover Landscape (jpg)</label>
+              <label htmlFor="chk-cover-landscape" className="cursor-pointer whitespace-nowrap">Add Cover Landscape (jpg)</label>
               <span className="relative group inline-flex">
-                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa ngang (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover_landscape.jpg</span>
+                <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa ngang (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover_landscape.jpg</span>
               </span>
             </div>
             {addCoverLandscape && (
               <>
-                <input id="cover-landscape-file" type="file" accept="image/jpeg" onChange={e => setHasCoverLandscapeFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/cover_image/cover_landscape.jpg</div>
+                <input id="cover-landscape-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasCoverLandscapeFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover_landscape.jpg</div>
               </>
             )}
           </div>
@@ -966,19 +975,19 @@ export default function AdminContentIngestPage() {
 
       {/* Episode 1 meta (number locked) */}
       <div className="admin-panel space-y-4">
-        <div className="text-sm font-semibold">Episode 1</div>
+        <div className="typography-pressstart-1 admin-panel-title">Episode 1</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm flex items-center gap-1">
-              <span>Episode Num</span>
+              <span className="whitespace-nowrap">Episode Num</span>
               <span className="relative group inline-flex">
-                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">
+                <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>
                   This page only creates Episode 1. To add more episodes, use the Add Episode page. The episode number is locked here.
                 </span>
               </span>
             </label>
-            <input type="number" min={1} className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none" value={1} disabled readOnly aria-disabled="true" />
+            <input type="number" min={1} className="admin-input opacity-50 cursor-not-allowed pointer-events-none" style={{ backgroundColor: 'var(--card-bg)', color: 'var(--sub-language-text)', borderColor: 'var(--border)' }} value={1} disabled readOnly aria-disabled="true" />
           </div>
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Episode Title</label>
@@ -996,79 +1005,30 @@ export default function AdminContentIngestPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
               <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} />
-              <label htmlFor="chk-ep-cover" className="cursor-pointer">Add Cover Landscape (Episode)</label>
+              <label htmlFor="chk-ep-cover" className="cursor-pointer whitespace-nowrap">Add Cover Landscape (Episode)</label>
               <span className="relative group inline-flex">
-                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Ảnh bìa ngang cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
+                <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa ngang cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
               </span>
             </div>
             {addEpCover && (
               <>
-                <input id="ep-cover-file" type="file" accept="image/jpeg" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
+                <input id="ep-cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
               </>
             )}
           </div>
 
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
-              <input id="chk-ep-audio" type="checkbox" checked={addEpAudio} onChange={e => setAddEpAudio(e.target.checked)} />
-              <label htmlFor="chk-ep-audio" className="cursor-pointer">Add Full Audio (Episode)</label>
-              <span className="relative group inline-flex">
-                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Upload full audio (.mp3) cho tập.</span>
-              </span>
-            </div>
-            {addEpAudio && (
-              <>
-                <input
-                  id="ep-full-audio"
-                  type="file"
-                  accept="audio/mpeg,audio/wav"
-                  onChange={e => {
-                    const file = (e.target as HTMLInputElement).files?.[0] || null;
-                    setHasEpAudioFile(!!file);
-                    if (file) {
-                      const t = (file.type || '').toLowerCase();
-                      setEpFullAudioExt((/wav$/.test(t) || t === 'audio/wav' || t === 'audio/x-wav') ? 'wav' : 'mp3');
-                    } else {
-                      setEpFullAudioExt('mp3');
-                    }
-                  }}
-                  className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full"
-                />
-                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/audio.{epFullAudioExt}</div>
-              </>
-            )}
-          </div>
-          <div className="admin-subpanel space-y-2">
-            <div className="flex items-center gap-2 text-xs text-gray-300">
-              <input id="chk-ep-video" type="checkbox" checked={addEpVideo} onChange={e => setAddEpVideo(e.target.checked)} />
-              <label htmlFor="chk-ep-video" className="cursor-pointer">Add Full Video (Episode)</label>
-              <span className="relative group inline-flex">
-                <HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Upload full video (.mp4) cho tập.</span>
-              </span>
-            </div>
-            {addEpVideo && (
-              <>
-                <input id="ep-full-video" type="file" accept="video/mp4" onChange={e => setHasEpVideoFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500 break-words">Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/full/video.mp4</div>
-              </>
-            )}
-          </div>
         </div>
       </div>
 
       {/* CSV */}
       <div className="admin-panel space-y-3">
-        <div className="text-sm font-semibold">Cards CSV</div>
+        <div className="typography-pressstart-1 admin-panel-title">Cards CSV</div>
         <div className="flex items-center gap-2 flex-wrap">
-          <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={onPickCsv} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500" />
+          <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={onPickCsv} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border" style={{ borderColor: 'var(--primary)' }} />
           <button type="button" title="Refresh / Re-import CSV" onClick={() => { if (csvRef.current) { csvRef.current.value = ""; csvRef.current.click(); } }} className="admin-btn secondary flex items-center gap-1">
             <RefreshCcw className="w-4 h-4" />
             <span className="text-xs">Refresh</span>
@@ -1085,10 +1045,10 @@ export default function AdminContentIngestPage() {
             const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `template_${mainCanon}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
           }}>Download template</button>
         </div>
-        {csvFileName && <div className="text-xs text-gray-500">{csvFileName}</div>}
+        {csvFileName && <div className="text-xs typography-inter-4" style={{ color: 'var(--neutral)' }}>{csvFileName}</div>}
         {csvHeaders.length > 0 && mainLangHeaderOptions.length > 1 && (
           <div className="flex items-center gap-2 text-sm">
-            <label className="text-gray-300">Main Language column ({langLabel(mainLanguage)}):</label>
+            <label style={{ color: 'var(--text)' }}>Main Language column ({langLabel(mainLanguage)}):</label>
             <select
               className="admin-input !py-1 !px-2 max-w-xs"
               value={mainLangHeaderOverride || mainLangHeaderOptions[0]}
@@ -1098,7 +1058,7 @@ export default function AdminContentIngestPage() {
                 <option key={h} value={h}>{h}</option>
               ))}
             </select>
-            <span className="text-xs text-gray-500">Prefers non-CC by default</span>
+            <span className="text-xs typography-inter-4" style={{ color: 'var(--neutral)' }}>Prefers non-CC by default</span>
           </div>
         )}
         <CsvPreviewPanel
@@ -1116,8 +1076,8 @@ export default function AdminContentIngestPage() {
         
         {/* Ambiguous column checkboxes */}
         {ambiguousHeaders.length > 0 && (
-          <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg space-y-2">
-            <div className="text-sm font-semibold text-yellow-300">⚠️ Xác nhận cột có thể là ngôn ngữ hoặc cột hệ thống:</div>
+          <div className="mt-3 p-3 rounded-lg border space-y-2" style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
+            <div className="text-sm font-semibold" style={{ color: 'var(--warning)' }}>⚠️ Xác nhận cột có thể là ngôn ngữ hoặc cột hệ thống:</div>
             {ambiguousHeaders.map(col => {
               const isId = col.toLowerCase() === 'id';
               const isIn = col.toLowerCase() === 'in';
@@ -1140,13 +1100,13 @@ export default function AdminContentIngestPage() {
                     className="mt-0.5"
                   />
                   <label htmlFor={`ambiguous-${col}`} className="cursor-pointer select-none flex-1">
-                    <span className="text-yellow-200 font-semibold">"{col}"</span>
+                    <span className="font-semibold" style={{ color: 'var(--warning)' }}>"{col}"</span>
                     {isConfirmed ? (
-                      <span className="text-green-300"> ✓ Được dùng như ngôn ngữ Indonesian</span>
+                      <span style={{ color: 'var(--success)' }}> ✓ Được dùng như ngôn ngữ Indonesian</span>
                     ) : (
-                      <span className="text-gray-400"> → Sẽ bị bỏ qua (cột hệ thống)</span>
+                      <span style={{ color: 'var(--sub-language-text)' }}> → Sẽ bị bỏ qua (cột hệ thống)</span>
                     )}
-                    <div className="text-xs text-gray-500 mt-0.5">
+                    <div className="text-xs typography-inter-4 mt-0.5" style={{ color: 'var(--neutral)' }}>
                       {isId && "Tick để dùng như ngôn ngữ Indonesian (id), bỏ trống để ignore như cột ID."}
                       {isIn && "Tick để dùng như ngôn ngữ Indonesian (in), bỏ trống để ignore như cột hệ thống."}
                     </div>
@@ -1160,21 +1120,21 @@ export default function AdminContentIngestPage() {
 
       {/* Card Media */}
       <div className="admin-panel space-y-3">
-        <div className="text-sm font-semibold">Card Media Files</div>
+        <div className="typography-pressstart-1 admin-panel-title">Card Media Files</div>
         {/* File count validation warnings */}
         {csvRows.length > 0 && (imageFiles.length > 0 || audioFiles.length > 0) && (
           <div className="space-y-2">
             {imageFiles.length !== csvRows.length && (
-              <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
-                <span className="text-yellow-400 text-lg">⚠️</span>
+              <div className="flex items-start gap-2 p-3 rounded-lg border" style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
+                <span className="text-lg" style={{ color: 'var(--warning)' }}>⚠️</span>
                 <div className="flex-1 text-sm">
-                  <div className="font-semibold text-yellow-300 mb-1">
+                  <div className="font-semibold mb-1" style={{ color: 'var(--warning)' }}>
                     Số lượng ảnh không khớp với số cards
                   </div>
-                  <div className="text-yellow-200/90 space-y-1">
-                    <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
-                    <div>• Ảnh đã chọn: <span className="font-semibold text-yellow-100">{imageFiles.length}</span></div>
-                    <div className="text-xs text-yellow-200/70 mt-2">
+                  <div className="space-y-1" style={{ color: 'var(--warning-text)' }}>
+                    <div>• Cards trong CSV: <span className="font-semibold">{csvRows.length}</span></div>
+                    <div>• Ảnh đã chọn: <span className="font-semibold">{imageFiles.length}</span></div>
+                    <div className="text-xs mt-2">
                       💡 Nên upload đúng {csvRows.length} file ảnh để khớp với số cards.
                       {imageFiles.length < csvRows.length && ' Một số cards sẽ thiếu ảnh.'}
                       {imageFiles.length > csvRows.length && ' Một số ảnh sẽ bị bỏ qua.'}
@@ -1184,16 +1144,16 @@ export default function AdminContentIngestPage() {
               </div>
             )}
             {audioFiles.length !== csvRows.length && (
-              <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg">
-                <span className="text-yellow-400 text-lg">⚠️</span>
+              <div className="flex items-start gap-2 p-3 rounded-lg border" style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
+                <span className="text-lg" style={{ color: 'var(--warning)' }}>⚠️</span>
                 <div className="flex-1 text-sm">
-                  <div className="font-semibold text-yellow-300 mb-1">
+                  <div className="font-semibold mb-1" style={{ color: 'var(--warning)' }}>
                     Số lượng audio không khớp với số cards
                   </div>
-                  <div className="text-yellow-200/90 space-y-1">
-                    <div>• Cards trong CSV: <span className="font-semibold text-yellow-100">{csvRows.length}</span></div>
-                    <div>• Audio đã chọn: <span className="font-semibold text-yellow-100">{audioFiles.length}</span></div>
-                    <div className="text-xs text-yellow-200/70 mt-2">
+                  <div className="space-y-1" style={{ color: 'var(--warning-text)' }}>
+                    <div>• Cards trong CSV: <span className="font-semibold">{csvRows.length}</span></div>
+                    <div>• Audio đã chọn: <span className="font-semibold">{audioFiles.length}</span></div>
+                    <div className="text-xs mt-2">
                       💡 Nên upload đúng {csvRows.length} file audio để khớp với số cards.
                       {audioFiles.length < csvRows.length && ' Một số cards sẽ thiếu audio.'}
                       {audioFiles.length > csvRows.length && ' Một số audio sẽ bị bỏ qua.'}
@@ -1220,13 +1180,13 @@ export default function AdminContentIngestPage() {
               </div>
             )}
             {imageFiles.length === csvRows.length && audioFiles.length === csvRows.length && imageFiles.length > 0 && (
-              <div className="flex items-start gap-2 p-3 bg-green-900/20 border border-green-600/40 rounded-lg">
-                <span className="text-green-400 text-lg">✓</span>
+              <div className="flex items-start gap-2 p-3 rounded-lg border" style={{ backgroundColor: 'var(--success-bg)', borderColor: 'var(--success)' }}>
+                <span className="text-lg" style={{ color: 'var(--success)' }}>✓</span>
                 <div className="flex-1 text-sm">
-                  <div className="font-semibold text-green-300">
+                  <div className="font-semibold" style={{ color: 'var(--success)' }}>
                     Số lượng files khớp hoàn hảo!
                   </div>
-                  <div className="text-green-200/90 text-xs mt-1">
+                  <div className="text-xs mt-1" style={{ color: 'var(--success-text)' }}>
                     {csvRows.length} cards = {imageFiles.length} ảnh = {audioFiles.length} audio
                   </div>
                 </div>
@@ -1236,12 +1196,12 @@ export default function AdminContentIngestPage() {
         )}
         <div className="grid gap-3 md:grid-cols-2">
           <div className="admin-subpanel">
-            <div className="text-xs text-gray-400 mb-2">Images (.jpg)</div>
-            <input type="file" accept="image/jpeg" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+            <div className="text-xs typography-inter-4 mb-2" style={{ color: 'var(--sub-language-text)' }}>Images (.webp recommended)</div>
+            <input type="file" accept="image/jpeg,image/webp" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
           </div>
           <div className="admin-subpanel">
-            <div className="text-xs text-gray-400 mb-2">Audio (.mp3)</div>
-            <input type="file" accept="audio/mpeg,audio/wav" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+            <div className="text-xs typography-inter-4 mb-2" style={{ color: 'var(--sub-language-text)' }}>Audio (.opus recommended)</div>
+            <input type="file" accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
           </div>
           <div className="flex flex-col gap-3 md:col-span-2">
             <div className="flex flex-col sm:flex-row gap-3">
@@ -1254,17 +1214,17 @@ export default function AdminContentIngestPage() {
                 <input type="number" min={0} value={startIndex} onChange={e => setStartIndex(Math.max(0, Number(e.target.value)||0))} className="admin-input disabled:opacity-50" disabled={infer} />
               </div>
             </div>
-            {infer && <div className="text-xs text-gray-500">Pad Digits & Start Index chỉ dùng khi tắt Infer IDs.</div>}
+            {infer && <div className="text-xs typography-inter-4" style={{ color: 'var(--neutral)' }}>Pad Digits & Start Index chỉ dùng khi tắt Infer IDs.</div>}
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex items-center gap-2 flex-1">
                 <input id="infer-ids" type="checkbox" checked={infer} onChange={e => setInfer(e.target.checked)} />
                 <label htmlFor="infer-ids" className="text-sm select-none">Infer IDs</label>
-                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Lấy số cuối tên file làm Card ID.</span></span>
+                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Lấy số cuối tên file làm Card ID.</span></span>
               </div>
               <div className="flex items-center gap-2 flex-1">
                 <input id="replace-cards" type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
                 <label htmlFor="replace-cards" className="text-sm select-none">Replace existing cards</label>
-                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 text-gray-400 group-hover:text-pink-400 cursor-help" /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-72 p-2 rounded bg-gray-800 border border-gray-700 text-[11px] leading-snug text-gray-200 shadow-lg">Nếu bật xoá toàn bộ cards + subtitles trước khi thêm mới.</span></span>
+                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-72 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Nếu bật xoá toàn bộ cards + subtitles trước khi thêm mới.</span></span>
               </div>
             </div>
           </div>
@@ -1279,7 +1239,7 @@ export default function AdminContentIngestPage() {
           {busy && stage !== 'done' && (
             <button type="button" className="admin-btn danger" onClick={requestStop} title="Cancel current upload/import">Stop</button>
           )}
-          <div className="text-xs text-gray-400">Stage: {stage}</div>
+          <div className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Stage: {stage}</div>
         </div>
         {(busy || stage === "done") && (
           <div className="admin-panel text-xs space-y-2">
@@ -1303,24 +1263,9 @@ export default function AdminContentIngestPage() {
             {addEpCover && hasEpCoverFile && (
               <ProgressItem label="6. Episode Cover Landscape" done={epCoverDone > 0} pending={stage === "ep_cover" || (importDone && epCoverDone === 0)} />
             )}
-            {addEpAudio && hasEpAudioFile && (
-              <ProgressItem label="7. Episode Full Audio" done={epFullAudioDone > 0} pending={stage === "ep_full_audio" || (importDone && epFullAudioDone === 0)} />
-            )}
-            {addEpVideo && hasEpVideoFile && (
-              <div className="flex justify-between">
-                <span>8. Episode Full Video</span>
-                <span>
-                  {epFullVideoDone > 0
-                    ? "✓"
-                    : stage === "ep_full_video" && epFullVideoBytesTotal > 0
-                      ? `${Math.min(100, Math.round((epFullVideoBytesDone / epFullVideoBytesTotal) * 100))}%`
-                      : (importDone ? "waiting" : "pending")}
-                </span>
-              </div>
-            )}
             {/* 5. Calculate Stats (final step) */}
             <div className="flex justify-between">
-              <span>9. Calculating Stats</span>
+              <span>7. Calculating Stats</span>
               <span>{statsDone ? "✓" : stage === "calculating_stats" ? "..." : (importDone ? "waiting" : "pending")}</span>
             </div>
             {/* Progress bar */}
@@ -1343,24 +1288,13 @@ export default function AdminContentIngestPage() {
               totalSteps++;
               if (importDone) completedSteps++;
 
-              // 5-6. Episode-level media (optional)
+              // 5. Episode-level media (optional)
               if (addEpCover && hasEpCoverFile) {
                 totalSteps++;
                 if (epCoverDone > 0) completedSteps++;
               }
-              if (addEpAudio && hasEpAudioFile) {
-                totalSteps++;
-                if (epFullAudioDone > 0) completedSteps++;
-              }
-              if (addEpVideo && hasEpVideoFile) {
-                totalSteps++;
-                if (epFullVideoDone > 0) completedSteps += 1;
-                else if (stage === 'ep_full_video' && epFullVideoBytesTotal > 0) {
-                  completedSteps += Math.max(0, Math.min(1, epFullVideoBytesDone / epFullVideoBytesTotal));
-                }
-              }
 
-              // 7. Calculate Stats (required)
+              // 6. Calculate Stats (required)
               totalSteps++;
               if (statsDone) completedSteps++;
 
@@ -1390,7 +1324,7 @@ export default function AdminContentIngestPage() {
               : 'Chọn "Dừng" để hủy tiến trình upload ngay lập tức.'}
           </p>
           {deletionProgress && (
-            <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
+            <div className="mb-4 p-3 rounded-lg border-2" style={{ backgroundColor: 'var(--secondary)', borderColor: 'var(--primary)' }}>
               <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
               <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
               <ProgressBar percent={deletionPercent} />

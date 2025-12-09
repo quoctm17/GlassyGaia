@@ -2,11 +2,13 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiGetFilm, apiListEpisodes, apiDeleteEpisode, apiCalculateStats } from '../../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../../types';
-import { langLabel, countryCodeForLang } from '../../utils/lang';
+import { langLabel } from '../../utils/lang';
 import { sortLevelsByDifficulty } from '../../utils/levelSort';
-import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown, Film, Clapperboard, Book as BookIcon, AudioLines, CheckCircle, XCircle } from 'lucide-react';
+import { getLevelBadgeColors } from '../../utils/levelColors';
+import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, ChevronUp, ChevronDown, Film, Clapperboard, Book as BookIcon, AudioLines, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import PortalDropdown from '../../components/PortalDropdown';
 import ProgressBar from '../../components/ProgressBar';
+import LanguageTag from '../../components/LanguageTag';
 import toast from 'react-hot-toast';
 import { CONTENT_TYPE_LABELS, type ContentType } from '../../types/content';
 
@@ -15,7 +17,7 @@ export default function AdminContentDetailPage() {
   const navigate = useNavigate();
   const [item, setItem] = useState<FilmDoc | null>(null);
   const [languages, setLanguages] = useState<string[]>([]);
-  const [episodes, setEpisodes] = useState<Array<{ episode_number: number; title: string | null; slug: string; cover_url: string | null; full_audio_url: string | null; full_video_url: string | null; is_available?: boolean }>>([]);
+  const [episodes, setEpisodes] = useState<Array<{ episode_number: number; title: string | null; slug: string; cover_url: string | null; is_available?: boolean }>>([]);
   const [loadingItem, setLoadingItem] = useState(false);
   const [loadingEpisodes, setLoadingEpisodes] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +160,10 @@ export default function AdminContentDetailPage() {
             <Pencil className="w-4 h-4" />
             <span>Update</span>
           </button>
-          <button className="admin-btn secondary" onClick={() => navigate('/admin/content')}>← Back</button>
+          <button className="admin-btn secondary flex items-center gap-1.5" onClick={() => navigate('/admin/content')}>
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back</span>
+          </button>
         </div>
       </div>
       {loadingItem && <div className="admin-info">Loading content...</div>}
@@ -167,14 +172,14 @@ export default function AdminContentDetailPage() {
         <div className="space-y-4">
           {/* Content Details Panel */}
           <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Content Information</div>
+            <div className="typography-pressstart-1" style={{ fontSize: '12px', color: 'var(--primary)' }}>Content Information</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Title:</label>
-                <span className="text-gray-200">{item.title || '-'}</span>
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Title:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{item.title || '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Status:</label>
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Status:</label>
                 <span className={`status-badge ${(item.is_available ?? true) ? 'active' : 'inactive'}`}>
                   {(item.is_available ?? true) ? (
                     <>
@@ -190,8 +195,8 @@ export default function AdminContentDetailPage() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Type:</label>
-                <span className="inline-flex items-center gap-1.5 text-gray-200">
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Type:</label>
+                <span className="inline-flex items-center gap-1.5 typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>
                   {(() => {
                     const t = (item.type || '').toLowerCase();
                     if (t === 'movie') return <Film className="w-4 h-4 text-pink-300" />;
@@ -204,29 +209,28 @@ export default function AdminContentDetailPage() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Main Language:</label>
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Main Language:</label>
                 {item.main_language ? (
-                  <span className="inline-flex items-center gap-1 text-gray-200">
-                    <span className={`fi fi-${countryCodeForLang(item.main_language)} w-5 h-3.5`}></span>
-                    <span>{langLabel(item.main_language)}</span>
+                  <span className="inline-flex items-center gap-1 typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>
+                    <LanguageTag code={item.main_language} withName={true} size="md" />
                   </span>
-                ) : <span className="text-gray-200">-</span>}
+                ) : <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>-</span>}
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Release Year:</label>
-                <span className="text-gray-200">{item.release_year || '-'}</span>
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Release Year:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{item.release_year || '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Total Episodes:</label>
-                <span className="text-gray-200">{Number(item.total_episodes) > 0 ? item.total_episodes : '-'}</span>
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Total Episodes:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{Number(item.total_episodes) > 0 ? item.total_episodes : '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Total Languages:</label>
-                <span className="text-gray-200">{totalLanguages}</span>
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Total Languages:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{totalLanguages}</span>
               </div>
             </div>
             <div>
-              <label className="w-32 text-sm text-gray-400 block mb-3">Available Subs:</label>
+              <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4 block mb-3" style={{ color: 'var(--sub-language-text)' }}>Available Subs:</label>
               {languages.length ? (
                 <div className="inline-flex flex-wrap gap-2">
                   {languages.map(l => {
@@ -242,19 +246,19 @@ export default function AdminContentDetailPage() {
                       zh_trad: 'Traditional'
                     };
                     return (
-                      <span key={l} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border-2 border-pink-500/40 bg-[#1a0f24] text-xs text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.25)] hover:border-pink-400/60 transition-colors">
-                        <span className={`fi fi-${countryCodeForLang(l)} w-5 h-3.5`}></span>
+                      <span key={l} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border-2 typography-inter-4 hover:border-pink-400/60 transition-colors" style={{ backgroundColor: 'var(--secondary)', borderColor: 'var(--primary)', color: 'var(--text)' }}>
+                        <LanguageTag code={l} withName={false} size="md" />
                         <span>{baseLabel}</span>
-                        {hasVariant && <span className="text-[10px] text-pink-300/70">({variantMap[l]})</span>}
+                        {hasVariant && <span className="text-[10px]" style={{ color: 'var(--sub-language-text)' }}>({variantMap[l]})</span>}
                       </span>
                     );
                   })}
                 </div>
-              ) : <span className="text-gray-200">-</span>}
+              ) : <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>-</span>}
             </div>
             <div>
-              <label className="w-32 text-sm text-gray-400">Description:</label>
-              <div className="text-gray-200 mt-1">{item.description || '-'}</div>
+              <label className="w-40 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Description:</label>
+              <div className="typography-inter-2 mt-1" style={{ fontSize: '14px', color: 'var(--text)' }}>{item.description || '-'}</div>
             </div>
             {/* Cover images side-by-side */}
             {(coverDisplayUrl || coverLandscapeDisplayUrl) && (
@@ -262,25 +266,25 @@ export default function AdminContentDetailPage() {
                 {coverDisplayUrl && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <label className="text-sm text-gray-400">Cover (Portrait):</label>
+                      <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Portrait):</label>
                       <a href={coverDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
                         <ExternalLink className="w-4 h-4" />
                         Open
                       </a>
                     </div>
-                    <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                    <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 transition-colors" style={{ borderColor: 'var(--primary)', boxShadow: '0 0 10px rgba(236, 72, 153, 0.4)' }} />
                   </div>
                 )}
                 {coverLandscapeDisplayUrl && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <label className="text-sm text-gray-400">Cover (Landscape):</label>
+                      <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Landscape):</label>
                       <a href={coverLandscapeDisplayUrl} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
                         <ExternalLink className="w-4 h-4" />
                         Open
                       </a>
                     </div>
-                    <img src={coverLandscapeDisplayUrl} alt="cover landscape" className="w-48 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                    <img src={coverLandscapeDisplayUrl} alt="cover landscape" className="w-48 h-auto rounded border-2 transition-colors" style={{ borderColor: 'var(--primary)', boxShadow: '0 0 10px rgba(236, 72, 153, 0.4)' }} />
                   </div>
                 )}
               </div>
@@ -289,30 +293,33 @@ export default function AdminContentDetailPage() {
 
           {/* Stats Panel */}
           <div className="admin-panel space-y-3">
-            <div className="text-sm font-semibold text-pink-300">Statistics</div>
+            <div className="typography-pressstart-1" style={{ fontSize: '12px', color: 'var(--primary)' }}>Statistics</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Total Cards:</label>
-                <span className="text-gray-200">{item.num_cards ?? '-'}</span>
+                <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Total Cards:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{item.num_cards ?? '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <label className="w-32 text-sm text-gray-400">Avg Difficulty:</label>
-                <span className="text-gray-200">{typeof item.avg_difficulty_score === 'number' ? item.avg_difficulty_score.toFixed(1) : '-'}</span>
+                <label className="w-32 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Avg Difficulty:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{typeof item.avg_difficulty_score === 'number' ? item.avg_difficulty_score.toFixed(1) : '-'}</span>
               </div>
             </div>
             {levelStats && levelStats.length > 0 && (
               <div>
-                <div className="text-sm text-gray-400 mb-2">Level Distribution:</div>
+                <div className="typography-inter-4 mb-2" style={{ color: 'var(--sub-language-text)' }}>Level Distribution:</div>
                 <div className="space-y-2">
                   {levelStats.map((entry, idx) => (
-                    <div key={idx} className="bg-[#1a0f24] rounded-lg p-3 border-2 border-pink-500/50 shadow-[0_0_12px_rgba(236,72,153,0.25)]">
-                      <div className="text-sm text-pink-200 mb-2">{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
+                    <div key={idx} className="rounded-lg p-3 border-2" style={{ backgroundColor: 'var(--secondary)', borderColor: 'var(--primary)' }}>
+                      <div className="typography-inter-2 mb-2 font-bold" style={{ fontSize: '13px', color: 'var(--primary)' }}>{entry.framework}{entry.language ? ` · ${entry.language}` : ''}</div>
                       <div className="flex flex-wrap gap-2">
-                        {sortLevelsByDifficulty(entry.levels).map(([lvl, pct]) => (
-                          <div key={lvl} className="text-xs bg-gray-700/60 px-2 py-1 rounded">
-                            <span className="text-gray-300">{lvl}:</span> <span className="text-pink-300">{pct}%</span>
-                          </div>
-                        ))}
+                        {sortLevelsByDifficulty(entry.levels).map(([lvl, pct]) => {
+                          const colors = getLevelBadgeColors(lvl);
+                          return (
+                            <div key={lvl} className="typography-inter-4 px-2 py-1 rounded font-bold" style={{ backgroundColor: colors.background, color: colors.color }}>
+                              <span>{lvl}:</span> <span>{pct}%</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -355,8 +362,6 @@ export default function AdminContentDetailPage() {
                 </div>
               </th>
               <th>Cover</th>
-              <th>Full Audio</th>
-              <th>Full Video</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -367,8 +372,6 @@ export default function AdminContentDetailPage() {
                 <td>{String(ep.episode_number).padStart(3,'0')}</td>
                 <td className="admin-cell-ellipsis" title={ep.title || ''}>{ep.title || '-'}</td>
                 <td>{ep.cover_url ? <a href={ep.cover_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
-                <td>{ep.full_audio_url ? <a href={ep.full_audio_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
-                <td>{ep.full_video_url ? <a href={ep.full_video_url} target="_blank" rel="noreferrer" className="admin-btn secondary" onClick={e => e.stopPropagation()}>Open</a> : '-'}</td>
                 <td>
                   {(() => {
                     const available = (ep.is_available ?? true) ? true : false;
@@ -475,7 +478,7 @@ export default function AdminContentDetailPage() {
               
               <div className="admin-card-body">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-xs">Cover:</span>
+                  <span className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover:</span>
                   {ep.cover_url ? (
                     <a 
                       href={ep.cover_url} 
@@ -487,37 +490,7 @@ export default function AdminContentDetailPage() {
                       <ExternalLink className="w-3 h-3" />
                       <span>Open</span>
                     </a>
-                  ) : <span className="text-sm text-gray-400">-</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-xs">Full Audio:</span>
-                  {ep.full_audio_url ? (
-                    <a 
-                      href={ep.full_audio_url} 
-                      target="_blank" 
-                      rel="noreferrer" 
-                      className="admin-btn secondary !px-2 !py-1 flex items-center gap-1"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <AudioLines className="w-3 h-3" />
-                      <span>Open</span>
-                    </a>
-                  ) : <span className="text-sm text-gray-400">-</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-xs">Full Video:</span>
-                  {ep.full_video_url ? (
-                    <a 
-                      href={ep.full_video_url} 
-                      target="_blank" 
-                      rel="noreferrer" 
-                      className="admin-btn secondary !px-2 !py-1 flex items-center gap-1"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <Film className="w-3 h-3" />
-                      <span>Open</span>
-                    </a>
-                  ) : <span className="text-sm text-gray-400">-</span>}
+                  ) : <span className="typography-inter-4" style={{ color: 'var(--neutral)' }}>-</span>}
                 </div>
               </div>
               
