@@ -185,9 +185,6 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
 
   return (
     <div className="content-selector-panel">
-      <button className={`content-selector-header ${value===null? 'active':''}`} onClick={() => onChange(null)}>
-        <span>ALL SOURCES</span> <span className="count-pill">{totalCountComputed}</span>
-      </button>
       <div className="content-search-row">
         <div className="content-search-wrapper">
           <div className="content-search-icon"><Search className="w-4 h-4" /></div>

@@ -376,7 +376,7 @@ function SearchPage() {
             contentCounts={contentCounts}
             totalCount={globalTotal}
             filmFilter={filmFilter}
-            onSelectFilm={(id) => setFilmFilter(id)}
+            onSelectFilm={(id) => setFilmFilter(filmFilter === id ? null : id)}
             mainLanguage={preferences.main_language || "en"}
           />
         </aside>
@@ -466,7 +466,7 @@ function SearchPage() {
               />
             </div>
             <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
-              {loading ? "Searching..." : `${total} Results`}
+              {loading ? "Searching..." : filmFilter ? `${total} Results` : `${globalTotal} Results`}
             </span>
           </div>
         </div>

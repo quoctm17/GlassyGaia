@@ -266,11 +266,22 @@ export default function AdminImageMigrationPage() {
     try {
       // 1. Download original JPG via Worker proxy (to avoid CORS)
       if (logVerbose) addLog('info', `⬇️ Downloading: ${imageKey}`);
-      const downloadUrl = `${apiBase}/media/${imageKey}`;
+      
+      // IMPORTANT: Must use full worker URL, not relative path
+      // On production, relative /media/ paths resolve to frontend domain (not worker)
+      const workerBase = apiBase.replace(/\/$/, ''); // Remove trailing slash
+      const downloadUrl = `${workerBase}/media/${imageKey}`;
+      
       const response = await fetch(downloadUrl);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      // Validate content type before downloading blob
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.startsWith('image/')) {
+        throw new Error(`Invalid content type: ${contentType} (expected image/*, got HTML error page)`);
       }
       
       const blob = await response.blob();
