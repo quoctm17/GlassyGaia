@@ -67,7 +67,6 @@
   width: 100%;
   padding: 10px 12px 10px 40px;
   border: 2px solid;
-  border-radius: 8px;
   font-family: 'Press Start 2P', 'Courier New', monospace;
   font-size: 10px;
   outline: none;
@@ -205,7 +204,6 @@
 
 .content-selector-panel::-webkit-scrollbar-track {
   background-color: var(--hover-bg);
-  border-radius: 10px;
 }
 
 .content-selector-panel::-webkit-scrollbar-thumb {
