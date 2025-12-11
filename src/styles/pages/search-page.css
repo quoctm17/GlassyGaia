@@ -6,26 +6,33 @@
   padding: 0;
   position: relative;
   overflow-x: hidden;
-  height: 100vh;
+  overflow-y: visible;
+  height: auto;
   display: flex;
   flex-direction: column;
 }
 
 .search-flex-row {
   display: flex;
-  gap: 16px;
+  gap: 0;
   position: relative;
-  align-items: flex-start;
-  flex: 1;
+  align-items: stretch;
+  width: 100%;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .filter-panel {
   flex-shrink: 0;
   transition: all 0.3s ease;
   position: relative;
-  overflow-y: auto;
+  height: auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  align-self: stretch;
+  overflow: hidden;
 }
 
 .filter-panel.open {
@@ -77,10 +84,10 @@
   flex: 1;
   min-width: 0;
   width: 100%;
-  height: 100%;
-  overflow-y: auto;
+  height: auto;
   display: flex;
   flex-direction: column;
+  overflow: visible;
 }
 
 .search-controls {
@@ -88,6 +95,7 @@
   top: 0;
   z-index: 50;
   background-color: var(--background);
+  padding-top: 16px;
   padding-bottom: 16px;
   margin-bottom: 16px;
   flex-shrink: 0;
@@ -96,43 +104,50 @@
 /* ================= Responsive Design ================= */
 /* Breakpoints: xs=480px, sm=640px, md=768px, lg=1024px, xl=1280px, 2xl=1440px, 3xl=1920px */
 
-/* Large Desktop and below (2xl: 1440px) */
+/* Convert font sizes and spacing from 1440px and below, but keep desktop FilterPanel */
 @media (max-width: 1440px) {
-  .search-layout-wrapper {
-    padding: 16px;
-  }
-
   .search-controls {
-    padding: 12px 16px;
+    padding: 8px;
+  }
+}
+
+/* Large Desktop and below (2xl: 1440px) */
+@media (max-width: 1280px) {
+  .search-layout-wrapper {
+    padding: 8px;
   }
 }
 
 /* Desktop and below (xl: 1280px) */
 @media (max-width: 1280px) {
   .search-layout-wrapper {
-    padding: 12px;
+    padding: 8px;
+  }
+
+  .search-controls {
+    padding: 8px;
   }
 }
 
 /* Laptop and below (lg: 1024px) */
 @media (max-width: 1024px) {
   .search-layout-wrapper {
-    padding: 12px;
+    padding: 8px;
   }
 
   .search-controls {
-    padding: 10px 12px;
+    padding: 6px;
   }
 
   .filter-panel {
-    width: 280px !important;
+    width: 300px !important;
   }
 }
 
 /* Mobile/Tablet (md: 768px and below) */
 @media (max-width: 768px) {
   .search-layout-wrapper {
-    padding: 8px;
+    padding: 4px;
   }
 
   .filter-panel {
@@ -140,8 +155,8 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 300px !important;
-    max-width: 85vw;
+    width: 280px !important;
+    max-width: 80vw;
     z-index: 1000;
     overflow-y: auto;
   }
@@ -169,18 +184,23 @@
   }
 
   .search-controls {
-    padding: 8px;
+    padding: 6px;
   }
 }
 
 /* Small Mobile (sm: 640px and below) */
 @media (max-width: 640px) {
   .search-layout-wrapper {
-    padding: 4px;
+    padding: 2px;
   }
 
   .search-controls {
-    padding: 6px;
+    padding: 4px;
+  }
+
+  .filter-panel {
+    width: 280px !important;
+    max-width: 90vw;
   }
 }
 

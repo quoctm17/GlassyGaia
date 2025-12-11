@@ -442,7 +442,11 @@ export default {
         const q = url.searchParams.get('q') || '';
         const mainLanguage = url.searchParams.get('main_language');
         const type = url.searchParams.get('type');
-        const contentSlug = url.searchParams.get('content_slug');
+        const contentSlugParam = url.searchParams.get('content_slug');
+        const contentSlugs = contentSlugParam ? contentSlugParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const hasContentFilter = contentSlugs.length > 0;
+        // Build comma-separated list for IN-like filtering (using instr for flexibility)
+        const contentSlugsFilter = contentSlugs.length > 0 ? ',' + contentSlugs.join(',') + ',' : null;
         const minDifficulty = url.searchParams.get('minDifficulty');
         const maxDifficulty = url.searchParams.get('maxDifficulty');
         const minLevel = url.searchParams.get('minLevel');
@@ -473,6 +477,7 @@ export default {
           if (!k) return null;
           return basePublic ? `${basePublic}/${k}` : `${url.origin}/media/${k}`;
         };
+        
         const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || url.searchParams.get('subtitle_language') || null;
         const subtitleLangsArr = subtitleLanguagesCsv ? Array.from(new Set(String(subtitleLanguagesCsv).split(',').map(s => s.trim()).filter(Boolean))) : [];
         const subtitleLangsCount = subtitleLangsArr.length;
@@ -593,8 +598,10 @@ export default {
                   AND cs.language = ci.main_language
                   AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
                   AND (?3 IS NULL OR ci.type = ?3)
-                  AND (?8 IS NULL OR 1=1)
+                  AND (?8 IS NULL OR ci.slug = ?8)
                   AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                  AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                  AND (?5 IS NULL OR c.difficulty_score <= ?5)
                   AND (?5 IS NULL OR c.difficulty_score <= ?5)
                   AND (
                     ?9 IS NULL OR EXISTS (
@@ -640,7 +647,7 @@ export default {
                 AND cs.language = ci.main_language
                 AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
-                AND (?8 IS NULL OR 1=1)
+                AND (?8 IS NULL OR ci.slug = ?8)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
                 AND (
@@ -668,59 +675,61 @@ export default {
             `;
             
             try {
-              const { results } = await env.DB.prepare(stmtLike)
-                .bind(
-                  qNorm,                // ?1
-                  mainLanguage,         // ?2
-                  type,                 // ?3
-                  minDifficulty,        // ?4
-                  maxDifficulty,        // ?5
-                  subtitleLanguagesCsv, // ?6
-                  subtitleLangsCount,   // ?7
-                  contentSlug,          // ?8
-                  minIdxEff,            // ?9
-                  maxIdxEff,            // ?10
-                  framework,            // ?11
-                  altMain1,             // ?12
-                  altMain2,             // ?13
-                  size,                 // ?14
-                  offset                // ?15
-                )
-                .all();
-              const countsRes = await env.DB.prepare(countLike)
-                .bind(
-                  qNorm,                // ?1
-                  mainLanguage,         // ?2
-                  type,                 // ?3
-                  minDifficulty,        // ?4
-                  maxDifficulty,        // ?5
-                  subtitleLanguagesCsv, // ?6
-                  subtitleLangsCount,   // ?7
-                  contentSlug,          // ?8
-                  minIdxEff,            // ?9
-                  maxIdxEff,            // ?10
-                  framework,            // ?11
-                  altMain1,             // ?12
-                  altMain2              // ?13
-                )
-                .all();
-              const totalRes = await env.DB.prepare(totalLike)
-                .bind(
-                  qNorm,                // ?1
-                  mainLanguage,         // ?2
-                  type,                 // ?3
-                  minDifficulty,        // ?4
-                  maxDifficulty,        // ?5
-                  subtitleLanguagesCsv, // ?6
-                  subtitleLangsCount,   // ?7
-                  contentSlug,          // ?8
-                  minIdxEff,            // ?9
-                  maxIdxEff,            // ?10
-                  framework,            // ?11
-                  altMain1,             // ?12
-                  altMain2              // ?13
-                )
-                .all();
+              const likeStmt = env.DB.prepare(stmtLike);
+              const bindParams = [
+                qNorm,                // ?1
+                mainLanguage,         // ?2
+                type,                 // ?3
+                minDifficulty,        // ?4
+                maxDifficulty,        // ?5
+                subtitleLanguagesCsv, // ?6
+                subtitleLangsCount,   // ?7
+                hasContentFilter ? 1 : 0, // ?8 (boolean flag)
+                minIdxEff,            // ?9
+                maxIdxEff,            // ?10
+                framework,            // ?11
+                altMain1,             // ?12
+                altMain2,             // ?13
+                size,                 // ?14
+                offset                // ?15
+              ];
+              const { results } = await likeStmt.bind(...bindParams).all();
+              
+              const countStmt = env.DB.prepare(countLike);
+              const countParams = [
+                qNorm,                // ?1
+                mainLanguage,         // ?2
+                type,                 // ?3
+                minDifficulty,        // ?4
+                maxDifficulty,        // ?5
+                subtitleLanguagesCsv, // ?6
+                subtitleLangsCount,   // ?7
+                contentSlugs[0] || null, // ?8 (single slug)
+                minIdxEff,            // ?9
+                maxIdxEff,            // ?10
+                framework,            // ?11
+                altMain1,             // ?12
+                altMain2              // ?13
+              ];
+              const countsRes = await countStmt.bind(...countParams).all();
+              
+              const totalStmt = env.DB.prepare(totalLike);
+              const totalParams = [
+                qNorm,                // ?1
+                mainLanguage,         // ?2
+                type,                 // ?3
+                minDifficulty,        // ?4
+                maxDifficulty,        // ?5
+                subtitleLanguagesCsv, // ?6
+                subtitleLangsCount,   // ?7
+                contentSlugs[0] || null, // ?8 (single slug)
+                minIdxEff,            // ?9
+                maxIdxEff,            // ?10
+                framework,            // ?11
+                altMain1,             // ?12
+                altMain2              // ?13
+              ];
+              const totalRes = await totalStmt.bind(...totalParams).all();
               
               const mapped = (results || []).map(r => {
                 let levels = null;
@@ -830,7 +839,7 @@ export default {
             ) levels ON levels.card_id = r.card_id
             LEFT JOIN req ON req.card_id = r.card_id
             WHERE (?8 = 0 OR req.cnt = ?8)
-              AND (?10 IS NULL OR r.content_slug = ?10)
+              AND (?10 IS NULL OR instr(?10, ',' || r.content_slug || ',') > 0)
               AND (?9 IS NULL OR 1=1)
             ORDER BY r.rn ASC, r.content_slug ASC, r.card_number ASC
             LIMIT ?5 OFFSET ?6;
@@ -849,7 +858,7 @@ export default {
               WHERE ci.id IN (SELECT id FROM contents)
                 AND (?3 IS NULL OR c.difficulty_score >= ?3)
                 AND (?4 IS NULL OR c.difficulty_score <= ?4)
-                AND (?10 IS NULL OR 1=1)
+                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
                 AND (
                   ?11 IS NULL OR EXISTS (
                     SELECT 1 FROM card_difficulty_levels dl
@@ -898,7 +907,7 @@ export default {
               WHERE ci.id IN (SELECT id FROM contents)
                 AND (?3 IS NULL OR c.difficulty_score >= ?3)
                 AND (?4 IS NULL OR c.difficulty_score <= ?4)
-                AND (?10 IS NULL OR 1=1)
+                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
                 AND (
                   ?11 IS NULL OR EXISTS (
                     SELECT 1 FROM card_difficulty_levels dl
@@ -933,47 +942,32 @@ export default {
             WHERE (?8 = 0 OR req.cnt = ?8);
           `;
           try {
-            const { results } = await env.DB.prepare(stmtFallback)
-              .bind(mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, page, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2)
-              .all();
-            const countsRes = await env.DB.prepare(stmtCountFallback)
-              .bind(
-                mainLanguage, // ?1
-                type,         // ?2
-                minDifficulty, // ?3
-                maxDifficulty, // ?4
-                size,          // ?5 (unused filler)
-                offset,        // ?6 (unused filler)
-                subtitleLanguagesCsv, // ?7
-                subtitleLangsCount,   // ?8
-                page,                  // ?9 (unused filler)
-                contentSlug,            // ?10
-                minIdxEff,             // ?11
-                maxIdxEff,             // ?12
-                framework,              // ?13
-                altMain1,              // ?14
-                altMain2               // ?15
-              )
-              .all();
-            const totalRes = await env.DB.prepare(stmtTotalFallback)
-              .bind(
-                mainLanguage, // ?1
-                type,         // ?2
-                minDifficulty, // ?3
-                maxDifficulty, // ?4
-                size,          // ?5 (unused filler)
-                offset,        // ?6 (unused filler)
-                subtitleLanguagesCsv, // ?7
-                subtitleLangsCount,   // ?8
-                page,                  // ?9 (unused filler)
-                contentSlug,            // ?10
-                minIdxEff,             // ?11
-                maxIdxEff,             // ?12
-                framework,              // ?13
-                altMain1,              // ?14
-                altMain2               // ?15
-              )
-              .all();
+            const fallbackStmt = env.DB.prepare(stmtFallback);
+            const fallbackParams = [
+              mainLanguage, type, minDifficulty, maxDifficulty, size, offset, 
+              subtitleLanguagesCsv, subtitleLangsCount, page, 
+              contentSlugsFilter, // ?10 (multiple slugs comma-separated)
+              minIdxEff, maxIdxEff, framework, altMain1, altMain2
+            ];
+            const { results } = await fallbackStmt.bind(...fallbackParams).all();
+            
+            const countFallbackStmt = env.DB.prepare(stmtCountFallback);
+            const countFallbackParams = [
+              mainLanguage, type, minDifficulty, maxDifficulty, size, offset,
+              subtitleLanguagesCsv, subtitleLangsCount, page,
+              contentSlugsFilter, // ?10 (multiple slugs comma-separated)
+              minIdxEff, maxIdxEff, framework, altMain1, altMain2
+            ];
+            const countsRes = await countFallbackStmt.bind(...countFallbackParams).all();
+            
+            const totalFallbackStmt = env.DB.prepare(stmtTotalFallback);
+            const totalFallbackParams = [
+              mainLanguage, type, minDifficulty, maxDifficulty, size, offset,
+              subtitleLanguagesCsv, subtitleLangsCount, page,
+              contentSlugsFilter, // ?10 (multiple slugs comma-separated)
+              minIdxEff, maxIdxEff, framework, altMain1, altMain2
+            ];
+            const totalRes = await totalFallbackStmt.bind(...totalFallbackParams).all();
             const mapped = (results || []).map(r => {
               let levels = null;
               if (r.levels_json) {
@@ -1084,9 +1078,14 @@ export default {
           LIMIT ?6 OFFSET ?7;
         `;
         try {
-          const { results } = await env.DB.prepare(stmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, size, offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars)
-            .all();
+          const ftsStmt = env.DB.prepare(stmt);
+          const ftsParams = [
+            ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
+            size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
+            contentSlugs[0] || null, // ?10 (single slug)
+            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
+          ];
+          const { results } = await ftsStmt.bind(...ftsParams).all();
           const countStmt = `
             WITH matches AS (
               SELECT DISTINCT cs.card_id, ci.slug AS content_slug
@@ -1106,7 +1105,7 @@ export default {
                 AND cs.language = ci.main_language
                 AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
-                AND (?10 IS NULL OR 1=1)
+                AND (?10 IS NULL OR ci.slug = ?10)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
                 AND (
@@ -1131,7 +1130,6 @@ export default {
                   )
                 )
                 AND (?9 = 0 OR req.cnt = ?9)
-                ${kanjiFilterSql}
             )
             SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
           `;
@@ -1154,7 +1152,7 @@ export default {
                 AND cs.language = ci.main_language
                 AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
-                AND (?10 IS NULL OR 1=1)
+                AND (?10 IS NULL OR ci.slug = ?10)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
                 AND (
@@ -1179,16 +1177,26 @@ export default {
                   )
                 )
                 AND (?9 = 0 OR req.cnt = ?9)
-                ${kanjiFilterSql}
             )
             SELECT COUNT(*) AS total FROM matches;
           `;
-          const countsRes = await env.DB.prepare(countStmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars)
-            .all();
-          const totalRes = await env.DB.prepare(totalStmt)
-            .bind(ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, /* size */ size, /* offset */ offset, subtitleLanguagesCsv, subtitleLangsCount, contentSlug, minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars)
-            .all();
+          const countFtsStmt = env.DB.prepare(countStmt);
+          const countFtsParams = [
+            ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
+            size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
+            contentSlugs[0] || null, // ?10 (single slug)
+            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
+          ];
+          const countsRes = await countFtsStmt.bind(...countFtsParams).all();
+          
+          const totalFtsStmt = env.DB.prepare(totalStmt);
+          const totalFtsParams = [
+            ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
+            size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
+            contentSlugs[0] || null, // ?10 (single slug)
+            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
+          ];
+          const totalRes = await totalFtsStmt.bind(...totalFtsParams).all();
           const mapped = (results || []).map(r => {
             let levels = null;
             if (r.levels_json) {

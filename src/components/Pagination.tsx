@@ -37,10 +37,16 @@ export default function Pagination(props: PaginationProps) {
   const sizes = props.sizes || [20, 50, 100, 200];
   const disabled = props.loading;
   const [pageInput, setPageInput] = useState<number>(props.mode === 'count' ? props.page : (props.pageIndex + 1));
+  
+  // Extract dependencies to avoid 'any' and complex expressions
+  const propMode = props.mode;
+  const propPage = (props as CountModeProps).page;
+  const propPageIndex = (props as CursorModeProps).pageIndex;
+  
   useEffect(() => {
-    if (props.mode === 'count') setPageInput(props.page);
-    else setPageInput(props.pageIndex + 1);
-  }, [props.mode, (props as any).page, (props as any).pageIndex]);
+    if (propMode === 'count') setPageInput(propPage);
+    else setPageInput(propPageIndex + 1);
+  }, [propMode, propPage, propPageIndex]);
 
   if (props.mode === 'count') {
     const { page, pageSize, total, onPageChange, onPageSizeChange } = props;

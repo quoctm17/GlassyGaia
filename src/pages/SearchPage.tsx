@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
 import type { CardDoc, LevelFrameworkStats } from "../types";
@@ -29,7 +29,7 @@ function SearchPage() {
   const [total, setTotal] = useState<number>(0); // paginator total (scoped when film selected)
   const [globalTotal, setGlobalTotal] = useState<number>(0); // always global All Sources total
   const [contentCounts, setContentCounts] = useState<Record<string, number>>({});
-  const [filmFilter, setFilmFilter] = useState<string | null>(null);
+  const [filmFilter, setFilmFilter] = useState<string[]>([]); // Changed to array for multi-select
   const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
   const [films, setFilms] = useState<string[]>([]);
   const [filmTypeMap, setFilmTypeMap] = useState<Record<string, string>>({});
@@ -46,6 +46,9 @@ function SearchPage() {
   const [filterModalOpen, setFilterModalOpen] = useState<boolean>(false); // Filter modal visibility
   const [customizeModalOpen, setCustomizeModalOpen] = useState<boolean>(false); // Customize modal visibility
   // removed filmAvailMap (unused after suggestion source simplification)
+
+  // Use AbortController to cancel stale global count requests
+  const globalCountsAbortRef = useRef<AbortController | null>(null);
 
   // Detect mobile/tablet screen
   useEffect(() => {
@@ -92,8 +95,11 @@ function SearchPage() {
       // Pass all selected subtitle languages (CSV) up to 3
       const subsArr = Array.isArray(preferences.subtitle_languages) ? preferences.subtitle_languages : [];
       if (subsArr.length) params.set('subtitle_languages', subsArr.join(','));
-      // Scope to a specific content when selected so pagination is per-content
-      if (filmFilter) params.set('content_slug', filmFilter);
+      // When content filter is active, pass to backend for proper pagination
+      // Otherwise get global results for ContentSelector display
+      if (filmFilter.length > 0) {
+        params.set('content_slug', filmFilter.join(','));
+      }
       params.set('page', String(pageNum));
       params.set('size', String(sizeOverride ?? pageSize));
       const base = ((import.meta as unknown) as { env?: Record<string, string | undefined> }).env?.VITE_WORKER_BASE || '';
@@ -159,13 +165,8 @@ function SearchPage() {
           levels,
         };
       });
-      const perContent = payload.per_content || {};
-      setContentCounts(perContent);
-      const totalVal = filmFilter
-        ? Number(perContent?.[filmFilter] ?? 0)
-        : Number(payload.total ?? 0);
-      setTotal(totalVal);
-      // Keep global total regardless of current film selection
+
+      setTotal(Number(payload.total ?? 0));
       setGlobalTotal(Number(payload.total ?? 0));
       // In pagination mode we replace the list on each fetch
       setAllResults(mapped);
@@ -181,6 +182,50 @@ function SearchPage() {
     }
   };
 
+  // Fetch global per-content counts for ContentSelector (without content_slug filter)
+  // This ensures ContentSelector always shows counts for all content
+  const fetchGlobalCounts = async (q: string) => {
+    try {
+      // Cancel any previous global counts request to avoid stale data
+      if (globalCountsAbortRef.current) {
+        globalCountsAbortRef.current.abort();
+      }
+      // Create new abort controller for this request
+      const abortController = new AbortController();
+      globalCountsAbortRef.current = abortController;
+
+      const params = new URLSearchParams();
+      params.set('q', q || '');
+      // For Japanese queries, also provide an alternate bracketed reading form to help backend matching
+      if (q && hasJapanese(q)) {
+        const hira = toHiragana(q);
+        const minLength = /^[\u3040-\u309F\u30A0-\u30FF]+$/.test(q.trim()) ? 2 : 1;
+        if (hira && q.trim().length >= minLength) {
+          params.set('q_hira', hira);
+          params.set('q_bracket', `[${hira}]`);
+        }
+      }
+      if (preferences.main_language) params.set('main_language', preferences.main_language);
+      // IMPORTANT: Do NOT apply difficulty/level/subtitle filters to global counts
+      // We want to show counts for ALL content regardless of other filters
+      // This allows users to see and add more content even when filters are active
+      params.set('page', '1');
+      params.set('size', '1');
+      const base = ((import.meta as unknown) as { env?: Record<string, string | undefined> }).env?.VITE_WORKER_BASE || '';
+      const apiUrl = base ? `${base.replace(/\/$/, '')}/api/search?${params.toString()}` : `/api/search?${params.toString()}`;
+      const res = await fetch(apiUrl, { signal: abortController.signal, headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const perContent = payload.per_content || {};
+      setContentCounts(perContent);
+    } catch (e) {
+      // Ignore abort errors (expected when request is cancelled)
+      if ((e as Error).name !== 'AbortError') {
+        console.warn("Global counts fetch error:", (e as Error)?.message);
+      }
+    }
+  };
+
   const runSearch = async (q: string) => {
     setPage(1);
     // If query contains Japanese, normalize to Hiragana before sending to backend
@@ -192,7 +237,11 @@ function SearchPage() {
         qToSend = toHiragana(q);
       }
     }
-    await fetchPage(qToSend, 1);
+    // Fetch filtered results for display AND global counts for ContentSelector
+    await Promise.all([
+      fetchPage(qToSend, 1),
+      fetchGlobalCounts(qToSend)
+    ]);
   };
 
   useEffect(() => {
@@ -321,14 +370,18 @@ function SearchPage() {
     return films.filter(id => (counts[id] || 0) > 0);
   }, [films, contentCounts]);
 
-  // Reset film filter if current selection no longer has results for active query
+  // Reset film filter if selected films no longer have results for active query
   useEffect(() => {
-    if (filmFilter && !filmsWithResults.includes(filmFilter)) {
-      setFilmFilter(null);
+    if (filmFilter.length > 0) {
+      const validFilters = filmFilter.filter(id => filmsWithResults.includes(id));
+      if (validFilters.length !== filmFilter.length) {
+        setFilmFilter(validFilters);
+      }
     }
   }, [filmFilter, filmsWithResults]);
 
-  // Rely on server-side filters for difficulty and content scoping.
+  // When content is filtered, backend returns filtered total in pagination
+  // So we don't need to filter displayedResults client-side
   const displayedResults = allResults;
 
   const startDrag = (e: React.MouseEvent) => {
@@ -376,7 +429,8 @@ function SearchPage() {
             contentCounts={contentCounts}
             totalCount={globalTotal}
             filmFilter={filmFilter}
-            onSelectFilm={(id) => setFilmFilter(filmFilter === id ? null : id)}
+            onSelectFilm={(ids) => setFilmFilter(ids)}
+            allContentIds={films}
             mainLanguage={preferences.main_language || "en"}
           />
         </aside>
@@ -407,7 +461,7 @@ function SearchPage() {
               value={query}
               onChange={(v) => setQuery(v)}
               onClear={() => {
-                setFilmFilter(null);
+                setFilmFilter([]);
               }}
               placeholder={`Search across all films...`}
               loading={loading}
@@ -466,7 +520,7 @@ function SearchPage() {
               />
             </div>
             <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
-              {loading ? "Searching..." : filmFilter ? `${total} Results` : `${globalTotal} Results`}
+              {loading ? "Searching..." : `${total} Results`}
             </span>
           </div>
         </div>

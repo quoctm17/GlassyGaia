@@ -11,8 +11,9 @@ interface FilterPanelProps {
   allResults: CardDoc[]; // results already filtered by query (not difficulty yet)
   contentCounts?: Record<string, number>; // server-side counts across full result set
   totalCount?: number; // server-side total across all contents
-  filmFilter: string | null;
-  onSelectFilm: (filmId: string | null) => void;
+  allContentIds?: string[]; // ALL available content IDs
+  filmFilter: string[];
+  onSelectFilm: (filmIds: string[]) => void;
   mainLanguage: string;
 }
 
@@ -24,6 +25,7 @@ export default function FilterPanel({
   allResults, 
   contentCounts, 
   totalCount, 
+  allContentIds,
   filmFilter, 
   onSelectFilm, 
   mainLanguage 
@@ -36,6 +38,7 @@ export default function FilterPanel({
         allResults={allResults}
         contentCounts={contentCounts}
         totalCount={totalCount}
+        allContentIds={allContentIds}
         filmTypeMapExternal={filmTypeMap}
         filmTitleMapExternal={filmTitleMap}
         filmLangMapExternal={filmLangMap}

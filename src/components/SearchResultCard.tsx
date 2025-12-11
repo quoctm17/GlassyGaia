@@ -11,8 +11,6 @@ import threeDotsIcon from "../assets/icons/three-dots.svg";
 import buttonPlayIcon from "../assets/icons/button-play.svg";
 import eyeIcon from "../assets/icons/eye.svg";
 import warningIcon from "../assets/icons/icon-warning.svg";
-import informationIcon from "../assets/icons/information.svg";
-import loopIcon from "../assets/icons/loop.svg";
 
 // Global registry to ensure only one audio plays at a time across all cards
 const activeAudioInstances = new Set<HTMLAudioElement>();
@@ -44,6 +42,8 @@ export default function SearchResultCard({
   const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [tooltipText, setTooltipText] = useState<string | null>(null);
+  const [tooltipVisible, setTooltipVisible] = useState<boolean>(false);
 
   // Update card when initialCard changes
   useEffect(() => {
@@ -129,7 +129,7 @@ export default function SearchResultCard({
     // - Always show the film's primary language first (when provided)
     // - Then show user's selected secondary subtitle languages, ordered by our stable ORDER
     const primary = primaryLang
-      ? canonicalizeLangCode(primaryLang) || primaryLang
+      ? (canonicalizeLangCode(primaryLang) || primaryLang)
       : undefined;
     // Build secondary list from user's subtitle preferences
     const secondaryAll = (
@@ -858,7 +858,7 @@ export default function SearchResultCard({
             >
               <img src={buttonPlayIcon} alt="Previous" style={{ transform: 'rotate(180deg)' }} />
             </button>
-            <div className="card-image-wrapper" title={card.audio_url ? "Play Audio (Space) • Replay (R)" : undefined}>
+            <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
               <img
                 src={card.image_url}
                 alt={card.id}
@@ -883,40 +883,6 @@ export default function SearchResultCard({
               title="Next Card (D)"
             >
               <img src={buttonPlayIcon} alt="Next" />
-            </button>
-          </div>
-          
-          {/* Action buttons for mouse users */}
-          <div className="card-action-buttons">
-            <button 
-              className="card-action-btn"
-              onClick={handleMoveToPrevCardHover}
-              title="Move to Previous Card (Shift)"
-            >
-              ↑ Prev
-            </button>
-            <button 
-              className="card-action-btn"
-              onClick={handleReplayAudio}
-              disabled={!card.audio_url}
-              title="Replay Audio (R)"
-            >
-              <img src={loopIcon} alt="Replay" style={{ width: '16px', height: '16px' }} />
-            </button>
-            <button 
-              className="card-action-btn"
-              onClick={handleReturnToOriginal}
-              disabled={currentCardIndex === originalCardIndex || originalCardIndex < 0}
-              title={`Return to Original Card (C) - Current: ${currentCardIndex}, Original: ${originalCardIndex}`}
-            >
-              ⟲ Return
-            </button>
-            <button 
-              className="card-action-btn"
-              onClick={handleMoveToNextCardHover}
-              title="Move to Next Card (Enter)"
-            >
-              ↓ Next
             </button>
           </div>
         </div>
@@ -985,19 +951,28 @@ export default function SearchResultCard({
               return (
                 <div
                   key={code}
-                  className={`${roleClass} ${rubyClass}`}
+                  className={`${roleClass} ${rubyClass} subtitle-row`}
                   style={{
                     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
                     fontSize: isPrimary ? "24px" : "18px",
                     fontWeight: isPrimary ? 700 : 400,
                     lineHeight: 1.5,
                     color: isPrimary ? "var(--main-language-text)" : undefined,
+                    position: "relative",
                   }}
                 >
                   <span className={`inline-block align-middle mr-1.5 text-sm fi fi-${countryCodeForLang(code)}`}></span>
                   <span
+                    className="subtitle-text"
+                    onMouseEnter={() => { setTooltipText(raw); setTooltipVisible(true); }}
+                    onMouseLeave={() => { setTooltipText(null); setTooltipVisible(false); }}
                     dangerouslySetInnerHTML={{ __html: html }}
                   />
+                  {tooltipVisible && tooltipText === raw && (
+                    <div className="subtitle-tooltip-custom">
+                      {raw}
+                    </div>
+                  )}
                 </div>
               );
             });
@@ -1007,13 +982,6 @@ export default function SearchResultCard({
 
         {/* Right: Favorite button and Menu */}
         <div className="card-right-section">
-          <button
-            className="pixel-btn-info"
-            title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)"
-          >
-            <img src={informationIcon} alt="Info" />
-          </button>
-          
           <button
             className={`pixel-btn-fav ${favorite ? "active" : ""}`}
             onClick={onToggleFavorite}

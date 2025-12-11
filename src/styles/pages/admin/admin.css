@@ -13,7 +13,7 @@
     display: flex;
     flex-direction: column;
     box-shadow: none;
-    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-family: 'Inter', sans-serif;
 }
 
 .admin-sidenav-header {
@@ -77,7 +77,7 @@
   color: #FFFFFF;
   padding: 8px 16px;
   font-size: 11px;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-family: 'Inter', sans-serif;
   border: 3px solid var(--hover-select);
   border-radius: 50px;
   cursor: pointer;
@@ -129,7 +129,7 @@
   border-radius: 8px;
   font-size: 13px;
   box-shadow: 0 0 0 2px rgba(236,72,153,0.15);
-  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-family: 'Inter', sans-serif;
   letter-spacing: 0.5px;
 }.admin-input:focus {
     outline: none;
@@ -302,7 +302,7 @@
 .admin-title {
   font-size: 22px;
   font-weight: 700;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-family: 'Inter', sans-serif;
   color: var(--primary);
 }.admin-table-wrapper {
     border: 3px solid var(--primary);
@@ -325,7 +325,7 @@
   text-align: left;
   padding: 10px;
   font-weight: 700;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-family: 'Inter', sans-serif;
   font-size: 11px;
   border-bottom: 2px solid var(--primary);
   color: var(--primary);
@@ -344,7 +344,7 @@
     text-align: center;
     padding: 18px !important;
     color: var(--neutral);
-    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-family: 'Inter', sans-serif;
     font-size: 10px;
 }
 
@@ -403,7 +403,7 @@
     gap: 8px;
     padding: 8px 12px;
     font-size: 11px;
-    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-family: 'Inter', sans-serif;
     color: var(--neutral);
     cursor: pointer;
 }
@@ -415,7 +415,7 @@
 .admin-dropdown-clear {
     padding: 8px 12px;
     font-size: 10px;
-    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-family: 'Inter', sans-serif;
     color: var(--primary);
     cursor: pointer;
 }
@@ -639,7 +639,7 @@
 .admin-card-title {
     font-size: 14px;
     font-weight: 700;
-    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-family: 'Inter', sans-serif;
     color: var(--primary);
     flex: 1;
     min-width: 0;
@@ -676,7 +676,7 @@
 .admin-card-label {
     color: var(--primary);
     font-weight: 600;
-    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-family: 'Inter', sans-serif;
     font-size: 9px;
     min-width: 90px;
     flex-shrink: 0;
@@ -823,7 +823,7 @@ html.no-flag-emoji .emoji-flag { display: none; }
   border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-family: 'Inter', sans-serif;
   letter-spacing: 0.5px;
 }
 

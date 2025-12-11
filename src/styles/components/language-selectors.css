@@ -3,9 +3,9 @@
 .language-selector-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 4px 8px;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 4px 6px;
   border: none;
   border-radius: 4px;
   background: transparent;
@@ -13,6 +13,7 @@
   cursor: pointer;
   transition: all 0.3s ease;
   min-width: fit-content;
+  white-space: nowrap;
 }
 
 /* Apply typography from typography.css */
@@ -22,6 +23,25 @@
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: 0.5px;
+}
+
+/* Responsive: smaller desktop screens (768px to 1024px) */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .language-selector-btn {
+    font-size: 13px;
+    padding: 3px 5px;
+    gap: 3px;
+  }
+  
+  .language-selector-btn img {
+    width: 18px;
+    height: 12px;
+  }
+  
+  .language-selector-btn svg {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 .language-selector-btn:hover {
@@ -181,6 +201,22 @@
 }
 
 @media (max-width: 768px) {
+  .language-selector-btn {
+    font-size: 13px;
+    padding: 3px 5px;
+    gap: 3px;
+  }
+  
+  .language-selector-btn img {
+    width: 18px;
+    height: 12px;
+  }
+  
+  .language-selector-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  
   .language-options-list {
     max-height: 320px;
   }
