@@ -42,6 +42,8 @@ export default function SearchResultCard({
   const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [tooltipText, setTooltipText] = useState<string | null>(null);
+  const [tooltipVisible, setTooltipVisible] = useState<boolean>(false);
 
   // Update card when initialCard changes
   useEffect(() => {
@@ -127,7 +129,7 @@ export default function SearchResultCard({
     // - Always show the film's primary language first (when provided)
     // - Then show user's selected secondary subtitle languages, ordered by our stable ORDER
     const primary = primaryLang
-      ? canonicalizeLangCode(primaryLang) || primaryLang
+      ? (canonicalizeLangCode(primaryLang) || primaryLang)
       : undefined;
     // Build secondary list from user's subtitle preferences
     const secondaryAll = (
@@ -856,7 +858,7 @@ export default function SearchResultCard({
             >
               <img src={buttonPlayIcon} alt="Previous" style={{ transform: 'rotate(180deg)' }} />
             </button>
-            <div className="card-image-wrapper" title={card.audio_url ? "Play Audio (Space) • Replay (R)" : undefined}>
+            <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
               <img
                 src={card.image_url}
                 alt={card.id}
@@ -949,19 +951,28 @@ export default function SearchResultCard({
               return (
                 <div
                   key={code}
-                  className={`${roleClass} ${rubyClass}`}
+                  className={`${roleClass} ${rubyClass} subtitle-row`}
                   style={{
                     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
                     fontSize: isPrimary ? "24px" : "18px",
                     fontWeight: isPrimary ? 700 : 400,
                     lineHeight: 1.5,
                     color: isPrimary ? "var(--main-language-text)" : undefined,
+                    position: "relative",
                   }}
                 >
                   <span className={`inline-block align-middle mr-1.5 text-sm fi fi-${countryCodeForLang(code)}`}></span>
                   <span
+                    className="subtitle-text"
+                    onMouseEnter={() => { setTooltipText(raw); setTooltipVisible(true); }}
+                    onMouseLeave={() => { setTooltipText(null); setTooltipVisible(false); }}
                     dangerouslySetInnerHTML={{ __html: html }}
                   />
+                  {tooltipVisible && tooltipText === raw && (
+                    <div className="subtitle-tooltip-custom">
+                      {raw}
+                    </div>
+                  )}
                 </div>
               );
             });

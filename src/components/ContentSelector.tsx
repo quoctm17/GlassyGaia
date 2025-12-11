@@ -6,11 +6,12 @@ import { CONTENT_TYPES, CONTENT_TYPE_LABELS, type ContentType } from '../types/c
 import '../styles/components/content-selector.css';
 
 interface ContentSelectorProps {
-  value: string | null;
-  onChange: (filmId: string | null) => void;
+  value: string[]; // Changed to array for multi-select
+  onChange: (filmIds: string[]) => void; // Changed to accept array
   allResults: CardDoc[]; // results after query (and difficulty filtering applied upstream)
   contentCounts?: Record<string, number>; // server-side counts across all results
   totalCount?: number; // server-side total count
+  allContentIds?: string[]; // ALL available content IDs (to show even if 0 results)
   filmTypeMapExternal?: Record<string, string | undefined>; // optional external map to avoid refetch
   filmTitleMapExternal?: Record<string, string>;
   filmLangMapExternal?: Record<string, string>;
@@ -19,7 +20,7 @@ interface ContentSelectorProps {
 }
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
-export default function ContentSelector({ value, onChange, allResults, contentCounts, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage }: ContentSelectorProps) {
+export default function ContentSelector({ value, onChange, allResults, contentCounts, allContentIds, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage }: ContentSelectorProps) {
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -110,7 +111,11 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
 
   // Available film ids from either external or fetched films, filtered by main language
   const filmIds: string[] = useMemo(() => {
-    let ids = filmTitleMapExternal ? Object.keys(filmTitleMapExternal) : films.map(f => f.id);
+    // If allContentIds provided, use that (all available content)
+    // Otherwise fall back to external or fetched films
+    let ids = allContentIds 
+      ? allContentIds 
+      : (filmTitleMapExternal ? Object.keys(filmTitleMapExternal) : films.map(f => f.id));
     // Filter by main language if specified
     if (mainLanguage) {
       ids = ids.filter(id => {
@@ -119,17 +124,19 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
       });
     }
     return ids;
-  }, [films, filmTitleMapExternal, filmLangMap, mainLanguage]);
+  }, [films, filmTitleMapExternal, filmLangMap, mainLanguage, allContentIds]);
 
-  // Apply search filter
-  const normalizedSearch = search.trim().toLowerCase();
-  const filteredIds = normalizedSearch ? filmIds.filter(id => {
-    const title = (filmTitleMap[id] || id).toLowerCase();
-    return title.includes(normalizedSearch) || id.toLowerCase().includes(normalizedSearch);
-  }) : filmIds;
-
-  // Hide contents with zero matching cards
-  const visibleIds = useMemo(() => filteredIds.filter(id => (counts[id] || 0) > 0), [filteredIds, counts]);
+  // Apply search filter - still show content even if 0 cards (unless search filters them out)
+  // visibleIds = filtered by search, not by card count
+  const visibleIds = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    if (!normalizedSearch) return filmIds; // Show all when no search
+    
+    return filmIds.filter(id => {
+      const title = (filmTitleMap[id] || id).toLowerCase();
+      return title.includes(normalizedSearch) || id.toLowerCase().includes(normalizedSearch);
+    });
+  }, [filmIds, search, filmTitleMap]);
 
   // Grouping
   const grouped = useMemo(() => {
@@ -162,6 +169,22 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     }
   };
 
+  // Toggle select/deselect all items in a group
+  const toggleGroupSelection = (groupIds: string[]) => {
+    // Check if all items in group are already selected
+    const allSelected = groupIds.every(id => value.includes(id));
+    
+    if (allSelected) {
+      // Deselect all
+      const newSelection = value.filter(v => !groupIds.includes(v));
+      onChange(newSelection);
+    } else {
+      // Select all
+      const newSelection = [...new Set([...value, ...groupIds])];
+      onChange(newSelection);
+    }
+  };
+
   // Get level badge for content item
   const getItemLevelBadge = (filmId: string) => {
     const level = getDominantLevel(filmId);
@@ -191,30 +214,97 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
           />
         </div>
         <div className="typography-inter-3" style={{ textAlign: 'right', marginTop: '8px', color: 'var(--neutral)' }}>
-          {value === null ? '0 selected' : '1 selected'}
+          {value.length === 0 ? '0 selected' : `${value.length} selected`}
         </div>
       </div>
-      {CONTENT_TYPES.map(t => {
-        const list = grouped.map[t];
-        if (!list || list.length === 0) return null;
-        const label = CONTENT_TYPE_LABELS[t as ContentType] || t;
-        const isOpen = openGroups.has(t);
-        return (
-          <div key={t} className={`content-group ${isOpen?'open':'closed'}`}>
-            <button type="button" className="content-group-header" onClick={() => toggleGroup(t)}>
-              {typeIcon(t)}
-              <span className="group-label-text">{label}</span>
-              {isOpen ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
+      <div className="content-selector-body">
+        {CONTENT_TYPES.map(t => {
+          const list = grouped.map[t];
+          if (!list || list.length === 0) return null;
+          const label = CONTENT_TYPE_LABELS[t as ContentType] || t;
+          const isOpen = openGroups.has(t);
+          return (
+            <div key={t} className={`content-group ${isOpen?'open':'closed'}`}>
+              <button type="button" className="content-group-header" onClick={() => toggleGroup(t)}>
+                {typeIcon(t)}
+                <span className="group-label-text">{label}</span>
+                {isOpen ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
+              </button>
+              <div className={`content-group-list-wrapper ${isOpen ? 'open' : 'closed'}`}>
+                <div className="content-group-list">
+                  {/* "All" button at the top of the group */}
+                  <button
+                    className={`content-item-btn all-button ${list.every(id => value.includes(id)) ? 'active' : ''}`}
+                    onClick={() => toggleGroupSelection(list)}
+                    title="Select/deselect all items in this group"
+                  >
+                    <span className="level-badge" style={{ visibility: 'hidden' }}>
+                      -
+                    </span>
+                    <span className="content-item-text" style={{ fontWeight: 'bold' }}>All</span>
+                    <span className="item-count">{list.reduce((sum, id) => sum + (counts[id] || 0), 0)}</span>
+                  </button>
+                  {list.map(id => {
+                    const levelBadge = getItemLevelBadge(id);
+                    const isSelected = value.includes(id);
+                    return (
+                      <button
+                        key={id}
+                        className={`content-item-btn ${isSelected ? 'active':''}`}
+                        onClick={() => {
+                          const newSelection = isSelected 
+                            ? value.filter(v => v !== id)
+                            : [...value, id];
+                          onChange(newSelection);
+                        }}
+                        title={id}
+                      >
+                        <span className={`level-badge level-${levelBadge.toLowerCase()}`}>
+                          {levelBadge}
+                        </span>
+                        <span className="content-item-text">{filmTitleMap[id] || id}</span>
+                        <span className="item-count">{counts[id] || 0}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {grouped.other.length > 0 && (
+          <div className={`content-group ${openGroups.has('other')? 'open':'closed'}`}> 
+            <button type="button" className="content-group-header" onClick={() => toggleGroup('other')}>
+              <span className="group-label-text">Other</span>
+              {openGroups.has('other') ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
             </button>
-            <div className={`content-group-list-wrapper ${isOpen ? 'open' : 'closed'}`}>
+            <div className={`content-group-list-wrapper ${openGroups.has('other') ? 'open' : 'closed'}`}>
               <div className="content-group-list">
-                {list.map(id => {
+                {/* "All" button at the top of the Other group */}
+                <button
+                  className={`content-item-btn all-button ${grouped.other.every(id => value.includes(id)) ? 'active' : ''}`}
+                  onClick={() => toggleGroupSelection(grouped.other)}
+                  title="Select/deselect all items in this group"
+                >
+                  <span className="level-badge" style={{ visibility: 'hidden' }}>
+                    -
+                  </span>
+                  <span className="content-item-text" style={{ fontWeight: 'bold' }}>All</span>
+                  <span className="item-count">{grouped.other.reduce((sum, id) => sum + (counts[id] || 0), 0)}</span>
+                </button>
+                {grouped.other.map(id => {
                   const levelBadge = getItemLevelBadge(id);
+                  const isSelected = value.includes(id);
                   return (
                     <button
                       key={id}
-                      className={`content-item-btn ${value===id? 'active':''}`}
-                      onClick={() => onChange(id)}
+                      className={`content-item-btn ${isSelected ? 'active':''}`}
+                      onClick={() => {
+                        const newSelection = isSelected 
+                          ? value.filter(v => v !== id)
+                          : [...value, id];
+                        onChange(newSelection);
+                      }}
                       title={id}
                     >
                       <span className={`level-badge level-${levelBadge.toLowerCase()}`}>
@@ -228,38 +318,9 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
               </div>
             </div>
           </div>
-        );
-      })}
-      {grouped.other.length > 0 && (
-        <div className={`content-group ${openGroups.has('other')? 'open':'closed'}`}> 
-          <button type="button" className="content-group-header" onClick={() => toggleGroup('other')}>
-            <span className="group-label-text">Other</span>
-            {openGroups.has('other') ? <ChevronUp className="collapse-icon" /> : <ChevronDown className="collapse-icon" />}
-          </button>
-          <div className={`content-group-list-wrapper ${openGroups.has('other') ? 'open' : 'closed'}`}>
-            <div className="content-group-list">
-              {grouped.other.map(id => {
-                const levelBadge = getItemLevelBadge(id);
-                return (
-                  <button
-                    key={id}
-                    className={`content-item-btn ${value===id? 'active':''}`}
-                    onClick={() => onChange(id)}
-                    title={id}
-                  >
-                    <span className={`level-badge level-${levelBadge.toLowerCase()}`}>
-                      {levelBadge}
-                    </span>
-                    <span className="content-item-text">{filmTitleMap[id] || id}</span>
-                    <span className="item-count">{counts[id] || 0}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-      {loading && <div className="text-xs mt-2 opacity-70">Loading...</div>}
+        )}
+        {loading && <div className="text-xs mt-2 opacity-70">Loading...</div>}
+      </div>
     </div>
   );
 }

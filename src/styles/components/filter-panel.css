@@ -7,8 +7,10 @@
   padding: 16px;
   border-radius: 8px;
   font-family: 'Press Start 2P', 'Courier New', monospace;
-  height: 100%;
-  overflow: hidden;
+  flex: 1;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
 }
 
 .filter-toggle-btn {

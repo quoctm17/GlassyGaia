@@ -201,3 +201,163 @@
 .user-dropdown-item:hover .dropdown-icon {
   filter: var(--icon-hover-select-filter);
 }
+
+/* ================= Responsive Design ================= */
+/* From 1440px and below: Convert to mobile/tablet layout */
+@media (max-width: 1440px) {
+  .pixel-navbar {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .pixel-tabs-desktop {
+    gap: 0.75rem;
+  }
+
+  .pixel-tab {
+    font-size: 13px;
+    gap: 4px;
+    padding: 3px 5px;
+  }
+
+  .navbar-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .pixel-logo-img {
+    width: 26px;
+    height: 26px;
+  }
+
+  .sign-in-btn {
+    font-size: 13px;
+    padding: 6px 12px;
+    gap: 4px;
+  }
+}
+
+/* Below 1024px: More compact mobile/tablet layout */
+@media (max-width: 1024px) {
+  .pixel-navbar {
+    padding: 6px 10px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .pixel-navbar > div:first-child {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .pixel-tabs-desktop {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    order: 2;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .pixel-tab {
+    font-size: 12px;
+    padding: 2px 4px;
+    gap: 3px;
+  }
+
+  .pixel-logo-wrap {
+    gap: 8px;
+  }
+
+  .pixel-logo-img {
+    width: 24px;
+    height: 24px;
+  }
+
+  .pixel-logo-label {
+    font-size: 12px;
+    padding: 4px 12px;
+  }
+
+  .navbar-icon {
+    width: 11px;
+    height: 11px;
+  }
+
+  .sign-in-btn {
+    font-size: 12px;
+    padding: 5px 10px;
+    gap: 4px;
+  }
+}
+
+/* Mobile (768px and below) */
+@media (max-width: 768px) {
+  .pixel-navbar {
+    padding: 4px 8px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+
+  .pixel-navbar > div:first-child {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+
+  .pixel-logo-wrap {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .pixel-logo-img {
+    width: 20px;
+    height: 20px;
+  }
+
+  .pixel-logo-label {
+    display: none;
+  }
+
+  .pixel-tabs-desktop {
+    display: none;
+  }
+
+  .pixel-tab {
+    font-size: 11px;
+    padding: 2px 3px;
+  }
+
+  .navbar-icon {
+    width: 10px;
+    height: 10px;
+  }
+
+  .sign-in-btn {
+    font-size: 11px;
+    padding: 4px 8px;
+    gap: 3px;
+  }
+
+  .dropdown-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .user-dropdown {
+    font-size: 10px;
+    min-width: 160px;
+  }
+
+  .user-dropdown-item {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+}
+

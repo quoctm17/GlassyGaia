@@ -6,12 +6,14 @@
   font-family: 'Press Start 2P', 'Courier New', monospace;
   font-size: 11px;
   letter-spacing: 0.5px;
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  flex: 1 1 auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: 8px;
   scrollbar-width: thin;
+  max-height: calc(100vh - 140px);
+  min-height: 0;
 }
 
 .content-selector-header {
@@ -52,6 +54,14 @@
   margin-bottom: 12px;
 }
 
+.content-selector-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  min-height: 0;
+}
+
 .content-search-wrapper {
   position: relative;
 }
@@ -80,7 +90,7 @@
   border: none;
   border-radius: 10px;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   transition: box-shadow 0.3s ease;
 }
 
@@ -119,16 +129,17 @@
 }
 
 .content-group-list-wrapper {
-  overflow: hidden;
+  overflow: visible;
   transition: max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .content-group-list-wrapper.closed {
   max-height: 0;
+  overflow: hidden;
 }
 
 .content-group-list-wrapper.open {
-  max-height: 1000px;
+  max-height: none;
 }
 
 .content-group-list {
@@ -190,6 +201,10 @@
 /* Mobile responsive */
 @media (max-width: 768px) {
   /* Removed max-height - using shared scrollbar */
+
+  .content-selector-panel {
+    max-height: 60vh;
+  }
 }
 
 /* Dynamic theming */
