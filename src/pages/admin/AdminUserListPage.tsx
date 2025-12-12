@@ -588,26 +588,26 @@ export default function AdminUserListPage() {
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)}>
           <div 
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
+            className="admin-modal-panel max-w-md w-full mx-4" 
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận vô hiệu hóa User</h3>
-            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn vô hiệu hóa user:</p>
-            <p className="text-[#f9a8d4] font-semibold mb-1">"{confirmDelete.userName}"</p>
-            <p className="text-sm text-[#c084fc] mb-4">{confirmDelete.email}</p>
-            <p className="text-sm text-[#e9d5ff] mb-4">
+            <h3 className="text-xl font-bold admin-modal-title mb-4">Xác nhận vô hiệu hóa User</h3>
+            <p className="admin-modal-text mb-2">Bạn có chắc muốn vô hiệu hóa user:</p>
+            <p className="admin-accent-strong font-semibold mb-1">"{confirmDelete.userName}"</p>
+            <p className="text-sm admin-accent mb-4">{confirmDelete.email}</p>
+            <p className="text-sm admin-modal-text mb-4">
               Thao tác này sẽ:
             </p>
-            <ul className="text-xs text-[#e9d5ff] mb-6 list-disc list-inside space-y-1">
+            <ul className="text-xs admin-modal-text mb-6 list-disc list-inside space-y-1">
               <li>Đặt trạng thái user thành <strong>Inactive</strong></li>
               <li>User sẽ không thể đăng nhập vào hệ thống</li>
               <li>Tất cả dữ liệu của user vẫn được giữ nguyên (progress, favorites, preferences, v.v.)</li>
               <li>Có thể kích hoạt lại user bất cứ lúc nào</li>
             </ul>
-            <p className="text-sm text-[#e9d5ff] mb-4 font-semibold">Lưu ý: User không bị xóa vĩnh viễn!</p>
+            <p className="text-sm admin-modal-text mb-4 font-semibold">Lưu ý: User không bị xóa vĩnh viễn!</p>
             
             <div className="mb-6">
-              <label className="block text-xs text-gray-400 mb-2">Nhập Admin Key để xác nhận:</label>
+              <label className="block text-xs admin-modal-text mb-2">Nhập Admin Key để xác nhận:</label>
               <input
                 type="password"
                 className="admin-input w-full"

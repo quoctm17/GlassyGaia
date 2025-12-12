@@ -27,7 +27,6 @@ import AdminUserDetailPage from './pages/admin/AdminUserDetailPage';
 import AdminDatabasePage from './pages/admin/AdminDatabasePage';
 import AdminImageMigrationPage from './pages/admin/AdminImageMigrationPage';
 import AdminPathMigrationPage from './pages/admin/AdminPathMigrationPage';
-import AdminMediaCleanupPage from './pages/admin/AdminMediaCleanupPage';
 import AdminAudioMigrationPage from './pages/admin/AdminAudioMigrationPage';
 import AuthLoginPage from './pages/authentication/LoginPage';
 import AuthSignupPage from './pages/authentication/SignupPage';
@@ -82,7 +81,7 @@ function App() {
                 {/* Admin Database Management */}
                 <Route path="database" element={<AdminDatabasePage />} />
                 {/* Admin Media Cleanup */}
-                <Route path="media-cleanup" element={<AdminMediaCleanupPage />} />
+                {/* Media Cleanup removed */}
                 {/* Admin Image Migration */}
                 <Route path="image-migration" element={<AdminImageMigrationPage />} />
                 {/* Admin Path Migration */}

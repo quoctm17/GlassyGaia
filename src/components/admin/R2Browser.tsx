@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   Trash2,
   Folder,
@@ -7,6 +7,7 @@ import {
   Eye,
   MoreHorizontal,
   Check,
+  Search,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -32,6 +33,7 @@ interface R2Item {
 export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: number }) {
   const [prefix, setPrefix] = useState("");
   const [items, setItems] = useState<R2Item[]>([]); // current page items
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [pages, setPages] = useState<R2Item[][]>([]); // cached pages
@@ -58,6 +60,28 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
   const [progressDone, setProgressDone] = useState(0);
   const [totalPages, setTotalPages] = useState<number | null>(null);
   const prefetchAbortRef = useRef<{ prefix: string; pageSize: number; aborted: boolean } | null>(null);
+
+  // Combine all cached pages plus current items for global search
+  const allItems = useMemo(() => {
+    const merged: Record<string, R2Item> = {};
+    // include cached pages
+    pages.forEach(page => {
+      page.forEach(it => { merged[it.key] = it; });
+    });
+    // include current items (ensures first page before prefetch)
+    items.forEach(it => { merged[it.key] = it; });
+    return Object.values(merged);
+  }, [pages, items]);
+
+  const visibleItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return items;
+    return allItems.filter((it) => {
+      const name = (it.name || '').toLowerCase();
+      const key = (it.key || '').toLowerCase();
+      return name.includes(q) || key.includes(q);
+    });
+  }, [items, allItems, searchQuery]);
 
   const startPrefetchAllRef = useRef<(cursor: string | null) => void>(()=>{});
 
@@ -197,7 +221,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
       setSelected(new Set());
       return;
     }
-    const allFiles = items.filter((i) => i.type === "file").map((i) => i.key);
+    const allFiles = visibleItems.filter((i) => i.type === "file").map((i) => i.key);
     setSelected(new Set(allFiles));
   };
 
@@ -275,6 +299,32 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
         Browse and manage R2 objects and folders.
       </div>
       <div className="flex items-center gap-2 mt-2 mb-3">
+        <div className="relative flex-1 max-w-xl">
+          <input
+            className="admin-input w-full !pl-10 !py-2"
+            placeholder="Search folder or file name (global)"
+            value={searchQuery}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSearchQuery(val);
+              // If searching and we have more pages, prefetch all to enable global search
+              if (val.trim() && nextCursor) {
+                startPrefetchAllRef.current?.(nextCursor);
+              }
+            }}
+          />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--sub-language-text)' }} />
+          {searchQuery && (
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs typography-inter-4"
+              style={{ color: 'var(--sub-language-text)' }}
+              onClick={() => setSearchQuery("")}
+            >
+              Clear
+            </button>
+          )}
+        </div>
         <button
           className="admin-btn secondary !px-3 !py-1 ml-auto"
           onClick={() => setRefreshKey((k) => k + 1)}
@@ -331,20 +381,20 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
           <thead>
             <tr>
               <th className="w-10">#</th>
-              {(Array.isArray(items) && items.some((i) => i.type === "file")) && (
+              {(Array.isArray(visibleItems) && visibleItems.some((i) => i.type === "file")) && (
                 <th className="w-12">
                   <button
                     type="button"
                     className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors ${
-                      items.filter((i) => i.type === "file").length > 0 &&
-                      items.filter((i) => i.type === "file").every((i) => selected.has(i.key))
+                      visibleItems.filter((i) => i.type === "file").length > 0 &&
+                      visibleItems.filter((i) => i.type === "file").every((i) => selected.has(i.key))
                         ? 'bg-pink-500 border-pink-500'
                         : selected.size > 0
                         ? 'bg-pink-500/50 border-pink-500'
                         : 'border-gray-600 hover:border-pink-500'
                     }`}
                     onClick={() => {
-                      const allFiles = items.filter((i) => i.type === "file");
+                      const allFiles = visibleItems.filter((i) => i.type === "file");
                       const allSelected = allFiles.length > 0 && allFiles.every((i) => selected.has(i.key));
                       toggleAll(!allSelected);
                     }}
@@ -362,12 +412,12 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
             </tr>
           </thead>
           <tbody>
-            {items.map((item, idx) => {
+            {visibleItems.map((item, idx) => {
               const isSelected = selected.has(item.key);
               return (
               <tr key={item.key} className={isSelected && item.type === 'file' ? 'bg-pink-500/10' : ''}>
                 <td className="text-gray-400">{idx + 1}</td>
-                {(Array.isArray(items) && items.some((i) => i.type === "file")) && (
+                {(Array.isArray(visibleItems) && visibleItems.some((i) => i.type === "file")) && (
                   <td>
                     {item.type === "file" ? (
                       <button
@@ -476,10 +526,10 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
               </tr>
             );
             })}
-            {Array.isArray(items) && items.length === 0 && !loading && (
+            {Array.isArray(visibleItems) && visibleItems.length === 0 && !loading && (
               <tr>
                 <td
-                  colSpan={(Array.isArray(items) && items.some((i) => i.type === "file")) ? 7 : 6}
+                  colSpan={(Array.isArray(visibleItems) && visibleItems.some((i) => i.type === "file")) ? 7 : 6}
                   className="admin-empty"
                 >
                   No objects found
@@ -490,21 +540,23 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
         </table>
       </div>
 
-      {/* Pagination */}
-      <div className="mt-3">
-        <Pagination
-          mode="cursor"
-          pageIndex={pageIndex}
-          pageSize={pageSize}
-          hasPrev={pageIndex > 0}
-          hasNext={(pageIndex < pages.length - 1) || !!nextCursor}
-          loading={loading}
-          onPrev={goPrevPage}
-          onNext={goNextPage}
-          onPageSizeChange={(n) => setPageSize(n)}
-          totalPages={totalPages}
-        />
-      </div>
+      {/* Pagination (hidden when searching globally) */}
+      {!searchQuery && (
+        <div className="mt-3">
+          <Pagination
+            mode="cursor"
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            hasPrev={pageIndex > 0}
+            hasNext={(pageIndex < pages.length - 1) || !!nextCursor}
+            loading={loading}
+            onPrev={goPrevPage}
+            onNext={goNextPage}
+            onPageSizeChange={(n) => setPageSize(n)}
+            totalPages={totalPages}
+          />
+        </div>
+      )}
 
       {/* Confirmation modal (same style as AdminContentListPage) */}
       {confirmDelete && (
@@ -513,21 +565,21 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
           onClick={() => !deleting && setConfirmDelete(null)}
         >
           <div
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]"
+            className="admin-modal-panel max-w-md w-full mx-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">
+            <h3 className="text-xl font-bold admin-modal-title mb-4">
               Xác nhận xoá
             </h3>
-            <p className="text-[#f5d0fe] mb-2">
+            <p className="admin-modal-text mb-2">
               Bạn có chắc muốn xoá{" "}
               {confirmDelete.type === "directory" ? "thư mục" : "tập tin"}:
             </p>
-            <div className="text-[#f9a8d4] font-semibold mb-4 break-words max-w-full max-h-24 overflow-auto">
+            <div className="admin-accent-strong font-semibold mb-4 break-words max-w-full max-h-24 overflow-auto">
               "{confirmDelete.name}"
             </div>
             {confirmDelete.type === "directory" ? (
-              <div className="mb-4 text-sm text-[#e9d5ff] space-y-2">
+              <div className="mb-4 text-sm admin-modal-text space-y-2">
                 <label className="inline-flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -544,7 +596,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                   tác).
                 </p>
                 {!recursiveDelete && (
-                  <p className="text-[#fda4af]">
+                  <p className="admin-warning-text">
                     Bạn phải tick “recursive” để có thể xoá thư mục không rỗng.
                   </p>
                 )}
@@ -558,7 +610,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
               </div>
             ) : (
               <div className="mb-6">
-                <p className="text-sm text-[#e9d5ff]">
+                <p className="text-sm admin-modal-text">
                   Thao tác này không thể hoàn tác!
                 </p>
                 {deleting && progressTotal && (
@@ -672,17 +724,17 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
           onClick={() => !bulkDeleting && setConfirmBulk(false)}
         >
           <div
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-lg w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]"
+            className="admin-modal-panel max-w-lg w-full mx-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">
+            <h3 className="text-xl font-bold admin-modal-title mb-4">
               Confirm Deletion
             </h3>
-            <p className="text-[#e9d5ff] mb-2">
+            <p className="admin-modal-text mb-2">
               Delete {selected.size} selected file(s)? This action cannot be
               undone.
             </p>
-            <div className="bg-black/30 rounded-md p-3 max-h-40 overflow-auto text-sm text-pink-200">
+            <div className="admin-subpanel rounded-md p-3 max-h-40 overflow-auto text-sm admin-modal-text">
               {Array.from(selected)
                 .slice(0, 20)
                 .map((k) => {

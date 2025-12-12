@@ -112,6 +112,19 @@
     box-shadow: none;
 }
 
+.admin-btn.danger {
+    background: #dc2626;
+    color: #FFFFFF;
+    border: 3px solid #991b1b;
+    box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.2);
+}
+
+.admin-btn.danger:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.3);
+}
+
 .admin-btn:disabled:hover,
 .admin-btn[disabled]:hover {
     opacity: 0.5;
@@ -376,6 +389,71 @@
     padding: 16px;
     box-shadow: 0 0 0 2px var(--hover-select) inset;
 }
+
+.admin-progress-panel {
+    background: var(--secondary);
+    border: 2px solid var(--primary);
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    color: var(--text);
+}
+
+.admin-progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3px;
+    color: var(--text-secondary);
+}
+
+.admin-progress-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.admin-progress-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: var(--hover-bg-subtle);
+}
+
+.admin-progress-label {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.3px;
+    color: var(--text-secondary);
+}
+
+.admin-progress-value {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.admin-progress-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--border);
+}
+
+.admin-progress-dot.done { background: var(--success); box-shadow: 0 0 0 2px rgba(16,185,129,0.2); }
+.admin-progress-dot.pending { background: var(--warning); box-shadow: 0 0 0 2px rgba(245,158,11,0.25); }
+.admin-progress-dot.waiting { background: var(--neutral); box-shadow: 0 0 0 2px rgba(158,158,158,0.25); }
 
 .admin-panel-title {
     font-size: 12px;
@@ -898,4 +976,54 @@ html.no-flag-emoji .emoji-flag { display: none; }
 .admin-table th svg,
 .admin-table td svg {
   color: var(--primary);
+}
+
+/* ================= Admin Modal Styles ================= */
+.admin-modal-panel {
+  background: var(--background);
+  border: 3px solid var(--primary);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 0 0 2px var(--hover-select) inset, 0 0 24px rgba(236, 72, 153, 0.35);
+}
+
+.admin-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.5px;
+}
+
+.admin-modal-text {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: 'Inter', sans-serif;
+}
+
+.admin-accent {
+  color: var(--hover-select);
+  font-family: 'Inter', sans-serif;
+}
+
+.admin-accent-strong {
+  color: var(--hover-select);
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  word-break: break-word;
+}
+
+.admin-warning-text {
+  color: #f59e0b;
+  font-size: 12px;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Admin item highlight box - used in delete confirmation modals */
+.admin-item-highlight {
+  background: var(--hover-bg);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  padding: 12px;
 }

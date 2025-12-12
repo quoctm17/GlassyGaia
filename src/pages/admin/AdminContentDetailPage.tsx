@@ -9,6 +9,7 @@ import { ExternalLink, PlusCircle, Eye, Pencil, Trash2, MoreHorizontal, Search, 
 import PortalDropdown from '../../components/PortalDropdown';
 import ProgressBar from '../../components/ProgressBar';
 import LanguageTag from '../../components/LanguageTag';
+import ConfirmDeleteModal from '../../components/admin/ConfirmDeleteModal';
 import toast from 'react-hot-toast';
 import { CONTENT_TYPE_LABELS, type ContentType } from '../../types/content';
 
@@ -549,112 +550,101 @@ export default function AdminContentDetailPage() {
       )}
 
       {/* Confirm Delete Episode Modal */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)}>
-          <div
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xoá Episode</h3>
-            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xoá:</p>
-            <p className="text-[#f9a8d4] font-semibold mb-4">"{confirmDelete.title}" (#{String(confirmDelete.episode_number).padStart(3,'0')})</p>
-            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xoá toàn bộ Cards và Media thuộc episode này. Không thể hoàn tác!</p>
-            {deletionProgress && (
-              <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
-                <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
-                <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
-                <ProgressBar percent={deletionPercent} />
-              </div>
-            )}
-            <div className="flex gap-3 justify-end">
-              <button className="admin-btn secondary" onClick={() => setConfirmDelete(null)} disabled={deleting}>Huỷ</button>
-              <button
-                className="admin-btn primary"
-                disabled={deleting}
-                onClick={async () => {
-                  if (!contentSlug) return;
-                  setDeleting(true);
-                  setDeletionPercent(10);
-                  let timer: number | undefined;
-                  let slowTimer: number | undefined;
-                  setDeletionProgress({ stage: 'Đang xoá...', details: 'Đang xử lý yêu cầu xoá episode' });
+      <ConfirmDeleteModal
+        isOpen={!!confirmDelete}
+        title="Xác nhận xoá Episode"
+        description="Thao tác này sẽ xoá toàn bộ Cards và Media thuộc episode này. Không thể hoàn tác!"
+        itemName={confirmDelete ? `"${confirmDelete.title}" (#${String(confirmDelete.episode_number).padStart(3, '0')})` : ''}
+        isDeleting={deleting}
+        onClose={() => !deleting && setConfirmDelete(null)}
+        onConfirm={async () => {
+          if (!contentSlug || !confirmDelete) return;
+          setDeleting(true);
+          setDeletionPercent(10);
+          let timer: number | undefined;
+          let slowTimer: number | undefined;
+          setDeletionProgress({ stage: 'Đang xoá...', details: 'Đang xử lý yêu cầu xoá episode' });
+          try {
+            // Phase 1: fast ramp to 70%
+            timer = window.setInterval(() => {
+              setDeletionPercent((p) => (p < 70 ? p + 4 : p));
+            }, 220);
+            setTimeout(() => {
+              // Phase 2: slower ramp 70% -> 85%
+              if (timer) window.clearInterval(timer);
+              timer = window.setInterval(() => {
+                setDeletionPercent((p) => (p < 85 ? p + 2 : p));
+              }, 500);
+            }, 3000);
+            // Phase 3: indeterminate finalization
+            slowTimer = window.setInterval(() => {
+              setDeletionPercent((p) => (p >= 85 && p < 95 ? p + 1 : p));
+            }, 4000);
+            
+            setDeletionProgress({ stage: 'Đang xoá database...', details: 'Xoá Cards, subtitles và metadata' });
+            const res = await apiDeleteEpisode({ filmSlug: contentSlug, episodeNum: confirmDelete.episode_number });
+            
+            if (timer) window.clearInterval(timer);
+            if (slowTimer) window.clearInterval(slowTimer);
+            
+            if ('error' in res) {
+              toast.error(res.error);
+              setDeletionProgress(null);
+              setDeletionPercent(0);
+              return;
+            }
+            
+            setDeletionPercent(100);
+            setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xoá ${res.cards_deleted} cards, ${res.media_deleted} media files` });
+            
+            const remainingEpisodes = episodes.filter(e => e.slug !== confirmDelete.slug);
+            setEpisodes(remainingEpisodes);
+            
+            // Recalculate statistics for all remaining episodes
+            if (remainingEpisodes.length > 0) {
+              try {
+                for (const ep of remainingEpisodes) {
                   try {
-                    // Phase 1: fast ramp to 70%
-                    timer = window.setInterval(() => {
-                      setDeletionPercent((p) => (p < 70 ? p + 4 : p));
-                    }, 220);
-                    setTimeout(() => {
-                      // Phase 2: slower ramp 70% -> 85%
-                      if (timer) window.clearInterval(timer);
-                      timer = window.setInterval(() => {
-                        setDeletionPercent((p) => (p < 85 ? p + 2 : p));
-                      }, 500);
-                    }, 3000);
-                    // Phase 3: indeterminate finalization
-                    slowTimer = window.setInterval(() => {
-                      setDeletionPercent((p) => (p >= 85 && p < 95 ? p + 1 : p));
-                    }, 4000);
-                    
-                    setDeletionProgress({ stage: 'Đang xoá database...', details: 'Xoá Cards, subtitles và metadata' });
-                    const res = await apiDeleteEpisode({ filmSlug: contentSlug, episodeNum: confirmDelete.episode_number });
-                    
-                    if (timer) window.clearInterval(timer);
-                    if (slowTimer) window.clearInterval(slowTimer);
-                    
-                    if ('error' in res) {
-                      toast.error(res.error);
-                      setDeletionProgress(null);
-                      setDeletionPercent(0);
-                      return;
+                    const statsRes = await apiCalculateStats({ filmSlug: contentSlug, episodeNum: ep.episode_number });
+                    if ('error' in statsRes) {
+                      console.warn(`Failed to recalculate stats for episode ${ep.episode_number}:`, statsRes.error);
                     }
-                    
-                    setDeletionPercent(100);
-                    setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xoá ${res.cards_deleted} cards, ${res.media_deleted} media files` });
-                    
-                    const remainingEpisodes = episodes.filter(e => e.slug !== confirmDelete.slug);
-                    setEpisodes(remainingEpisodes);
-                    
-                    // Recalculate statistics for all remaining episodes
-                    if (remainingEpisodes.length > 0) {
-                      try {
-                        for (const ep of remainingEpisodes) {
-                          try {
-                            const statsRes = await apiCalculateStats({ filmSlug: contentSlug, episodeNum: ep.episode_number });
-                            if ('error' in statsRes) {
-                              console.warn(`Failed to recalculate stats for episode ${ep.episode_number}:`, statsRes.error);
-                            }
-                          } catch (epStatsErr) {
-                            console.warn(`Stats error for episode ${ep.episode_number}:`, epStatsErr);
-                          }
-                        }
-                      } catch (statsErr) {
-                        console.warn('Stats recalculation error:', statsErr);
-                      }
-                    }
-                    
-                    setTimeout(() => {
-                      toast.success(`Đã xoá Episode (Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`);
-                      setConfirmDelete(null);
-                      setDeletionProgress(null);
-                      setDeletionPercent(0);
-                    }, 600);
-                  } catch (e) {
-                    toast.error((e as Error).message);
-                    setDeletionProgress(null);
-                    setDeletionPercent(0);
-                  } finally {
-                    if (timer) window.clearInterval(timer);
-                    if (slowTimer) window.clearInterval(slowTimer);
-                    setDeleting(false);
+                  } catch (epStatsErr) {
+                    console.warn(`Stats error for episode ${ep.episode_number}:`, epStatsErr);
                   }
-                }}
-              >
-                {deleting ? 'Đang xoá...' : 'Xoá'}
-              </button>
-            </div>
+                }
+              } catch (statsErr) {
+                console.warn('Stats recalculation error:', statsErr);
+              }
+            }
+            
+            setTimeout(() => {
+              toast.success(`Đã xoá Episode (Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`);
+              setConfirmDelete(null);
+              setDeletionProgress(null);
+              setDeletionPercent(0);
+            }, 600);
+          } catch (e) {
+            toast.error((e as Error).message);
+            setDeletionProgress(null);
+            setDeletionPercent(0);
+          } finally {
+            if (timer) window.clearInterval(timer);
+            if (slowTimer) window.clearInterval(slowTimer);
+            setDeleting(false);
+          }
+        }}
+        confirmLabel="Xoá"
+        cancelLabel="Huỷ"
+      >
+        {deletionProgress && (
+          <div className="mb-4 admin-item-highlight">
+            <div className="text-sm font-semibold admin-accent-strong mb-2">{deletionProgress.stage}</div>
+            <div className="text-xs admin-modal-text mb-2">{deletionProgress.details}</div>
+            <ProgressBar percent={deletionPercent} />
           </div>
-        </div>
-      )}
+        )}
+      </ConfirmDeleteModal>
     </div>
   );
 }

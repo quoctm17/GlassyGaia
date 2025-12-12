@@ -13,6 +13,7 @@ import CustomSelect from '../../components/CustomSelect';
 import FlagDisplay from '../../components/FlagDisplay';
 import ProgressBar from '../../components/ProgressBar';
 import Pagination from '../../components/Pagination';
+import ConfirmDeleteModal from '../../components/admin/ConfirmDeleteModal';
 import '../../styles/pages/admin/admin-content-list.css';
 
 export default function AdminContentListPage() {
@@ -826,131 +827,113 @@ export default function AdminContentListPage() {
       )}
 
       {/* Custom Confirmation Modal */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)}>
-          <div 
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xoá</h3>
-            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xoá nội dung:</p>
-            <p className="text-[#f9a8d4] font-semibold mb-4">"{confirmDelete.title}"</p>
-            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xoá toàn bộ Episodes, Cards và Media thuộc nội dung này. Không thể hoàn tác!</p>
-            {deletionProgress && (
-              <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
-                <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
-                <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
-                <ProgressBar percent={deletionPercent} />
-              </div>
-            )}
-            <div className="flex gap-3 justify-end">
-              <button
-                className="admin-btn secondary"
-                onClick={() => setConfirmDelete(null)}
-                disabled={deleting}
-              >
-                Huỷ
-              </button>
-              <button
-                className="admin-btn primary"
-                disabled={deleting}
-                onClick={async () => {
-                  setDeleting(true);
-                  setDeletionPercent(10);
-                  let timer: number | undefined;
-                  let slowTimer: number | undefined;
-                  setDeletionProgress({ stage: 'Đang xoá...', details: 'Đang xử lý yêu cầu xoá (khởi tạo xoá database + thu thập media)' });
-                  try {
-                    // Phase 1: fast ramp to 70%
-                    timer = window.setInterval(() => {
-                      setDeletionPercent((p) => (p < 70 ? p + 4 : p));
-                    }, 220);
-                    setTimeout(() => {
-                      // Phase 2: slower ramp 70% -> 85% (DB deletion likely still running or starting media deletion)
-                      if (timer) window.clearInterval(timer);
-                      timer = window.setInterval(() => {
-                        setDeletionPercent((p) => (p < 85 ? p + 2 : p));
-                      }, 500);
-                    }, 3000);
-                    // Phase 3: indeterminate finalization 85% -> 95% tiny heartbeat while media deletes concurrently
-                    slowTimer = window.setInterval(() => {
-                      setDeletionPercent((p) => (p >= 85 && p < 95 ? p + 1 : p));
-                    }, 4000);
-                    setDeletionProgress({ stage: 'Đang xoá database...', details: 'Xoá Episodes, Cards, subtitles và metadata' });
-                    const res = await apiDeleteItem(confirmDelete.slug);
-                    if ('error' in res) {
-                      toast.error(res.error);
-                      setDeletionProgress(null);
-                      setDeletionPercent(0);
-                      if (timer) window.clearInterval(timer);
-                      if (slowTimer) window.clearInterval(slowTimer);
-                      return;
-                    }
-                    if (timer) window.clearInterval(timer);
-                    if (slowTimer) window.clearInterval(slowTimer);
-                    setDeletionPercent(100);
-                    setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xoá ${res.episodes_deleted} episodes, ${res.cards_deleted} cards, ${res.media_deleted} media files` });
-                    setRows(prev => prev.filter(r => r.id !== confirmDelete.slug));
-                    // Refresh global main-language options; if current no longer available, switch to first
-                    try {
-                      const langs = await getAvailableMainLanguages();
-                      const current = preferences.main_language || 'en';
-                      if (!langs.includes(current) && langs.length) {
-                        await setMainLanguage(langs[0]);
-                      }
-                    } catch {/* ignore refresh errors */}
-                    setTimeout(() => {
-                      const msg = `Đã xoá nội dung + media (Episodes: ${res.episodes_deleted}, Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`;
-                      toast.success(msg);
-                      setConfirmDelete(null);
-                      setDeletionProgress(null);
-                      setDeletionPercent(0);
-                    }, 600);
-                  } catch (e) {
-                    toast.error((e as Error).message);
-                    setDeletionProgress(null);
-                    setDeletionPercent(0);
-                  } finally {
-                    if (timer) window.clearInterval(timer);
-                    if (slowTimer) window.clearInterval(slowTimer);
-                    setDeleting(false);
-                  }
-                }}
-              >
-                {deleting ? 'Đang xoá...' : 'Xoá'}
-              </button>
-            </div>
+      <ConfirmDeleteModal
+        isOpen={!!confirmDelete}
+        title="Xác nhận xoá"
+        description={<>Bạn có chắc muốn xoá nội dung:</>}
+        itemName={confirmDelete?.title}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={async () => {
+          setDeleting(true);
+          setDeletionPercent(10);
+          let timer: number | undefined;
+          let slowTimer: number | undefined;
+          setDeletionProgress({ stage: 'Đang xoá...', details: 'Đang xử lý yêu cầu xoá (khởi tạo xoá database + thu thập media)' });
+          try {
+            // Phase 1: fast ramp to 70%
+            timer = window.setInterval(() => {
+              setDeletionPercent((p) => (p < 70 ? p + 4 : p));
+            }, 220);
+            setTimeout(() => {
+              // Phase 2: slower ramp 70% -> 85% (DB deletion likely still running or starting media deletion)
+              if (timer) window.clearInterval(timer);
+              timer = window.setInterval(() => {
+                setDeletionPercent((p) => (p < 85 ? p + 2 : p));
+              }, 500);
+            }, 3000);
+            // Phase 3: indeterminate finalization 85% -> 95% tiny heartbeat while media deletes concurrently
+            slowTimer = window.setInterval(() => {
+              setDeletionPercent((p) => (p >= 85 && p < 95 ? p + 1 : p));
+            }, 4000);
+            setDeletionProgress({ stage: 'Đang xoá database...', details: 'Xoá Episodes, Cards, subtitles và metadata' });
+            const res = await apiDeleteItem(confirmDelete!.slug);
+            if ('error' in res) {
+              toast.error(res.error);
+              setDeletionProgress(null);
+              setDeletionPercent(0);
+              if (timer) window.clearInterval(timer);
+              if (slowTimer) window.clearInterval(slowTimer);
+              return;
+            }
+            if (timer) window.clearInterval(timer);
+            if (slowTimer) window.clearInterval(slowTimer);
+            setDeletionPercent(100);
+            setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xoá ${res.episodes_deleted} episodes, ${res.cards_deleted} cards, ${res.media_deleted} media files` });
+            setRows(prev => prev.filter(r => r.id !== confirmDelete!.slug));
+            // Refresh global main-language options; if current no longer available, switch to first
+            try {
+              const langs = await getAvailableMainLanguages();
+              const current = preferences.main_language || 'en';
+              if (!langs.includes(current) && langs.length) {
+                await setMainLanguage(langs[0]);
+              }
+            } catch {/* ignore refresh errors */}
+            setTimeout(() => {
+              const msg = `Đã xoá nội dung + media (Episodes: ${res.episodes_deleted}, Cards: ${res.cards_deleted}, Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`;
+              toast.success(msg);
+              setConfirmDelete(null);
+              setDeletionProgress(null);
+              setDeletionPercent(0);
+            }, 600);
+          } catch (e) {
+            toast.error((e as Error).message);
+            setDeletionProgress(null);
+            setDeletionPercent(0);
+          } finally {
+            if (timer) window.clearInterval(timer);
+            if (slowTimer) window.clearInterval(slowTimer);
+            setDeleting(false);
+          }
+        }}
+        isDeleting={deleting}
+      >
+        <p className="admin-modal-text mb-4 typography-inter-3">Thao tác này sẽ xoá toàn bộ Episodes, Cards và Media thuộc nội dung này. Không thể hoàn tác!</p>
+        {deletionProgress && (
+          <div className="mb-4 admin-item-highlight">
+            <div className="text-sm font-semibold admin-accent-strong mb-2 typography-inter-2">{deletionProgress.stage}</div>
+            <div className="text-xs admin-modal-text mb-2 typography-inter-4">{deletionProgress.details}</div>
+            <ProgressBar percent={deletionPercent} />
           </div>
-        </div>
-      )}
+        )}
+      </ConfirmDeleteModal>
 
       {/* Bulk Delete Confirmation Modal */}
       {confirmBulkDelete && !showAdminKeyPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmBulkDelete(null)}>
           <div 
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-2xl w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)] max-h-[80vh] overflow-y-auto" 
+            className="admin-modal-panel max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" 
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xóa hàng loạt</h3>
-            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xóa <span className="text-[#f9a8d4] font-semibold">{confirmBulkDelete.items.length}</span> nội dung sau:</p>
-            <div className="max-h-48 overflow-y-auto mb-4 bg-[#241530] border-2 border-[#f472b6] rounded-lg p-3">
-              <ul className="text-sm text-[#e9d5ff] space-y-1">
+            <h3 className="text-xl font-bold admin-modal-title mb-4">Xác nhận xóa hàng loạt</h3>
+            <p className="admin-modal-text mb-2">Bạn có chắc muốn xóa <span className="admin-accent-strong font-semibold">{confirmBulkDelete.items.length}</span> nội dung sau:</p>
+            <div className="max-h-48 overflow-y-auto mb-4 admin-subpanel border rounded-lg p-3">
+              <ul className="text-sm admin-modal-text space-y-1">
                 {confirmBulkDelete.items.map((item, idx) => (
                   <li key={item.slug} className="flex items-start gap-2">
-                    <span className="text-[#f9a8d4] font-mono">{idx + 1}.</span>
+                    <span className="admin-accent-strong font-mono">{idx + 1}.</span>
                     <span className="flex-1">
-                      <span className="font-semibold text-[#f9a8d4]">{item.title}</span>
-                      <span className="text-xs text-[#e9d5ff] ml-2">({item.slug})</span>
+                      <span className="font-semibold admin-accent-strong">{item.title}</span>
+                      <span className="text-xs admin-modal-text ml-2">({item.slug})</span>
                     </span>
                   </li>
                 ))}
               </ul>
             </div>
-            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xóa toàn bộ Episodes, Cards và Media thuộc các nội dung này. Không thể hoàn tác!</p>
+            <p className="text-sm admin-modal-text mb-6">Thao tác này sẽ xóa toàn bộ Episodes, Cards và Media thuộc các nội dung này. Không thể hoàn tác!</p>
             {deletionProgress && (
-              <div className="mb-4 p-3 bg-[#241530] border-2 border-[#f472b6] rounded-lg">
-                <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
-                <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
+              <div className="mb-4 p-3 admin-subpanel border rounded-lg">
+                <div className="text-sm font-semibold admin-accent-strong mb-2">{deletionProgress.stage}</div>
+                <div className="text-xs admin-modal-text mb-2">{deletionProgress.details}</div>
                 <ProgressBar percent={deletionPercent} />
               </div>
             )}
@@ -963,7 +946,7 @@ export default function AdminContentListPage() {
                 Huỷ
               </button>
               <button
-                className="admin-btn primary bg-red-600 hover:bg-red-700"
+                className="admin-btn danger"
                 disabled={deleting}
                 onClick={() => setShowAdminKeyPrompt(true)}
               >
@@ -978,11 +961,11 @@ export default function AdminContentListPage() {
       {showAdminKeyPrompt && confirmBulkDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setShowAdminKeyPrompt(false)}>
           <div 
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" 
+            className="admin-modal-panel max-w-md w-full mx-4" 
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác thực Admin Key</h3>
-            <p className="text-[#f5d0fe] mb-2">Nhập Admin Key để xác nhận xóa <span className="text-[#f9a8d4] font-semibold">{confirmBulkDelete.items.length}</span> nội dung:</p>
+            <h3 className="text-xl font-bold admin-modal-title mb-4">Xác thực Admin Key</h3>
+            <p className="admin-modal-text mb-2">Nhập Admin Key để xác nhận xóa <span className="admin-accent-strong font-semibold">{confirmBulkDelete.items.length}</span> nội dung:</p>
             <input
               type="password"
               className="admin-input w-full mb-6"
@@ -1008,7 +991,7 @@ export default function AdminContentListPage() {
                 Huỷ
               </button>
               <button
-                className="admin-btn primary bg-red-600 hover:bg-red-700"
+                className="admin-btn danger"
                 disabled={deleting || !adminKeyInput.trim()}
                 onClick={executeBulkDelete}
               >

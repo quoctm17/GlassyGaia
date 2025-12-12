@@ -68,7 +68,7 @@ export default function CustomSelect({
       {open && (
         <div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
           {searchable && (
-            <div className="sticky top-0 z-10 bg-[#241530] p-2 border-b border-pink-500/50">
+            <div className="sticky top-0 z-10 p-2 border-b" style={{ background: 'var(--background)', borderColor: 'var(--primary)' }}>
               <input
                 autoFocus
                 value={query}
