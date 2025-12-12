@@ -279,7 +279,19 @@ export async function apiFetchAllCards(limit = 1000): Promise<CardDoc[]> {
   return rows.map(rowToCardDoc);
 }
 
-// Full-text search via Worker /search (FTS5)
+// Full-text search via Worker /search (FTS5) with response caching on client
+// Caches results by query hash to avoid duplicate requests
+const searchCache = new Map<string, { data: CardDoc[]; timestamp: number }>();
+const SEARCH_CACHE_TTL = 60000; // 60 seconds
+
+function getSearchCacheKey(params: Record<string, any>): string {
+  const key = Object.entries(params)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${String(v)}`)
+    .join('&');
+  return key;
+}
+
 export async function apiSearchCardsFTS(params: {
   q: string;
   limit?: number;
@@ -288,10 +300,20 @@ export async function apiSearchCardsFTS(params: {
   const { q } = params;
   const limit = params.limit ?? 100;
   const main = params.mainLanguage ? `&main=${encodeURIComponent(params.mainLanguage)}` : "";
+  
+  // Check cache first (short TTL)
+  const cacheKey = getSearchCacheKey(params);
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+    return cached.data;
+  }
+  
   const rows = await getJson<Array<Record<string, unknown>>>(
     `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}`
   );
-  return rows.map(rowToCardDoc);
+  const result = rows.map(rowToCardDoc);
+  searchCache.set(cacheKey, { data: result, timestamp: Date.now() });
+  return result;
 }
 
 export async function apiGetCardByPath(

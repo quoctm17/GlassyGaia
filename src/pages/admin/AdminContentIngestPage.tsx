@@ -11,7 +11,7 @@ import {
 import type { MediaType } from "../../services/storageUpload";
 import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
-import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Loader2, RefreshCcw, ArrowLeft } from "lucide-react";
+import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Video, Loader2, RefreshCcw, ArrowLeft } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
 import { langLabel, canonicalizeLangCode, expandCanonicalToAliases, getFlagImageForLang } from "../../utils/lang";
@@ -904,6 +904,7 @@ export default function AdminContentIngestPage() {
                   {contentType === "series" && <Clapperboard className="w-4 h-4" />}
                   {contentType === "book" && <BookIcon className="w-4 h-4" />}
                   {contentType === "audio" && <AudioLines className="w-4 h-4" />}
+                  {contentType === "video" && <Video className="w-4 h-4" />}
                   <span>{contentType ? CONTENT_TYPE_LABELS[contentType] : "(required)"}</span>
                 </span>
                 <span style={{ color: 'var(--sub-language-text)' }}>▼</span>
@@ -916,6 +917,7 @@ export default function AdminContentIngestPage() {
                       {t === "series" && <Clapperboard className="w-4 h-4" />}
                       {t === "book" && <BookIcon className="w-4 h-4" />}
                       {t === "audio" && <AudioLines className="w-4 h-4" />}
+                      {t === "video" && <Video className="w-4 h-4" />}
                       <span>{CONTENT_TYPE_LABELS[t]}</span>
                     </div>
                   ))}
