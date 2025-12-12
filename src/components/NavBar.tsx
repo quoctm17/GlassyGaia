@@ -9,6 +9,7 @@ import searchIcon from "../assets/icons/search.svg";
 import mediaIcon from "../assets/icons/media.svg";
 import bookIcon from "../assets/icons/book.svg";
 import contentIcon from "../assets/icons/content.svg";
+import watchlistIcon from "../assets/icons/watchlist.svg";
 import loginIcon from "../assets/icons/log-in.svg";
 import logoutIcon from "../assets/icons/log-out.svg";
 import adminIcon from "../assets/icons/xp-dimond.svg";
@@ -78,13 +79,13 @@ export default function NavBar() {
             Book
           </NavLink>
           <NavLink
-            to="/about"
+            to="/video"
             className={({ isActive }) =>
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
-            <img src={contentIcon} alt="Portfolio" className="navbar-icon" />
-            Portfolio
+            <img src={watchlistIcon} alt="Video" className="navbar-icon" />
+            Video
           </NavLink>
         </div>
       </div>
@@ -146,6 +147,14 @@ export default function NavBar() {
                 >
                   <img src={favoriteIcon} alt="Favorites" className="dropdown-icon" />
                   Favorites
+                </Link>
+                <Link
+                  to="/about"
+                  className="user-dropdown-item"
+                  onClick={() => setOpen(false)}
+                >
+                  <img src={contentIcon} alt="Portfolio" className="dropdown-icon" />
+                  Portfolio
                 </Link>
                 <button
                   onClick={() => {

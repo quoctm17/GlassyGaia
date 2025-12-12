@@ -8,6 +8,7 @@ import FavoritesPage from './pages/FavoritesPage';
 import ContentMoviePage from './pages/ContentMoviePage';
 import SeriesPage from './pages/SeriesPage';
 import BookPage from './pages/BookPage';
+import VideoPage from './pages/VideoPage';
 import AboutPage from './pages/AboutPage';
 import LoginPageOld from './pages/LoginPage';
 import WatchPage from './pages/WatchPage';
@@ -58,6 +59,7 @@ function App() {
               <Route path="/movie/:filmId" element={<MovieToContentRedirect />} />
               <Route path="/series" element={<SeriesPage />} />
               <Route path="/book" element={<BookPage />} />
+              <Route path="/video" element={<VideoPage />} />
               <Route path="/favorites" element={<FavoritesPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/login" element={<LoginPageOld />} />

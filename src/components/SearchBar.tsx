@@ -26,7 +26,7 @@ export default function SearchBar({
   showClear = true,
   autoFocus = false,
   loading = false,
-  debounceMs = 400,
+  debounceMs = 0, // Changed default to 0 - let parent handle debounce
 }: SearchBarProps) {
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);

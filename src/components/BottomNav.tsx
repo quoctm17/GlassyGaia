@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Search, Info, Film, Tv, BookOpen } from 'lucide-react';
+import { Search, Info, Film, Tv, BookOpen, Video } from 'lucide-react';
 
 export default function BottomNav() {
   return (
@@ -42,6 +42,14 @@ export default function BottomNav() {
       >
         <BookOpen className="bottom-nav-icon" />
         <span className="bottom-nav-label">Book</span>
+      </NavLink>
+      
+      <NavLink
+        to="/video"
+        className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}
+      >
+        <Video className="bottom-nav-icon" />
+        <span className="bottom-nav-label">Video</span>
       </NavLink>
     </nav>
   );
