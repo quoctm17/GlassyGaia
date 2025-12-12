@@ -18,6 +18,8 @@ import { langLabel, canonicalizeLangCode, expandCanonicalToAliases, getFlagImage
 import { detectSubtitleHeaders, categorizeHeaders } from "../../utils/csvDetection";
 import ProgressBar from "../../components/ProgressBar";
 import CsvPreviewPanel from "../../components/admin/CsvPreviewPanel";
+import CardMediaFiles from "../../components/admin/CardMediaFiles";
+import ProgressPanel from "../../components/admin/ProgressPanel";
 import "../../styles/components/admin/admin-forms.css";
 
 // Normalize slug: remove accents, convert to lowercase, replace spaces with underscores, keep only safe characters
@@ -1119,117 +1121,21 @@ export default function AdminContentIngestPage() {
       </div>
 
       {/* Card Media */}
-      <div className="admin-panel space-y-3">
-        <div className="typography-inter-1 admin-panel-title">Card Media Files</div>
-        {/* File count validation warnings */}
-        {csvRows.length > 0 && (imageFiles.length > 0 || audioFiles.length > 0) && (
-          <div className="space-y-2">
-            {imageFiles.length !== csvRows.length && (
-              <div className="flex items-start gap-2 p-3 rounded-lg border" style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
-                <span className="text-lg" style={{ color: 'var(--warning)' }}>⚠️</span>
-                <div className="flex-1 text-sm">
-                  <div className="font-semibold mb-1" style={{ color: 'var(--warning)' }}>
-                    Số lượng ảnh không khớp với số cards
-                  </div>
-                  <div className="space-y-1" style={{ color: 'var(--warning-text)' }}>
-                    <div>• Cards trong CSV: <span className="font-semibold">{csvRows.length}</span></div>
-                    <div>• Ảnh đã chọn: <span className="font-semibold">{imageFiles.length}</span></div>
-                    <div className="text-xs mt-2">
-                      💡 Nên upload đúng {csvRows.length} file ảnh để khớp với số cards.
-                      {imageFiles.length < csvRows.length && ' Một số cards sẽ thiếu ảnh.'}
-                      {imageFiles.length > csvRows.length && ' Một số ảnh sẽ bị bỏ qua.'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {audioFiles.length !== csvRows.length && (
-              <div className="flex items-start gap-2 p-3 rounded-lg border" style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
-                <span className="text-lg" style={{ color: 'var(--warning)' }}>⚠️</span>
-                <div className="flex-1 text-sm">
-                  <div className="font-semibold mb-1" style={{ color: 'var(--warning)' }}>
-                    Số lượng audio không khớp với số cards
-                  </div>
-                  <div className="space-y-1" style={{ color: 'var(--warning-text)' }}>
-                    <div>• Cards trong CSV: <span className="font-semibold">{csvRows.length}</span></div>
-                    <div>• Audio đã chọn: <span className="font-semibold">{audioFiles.length}</span></div>
-                    <div className="text-xs mt-2">
-                      💡 Nên upload đúng {csvRows.length} file audio để khớp với số cards.
-                      {audioFiles.length < csvRows.length && ' Một số cards sẽ thiếu audio.'}
-                      {audioFiles.length > csvRows.length && ' Một số audio sẽ bị bỏ qua.'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {imageFiles.length !== audioFiles.length && imageFiles.length > 0 && audioFiles.length > 0 && (
-              <div className="flex items-start gap-2 p-3 bg-orange-900/20 border border-orange-600/40 rounded-lg">
-                <span className="text-orange-400 text-lg">⚠️</span>
-                <div className="flex-1 text-sm">
-                  <div className="font-semibold text-orange-300 mb-1">
-                    Số lượng ảnh và audio không bằng nhau
-                  </div>
-                  <div className="text-orange-200/90 space-y-1">
-                    <div>• Ảnh: <span className="font-semibold text-orange-100">{imageFiles.length}</span></div>
-                    <div>• Audio: <span className="font-semibold text-orange-100">{audioFiles.length}</span></div>
-                    <div className="text-xs text-orange-200/70 mt-2">
-                      💡 Số lượng ảnh và audio nên bằng nhau để mỗi card có đủ media.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {imageFiles.length === csvRows.length && audioFiles.length === csvRows.length && imageFiles.length > 0 && (
-              <div className="flex items-start gap-2 p-3 rounded-lg border" style={{ backgroundColor: 'var(--success-bg)', borderColor: 'var(--success)' }}>
-                <span className="text-lg" style={{ color: 'var(--success)' }}>✓</span>
-                <div className="flex-1 text-sm">
-                  <div className="font-semibold" style={{ color: 'var(--success)' }}>
-                    Số lượng files khớp hoàn hảo!
-                  </div>
-                  <div className="text-xs mt-1" style={{ color: 'var(--success-text)' }}>
-                    {csvRows.length} cards = {imageFiles.length} ảnh = {audioFiles.length} audio
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="admin-subpanel">
-            <div className="text-xs typography-inter-4 mb-2" style={{ color: 'var(--sub-language-text)' }}>Images (.webp recommended)</div>
-            <input type="file" accept="image/jpeg,image/webp" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
-          </div>
-          <div className="admin-subpanel">
-            <div className="text-xs typography-inter-4 mb-2" style={{ color: 'var(--sub-language-text)' }}>Audio (.opus recommended)</div>
-            <input type="file" accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
-          </div>
-          <div className="flex flex-col gap-3 md:col-span-2">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="flex items-center gap-2 flex-1">
-                <label className="w-32 text-sm">Pad Digits</label>
-                <input type="number" min={1} value={padDigits} onChange={e => setPadDigits(Math.max(1, Number(e.target.value)||1))} className="admin-input disabled:opacity-50" disabled={infer} />
-              </div>
-              <div className="flex items-center gap-2 flex-1">
-                <label className="w-32 text-sm">Start Index</label>
-                <input type="number" min={0} value={startIndex} onChange={e => setStartIndex(Math.max(0, Number(e.target.value)||0))} className="admin-input disabled:opacity-50" disabled={infer} />
-              </div>
-            </div>
-            {infer && <div className="text-xs typography-inter-4" style={{ color: 'var(--neutral)' }}>Pad Digits & Start Index chỉ dùng khi tắt Infer IDs.</div>}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="flex items-center gap-2 flex-1">
-                <input id="infer-ids" type="checkbox" checked={infer} onChange={e => setInfer(e.target.checked)} />
-                <label htmlFor="infer-ids" className="text-sm select-none">Infer IDs</label>
-                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Lấy số cuối tên file làm Card ID.</span></span>
-              </div>
-              <div className="flex items-center gap-2 flex-1">
-                <input id="replace-cards" type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)} />
-                <label htmlFor="replace-cards" className="text-sm select-none">Replace existing cards</label>
-                <span className="relative group inline-flex"><HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} /><span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-72 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Nếu bật xoá toàn bộ cards + subtitles trước khi thêm mới.</span></span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <CardMediaFiles
+        imageFiles={imageFiles}
+        audioFiles={audioFiles}
+        onPickImages={onPickImages}
+        onPickAudio={onPickAudio}
+        csvRowsCount={csvRows.length}
+        infer={infer}
+        setInfer={setInfer}
+        padDigits={padDigits}
+        setPadDigits={setPadDigits}
+        startIndex={startIndex}
+        setStartIndex={setStartIndex}
+        replaceMode={replaceMode}
+        setReplaceMode={setReplaceMode}
+      />
 
       {/* Actions + Progress */}
       <div className="flex flex-col gap-3">
@@ -1242,76 +1148,37 @@ export default function AdminContentIngestPage() {
           <div className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Stage: {stage}</div>
         </div>
         {(busy || stage === "done") && (
-          <div className="admin-panel text-xs space-y-2">
-            {/* Progress items in actual execution order */}
-            {/* 1. Cover (optional) */}
-            {addCover && hasCoverFile && (
-              <ProgressItem label="1. Cover Portrait" done={coverDone > 0} pending={stage === "cover" || (busy && coverDone === 0)} />
-            )}
-            {addCoverLandscape && hasCoverLandscapeFile && (
-              <ProgressItem label="2. Cover Landscape" done={coverLandscapeDone > 0} pending={stage === "cover_landscape" || (busy && coverLandscapeDone === 0)} />
-            )}
-            {/* 2. Card Media (images + audio in parallel) */}
-            <div className="flex justify-between"><span>3. Images</span><span>{imagesDone}/{imagesTotal}</span></div>
-            <div className="flex justify-between"><span>4. Audio</span><span>{audioDone}/{audioTotal}</span></div>
-            {/* 3. Import CSV */}
-            <div className="flex justify-between">
-              <span>5. Import CSV</span>
-              <span>{importDone ? "✓" : stage === "import" ? "..." : (imagesDone === imageFiles.length && audioDone === audioFiles.length ? "waiting" : "pending")}</span>
-            </div>
-            {/* 4. Episode-level optional media (after import) */}
-            {addEpCover && hasEpCoverFile && (
-              <ProgressItem label="6. Episode Cover Landscape" done={epCoverDone > 0} pending={stage === "ep_cover" || (importDone && epCoverDone === 0)} />
-            )}
-            {/* 5. Calculate Stats (final step) */}
-            <div className="flex justify-between">
-              <span>7. Calculating Stats</span>
-              <span>{statsDone ? "✓" : stage === "calculating_stats" ? "..." : (importDone ? "waiting" : "pending")}</span>
-            </div>
-            {/* Progress bar */}
-            {(() => {
-              // Calculate total steps (each optional media counts as 1 unit)
+          <ProgressPanel
+            stage={stage}
+            progress={(() => {
               let totalSteps = 0;
               let completedSteps = 0;
-
-              // 1. Cover (optional)
-              if (addCover && hasCoverFile) {
-                totalSteps++;
-                if (coverDone > 0) completedSteps++;
-              }
-
-              // 2-3. Card media (images + audio) - use EFFECTIVE totals from uploader (after skips)
+              if (addCover && hasCoverFile) { totalSteps++; if (coverDone > 0) completedSteps++; }
+              if (addCoverLandscape && hasCoverLandscapeFile) { totalSteps++; if (coverLandscapeDone > 0) completedSteps++; }
               totalSteps += imagesTotal + audioTotal;
               completedSteps += imagesDone + audioDone;
-
-              // 4. Import CSV (required)
               totalSteps++;
               if (importDone) completedSteps++;
-
-              // 5. Episode-level media (optional)
-              if (addEpCover && hasEpCoverFile) {
-                totalSteps++;
-                if (epCoverDone > 0) completedSteps++;
-              }
-
-              // 6. Calculate Stats (required)
+              if (addEpCover && hasEpCoverFile) { totalSteps++; if (epCoverDone > 0) completedSteps++; }
               totalSteps++;
               if (statsDone) completedSteps++;
-
-              // Prevent showing 100% until ALL steps are completed
-              let pct: number;
-              if (totalSteps === 0) pct = 0;
-              else if (completedSteps === totalSteps) pct = 100;
-              else pct = Math.min(99, Math.floor((completedSteps / totalSteps) * 100));
-
-              return (<div className="mt-2"><ProgressBar percent={pct} /></div>);
+              return totalSteps === 0 ? 0 : (completedSteps === totalSteps ? 100 : Math.min(99, Math.floor((completedSteps / totalSteps) * 100)));
             })()}
-          </div>
+            items={[
+              ...(addCover && hasCoverFile ? [{ label: '1. Cover Portrait', done: coverDone > 0, pending: stage === 'cover' || (busy && coverDone === 0) }] : []),
+              ...(addCoverLandscape && hasCoverLandscapeFile ? [{ label: '2. Cover Landscape', done: coverLandscapeDone > 0, pending: stage === 'cover_landscape' || (busy && coverLandscapeDone === 0) }] : []),
+              { label: '3. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` },
+              { label: '4. Audio', done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
+              { label: '5. Import CSV', done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
+              ...(addEpCover && hasEpCoverFile ? [{ label: '6. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
+              { label: '7. Calculating Stats', done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
+            ]}
+          />
         )}
       </div>
       {confirmStop && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deletionProgress && setConfirmStop(false)}>
-        <div className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]" onClick={e => e.stopPropagation()}>
+        <div className="rounded-xl p-6 max-w-md w-full mx-4" style={{ backgroundColor: '#16111f', border: '3px solid #ec4899', boxShadow: '0 0 0 2px rgba(147,51,234,0.25) inset, 0 0 24px rgba(236,72,153,0.35)' }} onClick={e => e.stopPropagation()}>
           <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận dừng quá trình</h3>
           <p className="text-[#f5d0fe] mb-2">Bạn có muốn dừng quá trình tạo nội dung?</p>
           <p className="text-sm text-[#e9d5ff] mb-4">Stage hiện tại: <span className="text-[#f9a8d4] font-semibold">{stage}</span></p>
@@ -1352,15 +1219,6 @@ export default function AdminContentIngestPage() {
         </div>
       </div>
       )}
-    </div>
-  );
-}
-
-function ProgressItem({ label, done, pending }: { label: string; done: boolean; pending: boolean }) {
-  return (
-    <div className="flex justify-between">
-      <span>{label}</span>
-      <span>{done ? "✓" : pending ? "..." : "skip"}</span>
     </div>
   );
 }

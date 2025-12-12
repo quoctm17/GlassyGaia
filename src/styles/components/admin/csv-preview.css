@@ -143,8 +143,8 @@
 }
 
 .csv-cell-main-empty {
-  background-color: var(--warning-bg);
-  color: var(--warning-text);
+  background-color: var(--warning-bg-subtle);
+  color: var(--text);
 }
 
 .csv-cell-subtitle-empty {

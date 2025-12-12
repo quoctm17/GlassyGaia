@@ -258,18 +258,38 @@ export default function AdminAudioMigrationPage() {
             reject(new Error('Audio encoding failed'));
           };
           
+          // CRITICAL FIX: Wait for source to finish playing before stopping recorder
+          source.onended = () => {
+            // Add extra buffer time to ensure MediaRecorder finishes encoding
+            // This is crucial to prevent cutting off the end of audio
+            setTimeout(() => {
+              if (mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+              }
+            }, 1000); // 1 second buffer for encoding to complete
+          };
+          
           // Start recording
           mediaRecorder.start();
           
           // Start playback (this feeds data to MediaRecorder)
           source.start(0);
           
-          // Stop recording after audio duration + buffer
-          setTimeout(() => {
+          // Safety timeout: In case onended doesn't fire, force stop after duration + generous buffer
+          // This should never trigger if everything works correctly
+          const safetyTimeout = setTimeout(() => {
             if (mediaRecorder.state !== 'inactive') {
+              console.warn('Audio conversion safety timeout triggered - stopping recorder');
               mediaRecorder.stop();
             }
-          }, (audioBuffer.duration * 1000) + 500);
+          }, (audioBuffer.duration * 1000) + 3000); // 3 second safety buffer
+          
+          // Clean up safety timeout if recording stops normally
+          const originalOnStop = mediaRecorder.onstop;
+          mediaRecorder.onstop = (event: Event) => {
+            clearTimeout(safetyTimeout);
+            if (originalOnStop) originalOnStop.call(mediaRecorder, event);
+          };
           
         } catch (error) {
           reject(error);
@@ -401,7 +421,7 @@ export default function AdminAudioMigrationPage() {
         addLog('success', `✅ Database updated: ${oldKey} → ${newKey}`);
         
       } else if (oldKey.includes('/cards/')) {
-        // Pattern 2: Card audio - items/{slug}/episodes/{episodeFolder}/cards/{cardNumber}_audio.mp3
+        // Pattern 2a: Card audio - items/{slug}/episodes/{episodeFolder}/cards/{cardNumber}_audio.mp3
         const match = oldKey.match(/items\/([^/]+)\/episodes\/([^/]+)\/cards\/(\d+)_/);
         if (!match) {
           addLog('warning', `⚠️ Could not extract slug/episode/card from path: ${oldKey}`);
@@ -431,9 +451,40 @@ export default function AdminAudioMigrationPage() {
         
         addLog('success', `✅ Database updated (card audio): ${oldKey} → ${newKey}`);
         
+      } else if (oldKey.includes('/audio/')) {
+        // Pattern 2b: Card audio in audio folder - items/{slug}/episodes/{episodeFolder}/audio/{episodeFolder}_{cardNumber}.mp3
+        // Example: items/ttt/episodes/ttt_001/audio/ttt_001_0000.mp3 -> card 0
+        const match = oldKey.match(/items\/([^/]+)\/episodes\/([^/]+)\/audio\/.*_(\d+)\.(mp3|opus)$/);
+        if (match) {
+          const [, slug, episodeFolder, cardNumberStr] = match;
+          const cardNumber = parseInt(cardNumberStr);
+          
+          const response = await fetch(`${apiBase}/admin/update-image-path`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              table: 'cards',
+              slug,
+              episodeFolder,
+              cardNumber,
+              field: 'audio_key',
+              newPath: newKey
+            })
+          });
+          
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Database update failed');
+          }
+          
+          addLog('success', `✅ Database updated (card audio): ${oldKey} → ${newKey}`);
+        } else {
+          // Pattern 3: Full episode audio (no card number) - skip as schema field was removed
+          addLog('info', `ℹ️ Skipping DB update for full episode audio (no schema field): ${oldKey}`);
+        }
       } else {
-        // Skip database update for non-preview/non-card files (full audio, etc.)
-        addLog('info', `ℹ️ Skipping DB update for non-preview/non-card audio: ${oldKey}`);
+        // Skip database update for other files
+        addLog('info', `ℹ️ Skipping DB update for unmapped audio file: ${oldKey}`);
       }
       
     } catch (error) {

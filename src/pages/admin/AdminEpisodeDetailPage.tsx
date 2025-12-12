@@ -6,6 +6,7 @@ import { sortLevelsByDifficulty } from "../../utils/levelSort";
 import { getLevelBadgeColors } from "../../utils/levelColors";
 import { ExternalLink, MoreHorizontal, Eye, Pencil, Trash2, Search, ChevronUp, ChevronDown, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
 import PortalDropdown from "../../components/PortalDropdown";
+import ConfirmDeleteModal from "../../components/admin/ConfirmDeleteModal";
 import toast from "react-hot-toast";
 
 export default function AdminEpisodeDetailPage() {
@@ -507,49 +508,38 @@ export default function AdminEpisodeDetailPage() {
       )}
 
       {/* Confirm Delete Card Modal */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)}>
-          <div
-            className="bg-[#16111f] border-[3px] border-[#ec4899] rounded-xl p-6 max-w-md w-full mx-4 shadow-[0_0_0_2px_rgba(147,51,234,0.25)_inset,0_0_24px_rgba(236,72,153,0.35)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận xoá Card</h3>
-            <p className="text-[#f5d0fe] mb-2">Bạn có chắc muốn xoá Card: <span className="text-[#f9a8d4] font-semibold">#{confirmDelete.id}</span>?</p>
-            <p className="text-sm text-[#e9d5ff] mb-6">Thao tác này sẽ xoá media liên quan của card.</p>
-            <div className="flex gap-3 justify-end">
-              <button className="admin-btn secondary" onClick={() => setConfirmDelete(null)} disabled={deleting}>Huỷ</button>
-              <button
-                className="admin-btn primary"
-                disabled={deleting}
-                onClick={async () => {
-                  if (!contentSlug || !episodeSlug) return;
-                  setDeleting(true);
-                  try {
-                    const res = await apiDeleteCard({ filmSlug: contentSlug, episodeSlug: episodeSlug, cardId: confirmDelete.id });
-                    if ('error' in res) { toast.error(res.error); return; }
-                    setCards(prev => prev.filter(c => String(c.id).padStart(4,'0') !== confirmDelete.id));
-                    toast.success(`Đã xoá card #${confirmDelete.id} (Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`);
-                    setConfirmDelete(null);
-                    // Recalculate statistics after card deletion
-                    try {
-                      const episodeNum = ep?.episode_number || 1;
-                      const statsRes = await apiCalculateStats({ filmSlug: contentSlug, episodeNum });
-                      if ('error' in statsRes) {
-                        console.warn('Failed to recalculate stats after card deletion:', statsRes.error);
-                      }
-                    } catch (statsErr) {
-                      console.warn('Stats recalculation error:', statsErr);
-                    }
-                  } catch (e) { toast.error((e as Error).message); }
-                  finally { setDeleting(false); }
-                }}
-              >
-                {deleting ? 'Đang xoá...' : 'Xoá'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDeleteModal
+        isOpen={!!confirmDelete}
+        title="Xác nhận xoá Card"
+        description="Thao tác này sẽ xoá media liên quan của card."
+        itemName={confirmDelete ? `#${confirmDelete.id}` : ''}
+        isDeleting={deleting}
+        onClose={() => !deleting && setConfirmDelete(null)}
+        onConfirm={async () => {
+          if (!contentSlug || !episodeSlug || !confirmDelete) return;
+          setDeleting(true);
+          try {
+            const res = await apiDeleteCard({ filmSlug: contentSlug, episodeSlug: episodeSlug, cardId: confirmDelete.id });
+            if ('error' in res) { toast.error(res.error); return; }
+            setCards(prev => prev.filter(c => String(c.id).padStart(4,'0') !== confirmDelete.id));
+            toast.success(`Đã xoá card #${confirmDelete.id} (Media: ${res.media_deleted}${res.media_errors.length ? ', Lỗi: ' + res.media_errors.length : ''})`);
+            setConfirmDelete(null);
+            // Recalculate statistics after card deletion
+            try {
+              const episodeNum = ep?.episode_number || 1;
+              const statsRes = await apiCalculateStats({ filmSlug: contentSlug, episodeNum });
+              if ('error' in statsRes) {
+                console.warn('Failed to recalculate stats after card deletion:', statsRes.error);
+              }
+            } catch (statsErr) {
+              console.warn('Stats recalculation error:', statsErr);
+            }
+          } catch (e) { toast.error((e as Error).message); }
+          finally { setDeleting(false); }
+        }}
+        confirmLabel="Xoá"
+        cancelLabel="Huỷ"
+      />
     </div>
   );
 }

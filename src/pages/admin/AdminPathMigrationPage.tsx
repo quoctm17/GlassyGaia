@@ -187,16 +187,16 @@ export default function AdminPathMigrationPage() {
           </label>
         </div>
 
-        <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-          <h3 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>What this tool does:</h3>
-          <ul style={{ fontSize: '0.85rem', marginLeft: '1.5rem', lineHeight: 1.6 }}>
-            <li><code>content_items.cover_key</code>: .jpg → .webp</li>
-            <li><code>content_items.cover_landscape_key</code>: .jpg → .webp</li>
-            <li><code>episodes.cover_key</code>: .jpg → .webp</li>
-            <li><code>cards.image_key</code>: .jpg → .webp</li>
-            <li><code>cards.audio_key</code>: .mp3 → .opus</li>
+        <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--secondary)', borderRadius: '8px' }}>
+          <h3 className="typography-inter-2" style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text)' }}>What this tool does:</h3>
+          <ul className="typography-inter-3" style={{ fontSize: '0.85rem', marginLeft: '1.5rem', lineHeight: 1.6, color: 'var(--text)' }}>
+            <li><code style={{ color: 'var(--primary)' }}>content_items.cover_key</code>: .jpg → .webp</li>
+            <li><code style={{ color: 'var(--primary)' }}>content_items.cover_landscape_key</code>: .jpg → .webp</li>
+            <li><code style={{ color: 'var(--primary)' }}>episodes.cover_key</code>: .jpg → .webp</li>
+            <li><code style={{ color: 'var(--primary)' }}>cards.image_key</code>: .jpg → .webp</li>
+            <li><code style={{ color: 'var(--primary)' }}>cards.audio_key</code>: .mp3 → .opus</li>
           </ul>
-          <p style={{ fontSize: '0.8rem', marginTop: '0.5rem', fontStyle: 'italic', opacity: 0.7 }}>
+          <p className="typography-inter-4" style={{ fontSize: '0.8rem', marginTop: '0.5rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>
             Note: episodes.cover_landscape_key has been removed from schema
           </p>
         </div>
