@@ -62,17 +62,7 @@ function SearchPage() {
     try {
       const params = new URLSearchParams();
       params.set('q', q || '');
-      // For Japanese queries, also provide an alternate bracketed reading form to help backend matching
-      // Require minimum 2 characters for hiragana/katakana to avoid overly broad partial matches
-      if (q && hasJapanese(q)) {
-        const hira = toHiragana(q);
-        // Only send normalized variants if query is at least 2 chars (to avoid matching too broadly)
-        const minLength = /^[\u3040-\u309F\u30A0-\u30FF]+$/.test(q.trim()) ? 2 : 1; // 2 for pure kana, 1 for kanji
-        if (hira && q.trim().length >= minLength) {
-          params.set('q_hira', hira);
-          params.set('q_bracket', `[${hira}]`);
-        }
-      }
+      // Backend will handle Japanese normalization internally
       if (preferences.main_language) params.set('main_language', preferences.main_language);
       // Backend filters
       params.set('minDifficulty', String(minDifficulty));
@@ -254,15 +244,9 @@ function SearchPage() {
   const runSearch = async (q: string, sizeOverride?: number) => {
     setPage(1);
     setDisplayCount(28); // Reset display count on new search
-    // If query contains Japanese, normalize to Hiragana before sending to backend
-    // But require minimum length to avoid overly broad partial matches
-    let qToSend = q;
-    if (hasJapanese(q)) {
-      const minLength = /^[\u3040-\u309F\u30A0-\u30FF]+$/.test(q.trim()) ? 2 : 1;
-      if (q.trim().length >= minLength) {
-        qToSend = toHiragana(q);
-      }
-    }
+    // Backend handles all normalization internally, just send raw query
+    const qToSend = q;
+    
     // Cache key for empty query to speed up initial load / language switch
     const cacheKey = () => {
       const subsArr = Array.isArray(preferences.subtitle_languages) ? preferences.subtitle_languages : [];

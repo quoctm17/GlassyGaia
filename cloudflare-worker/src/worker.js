@@ -597,6 +597,44 @@ export default {
                 );
             `;
             
+            // Per-content counts query
+            const perContentLike = `
+              SELECT ci.slug AS content_slug, COUNT(DISTINCT cs.card_id) AS cnt
+              FROM card_subtitles cs
+              JOIN cards c ON c.id = cs.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE cs.text LIKE '%' || ?1 || '%'
+                AND cs.language = ci.main_language
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?9, ?2), COALESCE(?10, ?2)))
+                AND (?3 IS NULL OR ci.type = ?3)
+                AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (?11 IS NULL OR instr(?11, ',' || ci.slug || ',') > 0)
+                AND (
+                  ?6 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?8
+                      AND (
+                        CASE ?8
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?6 AND ?7
+                  )
+                )
+              GROUP BY ci.slug;
+            `;
+            
             try {
               // Execute main query with simplified params
               const likeStmt = env.DB.prepare(stmtLike);
@@ -621,6 +659,17 @@ export default {
               const totalStmt = env.DB.prepare(totalLike);
               const totalParams = bindParams.slice(0, 11); // First 11 params
               const totalRes = await totalStmt.bind(...totalParams).all();
+              
+              // Get per-content counts
+              const perContentStmt = env.DB.prepare(perContentLike);
+              const perContentParams = bindParams.slice(0, 11); // First 11 params
+              const perContentRes = await perContentStmt.bind(...perContentParams).all();
+              
+              // Build per-content map
+              const perContent = {};
+              for (const row of (perContentRes.results || [])) {
+                if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
+              }
               
               // If we have results and need subtitles/levels, fetch them using batched queries
               let subsMap = {};
@@ -701,11 +750,12 @@ export default {
               });
               
               const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
-              const resp = json({ items: mapped, page, size, total }, { headers: { 'cache-control': 'public, max-age=60' } });
+              const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
               await cache.put(cacheKey, resp.clone());
               return resp;
             } catch (e) {
-              return json({ error: 'search_failed', message: String(e) }, { status: 500 });
+              console.error('Japanese LIKE search error:', e, e.stack);
+              return json({ error: 'search_failed', message: String(e), stack: e.stack }, { status: 500 });
             }
           }
         }
