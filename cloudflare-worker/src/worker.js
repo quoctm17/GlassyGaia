@@ -494,11 +494,12 @@ export default {
         const altMain1 = (mainLower === 'zh') ? 'zh_trad' : (mainLower === 'zh_trad' ? 'zh' : null);
         const altMain2 = (mainLower === 'zh' || mainLower === 'zh_trad') ? 'yue' : null;
 
-        // For Japanese queries, use LIKE-based search instead of FTS
+        // For CJK (Chinese, Japanese, Korean) queries, use LIKE-based search instead of FTS
         // FTS doesn't handle CJK phrase search well, so we use direct text matching
         if (!ftsQuery && q && q.trim()) {
-          const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(q);
-          if (hasJapanese || mainLanguage === 'ja') {
+          const hasCJK = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(q);
+          const isCJKLang = mainLanguage === 'ja' || mainLanguage === 'zh' || mainLanguage === 'zh_trad' || mainLanguage === 'yue';
+          if (hasCJK || isCJKLang) {
             // Normalize query: remove whitespace and brackets for matching
             const qNorm = q.trim().replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
             
@@ -597,6 +598,44 @@ export default {
                 );
             `;
             
+            // Per-content counts query
+            const perContentLike = `
+              SELECT ci.slug AS content_slug, COUNT(DISTINCT cs.card_id) AS cnt
+              FROM card_subtitles cs
+              JOIN cards c ON c.id = cs.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE cs.text LIKE '%' || ?1 || '%'
+                AND cs.language = ci.main_language
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?9, ?2), COALESCE(?10, ?2)))
+                AND (?3 IS NULL OR ci.type = ?3)
+                AND (?4 IS NULL OR c.difficulty_score >= ?4)
+                AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (?11 IS NULL OR instr(?11, ',' || ci.slug || ',') > 0)
+                AND (
+                  ?6 IS NULL OR EXISTS (
+                    SELECT 1 FROM card_difficulty_levels dl
+                    WHERE dl.card_id = c.id
+                      AND dl.framework = ?8
+                      AND (
+                        CASE ?8
+                          WHEN 'CEFR' THEN (
+                            CASE dl.level
+                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
+                          )
+                          WHEN 'JLPT' THEN (
+                            CASE dl.level
+                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
+                          )
+                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
+                          ELSE NULL
+                        END
+                      ) BETWEEN ?6 AND ?7
+                  )
+                )
+              GROUP BY ci.slug;
+            `;
+            
             try {
               // Execute main query with simplified params
               const likeStmt = env.DB.prepare(stmtLike);
@@ -622,6 +661,17 @@ export default {
               const totalParams = bindParams.slice(0, 11); // First 11 params
               const totalRes = await totalStmt.bind(...totalParams).all();
               
+              // Get per-content counts
+              const perContentStmt = env.DB.prepare(perContentLike);
+              const perContentParams = bindParams.slice(0, 11); // First 11 params
+              const perContentRes = await perContentStmt.bind(...perContentParams).all();
+              
+              // Build per-content map
+              const perContent = {};
+              for (const row of (perContentRes.results || [])) {
+                if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
+              }
+              
               // If we have results and need subtitles/levels, fetch them using batched queries
               let subsMap = {};
               let levelsMap = {};
@@ -632,9 +682,10 @@ export default {
                 // Batch queries in parallel for better performance
                 const batchPromises = [];
                 
-                // Fetch subtitles if specific languages requested - use batched IN queries (max 100 per batch)
+                // Fetch subtitles if specific languages requested - use batched IN queries
+                // Max 99 items per batch to leave room for ?1 param (subtitle_languages)
                 if (subtitleLangsCount > 0) {
-                  const BATCH_SIZE = 100;
+                  const BATCH_SIZE = 99; // ?1 for subtitle_languages, ?2-?100 for card_ids
                   for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
                     const batch = cardIds.slice(i, i + BATCH_SIZE);
                     const placeholders = batch.map((_, idx) => `?${idx + 2}`).join(',');
@@ -651,6 +702,7 @@ export default {
                 }
                 
                 // Fetch levels for all matched cards - batched
+                // Max 100 items per batch (no extra params)
                 const BATCH_SIZE = 100;
                 for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
                   const batch = cardIds.slice(i, i + BATCH_SIZE);
@@ -701,11 +753,12 @@ export default {
               });
               
               const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
-              const resp = json({ items: mapped, page, size, total }, { headers: { 'cache-control': 'public, max-age=60' } });
+              const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
               await cache.put(cacheKey, resp.clone());
               return resp;
             } catch (e) {
-              return json({ error: 'search_failed', message: String(e) }, { status: 500 });
+              console.error('Japanese LIKE search error:', e, e.stack);
+              return json({ error: 'search_failed', message: String(e), stack: e.stack }, { status: 500 });
             }
           }
         }
@@ -1427,6 +1480,11 @@ export default {
 
       // 3) Content items list (generic across films, music, books)
       if (path === '/items' && request.method === 'GET') {
+        const cache = caches.default;
+        const cacheKey = new Request(request.url, request);
+        const cached = await cache.match(cacheKey);
+        if (cached) return cached;
+        
         try {
           // Include available_subs aggregated from content_item_languages for each item
           const rows = await env.DB.prepare(`
@@ -1467,7 +1525,9 @@ export default {
             }
           }
           const out = Array.from(map.values());
-          return json(out);
+          const resp = json(out, { headers: { 'cache-control': 'public, max-age=60' } });
+          await cache.put(cacheKey, resp.clone());
+          return resp;
         } catch (e) {
           return json([]);
         }

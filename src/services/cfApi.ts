@@ -109,11 +109,32 @@ export async function apiListFilms(): Promise<FilmDoc[]> {
 }
 
 // List all content items (any type) without client-side filtering
+// Uses localStorage cache with 5-minute TTL to reduce repeated fetches
 export async function apiListItems(): Promise<FilmDoc[]> {
+  const CACHE_KEY = 'glassygaia_items_cache';
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  
+  try {
+    // Check localStorage cache
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      const age = Date.now() - timestamp;
+      if (age < CACHE_TTL) {
+        console.log('[Cache] Using cached /items data (age:', Math.round(age / 1000), 's)');
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn('[Cache] Failed to read cache:', e);
+  }
+  
+  // Fetch fresh data
   const items = await getJson<
     Array<Partial<FilmDoc> & { id: string; type?: string }>
   >(`/items`);
-  return items.map((f) => ({
+  
+  const mapped = items.map((f) => ({
     id: f.id!,
     title: f.title,
     description: f.description,
@@ -145,6 +166,19 @@ export async function apiListItems(): Promise<FilmDoc[]> {
     })(),
     level_framework_stats: (f as Partial<FilmDoc> & { level_framework_stats?: string | LevelFrameworkStats[] | null }).level_framework_stats ?? null,
   }));
+  
+  // Save to localStorage cache
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      data: mapped,
+      timestamp: Date.now()
+    }));
+    console.log('[Cache] Saved /items to localStorage');
+  } catch (e) {
+    console.warn('[Cache] Failed to save cache:', e);
+  }
+  
+  return mapped;
 }
 
 export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {

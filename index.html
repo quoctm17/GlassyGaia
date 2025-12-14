@@ -3,9 +3,16 @@
 
 <head>
   <meta charset="UTF-8" />
-  <!-- Preconnect and load Press Start 2P for pixel navbar -->
+  <!-- Preconnect to critical resources for faster loading -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Preconnect to Cloudflare Worker API for faster initial requests -->
+  <link rel="preconnect" href="https://glassygaia-worker.phungnguyeniufintechclub.workers.dev" crossorigin>
+  <!-- Preconnect to R2 bucket for faster media loading -->
+  <link rel="preconnect" href="https://pub-3567da72191244fbbde455e38c5f0ecb.r2.dev" crossorigin>
+  <!-- DNS prefetch for additional performance -->
+  <link rel="dns-prefetch" href="https://pub-3567da72191244fbbde455e38c5f0ecb.r2.dev">
+  <!-- Load Press Start 2P for pixel navbar -->
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <!-- Favicon: prefer .png (wide support). If multiple sizes needed, add 32x32 & 16x16. -->
   <link rel="icon" type="image/png" href="/favicon.png" />

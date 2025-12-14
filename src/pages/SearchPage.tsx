@@ -8,7 +8,6 @@ import FilterModal from "../components/FilterModal";
 import CustomizeModal from "../components/CustomizeModal";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
-import { hasJapanese, toHiragana } from "../utils/japanese";
 import mediaIcon from "../assets/icons/media.svg";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
 import filterIcon from "../assets/icons/filter.svg";
@@ -52,6 +51,7 @@ function SearchPage() {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Fix timeout type
   const hasLoadedRef = useRef<boolean>(false); // Track if initial search completed
   const fetchStartRef = useRef<number>(0); // Track fetch start for spinner minimum duration
+  const isDebouncingRef = useRef<boolean>(false); // Track if currently debouncing
   const emptyCacheRef = useRef<Map<string, { timestamp: number; results: CardDoc[]; total: number; perContent: Record<string, number> }>>(new Map());
 
   // LanguageSelector writes to preferences directly; no local mirror needed
@@ -62,17 +62,7 @@ function SearchPage() {
     try {
       const params = new URLSearchParams();
       params.set('q', q || '');
-      // For Japanese queries, also provide an alternate bracketed reading form to help backend matching
-      // Require minimum 2 characters for hiragana/katakana to avoid overly broad partial matches
-      if (q && hasJapanese(q)) {
-        const hira = toHiragana(q);
-        // Only send normalized variants if query is at least 2 chars (to avoid matching too broadly)
-        const minLength = /^[\u3040-\u309F\u30A0-\u30FF]+$/.test(q.trim()) ? 2 : 1; // 2 for pure kana, 1 for kanji
-        if (hira && q.trim().length >= minLength) {
-          params.set('q_hira', hira);
-          params.set('q_bracket', `[${hira}]`);
-        }
-      }
+      // Backend will handle Japanese normalization internally
       if (preferences.main_language) params.set('main_language', preferences.main_language);
       // Backend filters
       params.set('minDifficulty', String(minDifficulty));
@@ -205,7 +195,12 @@ function SearchPage() {
       const elapsed = Date.now() - fetchStartRef.current;
       const minSpinner = 150;
       const delay = Math.max(0, minSpinner - elapsed);
-      setTimeout(() => setLoading(false), delay);
+      setTimeout(() => {
+        // Only clear loading if not debouncing
+        if (!isDebouncingRef.current) {
+          setLoading(false);
+        }
+      }, delay);
       loadingMoreRef.current = false;
     }
   }, [preferences.main_language, minDifficulty, maxDifficulty, minLevel, maxLevel, preferences.subtitle_languages, filmFilter, pageSize]);
@@ -254,15 +249,9 @@ function SearchPage() {
   const runSearch = async (q: string, sizeOverride?: number) => {
     setPage(1);
     setDisplayCount(28); // Reset display count on new search
-    // If query contains Japanese, normalize to Hiragana before sending to backend
-    // But require minimum length to avoid overly broad partial matches
-    let qToSend = q;
-    if (hasJapanese(q)) {
-      const minLength = /^[\u3040-\u309F\u30A0-\u30FF]+$/.test(q.trim()) ? 2 : 1;
-      if (q.trim().length >= minLength) {
-        qToSend = toHiragana(q);
-      }
-    }
+    // Backend handles all normalization internally, just send raw query
+    const qToSend = q;
+    
     // Cache key for empty query to speed up initial load / language switch
     const cacheKey = () => {
       const subsArr = Array.isArray(preferences.subtitle_languages) ? preferences.subtitle_languages : [];
@@ -303,7 +292,9 @@ function SearchPage() {
   };
 
   useEffect(() => {
-    runSearch("", 60); // smaller first page for faster initial render
+    // Ensure loading stays true during initial load
+    setLoading(true);
+    runSearch("", 15); // Reduced from 30 to 15 for faster first paint
     // preload film titles for facet labels
     listAllItems()
       .then((fs) => {
@@ -399,18 +390,24 @@ function SearchPage() {
 
   // Debounced live search on query changes (500ms delay for better performance)
   useEffect(() => {
+    // Skip debounce during initial load to avoid duplicate fetch
+    if (!hasLoadedRef.current) return;
+    
     // Show loading immediately when user types
     setLoading(true);
+    isDebouncingRef.current = true;
     // Clear any existing timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
     const handle = setTimeout(() => {
+      isDebouncingRef.current = false;
       runSearch(query);
     }, 500);
     searchTimeoutRef.current = handle;
     return () => {
       clearTimeout(handle);
+      isDebouncingRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
@@ -555,7 +552,7 @@ function SearchPage() {
               />
             </div>
             <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
-              {loading ? "Searching..." : (total === 0 && query.length === 0 ? "Enter search query" : `${total} Results`)}
+              {loading && total === 0 ? "Searching..." : (total === 0 && query.length === 0 ? "Enter search query" : `${total} Results`)}
             </span>
           </div>
         </div>
@@ -567,15 +564,29 @@ function SearchPage() {
             ? 'grid grid-cols-2 gap-4'
             : ''
         }>
-          {displayedResults.map((c) => (
-            <SearchResultCard
-              key={String(c.id)}
-              card={c}
-              highlightQuery={query}
-              primaryLang={filmLangMap[String(c.film_id ?? "")]}
-              filmTitle={filmTitleMap[String(c.film_id ?? "")]}
-            />
-          ))}
+          {loading && displayedResults.length === 0 ? (
+            // Show skeleton cards during initial load
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={`skeleton-${i}`} className="search-card-skeleton" style={{
+                height: '300px',
+                background: 'linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%)',
+                backgroundSize: '200% 100%',
+                animation: 'skeleton-loading 1.5s ease-in-out infinite',
+                borderRadius: '8px',
+                marginBottom: '1rem'
+              }} />
+            ))
+          ) : (
+            displayedResults.map((c) => (
+              <SearchResultCard
+                key={String(c.id)}
+                card={c}
+                highlightQuery={query}
+                primaryLang={filmLangMap[String(c.film_id ?? "")]}
+                filmTitle={filmTitleMap[String(c.film_id ?? "")]}
+              />
+            ))
+          )}
         </div>
         </main>
       </div>

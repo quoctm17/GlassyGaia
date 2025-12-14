@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, memo } from "react";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
 import { toggleFavorite } from "../services/progress";
@@ -22,7 +22,8 @@ interface Props {
   filmTitle?: string; // content title to display
 }
 
-export default function SearchResultCard({
+// Memoized component to prevent unnecessary re-renders
+const SearchResultCard = memo(function SearchResultCard({
   card: initialCard,
   highlightQuery,
   primaryLang,
@@ -42,12 +43,14 @@ export default function SearchResultCard({
   const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [imageLoaded, setImageLoaded] = useState<boolean>(false);
 
   // Update card when initialCard changes
   useEffect(() => {
     setCard(initialCard);
     // Reset to original when initialCard changes (new search result)
     setOriginalCardIndex(-1);
+    setImageLoaded(false); // Reset image loaded state
   }, [initialCard]);
 
   // Register/unregister audio instance in global registry
@@ -71,22 +74,22 @@ export default function SearchResultCard({
         return;
       }
       
-      if (e.key === 'a' || e.key === 'A') {
+      if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handlePrevCard();
-      } else if (e.key === 'd' || e.key === 'D') {
+      } else if ((e.key === 'd' || e.key === 'D') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleNextCard();
       } else if (e.key === ' ' || e.key === 'Spacebar') {
         e.preventDefault();
         handleImageClick();
-      } else if (e.key === 's' || e.key === 'S') {
+      } else if ((e.key === 's' || e.key === 'S') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         onToggleFavorite();
-      } else if (e.key === 'r' || e.key === 'R') {
+      } else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleReplayAudio();
-      } else if (e.key === 'c' || e.key === 'C') {
+      } else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleReturnToOriginal();
       } else if (e.key === 'Shift') {
@@ -848,15 +851,35 @@ export default function SearchResultCard({
           
           <div className="card-image-container">
             <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
+              {!imageLoaded && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: '#1a1a1a',
+                  background: 'linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%)',
+                  backgroundSize: '200% 100%',
+                  animation: 'skeleton-loading 1.5s ease-in-out infinite',
+                  borderRadius: '4px'
+                }} />
+              )}
               <img
                 src={card.image_url}
                 alt={card.id}
                 loading="lazy"
+                decoding="async"
                 className="card-image"
                 onContextMenu={(e) => e.preventDefault()}
                 draggable={false}
                 onClick={handleImageClick}
-                style={{ cursor: card.audio_url ? 'pointer' : 'default' }}
+                onLoad={() => setImageLoaded(true)}
+                style={{ 
+                  cursor: card.audio_url ? 'pointer' : 'default',
+                  opacity: imageLoaded ? 1 : 0,
+                  transition: 'opacity 0.3s ease-in-out'
+                }}
               />
               {card.audio_url && (
                 <div className="card-image-play-overlay" onClick={handleImageClick} style={{ cursor: 'pointer', pointerEvents: 'all' }}>
@@ -1006,4 +1029,14 @@ export default function SearchResultCard({
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison for memo - only re-render if these props change
+  return (
+    prevProps.card.id === nextProps.card.id &&
+    prevProps.highlightQuery === nextProps.highlightQuery &&
+    prevProps.primaryLang === nextProps.primaryLang &&
+    prevProps.filmTitle === nextProps.filmTitle
+  );
+});
+
+export default SearchResultCard;

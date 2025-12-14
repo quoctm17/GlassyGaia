@@ -1,37 +1,59 @@
+import { lazy, Suspense } from 'react';
 import NavBar from './components/NavBar';
 import BottomNav from './components/BottomNav';
 import SearchPage from './pages/SearchPage';
 import { UserProvider } from './context/UserContext';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
-import ContentCardsPage from './pages/ContentCardsPage';
-import FavoritesPage from './pages/FavoritesPage';
-import ContentMoviePage from './pages/ContentMoviePage';
-import SeriesPage from './pages/SeriesPage';
-import BookPage from './pages/BookPage';
-import VideoPage from './pages/VideoPage';
-import AboutPage from './pages/AboutPage';
-import LoginPageOld from './pages/LoginPage';
-import WatchPage from './pages/WatchPage';
-import AdminContentIngestPage from './pages/admin/AdminContentIngestPage';
-import AdminContentUpdatePage from './pages/admin/AdminContentUpdatePage';
-import AdminLayout from './layouts/admin/AdminLayout';
-import AdminContentMediaPage from './pages/admin/AdminContentMediaPage';
-import AdminContentListPage from './pages/admin/AdminContentListPage';
-import AdminContentDetailPage from './pages/admin/AdminContentDetailPage';
-import AdminContentCardDetailPage from './pages/admin/AdminContentCardDetailPage';
-import AdminAddEpisodePage from './pages/admin/AdminAddEpisodePage';
-import AdminEpisodeDetailPage from './pages/admin/AdminEpisodeDetailPage';
-import AdminEpisodeUpdatePage from './pages/admin/AdminEpisodeUpdatePage';
-import AdminCardUpdatePage from './pages/admin/AdminCardUpdatePage';
-import AdminUserListPage from './pages/admin/AdminUserListPage';
-import AdminUserDetailPage from './pages/admin/AdminUserDetailPage';
-import AdminDatabasePage from './pages/admin/AdminDatabasePage';
-import AdminImageMigrationPage from './pages/admin/AdminImageMigrationPage';
-import AdminPathMigrationPage from './pages/admin/AdminPathMigrationPage';
-import AdminAudioMigrationPage from './pages/admin/AdminAudioMigrationPage';
-import AuthLoginPage from './pages/authentication/LoginPage';
-import AuthSignupPage from './pages/authentication/SignupPage';
 import { Toaster } from 'react-hot-toast';
+
+// Critical pages - eager load
+import ContentCardsPage from './pages/ContentCardsPage';
+import ContentMoviePage from './pages/ContentMoviePage';
+import WatchPage from './pages/WatchPage';
+
+// Non-critical pages - lazy load
+const FavoritesPage = lazy(() => import('./pages/FavoritesPage'));
+const SeriesPage = lazy(() => import('./pages/SeriesPage'));
+const BookPage = lazy(() => import('./pages/BookPage'));
+const VideoPage = lazy(() => import('./pages/VideoPage'));
+const AboutPage = lazy(() => import('./pages/AboutPage'));
+const LoginPageOld = lazy(() => import('./pages/LoginPage'));
+
+// Auth pages - lazy load
+const AuthLoginPage = lazy(() => import('./pages/authentication/LoginPage'));
+const AuthSignupPage = lazy(() => import('./pages/authentication/SignupPage'));
+
+// Admin pages - lazy load (biggest impact)
+const AdminLayout = lazy(() => import('./layouts/admin/AdminLayout'));
+const AdminContentIngestPage = lazy(() => import('./pages/admin/AdminContentIngestPage'));
+const AdminContentUpdatePage = lazy(() => import('./pages/admin/AdminContentUpdatePage'));
+const AdminContentMediaPage = lazy(() => import('./pages/admin/AdminContentMediaPage'));
+const AdminContentListPage = lazy(() => import('./pages/admin/AdminContentListPage'));
+const AdminContentDetailPage = lazy(() => import('./pages/admin/AdminContentDetailPage'));
+const AdminContentCardDetailPage = lazy(() => import('./pages/admin/AdminContentCardDetailPage'));
+const AdminAddEpisodePage = lazy(() => import('./pages/admin/AdminAddEpisodePage'));
+const AdminEpisodeDetailPage = lazy(() => import('./pages/admin/AdminEpisodeDetailPage'));
+const AdminEpisodeUpdatePage = lazy(() => import('./pages/admin/AdminEpisodeUpdatePage'));
+const AdminCardUpdatePage = lazy(() => import('./pages/admin/AdminCardUpdatePage'));
+const AdminUserListPage = lazy(() => import('./pages/admin/AdminUserListPage'));
+const AdminUserDetailPage = lazy(() => import('./pages/admin/AdminUserDetailPage'));
+const AdminDatabasePage = lazy(() => import('./pages/admin/AdminDatabasePage'));
+const AdminImageMigrationPage = lazy(() => import('./pages/admin/AdminImageMigrationPage'));
+const AdminPathMigrationPage = lazy(() => import('./pages/admin/AdminPathMigrationPage'));
+const AdminAudioMigrationPage = lazy(() => import('./pages/admin/AdminAudioMigrationPage'));
+
+// Loading fallback component
+const PageLoader = () => (
+  <div style={{ 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    minHeight: '400px',
+    color: 'var(--text-secondary)'
+  }}>
+    Loading...
+  </div>
+);
 
 function App() {
   // Inline redirect helpers for backward compatibility
@@ -47,26 +69,27 @@ function App() {
         <div className="app-shell text-white">
           <NavBar />
           <div className="app-main">
-            <Routes>
-              <Route path="/" element={<Navigate to="/search" replace />} />
-              <Route path="/search" element={<SearchPage />} />
-              {/* New canonical content routes */}
-              <Route path="/content" element={<ContentMoviePage />} />
-              <Route path="/content/:contentId" element={<ContentCardsPage />} />
-              <Route path="/watch/:contentId" element={<WatchPage />} />
-              {/* Backward compat redirects */}
-              <Route path="/movie" element={<Navigate to="/content" replace />} />
-              <Route path="/movie/:filmId" element={<MovieToContentRedirect />} />
-              <Route path="/series" element={<SeriesPage />} />
-              <Route path="/book" element={<BookPage />} />
-              <Route path="/video" element={<VideoPage />} />
-              <Route path="/favorites" element={<FavoritesPage />} />
-              <Route path="/about" element={<AboutPage />} />
-              <Route path="/login" element={<LoginPageOld />} />
-              {/* Authentication Routes */}
-              <Route path="/auth/login" element={<AuthLoginPage />} />
-              <Route path="/auth/signup" element={<AuthSignupPage />} />
-              <Route path="/admin" element={<AdminLayout />}>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/search" replace />} />
+                <Route path="/search" element={<SearchPage />} />
+                {/* New canonical content routes */}
+                <Route path="/content" element={<ContentMoviePage />} />
+                <Route path="/content/:contentId" element={<ContentCardsPage />} />
+                <Route path="/watch/:contentId" element={<WatchPage />} />
+                {/* Backward compat redirects */}
+                <Route path="/movie" element={<Navigate to="/content" replace />} />
+                <Route path="/movie/:filmId" element={<MovieToContentRedirect />} />
+                <Route path="/series" element={<SeriesPage />} />
+                <Route path="/book" element={<BookPage />} />
+                <Route path="/video" element={<VideoPage />} />
+                <Route path="/favorites" element={<FavoritesPage />} />
+                <Route path="/about" element={<AboutPage />} />
+                <Route path="/login" element={<LoginPageOld />} />
+                {/* Authentication Routes */}
+                <Route path="/auth/login" element={<AuthLoginPage />} />
+                <Route path="/auth/signup" element={<AuthSignupPage />} />
+                <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminContentMediaPage />} />
                 <Route path="media" element={<AdminContentMediaPage />} />
                 {/* New Admin Content Routes */}
@@ -95,6 +118,7 @@ function App() {
                 <Route path="update" element={<AdminContentUpdatePage />} />
               </Route>
             </Routes>
+            </Suspense>
           </div>
           <BottomNav />
           <Toaster 
