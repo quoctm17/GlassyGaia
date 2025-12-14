@@ -494,11 +494,12 @@ export default {
         const altMain1 = (mainLower === 'zh') ? 'zh_trad' : (mainLower === 'zh_trad' ? 'zh' : null);
         const altMain2 = (mainLower === 'zh' || mainLower === 'zh_trad') ? 'yue' : null;
 
-        // For Japanese queries, use LIKE-based search instead of FTS
+        // For CJK (Chinese, Japanese, Korean) queries, use LIKE-based search instead of FTS
         // FTS doesn't handle CJK phrase search well, so we use direct text matching
         if (!ftsQuery && q && q.trim()) {
-          const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(q);
-          if (hasJapanese || mainLanguage === 'ja') {
+          const hasCJK = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(q);
+          const isCJKLang = mainLanguage === 'ja' || mainLanguage === 'zh' || mainLanguage === 'zh_trad' || mainLanguage === 'yue';
+          if (hasCJK || isCJKLang) {
             // Normalize query: remove whitespace and brackets for matching
             const qNorm = q.trim().replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
             
@@ -681,9 +682,10 @@ export default {
                 // Batch queries in parallel for better performance
                 const batchPromises = [];
                 
-                // Fetch subtitles if specific languages requested - use batched IN queries (max 100 per batch)
+                // Fetch subtitles if specific languages requested - use batched IN queries
+                // Max 99 items per batch to leave room for ?1 param (subtitle_languages)
                 if (subtitleLangsCount > 0) {
-                  const BATCH_SIZE = 100;
+                  const BATCH_SIZE = 99; // ?1 for subtitle_languages, ?2-?100 for card_ids
                   for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
                     const batch = cardIds.slice(i, i + BATCH_SIZE);
                     const placeholders = batch.map((_, idx) => `?${idx + 2}`).join(',');
@@ -700,6 +702,7 @@ export default {
                 }
                 
                 // Fetch levels for all matched cards - batched
+                // Max 100 items per batch (no extra params)
                 const BATCH_SIZE = 100;
                 for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
                   const batch = cardIds.slice(i, i + BATCH_SIZE);
@@ -1477,6 +1480,11 @@ export default {
 
       // 3) Content items list (generic across films, music, books)
       if (path === '/items' && request.method === 'GET') {
+        const cache = caches.default;
+        const cacheKey = new Request(request.url, request);
+        const cached = await cache.match(cacheKey);
+        if (cached) return cached;
+        
         try {
           // Include available_subs aggregated from content_item_languages for each item
           const rows = await env.DB.prepare(`
@@ -1517,7 +1525,9 @@ export default {
             }
           }
           const out = Array.from(map.values());
-          return json(out);
+          const resp = json(out, { headers: { 'cache-control': 'public, max-age=60' } });
+          await cache.put(cacheKey, resp.clone());
+          return resp;
         } catch (e) {
           return json([]);
         }

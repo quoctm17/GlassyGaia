@@ -87,8 +87,21 @@
   flex-direction: column;
   overflow-x: hidden;
   overflow-y: visible;
-  scrollbar-gutter: stable both-edges;
   padding-top: 140px; /* Space for fixed search-controls */
+}
+
+/* Skeleton loading animation */
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.search-card-skeleton {
+  animation: skeleton-loading 1.5s ease-in-out infinite;
 }
 
 .search-controls {
