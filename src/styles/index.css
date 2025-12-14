@@ -538,6 +538,7 @@ body,
   background: var(--background);
   width: 100%;
   overflow: visible;
+  padding-top: 64px;
 }
 
 /* Hide spin buttons / number input arrows (Chrome, Edge, Safari) */

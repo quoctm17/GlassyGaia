@@ -4,7 +4,6 @@
 .search-layout-wrapper {
   min-height: 100vh;
   padding: 0;
-  padding-top: 64px; /* NavBar height - compensate for fixed NavBar */
   overflow-x: hidden;
   overflow-y: visible;
   height: auto;
@@ -89,6 +88,7 @@
   overflow-x: hidden;
   overflow-y: visible;
   scrollbar-gutter: stable both-edges;
+  padding-top: 140px; /* Space for fixed search-controls */
 }
 
 .search-controls {
