@@ -245,6 +245,13 @@
   }
 }
 
+/* Tablet range: NavBar wraps to 2 rows */
+@media (max-width: 1140px) and (min-width: 769px) {
+  .pixel-navbar {
+    min-height: 100px; /* Accommodate 2 rows of tabs */
+  }
+}
+
 /* Below 1024px: More compact mobile/tablet layout */
 @media (max-width: 1024px) {
   .pixel-navbar {

@@ -541,6 +541,13 @@ body,
   padding-top: 64px;
 }
 
+/* Tablet: Increase padding for wrapped NavBar */
+@media (max-width: 1140px) and (min-width: 769px) {
+  .app-main {
+    padding-top: 100px;
+  }
+}
+
 /* Hide spin buttons / number input arrows (Chrome, Edge, Safari) */
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button {
