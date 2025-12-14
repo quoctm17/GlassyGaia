@@ -538,6 +538,14 @@ body,
   background: var(--background);
   width: 100%;
   overflow: visible;
+  padding-top: 64px;
+}
+
+/* Tablet: Increase padding for wrapped NavBar */
+@media (max-width: 1140px) and (min-width: 769px) {
+  .app-main {
+    padding-top: 100px;
+  }
 }
 
 /* Hide spin buttons / number input arrows (Chrome, Edge, Safari) */

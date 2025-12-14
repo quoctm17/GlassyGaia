@@ -4,7 +4,6 @@
 .search-layout-wrapper {
   min-height: 100vh;
   padding: 0;
-  padding-top: 64px; /* NavBar height - compensate for fixed NavBar */
   overflow-x: hidden;
   overflow-y: visible;
   height: auto;
@@ -89,6 +88,7 @@
   overflow-x: hidden;
   overflow-y: visible;
   scrollbar-gutter: stable both-edges;
+  padding-top: 140px; /* Space for fixed search-controls */
 }
 
 .search-controls {
@@ -105,6 +105,13 @@
   transition: left 0.3s ease; /* Smooth transition when FilterPanel toggles */
 }
 
+/* Tablet: Adjust top position for taller NavBar */
+@media (max-width: 1140px) and (min-width: 769px) {
+  .search-controls {
+    top: 100px;
+  }
+}
+
 /* Adjust search-controls position when FilterPanel is closed */
 .filter-panel.closed ~ .search-main .search-controls {
   left: 0; /* Full width when FilterPanel is hidden */
@@ -115,8 +122,14 @@
 
 /* Convert font sizes and spacing from 1440px and below, but keep desktop FilterPanel */
 @media (max-width: 1440px) {
+  .filter-panel {
+    width: 20% !important;
+    min-width: 240px;
+  }
+
   .search-controls {
     padding: 8px;
+    left: 20% !important;
   }
 }
 
