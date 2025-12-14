@@ -42,8 +42,6 @@ export default function SearchResultCard({
   const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
-  const [tooltipText, setTooltipText] = useState<string | null>(null);
-  const [tooltipVisible, setTooltipVisible] = useState<boolean>(false);
 
   // Update card when initialCard changes
   useEffect(() => {
@@ -849,15 +847,6 @@ export default function SearchResultCard({
           </div>
           
           <div className="card-image-container">
-            <button 
-              className="card-nav-btn card-nav-left"
-              onClick={handlePrevCard}
-              disabled={currentCardIndex <= 0}
-              style={{ opacity: currentCardIndex <= 0 ? 0.3 : 1 }}
-              title="Previous Card (A)"
-            >
-              <img src={buttonPlayIcon} alt="Previous" style={{ transform: 'rotate(180deg)' }} />
-            </button>
             <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
               <img
                 src={card.image_url}
@@ -875,15 +864,6 @@ export default function SearchResultCard({
                 </div>
               )}
             </div>
-            <button 
-              className="card-nav-btn card-nav-right"
-              onClick={handleNextCard}
-              disabled={currentCardIndex < 0 || currentCardIndex >= episodeCards.length - 1}
-              style={{ opacity: (currentCardIndex < 0 || currentCardIndex >= episodeCards.length - 1) ? 0.3 : 1 }}
-              title="Next Card (D)"
-            >
-              <img src={buttonPlayIcon} alt="Next" />
-            </button>
           </div>
         </div>
 
@@ -954,25 +934,19 @@ export default function SearchResultCard({
                   className={`${roleClass} ${rubyClass} subtitle-row`}
                   style={{
                     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-                    fontSize: isPrimary ? "24px" : "18px",
+                    fontSize: isPrimary ? "20px" : "16px",
                     fontWeight: isPrimary ? 700 : 400,
-                    lineHeight: 1.5,
-                    color: isPrimary ? "var(--main-language-text)" : undefined,
+                    lineHeight: 1.2,
                     position: "relative",
+                    // Main language uses --text color, secondary uses CSS class colors
+                    color: isPrimary ? "var(--text)" : undefined,
                   }}
                 >
                   <span className={`inline-block align-middle mr-1.5 text-sm fi fi-${countryCodeForLang(code)}`}></span>
                   <span
                     className="subtitle-text"
-                    onMouseEnter={() => { setTooltipText(raw); setTooltipVisible(true); }}
-                    onMouseLeave={() => { setTooltipText(null); setTooltipVisible(false); }}
                     dangerouslySetInnerHTML={{ __html: html }}
                   />
-                  {tooltipVisible && tooltipText === raw && (
-                    <div className="subtitle-tooltip-custom">
-                      {raw}
-                    </div>
-                  )}
                 </div>
               );
             });

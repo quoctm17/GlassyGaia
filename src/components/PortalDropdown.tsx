@@ -25,12 +25,14 @@ export default function PortalDropdown(props: PortalDropdownProps) {
 
   const compute = () => {
     const rect = anchorEl.getBoundingClientRect();
+    const panelH = panelRef.current?.offsetHeight || 0;
+    const padding = 16; // viewport edge padding
+    // default open downward below anchor
     const next: React.CSSProperties = { position: 'fixed', top: Math.round(rect.bottom + offset) };
     const baseX = align === 'center' ? 'translateX(-50%) ' : '';
     
     // Mobile viewport constraint: prevent overflow
     const isMobile = window.innerWidth <= 768;
-    const padding = 16; // px from edge
     
     if (align === 'right') {
       next.right = Math.round(window.innerWidth - rect.right);
@@ -73,6 +75,14 @@ export default function PortalDropdown(props: PortalDropdownProps) {
       next.left = centerX;
     }
     if (minWidth) next.minWidth = typeof minWidth === 'number' ? `${minWidth}px` : String(minWidth);
+
+    // Flip vertically if panel would overflow past viewport bottom
+    const wouldOverflowBottom = (typeof next.top === 'number') && (next.top + panelH + padding > window.innerHeight);
+    if (wouldOverflowBottom) {
+      const upTop = Math.round(rect.top - offset - panelH);
+      // Ensure minimum padding from top
+      next.top = Math.max(padding, upTop);
+    }
     // Universal mobile constraint: clamp max width
     if (isMobile) {
       next.maxWidth = Math.min(window.innerWidth - padding * 2, 400);

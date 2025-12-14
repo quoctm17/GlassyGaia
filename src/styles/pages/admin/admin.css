@@ -218,7 +218,7 @@
     position: absolute;
     inset: 0;
     border-radius: 4px;
-    box-shadow: 0 0 6px var(--hover-select);
+    box-shadow: none;
 }
 .admin-resizer:hover {
     background: var(--hover-select);

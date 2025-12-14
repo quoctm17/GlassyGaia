@@ -452,7 +452,8 @@ export default {
         const minLevel = url.searchParams.get('minLevel');
         const maxLevel = url.searchParams.get('maxLevel');
         const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
-        const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '100', 10), 1), 500);
+        // Reduced max size from 500 to 100 for better performance
+        const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '50', 10), 1), 100);
         const offset = (page - 1) * size;
 
         // Build FTS query. For Japanese with mixed Kanji+Kana, expand with kana-only OR and post-filter kanji presence.
@@ -501,6 +502,8 @@ export default {
             // Normalize query: remove whitespace and brackets for matching
             const qNorm = q.trim().replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
             
+            // Optimized query: removed heavy LEFT JOINs with subqueries
+            // We'll fetch subtitles and levels separately for matched card IDs
             const stmtLike = `
               SELECT
                 cs.card_id,
@@ -520,46 +523,25 @@ export default {
                 ci.title AS content_title,
                 ci.cover_key AS content_cover_key,
                 ci.cover_landscape_key AS content_cover_landscape_key,
-                ci.main_language AS content_main_language,
-                subs.subs_json AS subs_json,
-                levels.levels_json AS levels_json
-              FROM card_subtitles_fts fts
-              JOIN card_subtitles cs ON cs.card_id = fts.card_id AND cs.language = fts.language
+                ci.main_language AS content_main_language
+              FROM card_subtitles cs
               JOIN cards c ON c.id = cs.card_id
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
-              LEFT JOIN (
-                SELECT card_id, COUNT(DISTINCT language) AS cnt
-                FROM card_subtitles
-                WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
-                GROUP BY card_id
-              ) req ON req.card_id = cs.card_id
-              LEFT JOIN (
-                SELECT card_id, json_group_object(language, text) AS subs_json
-                FROM card_subtitles
-                WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
-                GROUP BY card_id
-              ) subs ON subs.card_id = cs.card_id
-              LEFT JOIN (
-                SELECT card_id, json_group_array(json_object('framework', framework, 'level', level, 'language', language)) AS levels_json
-                FROM card_difficulty_levels
-                GROUP BY card_id
-              ) levels ON levels.card_id = cs.card_id
-              WHERE fts.text LIKE '%' || ?1 || '%'
-                AND fts.language = ci.main_language
+              WHERE cs.text LIKE '%' || ?1 || '%'
                 AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?9, ?2), COALESCE(?10, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
-                AND (?8 IS NULL OR ci.slug = ?8)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (?11 IS NULL OR instr(?11, ',' || ci.slug || ',') > 0)
                 AND (
-                  ?9 IS NULL OR EXISTS (
+                  ?6 IS NULL OR EXISTS (
                     SELECT 1 FROM card_difficulty_levels dl
                     WHERE dl.card_id = c.id
-                      AND dl.framework = ?11
+                      AND dl.framework = ?8
                       AND (
-                        CASE ?11
+                        CASE ?8
                           WHEN 'CEFR' THEN (
                             CASE dl.level
                               WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
@@ -571,92 +553,34 @@ export default {
                           WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                           ELSE NULL
                         END
-                      ) BETWEEN ?9 AND ?10
+                      ) BETWEEN ?6 AND ?7
                   )
                 )
-                AND (?7 = 0 OR req.cnt = ?7)
               ORDER BY c.card_number ASC
-              LIMIT ?14 OFFSET ?15;
+              LIMIT ?12 OFFSET ?13;
             `;
             
-            const countLike = `
-              WITH matches AS (
-                SELECT DISTINCT cs.card_id, ci.slug AS content_slug
-                FROM card_subtitles_fts fts
-                JOIN card_subtitles cs ON cs.card_id = fts.card_id AND cs.language = fts.language
-                JOIN cards c ON c.id = cs.card_id
-                JOIN episodes e ON e.id = c.episode_id
-                JOIN content_items ci ON ci.id = e.content_item_id
-                LEFT JOIN (
-                  SELECT card_id, COUNT(DISTINCT language) AS cnt
-                  FROM card_subtitles
-                  WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
-                  GROUP BY card_id
-                ) req ON req.card_id = cs.card_id
-                WHERE fts.text LIKE '%' || ?1 || '%'
-                  AND fts.language = ci.main_language
-                  AND cs.language = ci.main_language
-                  AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
-                  AND (?3 IS NULL OR ci.type = ?3)
-                  AND (?8 IS NULL OR ci.slug = ?8)
-                  AND (?4 IS NULL OR c.difficulty_score >= ?4)
-                  AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                  AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                  AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                  AND (
-                    ?9 IS NULL OR EXISTS (
-                      SELECT 1 FROM card_difficulty_levels dl
-                      WHERE dl.card_id = c.id
-                        AND dl.framework = ?11
-                        AND (
-                          CASE ?11
-                            WHEN 'CEFR' THEN (
-                              CASE dl.level
-                                WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                            )
-                            WHEN 'JLPT' THEN (
-                              CASE dl.level
-                                WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                            )
-                            WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                            ELSE NULL
-                          END
-                        ) BETWEEN ?9 AND ?10
-                    )
-                  )
-                  AND (?7 = 0 OR req.cnt = ?7)
-              )
-              SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
-            `;
-            
+            // Simplified count query - just get distinct card count
             const totalLike = `
               SELECT COUNT(DISTINCT cs.card_id) AS total
-              FROM card_subtitles_fts fts
-              JOIN card_subtitles cs ON cs.card_id = fts.card_id AND cs.language = fts.language
+              FROM card_subtitles cs
               JOIN cards c ON c.id = cs.card_id
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
-              LEFT JOIN (
-                SELECT card_id, COUNT(DISTINCT language) AS cnt
-                FROM card_subtitles
-                WHERE (?6 IS NOT NULL AND instr(',' || ?6 || ',', ',' || language || ',') > 0)
-                GROUP BY card_id
-              ) req ON req.card_id = cs.card_id
-              WHERE fts.text LIKE '%' || ?1 || '%'
-                AND fts.language = ci.main_language
+              WHERE cs.text LIKE '%' || ?1 || '%'
                 AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?12, ?2), COALESCE(?13, ?2)))
+                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?9, ?2), COALESCE(?10, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
-                AND (?8 IS NULL OR ci.slug = ?8)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
+                AND (?11 IS NULL OR instr(?11, ',' || ci.slug || ',') > 0)
                 AND (
-                  ?9 IS NULL OR EXISTS (
+                  ?6 IS NULL OR EXISTS (
                     SELECT 1 FROM card_difficulty_levels dl
                     WHERE dl.card_id = c.id
-                      AND dl.framework = ?11
+                      AND dl.framework = ?8
                       AND (
-                        CASE ?11
+                        CASE ?8
                           WHEN 'CEFR' THEN (
                             CASE dl.level
                               WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
@@ -668,13 +592,13 @@ export default {
                           WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
                           ELSE NULL
                         END
-                      ) BETWEEN ?9 AND ?10
+                      ) BETWEEN ?6 AND ?7
                   )
-                )
-                AND (?7 = 0 OR req.cnt = ?7);
+                );
             `;
             
             try {
+              // Execute main query with simplified params
               const likeStmt = env.DB.prepare(stmtLike);
               const bindParams = [
                 qNorm,                // ?1
@@ -682,73 +606,102 @@ export default {
                 type,                 // ?3
                 minDifficulty,        // ?4
                 maxDifficulty,        // ?5
-                subtitleLanguagesCsv, // ?6
-                subtitleLangsCount,   // ?7
-                hasContentFilter ? 1 : 0, // ?8 (boolean flag)
-                minIdxEff,            // ?9
-                maxIdxEff,            // ?10
-                framework,            // ?11
-                altMain1,             // ?12
-                altMain2,             // ?13
-                size,                 // ?14
-                offset                // ?15
+                minIdxEff,            // ?6
+                maxIdxEff,            // ?7
+                framework,            // ?8
+                altMain1,             // ?9
+                altMain2,             // ?10
+                contentSlugsFilter,   // ?11
+                size,                 // ?12
+                offset                // ?13
               ];
               const { results } = await likeStmt.bind(...bindParams).all();
               
-              const countStmt = env.DB.prepare(countLike);
-              const countParams = [
-                qNorm,                // ?1
-                mainLanguage,         // ?2
-                type,                 // ?3
-                minDifficulty,        // ?4
-                maxDifficulty,        // ?5
-                subtitleLanguagesCsv, // ?6
-                subtitleLangsCount,   // ?7
-                contentSlugs[0] || null, // ?8 (single slug)
-                minIdxEff,            // ?9
-                maxIdxEff,            // ?10
-                framework,            // ?11
-                altMain1,             // ?12
-                altMain2              // ?13
-              ];
-              const countsRes = await countStmt.bind(...countParams).all();
-              
+              // Get total count
               const totalStmt = env.DB.prepare(totalLike);
-              const totalParams = [
-                qNorm,                // ?1
-                mainLanguage,         // ?2
-                type,                 // ?3
-                minDifficulty,        // ?4
-                maxDifficulty,        // ?5
-                subtitleLanguagesCsv, // ?6
-                subtitleLangsCount,   // ?7
-                contentSlugs[0] || null, // ?8 (single slug)
-                minIdxEff,            // ?9
-                maxIdxEff,            // ?10
-                framework,            // ?11
-                altMain1,             // ?12
-                altMain2              // ?13
-              ];
+              const totalParams = bindParams.slice(0, 11); // First 11 params
               const totalRes = await totalStmt.bind(...totalParams).all();
               
-              const mapped = (results || []).map(r => {
-                let levels = null;
-                if (r.levels_json) {
-                  try { levels = JSON.parse(r.levels_json); } catch {}
+              // If we have results and need subtitles/levels, fetch them using batched queries
+              let subsMap = {};
+              let levelsMap = {};
+              
+              if (results && results.length > 0) {
+                const cardIds = results.map(r => r.card_id);
+                
+                // Batch queries in parallel for better performance
+                const batchPromises = [];
+                
+                // Fetch subtitles if specific languages requested - use batched IN queries (max 100 per batch)
+                if (subtitleLangsCount > 0) {
+                  const BATCH_SIZE = 100;
+                  for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
+                    const batch = cardIds.slice(i, i + BATCH_SIZE);
+                    const placeholders = batch.map((_, idx) => `?${idx + 2}`).join(',');
+                    const subsQuery = `
+                      SELECT card_id, language, text
+                      FROM card_subtitles
+                      WHERE card_id IN (${placeholders})
+                        AND instr(',' || ?1 || ',', ',' || language || ',') > 0
+                    `;
+                    batchPromises.push(
+                      env.DB.prepare(subsQuery).bind(subtitleLanguagesCsv, ...batch).all()
+                    );
+                  }
                 }
+                
+                // Fetch levels for all matched cards - batched
+                const BATCH_SIZE = 100;
+                for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
+                  const batch = cardIds.slice(i, i + BATCH_SIZE);
+                  const placeholders = batch.map((_, idx) => `?${idx + 1}`).join(',');
+                  const levelsQuery = `
+                    SELECT card_id, framework, level, language
+                    FROM card_difficulty_levels
+                    WHERE card_id IN (${placeholders})
+                  `;
+                  batchPromises.push(
+                    env.DB.prepare(levelsQuery).bind(...batch).all().then(res => ({ type: 'levels', res }))
+                  );
+                }
+                
+                // Execute all batches in parallel
+                const batchResults = await Promise.all(batchPromises);
+                
+                // Process results
+                for (const result of batchResults) {
+                  if (result.type === 'levels') {
+                    // Process levels
+                    for (const row of (result.res.results || [])) {
+                      if (!levelsMap[row.card_id]) levelsMap[row.card_id] = [];
+                      levelsMap[row.card_id].push({
+                        framework: row.framework,
+                        level: row.level,
+                        language: row.language
+                      });
+                    }
+                  } else if (result.results) {
+                    // Process subtitles
+                    for (const row of (result.results || [])) {
+                      if (!subsMap[row.card_id]) subsMap[row.card_id] = {};
+                      subsMap[row.card_id][row.language] = row.text;
+                    }
+                  }
+                }
+              }
+              
+              const mapped = (results || []).map(r => {
                 return {
                   ...r,
                   image_url: makeMediaUrl(r.image_key),
                   audio_url: makeMediaUrl(r.audio_key),
-                  levels
+                  subtitle: subsMap[r.card_id] || null,
+                  levels: levelsMap[r.card_id] || null
                 };
               });
-              const perContent = {};
-              for (const row of (countsRes.results || [])) {
-                if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
-              }
+              
               const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
-              const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
+              const resp = json({ items: mapped, page, size, total }, { headers: { 'cache-control': 'public, max-age=60' } });
               await cache.put(cacheKey, resp.clone());
               return resp;
             } catch (e) {
@@ -995,9 +948,14 @@ export default {
           }
         }
 
-        const kanjiFilterSql = (isMixedJa && kanjiChars.length)
-          ? kanjiChars.map(() => " AND (cs.text LIKE '%' || ? || '%')").join('')
+        // Limit extra LIKE filters to avoid exceeding D1's 100 parameter cap
+        const maxExtraFilters = 20;
+        const kanjiExtra = (isMixedJa && kanjiChars.length) ? kanjiChars.slice(0, maxExtraFilters) : [];
+        const kanjiFilterSql = kanjiExtra.length
+          ? kanjiExtra.map(() => " AND (cs.text LIKE '%' || ? || '%')").join('')
           : '';
+        // Optimized FTS query - removed heavy LEFT JOINs with subqueries
+        // We'll fetch subtitles and levels separately for better performance
         const stmt = `
           SELECT
             cs.card_id,
@@ -1018,37 +976,18 @@ export default {
             ci.title AS content_title,
             ci.cover_key AS content_cover_key,
             ci.cover_landscape_key AS content_cover_landscape_key,
-            ci.main_language AS content_main_language,
-            subs.subs_json AS subs_json,
-            levels.levels_json AS levels_json
+            ci.main_language AS content_main_language
           FROM card_subtitles_fts
           JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
           JOIN cards c ON c.id = cs.card_id
           JOIN episodes e ON e.id = c.episode_id
           JOIN content_items ci ON ci.id = e.content_item_id
-          LEFT JOIN (
-            SELECT card_id, COUNT(DISTINCT language) AS cnt
-            FROM card_subtitles
-            WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
-            GROUP BY card_id
-          ) req ON req.card_id = cs.card_id
-          LEFT JOIN (
-            SELECT card_id, json_group_object(language, text) AS subs_json
-            FROM card_subtitles
-            WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
-            GROUP BY card_id
-          ) subs ON subs.card_id = cs.card_id
-          LEFT JOIN (
-            SELECT card_id, json_group_array(json_object('framework', framework, 'level', level, 'language', language)) AS levels_json
-            FROM card_difficulty_levels
-            GROUP BY card_id
-          ) levels ON levels.card_id = cs.card_id
           WHERE card_subtitles_fts MATCH ?1
             AND card_subtitles_fts.language = ci.main_language
             AND cs.language = ci.main_language
             AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
             AND (?3 IS NULL OR ci.type = ?3)
-            AND (?10 IS NULL OR ci.slug = ?10)
+            AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
             AND (?4 IS NULL OR c.difficulty_score >= ?4)
             AND (?5 IS NULL OR c.difficulty_score <= ?5)
             AND (
@@ -1072,7 +1011,6 @@ export default {
                   ) BETWEEN ?11 AND ?12
               )
             )
-            AND (?9 = 0 OR req.cnt = ?9)
             ${kanjiFilterSql}
           ORDER BY rank ASC, c.card_number ASC
           LIMIT ?6 OFFSET ?7;
@@ -1082,10 +1020,75 @@ export default {
           const ftsParams = [
             ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
             size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
-            contentSlugs[0] || null, // ?10 (single slug)
-            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
+            contentSlugsFilter, // ?10 (multiple slugs comma-separated)
+            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiExtra
           ];
           const { results } = await ftsStmt.bind(...ftsParams).all();
+          
+          // Batch fetch subtitles and levels for performance
+          let subsMap = {};
+          let levelsMap = {};
+          
+          if (results && results.length > 0) {
+            const cardIds = results.map(r => r.card_id);
+            const batchPromises = [];
+            
+            // Fetch subtitles if specific languages requested - batched
+            if (subtitleLangsCount > 0) {
+              const BATCH_SIZE = 100;
+              for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
+                const batch = cardIds.slice(i, i + BATCH_SIZE);
+                const placeholders = batch.map((_, idx) => `?${idx + 2}`).join(',');
+                const subsQuery = `
+                  SELECT card_id, language, text
+                  FROM card_subtitles
+                  WHERE card_id IN (${placeholders})
+                    AND instr(',' || ?1 || ',', ',' || language || ',') > 0
+                `;
+                batchPromises.push(
+                  env.DB.prepare(subsQuery).bind(subtitleLanguagesCsv, ...batch).all()
+                );
+              }
+            }
+            
+            // Fetch levels - batched
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
+              const batch = cardIds.slice(i, i + BATCH_SIZE);
+              const placeholders = batch.map((_, idx) => `?${idx + 1}`).join(',');
+              const levelsQuery = `
+                SELECT card_id, framework, level, language
+                FROM card_difficulty_levels
+                WHERE card_id IN (${placeholders})
+              `;
+              batchPromises.push(
+                env.DB.prepare(levelsQuery).bind(...batch).all().then(res => ({ type: 'levels', res }))
+              );
+            }
+            
+            // Execute all batches in parallel
+            const batchResults = await Promise.all(batchPromises);
+            
+            // Process results
+            for (const result of batchResults) {
+              if (result.type === 'levels') {
+                for (const row of (result.res.results || [])) {
+                  if (!levelsMap[row.card_id]) levelsMap[row.card_id] = [];
+                  levelsMap[row.card_id].push({
+                    framework: row.framework,
+                    level: row.level,
+                    language: row.language
+                  });
+                }
+              } else if (result.results) {
+                for (const row of (result.results || [])) {
+                  if (!subsMap[row.card_id]) subsMap[row.card_id] = {};
+                  subsMap[row.card_id][row.language] = row.text;
+                }
+              }
+            }
+          }
+          
           const countStmt = `
             WITH matches AS (
               SELECT DISTINCT cs.card_id, ci.slug AS content_slug
@@ -1094,18 +1097,12 @@ export default {
               JOIN cards c ON c.id = cs.card_id
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
-              LEFT JOIN (
-                SELECT card_id, COUNT(DISTINCT language) AS cnt
-                FROM card_subtitles
-                WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
-                GROUP BY card_id
-              ) req ON req.card_id = cs.card_id
               WHERE card_subtitles_fts MATCH ?1
                 AND card_subtitles_fts.language = ci.main_language
                 AND cs.language = ci.main_language
                 AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
-                AND (?10 IS NULL OR ci.slug = ?10)
+                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
                 AND (
@@ -1129,7 +1126,6 @@ export default {
                       ) BETWEEN ?11 AND ?12
                   )
                 )
-                AND (?9 = 0 OR req.cnt = ?9)
             )
             SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
           `;
@@ -1141,18 +1137,12 @@ export default {
               JOIN cards c ON c.id = cs.card_id
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
-              LEFT JOIN (
-                SELECT card_id, COUNT(DISTINCT language) AS cnt
-                FROM card_subtitles
-                WHERE (?8 IS NOT NULL AND instr(',' || ?8 || ',', ',' || language || ',') > 0)
-                GROUP BY card_id
-              ) req ON req.card_id = cs.card_id
               WHERE card_subtitles_fts MATCH ?1
                 AND card_subtitles_fts.language = ci.main_language
                 AND cs.language = ci.main_language
                 AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
                 AND (?3 IS NULL OR ci.type = ?3)
-                AND (?10 IS NULL OR ci.slug = ?10)
+                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
                 AND (?4 IS NULL OR c.difficulty_score >= ?4)
                 AND (?5 IS NULL OR c.difficulty_score <= ?5)
                 AND (
@@ -1176,7 +1166,6 @@ export default {
                       ) BETWEEN ?11 AND ?12
                   )
                 )
-                AND (?9 = 0 OR req.cnt = ?9)
             )
             SELECT COUNT(*) AS total FROM matches;
           `;
@@ -1184,7 +1173,7 @@ export default {
           const countFtsParams = [
             ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
             size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
-            contentSlugs[0] || null, // ?10 (single slug)
+            contentSlugsFilter, // ?10 (multiple slugs comma-separated)
             minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
           ];
           const countsRes = await countFtsStmt.bind(...countFtsParams).all();
@@ -1193,22 +1182,17 @@ export default {
           const totalFtsParams = [
             ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
             size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
-            contentSlugs[0] || null, // ?10 (single slug)
+            contentSlugsFilter, // ?10 (multiple slugs comma-separated)
             minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
           ];
           const totalRes = await totalFtsStmt.bind(...totalFtsParams).all();
           const mapped = (results || []).map(r => {
-            let levels = null;
-            if (r.levels_json) {
-              try {
-                levels = JSON.parse(r.levels_json);
-              } catch {}
-            }
             return {
               ...r,
               image_url: makeMediaUrl(r.image_key),
               audio_url: makeMediaUrl(r.audio_key),
-              levels
+              subtitle: subsMap[r.card_id] || null,
+              levels: levelsMap[r.card_id] || null
             };
           });
           

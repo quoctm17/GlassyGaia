@@ -79,12 +79,14 @@
   --light-secondary-filter: brightness(0) saturate(100%) invert(91%) sepia(8%) saturate(337%) hue-rotate(323deg) brightness(99%) contrast(92%); /* #F2EDE5 */
   --light-hover-select-filter: brightness(0) saturate(100%) invert(47%) sepia(17%) saturate(1517%) hue-rotate(298deg) brightness(91%) contrast(88%); /* #AA3F55 */
   --light-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
+  --light-text-filter: brightness(0) saturate(100%) invert(0%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(0%) contrast(100%); /* #000000 */
 
   /* Dark Mode Filters */
   --dark-primary-filter: brightness(0) saturate(100%) invert(22%) sepia(44%) saturate(1481%) hue-rotate(318deg) brightness(92%) contrast(93%); /* #9E2741 */
   --dark-secondary-filter: brightness(0) saturate(100%) invert(71%) sepia(7%) saturate(712%) hue-rotate(18deg) brightness(92%) contrast(87%); /* #948979 */
   --dark-hover-select-filter: brightness(0) saturate(100%) invert(93%) sepia(22%) saturate(634%) hue-rotate(297deg) brightness(103%) contrast(98%); /* #FDAAAA */
   --dark-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
+  --dark-text-filter: brightness(0) saturate(100%) invert(96%) sepia(5%) saturate(367%) hue-rotate(323deg) brightness(99%) contrast(92%); /* #F2EDE5 */
 }
 
 /* Light Mode */
@@ -129,6 +131,7 @@
   --icon-secondary-filter: var(--light-secondary-filter);
   --icon-hover-select-filter: var(--light-hover-select-filter);
   --icon-neutral-filter: var(--light-neutral-filter);
+  --icon-text-filter: var(--light-text-filter);
   
   /* Firefox scrollbar */
   scrollbar-color: var(--light-primary) var(--light-secondary);
@@ -176,6 +179,7 @@
   --icon-secondary-filter: var(--dark-secondary-filter);
   --icon-hover-select-filter: var(--dark-hover-select-filter);
   --icon-neutral-filter: var(--dark-neutral-filter);
+  --icon-text-filter: var(--dark-text-filter);
   
   /* Firefox scrollbar */
   scrollbar-color: var(--dark-primary) var(--dark-secondary);

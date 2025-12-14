@@ -23,7 +23,7 @@
 
 .pixel-input {
   width: 100%;
-  padding: 12px 16px 12px 44px;
+  padding: 10px 16px 10px 44px;
   font-weight: 600;
   letter-spacing: 1px;
   box-shadow: none;
@@ -69,8 +69,8 @@
 /* Dynamic theming */
 .pixel-input {
   background: var(--sidenav-bg);
-  color: var(--primary);
-  border: 2px solid var(--primary);
+  color: var(--neutral);
+  border: 2px solid var(--neutral);
 }
 
 .pixel-input:focus {
@@ -79,5 +79,5 @@
 }
 
 .pixel-input::placeholder {
-  color: var(--primary);
+  color: var(--neutral);
 }
