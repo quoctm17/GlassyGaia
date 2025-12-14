@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
 import type { CardDoc, LevelFrameworkStats } from "../types";
@@ -8,7 +8,6 @@ import FilterModal from "../components/FilterModal";
 import CustomizeModal from "../components/CustomizeModal";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
-import Pagination from "../components/Pagination";
 import { hasJapanese, toHiragana } from "../utils/japanese";
 import mediaIcon from "../assets/icons/media.svg";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
@@ -20,15 +19,16 @@ function SearchPage() {
   const { preferences, setVolume, setResultLayout } = useUser();
   const location = useLocation();
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start with true for initial load
   // Derive loading state from actual fetch; avoid a separate 'searching' toggle to prevent spinner flicker
   const [allResults, setAllResults] = useState<CardDoc[]>([]);
+  const [displayCount, setDisplayCount] = useState<number>(28); // How many cards to render
   const [page, setPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(20);
-  // hasMore no longer used with numbered pagination
+  const pageSize = 100; // Smaller batch for faster queries
+  const [hasMore, setHasMore] = useState<boolean>(true);
   const [total, setTotal] = useState<number>(0); // paginator total (scoped when film selected)
   const [globalTotal, setGlobalTotal] = useState<number>(0); // always global All Sources total
-  const [contentCounts, setContentCounts] = useState<Record<string, number>>({});
+  const [globalContentCounts, setGlobalContentCounts] = useState<Record<string, number>>({}); // Keep global counts for ContentSelector
   const [filmFilter, setFilmFilter] = useState<string[]>([]); // Changed to array for multi-select
   const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
   const [films, setFilms] = useState<string[]>([]);
@@ -38,8 +38,6 @@ function SearchPage() {
   const [maxDifficulty, setMaxDifficulty] = useState<number>(100);
   const [minLevel, setMinLevel] = useState<string | null>(null);
   const [maxLevel, setMaxLevel] = useState<string | null>(null);
-  const [sidebarWidth, setSidebarWidth] = useState<number>(300); // resizable panel width
-  const [dragging, setDragging] = useState<boolean>(false);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
   const [filterPanelOpen, setFilterPanelOpen] = useState<boolean>(true); // Filter panel visibility
   const [isMobile, setIsMobile] = useState<boolean>(false); // Track if mobile/tablet
@@ -47,27 +45,19 @@ function SearchPage() {
   const [customizeModalOpen, setCustomizeModalOpen] = useState<boolean>(false); // Customize modal visibility
   // removed filmAvailMap (unused after suggestion source simplification)
 
-  // Use AbortController to cancel stale global count requests
-  const globalCountsAbortRef = useRef<AbortController | null>(null);
-
-  // Detect mobile/tablet screen
-  useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
-      // Close filter panel by default on mobile
-      if (mobile) {
-        setFilterPanelOpen(false);
-      }
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  // Use AbortController to cancel stale search requests
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef<boolean>(false);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Fix timeout type
+  const hasLoadedRef = useRef<boolean>(false); // Track if initial search completed
+  const fetchStartRef = useRef<number>(0); // Track fetch start for spinner minimum duration
+  const emptyCacheRef = useRef<Map<string, { timestamp: number; results: CardDoc[]; total: number; perContent: Record<string, number> }>>(new Map());
 
   // LanguageSelector writes to preferences directly; no local mirror needed
 
-  const fetchPage = async (q: string, pageNum: number, sizeOverride?: number) => {
+  const fetchPage = useCallback(async (q: string, pageNum: number, sizeOverride?: number) => {
+    fetchStartRef.current = Date.now();
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -102,9 +92,19 @@ function SearchPage() {
       }
       params.set('page', String(pageNum));
       params.set('size', String(sizeOverride ?? pageSize));
+      // Cancel any pending search request
+      if (searchAbortRef.current) {
+        searchAbortRef.current.abort();
+      }
+      const abortController = new AbortController();
+      searchAbortRef.current = abortController;
+      
       const base = ((import.meta as unknown) as { env?: Record<string, string | undefined> }).env?.VITE_WORKER_BASE || '';
       const apiUrl = base ? `${base.replace(/\/$/, '')}/api/search?${params.toString()}` : `/api/search?${params.toString()}`;
-      const res = await fetch(apiUrl, { headers: { 'Accept': 'application/json' } });
+      const res = await fetch(apiUrl, { 
+        headers: { 'Accept': 'application/json' },
+        signal: abortController.signal
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const ct = res.headers.get('content-type') || '';
       if (!/application\/json/i.test(ct)) {
@@ -166,68 +166,94 @@ function SearchPage() {
         };
       });
 
-      setTotal(Number(payload.total ?? 0));
-      setGlobalTotal(Number(payload.total ?? 0));
-      // In pagination mode we replace the list on each fetch
-      setAllResults(mapped);
+      const totalNum = Number(payload.total ?? 0);
+      setTotal(totalNum);
+      // Only update globalTotal when no content filter active
+      if (filmFilter.length === 0) {
+        setGlobalTotal(totalNum);
+      }
+      // Update per-content counts
+      if (payload.per_content && typeof payload.per_content === 'object') {
+        const counts = payload.per_content as Record<string, number>;
+        // Only update global counts when no filter active (preserve global counts when filtering)
+        if (filmFilter.length === 0) {
+          setGlobalContentCounts(counts);
+        }
+      }
+      // For infinite scroll: append results if not first page, replace if first page
+      if (pageNum === 1) {
+        setAllResults(mapped);
+      } else {
+        setAllResults((prev) => [...prev, ...mapped]);
+      }
+      // Check if there are more results to load
+      setHasMore(mapped.length === pageSize);
+      return { mapped, total: totalNum, perContent: payload.per_content || {} };
     } catch (e) {
+      // Ignore abort errors (expected when request is cancelled)
+      if ((e as Error).name === 'AbortError') {
+        return;
+      }
       // Gracefully handle initial empty DB / 404
       console.warn(
         "Search fetch error (treated as empty):",
         (e as Error)?.message
       );
       setAllResults([]);
+      return { mapped: [], total: 0, perContent: {} };
     } finally {
-      setLoading(false);
+      const elapsed = Date.now() - fetchStartRef.current;
+      const minSpinner = 150;
+      const delay = Math.max(0, minSpinner - elapsed);
+      setTimeout(() => setLoading(false), delay);
+      loadingMoreRef.current = false;
     }
-  };
+  }, [preferences.main_language, minDifficulty, maxDifficulty, minLevel, maxLevel, preferences.subtitle_languages, filmFilter, pageSize]);
 
-  // Fetch global per-content counts for ContentSelector (without content_slug filter)
-  // This ensures ContentSelector always shows counts for all content
-  const fetchGlobalCounts = async (q: string) => {
-    try {
-      // Cancel any previous global counts request to avoid stale data
-      if (globalCountsAbortRef.current) {
-        globalCountsAbortRef.current.abort();
+  // Detect mobile/tablet screen
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      // Close filter panel by default on mobile
+      if (mobile) {
+        setFilterPanelOpen(false);
       }
-      // Create new abort controller for this request
-      const abortController = new AbortController();
-      globalCountsAbortRef.current = abortController;
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
-      const params = new URLSearchParams();
-      params.set('q', q || '');
-      // For Japanese queries, also provide an alternate bracketed reading form to help backend matching
-      if (q && hasJapanese(q)) {
-        const hira = toHiragana(q);
-        const minLength = /^[\u3040-\u309F\u30A0-\u30FF]+$/.test(q.trim()) ? 2 : 1;
-        if (hira && q.trim().length >= minLength) {
-          params.set('q_hira', hira);
-          params.set('q_bracket', `[${hira}]`);
+  // Infinite scroll detection (window-based to ensure reliability)
+  useEffect(() => {
+    const handleScroll = () => {
+      if (loadingMoreRef.current) return;
+
+      const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 1500;
+      if (nearBottom) {
+        // If we have more items in memory, just show them
+        if (displayCount < allResults.length) {
+          setDisplayCount(prev => Math.min(prev + 28, allResults.length));
+        }
+        // If we're running out of items in memory (within 50 cards) and there's more on server, fetch next batch early
+        // This prevents users from hitting the end before fetch completes when scrolling quickly
+        if (hasMore && allResults.length > 0 && allResults.length - displayCount < 50 && !loadingMoreRef.current) {
+          loadingMoreRef.current = true;
+          const nextPage = page + 1;
+          setPage(nextPage);
+          fetchPage(query, nextPage);
         }
       }
-      if (preferences.main_language) params.set('main_language', preferences.main_language);
-      // IMPORTANT: Do NOT apply difficulty/level/subtitle filters to global counts
-      // We want to show counts for ALL content regardless of other filters
-      // This allows users to see and add more content even when filters are active
-      params.set('page', '1');
-      params.set('size', '1');
-      const base = ((import.meta as unknown) as { env?: Record<string, string | undefined> }).env?.VITE_WORKER_BASE || '';
-      const apiUrl = base ? `${base.replace(/\/$/, '')}/api/search?${params.toString()}` : `/api/search?${params.toString()}`;
-      const res = await fetch(apiUrl, { signal: abortController.signal, headers: { 'Accept': 'application/json' } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const payload = await res.json();
-      const perContent = payload.per_content || {};
-      setContentCounts(perContent);
-    } catch (e) {
-      // Ignore abort errors (expected when request is cancelled)
-      if ((e as Error).name !== 'AbortError') {
-        console.warn("Global counts fetch error:", (e as Error)?.message);
-      }
-    }
-  };
+    };
 
-  const runSearch = async (q: string) => {
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [query, page, hasMore, fetchPage, displayCount, allResults.length]);
+
+  const runSearch = async (q: string, sizeOverride?: number) => {
     setPage(1);
+    setDisplayCount(28); // Reset display count on new search
     // If query contains Japanese, normalize to Hiragana before sending to backend
     // But require minimum length to avoid overly broad partial matches
     let qToSend = q;
@@ -237,15 +263,47 @@ function SearchPage() {
         qToSend = toHiragana(q);
       }
     }
-    // Fetch filtered results for display AND global counts for ContentSelector
-    await Promise.all([
-      fetchPage(qToSend, 1),
-      fetchGlobalCounts(qToSend)
-    ]);
+    // Cache key for empty query to speed up initial load / language switch
+    const cacheKey = () => {
+      const subsArr = Array.isArray(preferences.subtitle_languages) ? preferences.subtitle_languages : [];
+      const subsKey = subsArr.slice(0, 3).sort().join(',');
+      const filterKey = filmFilter.length > 0 ? filmFilter.slice().sort().join(',') : 'all';
+      return `${preferences.main_language || 'en'}|${subsKey}|${filterKey}`;
+    };
+
+    // If empty query and cached data is fresh (<=60s), return immediately
+    // Only use cache when no content filter is active AND initial load is done
+    if (!qToSend.trim() && filmFilter.length === 0 && hasLoadedRef.current) {
+      const key = cacheKey();
+      const cached = emptyCacheRef.current.get(key);
+      const now = Date.now();
+      if (cached && now - cached.timestamp <= 60000) {
+        setAllResults(cached.results);
+        setTotal(cached.total);
+        setGlobalTotal(cached.total);
+        setGlobalContentCounts(cached.perContent);
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Single request now returns both results AND per_content counts
+    const resp = await fetchPage(qToSend, 1, sizeOverride);
+    hasLoadedRef.current = true;
+
+    // Store cache for empty query (only when no content filter active)
+    if (!qToSend.trim() && filmFilter.length === 0 && resp) {
+      emptyCacheRef.current.set(cacheKey(), {
+        timestamp: Date.now(),
+        results: resp.mapped,
+        total: resp.total,
+        perContent: resp.perContent || {}
+      });
+    }
   };
 
   useEffect(() => {
-    runSearch("");
+    runSearch("", 60); // smaller first page for faster initial render
     // preload film titles for facet labels
     listAllItems()
       .then((fs) => {
@@ -331,18 +389,26 @@ function SearchPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  // When film language map loads/changes, refresh search to honor primary language-only semantics
+  // Re-run when main language changes (after initial load is done to avoid double initial fetch)
   useEffect(() => {
-    // only rerun if we already have results or query has content to avoid extra initial flicker
-    runSearch(query);
+    if (!hasLoadedRef.current) return;
+    setLoading(true);
+    runSearch(query, 80);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filmLangMap, preferences.main_language]);
+  }, [preferences.main_language]);
 
-  // Debounced live search on query changes
+  // Debounced live search on query changes (500ms delay for better performance)
   useEffect(() => {
+    // Show loading immediately when user types
+    setLoading(true);
+    // Clear any existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
     const handle = setTimeout(() => {
       runSearch(query);
-    }, 350);
+    }, 500);
+    searchTimeoutRef.current = handle;
     return () => {
       clearTimeout(handle);
     };
@@ -351,56 +417,32 @@ function SearchPage() {
 
   // Re-run when subtitle language preference changes (after Done in selector)
   useEffect(() => {
-    runSearch(query);
+    setLoading(true);
+    runSearch(query, 100);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.subtitle_languages]);
 
   // Re-run when difficulty, level framework, or film filter changes
   useEffect(() => {
-    runSearch(query);
+    setLoading(true);
+    runSearch(query, 100);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [minDifficulty, maxDifficulty, minLevel, maxLevel, filmFilter]);
 
 
   // no film/episode context in global search
 
-  // Only show films that have at least one matching result to avoid long lists of zero counts.
-  const filmsWithResults = useMemo(() => {
-    const counts = contentCounts;
-    return films.filter(id => (counts[id] || 0) > 0);
-  }, [films, contentCounts]);
-
-  // Reset film filter if selected films no longer have results for active query
-  useEffect(() => {
-    if (filmFilter.length > 0) {
-      const validFilters = filmFilter.filter(id => filmsWithResults.includes(id));
-      if (validFilters.length !== filmFilter.length) {
-        setFilmFilter(validFilters);
-      }
-    }
-  }, [filmFilter, filmsWithResults]);
-
   // When content is filtered, backend returns filtered total in pagination
   // So we don't need to filter displayedResults client-side
-  const displayedResults = allResults;
-
-  const startDrag = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setDragging(true);
-  };
-  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!dragging) return;
-    const newWidth = Math.min(600, Math.max(200, e.clientX));
-    setSidebarWidth(newWidth);
-  };
-  const stopDrag = () => setDragging(false);
+  // Only display the first 'displayCount' items for progressive rendering
+  const displayedResults = allResults.slice(0, displayCount);
 
   const toggleFilterPanel = () => {
     setFilterPanelOpen(prev => !prev);
   };
 
   return (
-    <div className="search-layout-wrapper" onMouseMove={onMove} onMouseUp={stopDrag}>
+    <div className="search-layout-wrapper">
       {/* Mobile/Tablet overlay - only show on small screens */}
       {isMobile && filterPanelOpen && (
         <div 
@@ -411,7 +453,7 @@ function SearchPage() {
       )}
       
       <div className="search-flex-row" style={{ display: 'flex' }}>
-        <aside className={`filter-panel flex-shrink-0 ${filterPanelOpen ? 'open' : 'closed'}`} style={{ width: sidebarWidth }}>
+        <aside className={`filter-panel flex-shrink-0 ${filterPanelOpen ? 'open' : 'closed'}`}>
           {/* Close button for mobile/tablet */}
           <button
             onClick={toggleFilterPanel}
@@ -426,7 +468,7 @@ function SearchPage() {
             filmLangMap={filmLangMap}
             filmStatsMap={filmStatsMap}
             allResults={allResults}
-            contentCounts={contentCounts}
+            contentCounts={globalContentCounts}
             totalCount={globalTotal}
             filmFilter={filmFilter}
             onSelectFilm={(ids) => setFilmFilter(ids)}
@@ -434,14 +476,7 @@ function SearchPage() {
             mainLanguage={preferences.main_language || "en"}
           />
         </aside>
-        <div
-          className={`vertical-resizer ${dragging ? 'dragging' : ''}`}
-          onMouseDown={startDrag}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize filters"
-        />
-        <main className="search-main flex-1">
+        <main className="search-main flex-1" ref={scrollContainerRef}>
         <div className="search-controls">
           <div className="w-full flex gap-3 items-center mb-2">
             <button
@@ -520,7 +555,7 @@ function SearchPage() {
               />
             </div>
             <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
-              {loading ? "Searching..." : `${total} Results`}
+              {loading ? "Searching..." : (total === 0 && query.length === 0 ? "Enter search query" : `${total} Results`)}
             </span>
           </div>
         </div>
@@ -541,23 +576,6 @@ function SearchPage() {
               filmTitle={filmTitleMap[String(c.film_id ?? "")]}
             />
           ))}
-        </div>
-
-        <div className="mt-6">
-          <Pagination
-            mode="count"
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            loading={loading}
-            onPageChange={(p: number) => { setPage(p); fetchPage(query, p); }}
-            onPageSizeChange={(s) => {
-              setPageSize(s);
-              setPage(1);
-              // Ensure server returns correct page size immediately
-              fetchPage(query, 1, s);
-            }}
-          />
         </div>
         </main>
       </div>

@@ -4,7 +4,7 @@
 .vietnamese-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;    
   color: #FA812F;     /* Orange */ 
 }
@@ -13,14 +13,14 @@
 .vietnamese-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .vietnamese-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -28,14 +28,14 @@
 .english-type, .english-main {
   font-size: 17px;                     
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;    
+  margin: 0;    
   text-align: left;                                                     
 }
 
 .english-sub {
   font-size: 17px;                     
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;    
+  margin: 0;    
   text-align: left;                   
   color: #636CCB;                                   
 }
@@ -44,7 +44,7 @@
 .spanish-sub {
   font-size: 17px;                     
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;    
+  margin: 0;    
   text-align: left;                   
   color: #FAA533;                                   
 }
@@ -52,14 +52,14 @@
 .spanish-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .spanish-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -67,7 +67,7 @@
 .arabic-main {
   font-size: 20px;
   font-family: "Amiri", "Scheherazade New", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: right; /* revert to right-align for better readability in RTL */
   direction: rtl;   /* Right-to-left script */
 }
@@ -75,7 +75,7 @@
 .arabic-sub {
   font-size: 17px;
   font-family: "Amiri", "Scheherazade New", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: right; /* revert to right-align for better readability in RTL */
   color: #138D75;  /* Teal */
   font-style: italic;
@@ -85,7 +85,7 @@
 .arabic-type {
   font-size: 17px;
   font-family: "Amiri", "Scheherazade New", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: right; /* revert to right-align for better readability in RTL */
   direction: rtl;
 }
@@ -94,7 +94,7 @@
 .chinese-main {
   font-size: 18px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   letter-spacing: 0; /* Reset any inherited letter-spacing for CJK */
   word-spacing: 0; /* Reset any inherited word-spacing for CJK */
@@ -102,7 +102,7 @@
 .chinese-type {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   letter-spacing: 0;
   word-spacing: 0;
@@ -110,7 +110,7 @@
 .chinese-sub {
   font-size: 16px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #9929EA;    /* Purple */
   letter-spacing: 0;
@@ -189,7 +189,7 @@ ruby rb {
                "Noto Sans KR",    
                "Apple SD Gothic Neo",
                sans-serif;
-  margin: 10px 40px;           
+  margin: 0;           
   line-height: 1.6;                
   font-weight: 500;                             
   text-align: left;             
@@ -201,7 +201,7 @@ ruby rb {
                "Noto Sans KR",    
                "Apple SD Gothic Neo",
                sans-serif;
-  margin: 10px 40px;           
+  margin: 0;           
   line-height: 1.2;                
   font-weight: 400;                             
   text-align: left;             
@@ -213,7 +213,7 @@ ruby rb {
                "Noto Sans KR",    
                "Apple SD Gothic Neo",
                sans-serif;
-  margin: 10px 40px;           
+  margin: 0;           
   line-height: 1.6;                
   font-weight: 500;                
   color: #8AA624;     /* Green */                 
@@ -224,7 +224,7 @@ ruby rb {
 .japanese-main {
   font-size: 18px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   letter-spacing: 0; /* Reset any inherited letter-spacing for CJK */
   word-spacing: 0; /* Reset any inherited word-spacing for CJK */
@@ -233,7 +233,7 @@ ruby rb {
 .japanese-type {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   letter-spacing: 0;
   word-spacing: 0;
@@ -242,7 +242,7 @@ ruby rb {
 .japanese-sub {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   color: #E45A92;    /* Pink */
   text-align: left;
   letter-spacing: 0;
@@ -257,7 +257,7 @@ ruby rb {
                "Noto Sans Thai",
                "Tahoma",
                sans-serif;
-  margin: 10px 40px;           
+  margin: 0;           
   line-height: 1.7;                
   font-weight: 500;                
   color: #B46ACD;   /* Soft Purple */      
@@ -267,7 +267,7 @@ ruby rb {
 .thai-main {
   font-size: 20px;
   font-family: "Leelawadee UI", "Noto Sans Thai", "Tahoma", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   line-height: 1.6;
   font-weight: 500;
   text-align: left;
@@ -276,7 +276,7 @@ ruby rb {
 .thai-type {
   font-size: 20px;
   font-family: "Leelawadee UI", "Noto Sans Thai", "Tahoma", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   line-height: 1.4;
   font-weight: 400;
   text-align: left;
@@ -286,7 +286,7 @@ ruby rb {
 .french-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #2E86AB;  /* Blue */
 }
@@ -294,14 +294,14 @@ ruby rb {
 .french-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .french-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -309,7 +309,7 @@ ruby rb {
 .dutch-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #E67E22;  /* Orange */
 }
@@ -317,14 +317,14 @@ ruby rb {
 .dutch-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .dutch-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -332,7 +332,7 @@ ruby rb {
 .german-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #C0392B;  /* Red */
 }
@@ -340,14 +340,14 @@ ruby rb {
 .german-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .german-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -355,7 +355,7 @@ ruby rb {
 .greek-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #2980B9;  /* Deep Blue */
 }
@@ -363,14 +363,14 @@ ruby rb {
 .greek-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .greek-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -378,7 +378,7 @@ ruby rb {
 .hindi-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #8E44AD;  /* Purple */
 }
@@ -386,14 +386,14 @@ ruby rb {
 .hindi-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .hindi-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -401,7 +401,7 @@ ruby rb {
 .indonesian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #16A085;  /* Teal */
 }
@@ -409,14 +409,14 @@ ruby rb {
 .indonesian-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .indonesian-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -424,7 +424,7 @@ ruby rb {
 .italian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #27AE60;  /* Green */
 }
@@ -432,14 +432,14 @@ ruby rb {
 .italian-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .italian-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -447,7 +447,7 @@ ruby rb {
 .malay-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #D35400;  /* Warm Orange */
 }
@@ -455,14 +455,14 @@ ruby rb {
 .malay-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .malay-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -470,7 +470,7 @@ ruby rb {
 .polish-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #B03A2E;  /* Strong Red */
 }
@@ -478,14 +478,14 @@ ruby rb {
 .polish-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .polish-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -493,7 +493,7 @@ ruby rb {
 .portuguese-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #117A65;  /* Emerald */
 }
@@ -501,14 +501,14 @@ ruby rb {
 .portuguese-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .portuguese-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -516,7 +516,7 @@ ruby rb {
 .russian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #7D3C98;  /* Violet */
 }
@@ -524,14 +524,14 @@ ruby rb {
 .russian-main {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
 .russian-type {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 
@@ -539,14 +539,14 @@ ruby rb {
 .hebrew-main {
   font-size: 18px;
   font-family: "Rubik", "Noto Sans Hebrew", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: right;
   direction: rtl;
 }
 .hebrew-sub {
   font-size: 17px;
   font-family: "Rubik", "Noto Sans Hebrew", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: right;
   color: #1F618D; /* Deep Blue */
   direction: rtl;
@@ -554,7 +554,7 @@ ruby rb {
 .hebrew-type {
   font-size: 17px;
   font-family: "Rubik", "Noto Sans Hebrew", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: right;
   direction: rtl;
 }
@@ -563,7 +563,7 @@ ruby rb {
 .cantonese-main { /* reuse Chinese aesthetics */
   font-size: 28px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   letter-spacing: 0;
   word-spacing: 0;
@@ -571,7 +571,7 @@ ruby rb {
 .cantonese-type {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   letter-spacing: 0;
   word-spacing: 0;
@@ -579,7 +579,7 @@ ruby rb {
 .cantonese-sub {
   font-size: 14px;
   font-family: "KaiTi", "SimKai", serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
   color: #7E57C2; /* Purple */
   letter-spacing: 0;
@@ -590,7 +590,7 @@ ruby rb {
 .filipino-main, .filipino-type, .filipino-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .filipino-sub { color: #2E86C1; }
@@ -599,7 +599,7 @@ ruby rb {
 .finnish-main, .finnish-type, .finnish-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .finnish-sub { color: #1ABC9C; }
@@ -608,7 +608,7 @@ ruby rb {
 .hungarian-main, .hungarian-type, .hungarian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .hungarian-sub { color: #AF7AC5; }
@@ -617,7 +617,7 @@ ruby rb {
 .icelandic-main, .icelandic-type, .icelandic-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .icelandic-sub { color: #5DADE2; }
@@ -626,7 +626,7 @@ ruby rb {
 .malayalam-main, .malayalam-type, .malayalam-sub {
   font-size: 18px;
   font-family: "Noto Sans Malayalam", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .malayalam-sub { color: #16A085; }
@@ -635,7 +635,7 @@ ruby rb {
 .norwegian-main, .norwegian-type, .norwegian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .norwegian-sub { color: #2874A6; }
@@ -644,7 +644,7 @@ ruby rb {
 .romanian-main, .romanian-type, .romanian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .romanian-sub { color: #D68910; }
@@ -653,7 +653,7 @@ ruby rb {
 .swedish-main, .swedish-type, .swedish-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .swedish-sub { color: #2980B9; }
@@ -662,7 +662,7 @@ ruby rb {
 .turkish-main, .turkish-type, .turkish-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .turkish-sub { color: #C0392B; }
@@ -671,7 +671,7 @@ ruby rb {
 .ukrainian-main, .ukrainian-type, .ukrainian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .ukrainian-sub { color: #1F618D; }
@@ -680,7 +680,7 @@ ruby rb {
 .basque-main, .basque-type, .basque-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .basque-sub { color: #196F3D; }
@@ -689,7 +689,7 @@ ruby rb {
 .bengali-main, .bengali-type, .bengali-sub {
   font-size: 18px;
   font-family: "Noto Sans Bengali", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .bengali-sub { color: #8E44AD; }
@@ -698,7 +698,7 @@ ruby rb {
 .catalan-main, .catalan-type, .catalan-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .catalan-sub { color: #D35400; }
@@ -707,7 +707,7 @@ ruby rb {
 .croatian-main, .croatian-type, .croatian-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .croatian-sub { color: #7D6608; }
@@ -716,7 +716,7 @@ ruby rb {
 .czech-main, .czech-type, .czech-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .czech-sub { color: #2C3E50; }
@@ -725,7 +725,7 @@ ruby rb {
 .danish-main, .danish-type, .danish-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .danish-sub { color: #1ABC9C; }
@@ -734,7 +734,7 @@ ruby rb {
 .galician-main, .galician-type, .galician-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .galician-sub { color: #5D6D7E; }
@@ -743,7 +743,7 @@ ruby rb {
 .portuguese-br-main, .portuguese-br-type, .portuguese-br-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .portuguese-br-sub { color: #117A65; }
@@ -752,7 +752,7 @@ ruby rb {
 .portuguese-pt-main, .portuguese-pt-type, .portuguese-pt-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .portuguese-pt-sub { color: #1E8449; }
@@ -761,7 +761,7 @@ ruby rb {
 .spanish-la-main, .spanish-la-type, .spanish-la-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .spanish-la-sub { color: #D68910; }
@@ -770,7 +770,7 @@ ruby rb {
 .spanish-es-main, .spanish-es-type, .spanish-es-sub {
   font-size: 17px;
   font-family: "Roboto", "Noto Sans", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .spanish-es-sub { color: #FAA533; }
@@ -779,7 +779,7 @@ ruby rb {
 .tamil-main, .tamil-type, .tamil-sub {
   font-size: 18px;
   font-family: "Noto Sans Tamil", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .tamil-sub { color: #884EA0; }
@@ -788,7 +788,7 @@ ruby rb {
 .telugu-main, .telugu-type, .telugu-sub {
   font-size: 18px;
   font-family: "Noto Sans Telugu", sans-serif;
-  margin: 10px 40px;
+  margin: 0;
   text-align: left;
 }
 .telugu-sub { color: #6C3483; }

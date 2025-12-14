@@ -378,16 +378,14 @@ body,
 .search-layout-wrapper {
   max-width: 100%;
   overflow-x: hidden;
-  position: relative;
-  min-height: calc(100vh - 100px); /* Ensure minimum height */
+  height: auto;
 }
 
 .search-flex-row {
   display: flex;
   gap: 0;
-  align-items: stretch; /* Changed from flex-start to stretch */
-  position: relative;
-  min-height: inherit; /* Inherit min-height from parent */
+  align-items: stretch;
+  width: 100%;
 }
 
 /* Filter panel toggle button */
@@ -538,7 +536,8 @@ body,
 .app-main {
   flex: 1 0 auto;
   background: var(--background);
-  /* updated background color */
+  width: 100%;
+  overflow: visible;
 }
 
 /* Hide spin buttons / number input arrows (Chrome, Edge, Safari) */
@@ -1266,6 +1265,7 @@ input[type=number]:focus {
 body,
 html {
   overflow-x: hidden;
+  /* overflow-y removed to allow natural scrolling for sticky positioning */
   max-width: 100vw;
 }
 
