@@ -6,6 +6,8 @@ function withCors(headers = {}) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Cross-Origin-Opener-Policy': 'unsafe-none',
+    'Cross-Origin-Embedder-Policy': 'unsafe-none',
     ...headers,
   };
 }
@@ -434,831 +436,414 @@ export default {
 
       // Search API: FTS-backed card subtitles with caching + main_language filtering + fallback listing
       if (path === '/api/search' && request.method === 'GET') {
-        const cache = caches.default;
-        const cacheKey = new Request(request.url, request);
-        const cached = await cache.match(cacheKey);
-        if (cached) return cached;
-
-        const q = url.searchParams.get('q') || '';
-        const mainLanguage = url.searchParams.get('main_language');
-        const type = url.searchParams.get('type');
-        const contentSlugParam = url.searchParams.get('content_slug');
-        const contentSlugs = contentSlugParam ? contentSlugParam.split(',').map(s => s.trim()).filter(Boolean) : [];
-        const hasContentFilter = contentSlugs.length > 0;
-        // Build comma-separated list for IN-like filtering (using instr for flexibility)
-        const contentSlugsFilter = contentSlugs.length > 0 ? ',' + contentSlugs.join(',') + ',' : null;
-        const minDifficulty = url.searchParams.get('minDifficulty');
-        const maxDifficulty = url.searchParams.get('maxDifficulty');
-        const minLevel = url.searchParams.get('minLevel');
-        const maxLevel = url.searchParams.get('maxLevel');
-        const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
-        // Reduced max size from 500 to 100 for better performance
-        const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '50', 10), 1), 100);
-        const offset = (page - 1) * size;
-
-        // Build FTS query. For Japanese with mixed Kanji+Kana, expand with kana-only OR and post-filter kanji presence.
-        let ftsQuery = buildFtsQuery(q, mainLanguage);
-        const isJa = (mainLanguage === 'ja');
-        const qNormJa = isJa ? normalizeJaInput(q) : q;
-        const isMixedJa = false; // Disabled: we now index normalized base text without brackets
-        let kanjiChars = [];
-        // DISABLED mixed JA kana expansion - we now match against normalized base text directly
-        // if (isMixedJa) {
-        //   const ks = qNormJa.match(/[\p{Script=Han}]/gu) || [];
-        //   kanjiChars = Array.from(new Set(ks));
-        //   const kanaOnly = kanaOnlyString(qNormJa).replace(/[\p{Script=Katakana}]/gu, (ch) => kataToHira(ch));
-        //   if (kanaOnly) {
-        //     const kanaTokens = kanaOnly.split(/\s+/).filter(Boolean).map(t => escapeFtsToken(kataToHira(t)) + '*');
-        //     const kanaExpr = kanaTokens.join(' ');
-        //     ftsQuery = kanaExpr || ftsQuery;
-        //   }
-        // }
-        const basePublic = env.R2_PUBLIC_BASE || '';
-        const makeMediaUrl = (k) => {
-          if (!k) return null;
-          return basePublic ? `${basePublic}/${k}` : `${url.origin}/media/${k}`;
-        };
-        
-        const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || url.searchParams.get('subtitle_language') || null;
-        const subtitleLangsArr = subtitleLanguagesCsv ? Array.from(new Set(String(subtitleLanguagesCsv).split(',').map(s => s.trim()).filter(Boolean))) : [];
-        const subtitleLangsCount = subtitleLangsArr.length;
-
-        // Framework-level filtering params -> numeric indices
-        const framework = (mainLanguage === 'ja') ? 'JLPT' : ((mainLanguage || '').startsWith('zh') ? 'HSK' : 'CEFR');
-        const applyLevel = (minLevel || maxLevel) ? 1 : 0;
-        const maxIndexByFw = framework === 'HSK' ? 8 : (framework === 'JLPT' ? 4 : 5);
-        const minIdxEff = applyLevel ? (minLevel ? getLevelIndex(minLevel, mainLanguage) : 0) : null;
-        const maxIdxEff = applyLevel ? (maxLevel ? getLevelIndex(maxLevel, mainLanguage) : maxIndexByFw) : null;
-        // Expand Chinese main language into a group to include Traditional/Cantonese content
-        const mainLower = (mainLanguage || '').toLowerCase();
-        const altMain1 = (mainLower === 'zh') ? 'zh_trad' : (mainLower === 'zh_trad' ? 'zh' : null);
-        const altMain2 = (mainLower === 'zh' || mainLower === 'zh_trad') ? 'yue' : null;
-
-        // For CJK (Chinese, Japanese, Korean) queries, use LIKE-based search instead of FTS
-        // FTS doesn't handle CJK phrase search well, so we use direct text matching
-        if (!ftsQuery && q && q.trim()) {
-          const hasCJK = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(q);
-          const isCJKLang = mainLanguage === 'ja' || mainLanguage === 'zh' || mainLanguage === 'zh_trad' || mainLanguage === 'yue';
-          if (hasCJK || isCJKLang) {
-            // Normalize query: remove whitespace and brackets for matching
-            const qNorm = q.trim().replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
-            
-            // Optimized query: removed heavy LEFT JOINs with subqueries
-            // We'll fetch subtitles and levels separately for matched card IDs
-            const stmtLike = `
-              SELECT
-                cs.card_id,
-                cs.language,
-                cs.text,
-                c.episode_id,
-                c.card_number,
-                c.start_time,
-                c.end_time,
-                c.image_key,
-                c.audio_key,
-                c.difficulty_score,
-                e.slug AS episode_slug,
-                e.episode_number AS episode_number,
-                e.title AS episode_title,
-                ci.slug AS content_slug,
-                ci.title AS content_title,
-                ci.cover_key AS content_cover_key,
-                ci.cover_landscape_key AS content_cover_landscape_key,
-                ci.main_language AS content_main_language
-              FROM card_subtitles cs
-              JOIN cards c ON c.id = cs.card_id
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE cs.text LIKE '%' || ?1 || '%'
-                AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?9, ?2), COALESCE(?10, ?2)))
-                AND (?3 IS NULL OR ci.type = ?3)
-                AND (?4 IS NULL OR c.difficulty_score >= ?4)
-                AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                AND (?11 IS NULL OR instr(?11, ',' || ci.slug || ',') > 0)
-                AND (
-                  ?6 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?8
-                      AND (
-                        CASE ?8
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?6 AND ?7
-                  )
-                )
-              ORDER BY c.card_number ASC
-              LIMIT ?12 OFFSET ?13;
-            `;
-            
-            // Simplified count query - just get distinct card count
-            const totalLike = `
-              SELECT COUNT(DISTINCT cs.card_id) AS total
-              FROM card_subtitles cs
-              JOIN cards c ON c.id = cs.card_id
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE cs.text LIKE '%' || ?1 || '%'
-                AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?9, ?2), COALESCE(?10, ?2)))
-                AND (?3 IS NULL OR ci.type = ?3)
-                AND (?4 IS NULL OR c.difficulty_score >= ?4)
-                AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                AND (?11 IS NULL OR instr(?11, ',' || ci.slug || ',') > 0)
-                AND (
-                  ?6 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?8
-                      AND (
-                        CASE ?8
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?6 AND ?7
-                  )
-                );
-            `;
-            
-            // Per-content counts query
-            const perContentLike = `
-              SELECT ci.slug AS content_slug, COUNT(DISTINCT cs.card_id) AS cnt
-              FROM card_subtitles cs
-              JOIN cards c ON c.id = cs.card_id
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE cs.text LIKE '%' || ?1 || '%'
-                AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?9, ?2), COALESCE(?10, ?2)))
-                AND (?3 IS NULL OR ci.type = ?3)
-                AND (?4 IS NULL OR c.difficulty_score >= ?4)
-                AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                AND (?11 IS NULL OR instr(?11, ',' || ci.slug || ',') > 0)
-                AND (
-                  ?6 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?8
-                      AND (
-                        CASE ?8
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?6 AND ?7
-                  )
-                )
-              GROUP BY ci.slug;
-            `;
-            
-            try {
-              // Execute main query with simplified params
-              const likeStmt = env.DB.prepare(stmtLike);
-              const bindParams = [
-                qNorm,                // ?1
-                mainLanguage,         // ?2
-                type,                 // ?3
-                minDifficulty,        // ?4
-                maxDifficulty,        // ?5
-                minIdxEff,            // ?6
-                maxIdxEff,            // ?7
-                framework,            // ?8
-                altMain1,             // ?9
-                altMain2,             // ?10
-                contentSlugsFilter,   // ?11
-                size,                 // ?12
-                offset                // ?13
-              ];
-              const { results } = await likeStmt.bind(...bindParams).all();
-              
-              // Get total count
-              const totalStmt = env.DB.prepare(totalLike);
-              const totalParams = bindParams.slice(0, 11); // First 11 params
-              const totalRes = await totalStmt.bind(...totalParams).all();
-              
-              // Get per-content counts
-              const perContentStmt = env.DB.prepare(perContentLike);
-              const perContentParams = bindParams.slice(0, 11); // First 11 params
-              const perContentRes = await perContentStmt.bind(...perContentParams).all();
-              
-              // Build per-content map
-              const perContent = {};
-              for (const row of (perContentRes.results || [])) {
-                if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
-              }
-              
-              // If we have results and need subtitles/levels, fetch them using batched queries
-              let subsMap = {};
-              let levelsMap = {};
-              
-              if (results && results.length > 0) {
-                const cardIds = results.map(r => r.card_id);
-                
-                // Batch queries in parallel for better performance
-                const batchPromises = [];
-                
-                // Fetch subtitles if specific languages requested - use batched IN queries
-                // Max 99 items per batch to leave room for ?1 param (subtitle_languages)
-                if (subtitleLangsCount > 0) {
-                  const BATCH_SIZE = 99; // ?1 for subtitle_languages, ?2-?100 for card_ids
-                  for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
-                    const batch = cardIds.slice(i, i + BATCH_SIZE);
-                    const placeholders = batch.map((_, idx) => `?${idx + 2}`).join(',');
-                    const subsQuery = `
-                      SELECT card_id, language, text
-                      FROM card_subtitles
-                      WHERE card_id IN (${placeholders})
-                        AND instr(',' || ?1 || ',', ',' || language || ',') > 0
-                    `;
-                    batchPromises.push(
-                      env.DB.prepare(subsQuery).bind(subtitleLanguagesCsv, ...batch).all()
-                    );
-                  }
-                }
-                
-                // Fetch levels for all matched cards - batched
-                // Max 100 items per batch (no extra params)
-                const BATCH_SIZE = 100;
-                for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
-                  const batch = cardIds.slice(i, i + BATCH_SIZE);
-                  const placeholders = batch.map((_, idx) => `?${idx + 1}`).join(',');
-                  const levelsQuery = `
-                    SELECT card_id, framework, level, language
-                    FROM card_difficulty_levels
-                    WHERE card_id IN (${placeholders})
-                  `;
-                  batchPromises.push(
-                    env.DB.prepare(levelsQuery).bind(...batch).all().then(res => ({ type: 'levels', res }))
-                  );
-                }
-                
-                // Execute all batches in parallel
-                const batchResults = await Promise.all(batchPromises);
-                
-                // Process results
-                for (const result of batchResults) {
-                  if (result.type === 'levels') {
-                    // Process levels
-                    for (const row of (result.res.results || [])) {
-                      if (!levelsMap[row.card_id]) levelsMap[row.card_id] = [];
-                      levelsMap[row.card_id].push({
-                        framework: row.framework,
-                        level: row.level,
-                        language: row.language
-                      });
-                    }
-                  } else if (result.results) {
-                    // Process subtitles
-                    for (const row of (result.results || [])) {
-                      if (!subsMap[row.card_id]) subsMap[row.card_id] = {};
-                      subsMap[row.card_id][row.language] = row.text;
-                    }
-                  }
-                }
-              }
-              
-              const mapped = (results || []).map(r => {
-                return {
-                  ...r,
-                  image_url: makeMediaUrl(r.image_key),
-                  audio_url: makeMediaUrl(r.audio_key),
-                  subtitle: subsMap[r.card_id] || null,
-                  levels: levelsMap[r.card_id] || null
-                };
-              });
-              
-              const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
-              const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
-              await cache.put(cacheKey, resp.clone());
-              return resp;
-            } catch (e) {
-              console.error('Japanese LIKE search error:', e, e.stack);
-              return json({ error: 'search_failed', message: String(e), stack: e.stack }, { status: 500 });
-            }
-          }
-        }
-
-        if (!ftsQuery) {
-          // Fallback listing (latest cards) filtered by content main_language & type & difficulty
-          // Distribute results across contents dynamically so total ~= page size
-          const stmtFallback = `
-            WITH contents AS (
-              SELECT id FROM content_items
-              WHERE (?1 IS NULL OR main_language IN (?1, COALESCE(?14, ?1), COALESCE(?15, ?1)))
-                AND (?2 IS NULL OR type = ?2)
-            ),
-            req AS (
-              SELECT card_id, COUNT(DISTINCT language) AS cnt
-              FROM card_subtitles
-              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
-              GROUP BY card_id
-            ),
-            ranked AS (
-              SELECT
-                c.id AS card_id,
-                c.episode_id,
-                c.card_number,
-                c.start_time,
-                c.end_time,
-                c.image_key,
-                c.audio_key,
-                c.difficulty_score,
-                e.slug AS episode_slug,
-                e.episode_number AS episode_number,
-                ci.id AS content_id,
-                ci.slug AS content_slug,
-                ci.title AS content_title,
-                ci.cover_key AS content_cover_key,
-                ci.cover_landscape_key AS content_cover_landscape_key,
-                ci.main_language AS content_main_language,
-                ROW_NUMBER() OVER (PARTITION BY ci.id ORDER BY c.updated_at DESC, c.card_number ASC) AS rn
-              FROM cards c
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE ci.id IN (SELECT id FROM contents)
-                AND (?3 IS NULL OR c.difficulty_score >= ?3)
-                AND (?4 IS NULL OR c.difficulty_score <= ?4)
-                AND (
-                  ?11 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?13
-                      AND (
-                        CASE ?13
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?11 AND ?12
-                  )
-                )
-            )
-            SELECT r.*,
-                   cs_main.text AS text,
-                   cs_main.language AS language,
-                   subs.subs_json AS subs_json,
-                   levels.levels_json AS levels_json
-            FROM ranked r
-            LEFT JOIN card_subtitles cs_main ON cs_main.card_id = r.card_id AND cs_main.language = r.content_main_language
-            LEFT JOIN (
-              SELECT card_id, json_group_object(language, text) AS subs_json
-              FROM card_subtitles
-              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
-              GROUP BY card_id
-            ) subs ON subs.card_id = r.card_id
-            LEFT JOIN (
-              SELECT card_id, json_group_array(json_object('framework', framework, 'level', level, 'language', language)) AS levels_json
-              FROM card_difficulty_levels
-              GROUP BY card_id
-            ) levels ON levels.card_id = r.card_id
-            LEFT JOIN req ON req.card_id = r.card_id
-            WHERE (?8 = 0 OR req.cnt = ?8)
-              AND (?10 IS NULL OR instr(?10, ',' || r.content_slug || ',') > 0)
-              AND (?9 IS NULL OR 1=1)
-            ORDER BY r.rn ASC, r.content_slug ASC, r.card_number ASC
-            LIMIT ?5 OFFSET ?6;
-          `;
-          const stmtCountFallback = `
-            WITH contents AS (
-              SELECT id FROM content_items
-              WHERE (?1 IS NULL OR main_language IN (?1, COALESCE(?14, ?1), COALESCE(?15, ?1)))
-                AND (?2 IS NULL OR type = ?2)
-            ),
-            cards_in_scope AS (
-              SELECT c.id AS card_id, ci.slug AS content_slug
-              FROM cards c
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE ci.id IN (SELECT id FROM contents)
-                AND (?3 IS NULL OR c.difficulty_score >= ?3)
-                AND (?4 IS NULL OR c.difficulty_score <= ?4)
-                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
-                AND (
-                  ?11 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?13
-                      AND (
-                        CASE ?13
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?11 AND ?12
-                  )
-                )
-            ),
-            req AS (
-              SELECT card_id, COUNT(DISTINCT language) AS cnt
-              FROM card_subtitles
-              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
-              GROUP BY card_id
-            )
-            SELECT content_slug, COUNT(*) AS cnt
-            FROM cards_in_scope cis
-            LEFT JOIN req ON req.card_id = cis.card_id
-            WHERE (?8 = 0 OR req.cnt = ?8)
-            GROUP BY content_slug;
-          `;
-          const stmtTotalFallback = `
-            WITH contents AS (
-              SELECT id FROM content_items
-              WHERE (?1 IS NULL OR main_language IN (?1, COALESCE(?14, ?1), COALESCE(?15, ?1)))
-                AND (?2 IS NULL OR type = ?2)
-            ),
-            cards_in_scope AS (
-              SELECT c.id AS card_id
-              FROM cards c
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE ci.id IN (SELECT id FROM contents)
-                AND (?3 IS NULL OR c.difficulty_score >= ?3)
-                AND (?4 IS NULL OR c.difficulty_score <= ?4)
-                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
-                AND (
-                  ?11 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?13
-                      AND (
-                        CASE ?13
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?11 AND ?12
-                  )
-                )
-            ),
-            req AS (
-              SELECT card_id, COUNT(DISTINCT language) AS cnt
-              FROM card_subtitles
-              WHERE (?7 IS NOT NULL AND instr(',' || ?7 || ',', ',' || language || ',') > 0)
-              GROUP BY card_id
-            )
-            SELECT COUNT(*) AS total
-            FROM cards_in_scope cis
-            LEFT JOIN req ON req.card_id = cis.card_id
-            WHERE (?8 = 0 OR req.cnt = ?8);
-          `;
-          try {
-            const fallbackStmt = env.DB.prepare(stmtFallback);
-            const fallbackParams = [
-              mainLanguage, type, minDifficulty, maxDifficulty, size, offset, 
-              subtitleLanguagesCsv, subtitleLangsCount, page, 
-              contentSlugsFilter, // ?10 (multiple slugs comma-separated)
-              minIdxEff, maxIdxEff, framework, altMain1, altMain2
-            ];
-            const { results } = await fallbackStmt.bind(...fallbackParams).all();
-            
-            const countFallbackStmt = env.DB.prepare(stmtCountFallback);
-            const countFallbackParams = [
-              mainLanguage, type, minDifficulty, maxDifficulty, size, offset,
-              subtitleLanguagesCsv, subtitleLangsCount, page,
-              contentSlugsFilter, // ?10 (multiple slugs comma-separated)
-              minIdxEff, maxIdxEff, framework, altMain1, altMain2
-            ];
-            const countsRes = await countFallbackStmt.bind(...countFallbackParams).all();
-            
-            const totalFallbackStmt = env.DB.prepare(stmtTotalFallback);
-            const totalFallbackParams = [
-              mainLanguage, type, minDifficulty, maxDifficulty, size, offset,
-              subtitleLanguagesCsv, subtitleLangsCount, page,
-              contentSlugsFilter, // ?10 (multiple slugs comma-separated)
-              minIdxEff, maxIdxEff, framework, altMain1, altMain2
-            ];
-            const totalRes = await totalFallbackStmt.bind(...totalFallbackParams).all();
-            const mapped = (results || []).map(r => {
-              let levels = null;
-              if (r.levels_json) {
-                try {
-                  levels = JSON.parse(r.levels_json);
-                } catch {}
-              }
-              return {
-                ...r,
-                image_url: makeMediaUrl(r.image_key),
-                audio_url: makeMediaUrl(r.audio_key),
-                levels
-              };
-            });
-            const perContent = {};
-            for (const row of (countsRes.results || [])) {
-              if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
-            }
-            const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
-            const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
-            await cache.put(cacheKey, resp.clone());
-            return resp;
-          } catch (e) {
-            return json({ error: 'search_failed', message: String(e) }, { status: 500 });
-          }
-        }
-
-        // Limit extra LIKE filters to avoid exceeding D1's 100 parameter cap
-        const maxExtraFilters = 20;
-        const kanjiExtra = (isMixedJa && kanjiChars.length) ? kanjiChars.slice(0, maxExtraFilters) : [];
-        const kanjiFilterSql = kanjiExtra.length
-          ? kanjiExtra.map(() => " AND (cs.text LIKE '%' || ? || '%')").join('')
-          : '';
-        // Optimized FTS query - removed heavy LEFT JOINs with subqueries
-        // We'll fetch subtitles and levels separately for better performance
-        const stmt = `
-          SELECT
-            cs.card_id,
-            bm25(card_subtitles_fts, 10.0, 1.0, 0.0) AS rank,
-            cs.language,
-            cs.text,
-            c.episode_id,
-            c.card_number,
-            c.start_time,
-            c.end_time,
-            c.image_key,
-            c.audio_key,
-            c.difficulty_score,
-            e.slug AS episode_slug,
-            e.episode_number AS episode_number,
-            e.title AS episode_title,
-            ci.slug AS content_slug,
-            ci.title AS content_title,
-            ci.cover_key AS content_cover_key,
-            ci.cover_landscape_key AS content_cover_landscape_key,
-            ci.main_language AS content_main_language
-          FROM card_subtitles_fts
-          JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
-          JOIN cards c ON c.id = cs.card_id
-          JOIN episodes e ON e.id = c.episode_id
-          JOIN content_items ci ON ci.id = e.content_item_id
-          WHERE card_subtitles_fts MATCH ?1
-            AND card_subtitles_fts.language = ci.main_language
-            AND cs.language = ci.main_language
-            AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
-            AND (?3 IS NULL OR ci.type = ?3)
-            AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
-            AND (?4 IS NULL OR c.difficulty_score >= ?4)
-            AND (?5 IS NULL OR c.difficulty_score <= ?5)
-            AND (
-              ?11 IS NULL OR EXISTS (
-                SELECT 1 FROM card_difficulty_levels dl
-                WHERE dl.card_id = c.id
-                  AND dl.framework = ?13
-                  AND (
-                    CASE ?13
-                      WHEN 'CEFR' THEN (
-                        CASE dl.level
-                          WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                      )
-                      WHEN 'JLPT' THEN (
-                        CASE dl.level
-                          WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                      )
-                      WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                      ELSE NULL
-                    END
-                  ) BETWEEN ?11 AND ?12
-              )
-            )
-            ${kanjiFilterSql}
-          ORDER BY rank ASC, c.card_number ASC
-          LIMIT ?6 OFFSET ?7;
-        `;
         try {
-          const ftsStmt = env.DB.prepare(stmt);
-          const ftsParams = [
-            ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
-            size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
-            contentSlugsFilter, // ?10 (multiple slugs comma-separated)
-            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiExtra
-          ];
-          const { results } = await ftsStmt.bind(...ftsParams).all();
-          
-          // Batch fetch subtitles and levels for performance
-          let subsMap = {};
-          let levelsMap = {};
-          
-          if (results && results.length > 0) {
-            const cardIds = results.map(r => r.card_id);
-            const batchPromises = [];
-            
-            // Fetch subtitles if specific languages requested - batched
-            if (subtitleLangsCount > 0) {
-              const BATCH_SIZE = 100;
-              for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
-                const batch = cardIds.slice(i, i + BATCH_SIZE);
-                const placeholders = batch.map((_, idx) => `?${idx + 2}`).join(',');
-                const subsQuery = `
-                  SELECT card_id, language, text
-                  FROM card_subtitles
-                  WHERE card_id IN (${placeholders})
-                    AND instr(',' || ?1 || ',', ',' || language || ',') > 0
-                `;
-                batchPromises.push(
-                  env.DB.prepare(subsQuery).bind(subtitleLanguagesCsv, ...batch).all()
-                );
-              }
-            }
-            
-            // Fetch levels - batched
-            const BATCH_SIZE = 100;
-            for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
-              const batch = cardIds.slice(i, i + BATCH_SIZE);
-              const placeholders = batch.map((_, idx) => `?${idx + 1}`).join(',');
-              const levelsQuery = `
-                SELECT card_id, framework, level, language
-                FROM card_difficulty_levels
-                WHERE card_id IN (${placeholders})
+          const q = url.searchParams.get('q') || '';
+          const mainLanguage = url.searchParams.get('main_language');
+          const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
+          const contentIdsCsv = url.searchParams.get('content_ids') || '';
+          const page = Math.max(parseInt(url.searchParams.get('page') || '1', 10), 1);
+          const size = Math.min(Math.max(parseInt(url.searchParams.get('size') || '50', 10), 1), 100);
+          const offset = (page - 1) * size;
+
+          const basePublic = env.R2_PUBLIC_BASE || '';
+          const makeMediaUrl = (k) => {
+            if (!k) return null;
+            return basePublic ? `${basePublic}/${k}` : `${url.origin}/media/${k}`;
+          };
+
+          // Parse subtitle languages into array
+          const subtitleLangsArr = subtitleLanguagesCsv 
+            ? Array.from(new Set(subtitleLanguagesCsv.split(',').map(s => s.trim()).filter(Boolean)))
+            : [];
+          const subtitleLangsCount = subtitleLangsArr.length;
+
+          // Parse content IDs into array
+          const contentIdsArr = contentIdsCsv
+            ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean)))
+            : [];
+          const contentIdsCount = contentIdsArr.length;
+
+          // NOTE: Text search (q=...) is handled by the dedicated /search endpoint using FTS,
+          // to avoid heavy queries inside this paginated /api/search. Here we ignore q
+          // and only filter by main_language, subtitle_languages and content_ids.
+          const hasTextQuery = false;
+          const ftsQuery = '';
+          const useLikeSearch = false;
+
+          let items = [];
+          let total = 0;
+
+          // Build WHERE clause with content_ids filter and text search
+          // Use positional placeholders (?) and bind in order
+          const contentIdsPlaceholders = contentIdsCount > 0 
+            ? contentIdsArr.map(() => '?').join(',')
+            : '';
+
+          // Build query with FTS or LIKE search
+          let textSearchCondition = '';
+          if (hasTextQuery) {
+            if (useLikeSearch) {
+              // LIKE search for Japanese/CJK (normalize query)
+              textSearchCondition = `
+                AND EXISTS (
+                  SELECT 1 FROM card_subtitles cs
+                  WHERE cs.card_id = c.id
+                    AND cs.text LIKE ?
+                )
               `;
-              batchPromises.push(
-                env.DB.prepare(levelsQuery).bind(...batch).all().then(res => ({ type: 'levels', res }))
-              );
+            } else {
+              // FTS5 search for non-CJK languages
+              // Restrict by subtitle language to reduce search space and CPU
+              textSearchCondition = `
+                AND EXISTS (
+                  SELECT 1 FROM card_subtitles_fts
+                  WHERE card_subtitles_fts.card_id = c.id
+                    AND card_subtitles_fts.language = ?
+                    AND card_subtitles_fts MATCH ?
+                )
+              `;
             }
-            
-            // Execute all batches in parallel
-            const batchResults = await Promise.all(batchPromises);
-            
-            // Process results
-            for (const result of batchResults) {
-              if (result.type === 'levels') {
-                for (const row of (result.res.results || [])) {
-                  if (!levelsMap[row.card_id]) levelsMap[row.card_id] = [];
-                  levelsMap[row.card_id].push({
-                    framework: row.framework,
-                    level: row.level,
-                    language: row.language
-                  });
-                }
-              } else if (result.results) {
-                for (const row of (result.results || [])) {
-                  if (!subsMap[row.card_id]) subsMap[row.card_id] = {};
-                  subsMap[row.card_id][row.language] = row.text;
-                }
-              }
+          }
+
+          // Simple query: get cards from content_items with matching main_language
+          // When subtitle_languages provided: filter cards that have ALL selected subtitle languages
+          // When content_ids provided: filter cards that belong to selected content items
+          // When text query provided: filter cards that match text in subtitles (FTS or LIKE)
+          // When no subtitle_languages: return all cards matching main_language (subtitles optional)
+          // Use positional placeholders (?) and bind in order
+          const stmt = `
+            WITH filtered_cards AS (
+              SELECT DISTINCT c.id AS card_id
+              FROM cards c
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE (? IS NULL OR ci.main_language = ?)
+                ${subtitleLangsCount > 0 ? `
+                AND (
+                  SELECT COUNT(DISTINCT cs.language)
+                  FROM card_subtitles cs
+                  WHERE cs.card_id = c.id
+                    AND cs.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+                ) = ?
+                ` : ''}
+                ${contentIdsCount > 0 ? `
+                AND ci.slug IN (${contentIdsPlaceholders})
+                ` : ''}
+                ${textSearchCondition}
+            )
+            SELECT
+              c.id AS card_id,
+              c.card_number,
+              c.start_time,
+              c.end_time,
+              c.image_key,
+              c.audio_key,
+              c.difficulty_score,
+              e.slug AS episode_slug,
+              e.episode_number,
+              ci.slug AS content_slug,
+              ci.main_language AS content_main_language,
+              ci.title AS content_title
+            FROM filtered_cards fc
+            JOIN cards c ON c.id = fc.card_id
+            JOIN episodes e ON e.id = c.episode_id
+            JOIN content_items ci ON ci.id = e.content_item_id
+            ORDER BY ci.slug, e.episode_number, c.card_number
+            LIMIT ? OFFSET ?;
+          `;
+
+          const countStmt = `
+            SELECT COUNT(DISTINCT c.id) AS total
+            FROM cards c
+            JOIN episodes e ON e.id = c.episode_id
+            JOIN content_items ci ON ci.id = e.content_item_id
+            WHERE (? IS NULL OR ci.main_language = ?)
+              ${subtitleLangsCount > 0 ? `
+              AND (
+                SELECT COUNT(DISTINCT cs.language)
+                FROM card_subtitles cs
+                WHERE cs.card_id = c.id
+                  AND cs.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+              ) = ?
+              ` : ''}
+              ${contentIdsCount > 0 ? `
+              AND ci.slug IN (${contentIdsPlaceholders})
+              ` : ''}
+              ${textSearchCondition};
+          `;
+
+          // Build params array in order:
+          // 1. mainLanguage
+          // 2. subtitleLangsCount (if any)
+          // 3. subtitleLangs (if any)
+          // 4. contentIds (if any)
+          // 5. textQuery (if any)
+          // 6. size (LIMIT)
+          // 7. offset (OFFSET)
+          let params = [];
+          let countParams = [];
+          
+          // 1. Add mainLanguage (used twice: once for NULL check, once for comparison)
+          params.push(mainLanguage || null);
+          params.push(mainLanguage || null);
+          countParams.push(mainLanguage || null);
+          countParams.push(mainLanguage || null);
+          
+          // 2. Add subtitle language params if needed
+          // Order MUST match the SQL:
+          //   ... cs.language IN (?, ?, ...) ) = ?
+          // => first all languages, then the required count
+          if (subtitleLangsCount > 0) {
+            // languages go first
+            params.push(...subtitleLangsArr);
+            // then the expected count
+            params.push(subtitleLangsCount);
+
+            countParams.push(...subtitleLangsArr);
+            countParams.push(subtitleLangsCount);
+          }
+          
+          // 3. Add content IDs if needed
+          if (contentIdsCount > 0) {
+            params.push(...contentIdsArr);
+            countParams.push(...contentIdsArr);
+          }
+          
+          // 4. Add text search query if needed
+          if (hasTextQuery) {
+            if (useLikeSearch) {
+              // LIKE search: use normalized query with wildcards
+              const likeQuery = `%${q.trim().replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '')}%`;
+              params.push(likeQuery);
+              countParams.push(likeQuery);
+            } else {
+              // FTS search: use built FTS query
+              const langForFts = (mainLanguage || '').toLowerCase() || null;
+              // language filter then FTS query string
+              params.push(langForFts);
+              params.push(ftsQuery);
+              countParams.push(langForFts);
+              countParams.push(ftsQuery);
             }
           }
           
-          const countStmt = `
-            WITH matches AS (
-              SELECT DISTINCT cs.card_id, ci.slug AS content_slug
-              FROM card_subtitles_fts
-              JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
-              JOIN cards c ON c.id = cs.card_id
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE card_subtitles_fts MATCH ?1
-                AND card_subtitles_fts.language = ci.main_language
-                AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
-                AND (?3 IS NULL OR ci.type = ?3)
-                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
-                AND (?4 IS NULL OR c.difficulty_score >= ?4)
-                AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                AND (
-                  ?11 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?13
-                      AND (
-                        CASE ?13
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?11 AND ?12
-                  )
-                )
-            )
-            SELECT content_slug, COUNT(*) AS cnt FROM matches GROUP BY content_slug;
-          `;
-          const totalStmt = `
-            WITH matches AS (
-              SELECT DISTINCT cs.card_id
-              FROM card_subtitles_fts
-              JOIN card_subtitles cs ON cs.card_id = card_subtitles_fts.card_id
-              JOIN cards c ON c.id = cs.card_id
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE card_subtitles_fts MATCH ?1
-                AND card_subtitles_fts.language = ci.main_language
-                AND cs.language = ci.main_language
-                AND (?2 IS NULL OR ci.main_language IN (?2, COALESCE(?14, ?2), COALESCE(?15, ?2)))
-                AND (?3 IS NULL OR ci.type = ?3)
-                AND (?10 IS NULL OR instr(?10, ',' || ci.slug || ',') > 0)
-                AND (?4 IS NULL OR c.difficulty_score >= ?4)
-                AND (?5 IS NULL OR c.difficulty_score <= ?5)
-                AND (
-                  ?11 IS NULL OR EXISTS (
-                    SELECT 1 FROM card_difficulty_levels dl
-                    WHERE dl.card_id = c.id
-                      AND dl.framework = ?13
-                      AND (
-                        CASE ?13
-                          WHEN 'CEFR' THEN (
-                            CASE dl.level
-                              WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2 WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5 ELSE NULL END
-                          )
-                          WHEN 'JLPT' THEN (
-                            CASE dl.level
-                              WHEN 'N5' THEN 0 WHEN 'N4' THEN 1 WHEN 'N3' THEN 2 WHEN 'N2' THEN 3 WHEN 'N1' THEN 4 ELSE NULL END
-                          )
-                          WHEN 'HSK' THEN (CAST(REPLACE(UPPER(dl.level),'HSK','') AS INTEGER) - 1)
-                          ELSE NULL
-                        END
-                      ) BETWEEN ?11 AND ?12
-                  )
-                )
-            )
-            SELECT COUNT(*) AS total FROM matches;
-          `;
-          const countFtsStmt = env.DB.prepare(countStmt);
-          const countFtsParams = [
-            ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
-            size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
-            contentSlugsFilter, // ?10 (multiple slugs comma-separated)
-            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
-          ];
-          const countsRes = await countFtsStmt.bind(...countFtsParams).all();
-          
-          const totalFtsStmt = env.DB.prepare(totalStmt);
-          const totalFtsParams = [
-            ftsQuery, mainLanguage, type, minDifficulty, maxDifficulty, 
-            size, offset, subtitleLanguagesCsv, subtitleLangsCount, 
-            contentSlugsFilter, // ?10 (multiple slugs comma-separated)
-            minIdxEff, maxIdxEff, framework, altMain1, altMain2, ...kanjiChars
-          ];
-          const totalRes = await totalFtsStmt.bind(...totalFtsParams).all();
-          const mapped = (results || []).map(r => {
-            return {
-              ...r,
+          // 5. Add pagination params (only for main query, not count)
+          params.push(size);
+          params.push(offset);
+
+          // Execute queries
+          const [cardsResult, countResult] = await Promise.all([
+            env.DB.prepare(stmt).bind(...params).all(),
+            env.DB.prepare(countStmt).bind(...countParams).first()
+          ]);
+
+          total = countResult?.total || 0;
+          const cardRows = cardsResult.results || [];
+
+          if (cardRows.length > 0) {
+            // Fetch subtitles for all matched cards
+            const cardIds = cardRows.map(r => r.card_id);
+            const placeholders = cardIds.map((_, i) => `?${i + 1}`).join(',');
+            const subsStmt = `
+              SELECT card_id, language, text
+              FROM card_subtitles
+              WHERE card_id IN (${placeholders})
+            `;
+            const subsResult = await env.DB.prepare(subsStmt).bind(...cardIds).all();
+            const subsMap = new Map();
+            
+            for (const row of (subsResult.results || [])) {
+              if (!subsMap.has(row.card_id)) {
+                subsMap.set(row.card_id, {});
+              }
+              subsMap.get(row.card_id)[row.language] = row.text;
+            }
+
+            // Map cards to response format
+            items = cardRows.map(r => ({
+              card_id: r.card_id,
+              content_slug: r.content_slug,
+              content_title: r.content_title,
+              episode_slug: r.episode_slug,
+              episode_number: r.episode_number,
+              card_number: r.card_number,
+              start_time: r.start_time,
+              end_time: r.end_time,
               image_url: makeMediaUrl(r.image_key),
               audio_url: makeMediaUrl(r.audio_key),
-              subtitle: subsMap[r.card_id] || null,
-              levels: levelsMap[r.card_id] || null
-            };
-          });
-          
-          const perContent = {};
-          for (const row of (countsRes.results || [])) {
-            if (row && row.content_slug) perContent[row.content_slug] = Number(row.cnt) || 0;
+              difficulty_score: r.difficulty_score,
+              text: '', // Will be filled from subtitle
+              subtitle: subsMap.get(r.card_id) || {}
+            }));
           }
-          const total = (totalRes.results && totalRes.results[0] && Number(totalRes.results[0].total)) || 0;
-          const resp = json({ items: mapped, page, size, total, per_content: perContent }, { headers: { 'cache-control': 'public, max-age=60' } });
-          await cache.put(cacheKey, resp.clone());
-          return resp;
+
+          const response = json({ items, total, page, size });
+          return response;
+
         } catch (e) {
+          console.error('Search error:', e);
           return json({ error: 'search_failed', message: String(e) }, { status: 500 });
+        }
+      }
+
+      // Get card counts per content item (for ContentSelector)
+      if (path === '/api/search/counts' && request.method === 'GET') {
+        try {
+          const mainLanguage = url.searchParams.get('main_language');
+          const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
+          const contentIdsCsv = url.searchParams.get('content_ids') || '';
+          const qRaw = url.searchParams.get('q') || '';
+          const q = qRaw.trim();
+
+          // Parse subtitle languages into array
+          const subtitleLangsArr = subtitleLanguagesCsv 
+            ? Array.from(new Set(subtitleLanguagesCsv.split(',').map(s => s.trim()).filter(Boolean)))
+            : [];
+          const subtitleLangsCount = subtitleLangsArr.length;
+
+          // Parse content ids
+          const contentIdsArr = contentIdsCsv
+            ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean)))
+            : [];
+          const contentIdsCount = contentIdsArr.length;
+
+          // If there is a text query, use FTS/LIKE to compute counts for the matching cards
+          if (q) {
+            const mainCanon = mainLanguage ? String(mainLanguage).toLowerCase() : null;
+            const ftsQuery = buildFtsQuery(q, mainLanguage || '');
+
+            // If FTS not applicable (e.g. Japanese query), fall back to CJK LIKE matching
+            const isCjkQuery = /[\u3040-\u30FF\u3400-\u9FFF]/u.test(q);
+            if (ftsQuery) {
+              let sql = `
+                SELECT 
+                  ci.slug AS content_id,
+                  COUNT(DISTINCT c.id) AS count
+                FROM card_subtitles_fts
+                JOIN cards c ON c.id = card_subtitles_fts.card_id
+                JOIN episodes e ON e.id = c.episode_id
+                JOIN content_items ci ON ci.id = e.content_item_id
+                WHERE card_subtitles_fts MATCH ?`;
+              const params = [ftsQuery];
+
+              if (mainCanon) {
+                // Search only in main language subtitles and main_language content
+                sql += ' AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)';
+                params.push(mainCanon, mainCanon);
+              }
+              if (subtitleLangsCount > 0) {
+                // Require that card has all selected subtitle languages (filter layer)
+                sql += ` AND (
+                  SELECT COUNT(DISTINCT cs.language)
+                  FROM card_subtitles cs
+                  WHERE cs.card_id = c.id
+                    AND cs.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+                ) = ?`;
+                params.push(...subtitleLangsArr, subtitleLangsCount);
+              }
+              if (contentIdsCount > 0) {
+                sql += ` AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})`;
+                params.push(...contentIdsArr);
+              }
+              sql += ' GROUP BY ci.slug';
+
+              const det = await env.DB.prepare(sql).bind(...params).all();
+              const countsMap = {};
+              for (const row of (det.results || [])) {
+                countsMap[row.content_id] = row.count || 0;
+              }
+              return json({ counts: countsMap });
+            } else if (isCjkQuery) {
+              // CJK fallback: LIKE search on subtitles
+              const like = `%${q}%`;
+              let sql = `
+                SELECT 
+                  ci.slug AS content_id,
+                  COUNT(DISTINCT c.id) AS count
+                FROM card_subtitles cs
+                JOIN cards c ON c.id = cs.card_id
+                JOIN episodes e ON e.id = c.episode_id
+                JOIN content_items ci ON ci.id = e.content_item_id
+                WHERE cs.text LIKE ?`;
+              const params = [like];
+              if (mainCanon) {
+                // Search only in main language subtitles and main_language content
+                sql += ' AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)';
+                params.push(mainCanon, mainCanon);
+              }
+              if (subtitleLangsCount > 0) {
+                // Require that card has all selected subtitle languages (filter layer)
+                sql += ` AND (
+                  SELECT COUNT(DISTINCT cs2.language)
+                  FROM card_subtitles cs2
+                  WHERE cs2.card_id = c.id
+                    AND cs2.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+                ) = ?`;
+                params.push(...subtitleLangsArr, subtitleLangsCount);
+              }
+              if (contentIdsCount > 0) {
+                sql += ` AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})`;
+                params.push(...contentIdsArr);
+              }
+              sql += ' GROUP BY ci.slug';
+
+              const det = await env.DB.prepare(sql).bind(...params).all();
+              const countsMap = {};
+              for (const row of (det.results || [])) {
+                countsMap[row.content_id] = row.count || 0;
+              }
+              return json({ counts: countsMap });
+            } else {
+              // Non-CJK query but FTS disabled: no matches
+              return json({ counts: {} });
+            }
+          }
+
+          // No text query: simple counts by main_language / subtitle_languages / content_ids
+          const countsWhere = [
+            '(?1 IS NULL OR ci.main_language = ?1)',
+          ];
+          if (subtitleLangsCount > 0) {
+            countsWhere.push(`(
+              SELECT COUNT(DISTINCT cs.language)
+              FROM card_subtitles cs
+              WHERE cs.card_id = c.id
+                AND cs.language IN (${subtitleLangsArr.map((_, i) => `?${i + 3}`).join(',')})
+            ) = ?2`);
+          }
+          if (contentIdsCount > 0) {
+            countsWhere.push(`ci.slug IN (${contentIdsArr.map((_, i) => `?${subtitleLangsCount > 0 ? i + 3 + subtitleLangsCount + 1 : i + 2}`).join(',')})`);
+          }
+
+          const countsStmt = `
+            SELECT 
+              ci.slug AS content_id,
+              COUNT(DISTINCT c.id) AS count
+            FROM cards c
+            JOIN episodes e ON e.id = c.episode_id
+            JOIN content_items ci ON ci.id = e.content_item_id
+            WHERE ${countsWhere.join('\n              AND ')}
+            GROUP BY ci.slug
+          `;
+
+          // Build params array for non-text counts
+          const baseParams = subtitleLangsCount > 0
+            ? [mainLanguage || null, subtitleLangsCount, ...subtitleLangsArr]
+            : [mainLanguage || null];
+          const countParams = contentIdsCount > 0
+            ? [...baseParams, ...contentIdsArr]
+            : baseParams;
+
+          const countsResult = await env.DB.prepare(countsStmt).bind(...countParams).all();
+          const countsMap = {};
+          for (const row of (countsResult.results || [])) {
+            countsMap[row.content_id] = row.count || 0;
+          }
+          return json({ counts: countsMap });
+
+        } catch (e) {
+          console.error('Counts error:', e);
+          return json({ error: 'counts_failed', message: String(e) }, { status: 500 });
         }
       }
 
@@ -1480,11 +1065,6 @@ export default {
 
       // 3) Content items list (generic across films, music, books)
       if (path === '/items' && request.method === 'GET') {
-        const cache = caches.default;
-        const cacheKey = new Request(request.url, request);
-        const cached = await cache.match(cacheKey);
-        if (cached) return cached;
-        
         try {
           // Include available_subs aggregated from content_item_languages for each item
           const rows = await env.DB.prepare(`
@@ -1525,9 +1105,7 @@ export default {
             }
           }
           const out = Array.from(map.values());
-          const resp = json(out, { headers: { 'cache-control': 'public, max-age=60' } });
-          await cache.put(cacheKey, resp.clone());
-          return resp;
+          return json(out);
         } catch (e) {
           return json([]);
         }
@@ -2468,82 +2046,160 @@ export default {
 
       // 6b) Full-text search endpoint (FTS5) over subtitles
       if (path === '/search' && request.method === 'GET') {
-        const q = url.searchParams.get('q') || '';
-        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') || '100')));
+        const qRaw = url.searchParams.get('q') || '';
+        const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') || '50')));
         const mainLang = url.searchParams.get('main'); // filter by content_items.main_language
-        if (!q.trim()) return json([]);
+        const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
+        const contentIdsCsv = url.searchParams.get('content_ids') || '';
+        const q = qRaw.trim();
+        if (!q) return json([]);
         try {
-          // Build a MATCH query that supports prefix on the last term for short inputs like "As"
-          // FTS5 is case-insensitive by default but requires lowercase tokens
-          const tokens = q.trim().toLowerCase().split(/\s+/).slice(0, 6).map(s => s.replace(/["'*]/g, ''));
-          // Use OR for single token (more inclusive), AND for multi-token (precise)
-          const operator = tokens.length === 1 ? ' OR ' : ' AND ';
-          const match = tokens.map((t, i) => {
-            const isLast = i === tokens.length - 1;
-            // Apply prefix wildcard ONLY for single-token queries to avoid over-broad matches (e.g. 'sun*' in 'the sun').
-            const needsPrefix = tokens.length === 1 && isLast && t.length >= 1;
-            return needsPrefix ? `${t}*` : t;
-          }).join(operator);
-          // Subquery: collect best-ranked card ids by bm25 over FTS5
-          const parts = [];
-          let res;
+          const mainCanon = mainLang ? String(mainLang).toLowerCase() : null;
+
+          // Parse subtitle languages into array
+          const subtitleLangsArr = subtitleLanguagesCsv
+            ? Array.from(new Set(subtitleLanguagesCsv.split(',').map(s => s.trim()).filter(Boolean)))
+            : [];
+          const subtitleLangsCount = subtitleLangsArr.length;
+
+          // Parse content ids into array
+          const contentIdsArr = contentIdsCsv
+            ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean)))
+            : [];
+          const contentIdsCount = contentIdsArr.length;
+
+          // ---------- 1) Try FTS5 search on card_subtitles_fts (exact token / phrase, no substring) ----------
+          let rows = [];
           try {
-            // FTS5 tables don't support aliases in MATCH clause or bm25() with GROUP BY
-            // Use simpler approach: get distinct card_ids from FTS match
-            // When main language provided: restrict BOTH to that subtitle language AND the content item's main_language.
-            const sql = `
-              SELECT DISTINCT c.id AS card_id
+            // Build a MATCH query.
+            //  - Single token: exact token match (no substring/prefix) → \"he\" matches only token \"he\", not \"there\".
+            //  - Multi-word: exact phrase match → \"this is\" matches only that phrase.
+            // FTS5 is case-insensitive by default but requires lowercase tokens.
+            const tokens = q.toLowerCase().split(/\s+/).slice(0, 6).map(s => s.replace(/["'*]/g, ''));
+            let match;
+            if (tokens.length === 1) {
+              const t = tokens[0];
+              // Exact token match (quoted). No wildcard to avoid substring hits like \"he\" → \"there\".
+              match = `"${t}"`;
+            } else {
+              // Multi-word: exact phrase match
+              match = `"${tokens.join(' ')}"`;
+            }
+
+            const sqlFts = `
+              SELECT c.card_number,
+                     c.start_time AS start_time,
+                     c.end_time AS end_time,
+                     c.duration,
+                     c.image_key,
+                     c.audio_key,
+                     c.sentence,
+                     c.card_type,
+                     c.length,
+                     c.difficulty_score,
+                     c.is_available,
+                     e.episode_number,
+                     e.slug as episode_slug,
+                     ci.slug as film_slug,
+                     c.id as internal_id
               FROM card_subtitles_fts
               JOIN cards c ON c.id = card_subtitles_fts.card_id
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
               WHERE card_subtitles_fts MATCH ?
-              ${mainLang ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
+              ${mainCanon ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
+              ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
+              ${
+                subtitleLangsCount > 0
+                  ? `AND (
+                       SELECT COUNT(DISTINCT cs.language)
+                       FROM card_subtitles cs
+                       WHERE cs.card_id = c.id
+                         AND cs.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+                     ) = ?`
+                  : ''
+              }
               LIMIT ?`;
-            const mainCanon = mainLang ? String(mainLang).toLowerCase() : null;
+
+            const bindFts = [match];
             if (mainCanon) {
-              // Bind order: match, subtitle language, item main language, limit
-              res = await env.DB.prepare(sql).bind(match, mainCanon, mainCanon, limit).all();
-            } else {
-              res = await env.DB.prepare(sql).bind(match, limit).all();
+              // language to search in subtitles (main audio language) AND content_items.main_language
+              bindFts.push(mainCanon);
+              bindFts.push(mainCanon);
             }
-          } catch (e) {
-            // If FTS not ready, return empty to allow client fallback
-            return json([]);
+            if (contentIdsCount > 0) {
+              bindFts.push(...contentIdsArr);
+            }
+            if (subtitleLangsCount > 0) {
+              bindFts.push(...subtitleLangsArr);
+              bindFts.push(subtitleLangsCount);
+            }
+            bindFts.push(limit);
+            const detFts = await env.DB.prepare(sqlFts).bind(...bindFts).all();
+            rows = detFts.results || [];
+          } catch {
+            // ignore FTS errors and fall back to LIKE
+            rows = [];
           }
-          const ranked = res.results || [];
-          if (!ranked.length) return json([]);
-          const cardIds = ranked.map(r => r.card_id);
-          // Join back details preserving rank order via an inline table
-          // Build CASE expression for ordering when IN clause used (SQLite-compatible)
-          const placeholders = cardIds.map(() => '?').join(',');
-          const orderCase = cardIds.map((id, idx) => `WHEN c.id=? THEN ${idx}`).join(' ');
-          const bindOrder = [...cardIds];
-             const detailSql = `
-            SELECT c.card_number,
-                   c.start_time AS start_time,
-                   c.end_time AS end_time,
-                   c.duration,
-                   c.image_key,
-                   c.audio_key,
-                   c.sentence,
-                   c.card_type,
-                   c.length,
-                   c.difficulty_score,
-                 c.is_available,
-                   e.episode_number,
-                   e.slug as episode_slug,
-                   ci.slug as film_slug,
-                   c.id as internal_id
-            FROM cards c
-            JOIN episodes e ON c.episode_id=e.id
-            JOIN content_items ci ON e.content_item_id=ci.id
-            WHERE c.id IN (${placeholders})
-            ORDER BY CASE ${orderCase} END ASC
-            LIMIT ?`;
-          const detailBind = [...cardIds, ...bindOrder, limit];
-          const det = await env.DB.prepare(detailSql).bind(...detailBind).all();
-          const rows = det.results || [];
+
+          // ---------- 2) Fallback: LIKE search on card_subtitles.text if FTS returned nothing ----------
+          // Only use LIKE for CJK languages; for Latin queries this causes many false positives.
+          const isCjkQuery = /[\u3040-\u30FF\u3400-\u9FFF]/u.test(q);
+          if (!rows.length && isCjkQuery) {
+            const like = `%${q}%`;
+            const sqlLike = `
+              SELECT c.card_number,
+                     c.start_time AS start_time,
+                     c.end_time AS end_time,
+                     c.duration,
+                     c.image_key,
+                     c.audio_key,
+                     c.sentence,
+                     c.card_type,
+                     c.length,
+                     c.difficulty_score,
+                     c.is_available,
+                     e.episode_number,
+                     e.slug as episode_slug,
+                     ci.slug as film_slug,
+                     c.id as internal_id
+              FROM card_subtitles cs
+              JOIN cards c ON c.id = cs.card_id
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE cs.text LIKE ?
+              ${mainCanon ? 'AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
+              ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
+              ${
+                subtitleLangsCount > 0
+                  ? `AND (
+                       SELECT COUNT(DISTINCT cs2.language)
+                       FROM card_subtitles cs2
+                       WHERE cs2.card_id = c.id
+                         AND cs2.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+                     ) = ?`
+                  : ''
+              }
+              LIMIT ?`;
+            const bindLike = [like];
+            if (mainCanon) {
+              // search in main language subtitles only
+              bindLike.push(mainCanon);
+              bindLike.push(mainCanon);
+            }
+            if (contentIdsCount > 0) {
+              bindLike.push(...contentIdsArr);
+            }
+            if (subtitleLangsCount > 0) {
+              bindLike.push(...subtitleLangsArr);
+              bindLike.push(subtitleLangsCount);
+            }
+            bindLike.push(limit);
+            const detLike = await env.DB.prepare(sqlLike).bind(...bindLike).all();
+            rows = detLike.results || [];
+          }
+
+          if (!rows.length) return json([]);
           const out = [];
           for (const r of rows) {
             const subs = await env.DB.prepare('SELECT language,text FROM card_subtitles WHERE card_id=?').bind(r.internal_id).all();

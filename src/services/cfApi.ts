@@ -121,12 +121,12 @@ export async function apiListItems(): Promise<FilmDoc[]> {
       const { data, timestamp } = JSON.parse(cached);
       const age = Date.now() - timestamp;
       if (age < CACHE_TTL) {
-        console.log('[Cache] Using cached /items data (age:', Math.round(age / 1000), 's)');
+        // Using cached data
         return data;
       }
     }
-  } catch (e) {
-    console.warn('[Cache] Failed to read cache:', e);
+  } catch {
+    // Failed to read cache (silent)
   }
   
   // Fetch fresh data
@@ -173,9 +173,9 @@ export async function apiListItems(): Promise<FilmDoc[]> {
       data: mapped,
       timestamp: Date.now()
     }));
-    console.log('[Cache] Saved /items to localStorage');
-  } catch (e) {
-    console.warn('[Cache] Failed to save cache:', e);
+    // Cache saved successfully
+  } catch {
+    // Failed to save cache (silent)
   }
   
   return mapped;
@@ -318,7 +318,7 @@ export async function apiFetchAllCards(limit = 1000): Promise<CardDoc[]> {
 const searchCache = new Map<string, { data: CardDoc[]; timestamp: number }>();
 const SEARCH_CACHE_TTL = 60000; // 60 seconds
 
-function getSearchCacheKey(params: Record<string, any>): string {
+function getSearchCacheKey(params: Record<string, unknown>): string {
   const key = Object.entries(params)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${String(v)}`)
@@ -330,11 +330,19 @@ export async function apiSearchCardsFTS(params: {
   q: string;
   limit?: number;
   mainLanguage?: string | null;
+  subtitleLanguages?: string[];
+  contentIds?: string[];
 }): Promise<CardDoc[]> {
-  const { q } = params;
+  const { q, contentIds, subtitleLanguages } = params;
   const limit = params.limit ?? 100;
   const main = params.mainLanguage ? `&main=${encodeURIComponent(params.mainLanguage)}` : "";
-  
+  const contentIdsParam =
+    contentIds && contentIds.length ? `&content_ids=${encodeURIComponent(contentIds.join(','))}` : '';
+  const subtitleLangsParam =
+    subtitleLanguages && subtitleLanguages.length
+      ? `&subtitle_languages=${encodeURIComponent(subtitleLanguages.join(','))}`
+      : '';
+
   // Check cache first (short TTL)
   const cacheKey = getSearchCacheKey(params);
   const cached = searchCache.get(cacheKey);
@@ -343,11 +351,118 @@ export async function apiSearchCardsFTS(params: {
   }
   
   const rows = await getJson<Array<Record<string, unknown>>>(
-    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}`
+    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}`
   );
   const result = rows.map(rowToCardDoc);
   searchCache.set(cacheKey, { data: result, timestamp: Date.now() });
   return result;
+}
+
+// New unified search API endpoint (paginated with main_language + subtitle_languages filters)
+export async function apiSearch(params: {
+  query?: string;
+  page?: number;
+  size?: number;
+  mainLanguage?: string | null;
+  subtitleLanguages?: string[];
+  contentIds?: string[];
+  signal?: AbortSignal;
+}): Promise<{ items: CardDoc[]; total: number; page: number; size: number }> {
+  const query = params.query || '';
+  const page = params.page ?? 1;
+  const size = params.size ?? 50;
+  
+  const urlParams = new URLSearchParams();
+  urlParams.set('q', query);
+  urlParams.set('page', String(page));
+  urlParams.set('size', String(size));
+  
+  if (params.mainLanguage) {
+    urlParams.set('main_language', params.mainLanguage);
+  }
+  
+  if (params.subtitleLanguages && params.subtitleLanguages.length > 0) {
+    urlParams.set('subtitle_languages', params.subtitleLanguages.join(','));
+  }
+  
+  if (params.contentIds && params.contentIds.length > 0) {
+    urlParams.set('content_ids', params.contentIds.join(','));
+  }
+  
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/search?${urlParams.toString()}`;
+  const res = await fetch(fullUrl, {
+    headers: { Accept: 'application/json' },
+    signal: params.signal,
+  });
+  
+  if (!res.ok) {
+    throw new Error(`Search API failed: ${res.status}`);
+  }
+  
+  const data = await res.json();
+  
+  // Map API response to CardDoc
+  const items: CardDoc[] = (data.items || []).map((r: Record<string, unknown>) => ({
+    id: String(r.card_id || ''),
+    film_id: String(r.content_slug || ''),
+    episode_id: String(r.episode_slug || ''),
+    episode: Number(r.episode_number || 0),
+    image_url: r.image_url || '',
+    audio_url: r.audio_url || '',
+    start: Number(r.start_time || 0),
+    end: Number(r.end_time || 0),
+    difficulty_score: r.difficulty_score,
+    sentence: r.text || '',
+    subtitle: r.subtitle || {},
+  }));
+  
+  return {
+    items,
+    total: data.total || 0,
+    page: data.page || page,
+    size: data.size || size,
+  };
+}
+
+export async function apiSearchCounts(params: {
+  mainLanguage?: string | null;
+  subtitleLanguages?: string[];
+  query?: string;
+  contentIds?: string[];
+  signal?: AbortSignal;
+}): Promise<Record<string, number>> {
+  const urlParams = new URLSearchParams();
+
+  if (params.mainLanguage) {
+    urlParams.set('main_language', params.mainLanguage);
+  }
+
+  if (params.subtitleLanguages && params.subtitleLanguages.length > 0) {
+    urlParams.set('subtitle_languages', params.subtitleLanguages.join(','));
+  }
+
+  if (params.query && params.query.trim().length > 0) {
+    urlParams.set('q', params.query.trim());
+  }
+
+  if (params.contentIds && params.contentIds.length > 0) {
+    urlParams.set('content_ids', params.contentIds.join(','));
+  }
+
+  assertApiBase();
+  const fullUrl = `${API_BASE}/api/search/counts?${urlParams.toString()}`;
+  const res = await fetch(fullUrl, {
+    headers: { Accept: 'application/json' },
+    signal: params.signal,
+  });
+  
+  if (!res.ok) {
+    throw new Error(`Search counts API failed: ${res.status}`);
+  }
+  
+  const data = await res.json();
+  return data.counts || {};
 }
 
 export async function apiGetCardByPath(
