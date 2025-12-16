@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { apiGetCardByPath } from '../../services/cfApi';
 import type { CardDoc } from '../../types';
 import { ExternalLink, Upload, X, Search, ChevronDown, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
-import { langLabel, countryCodeForLang } from '../../utils/lang';
+import { langLabel, getFlagImageForLang } from '../../utils/lang';
 import { r2UploadViaSignedUrl } from '../../services/cfApi';
 import PortalDropdown from '../../components/PortalDropdown';
 import toast from 'react-hot-toast';
@@ -31,7 +31,7 @@ export default function AdminCardUpdatePage() {
 
   const ALL_LANG_OPTIONS = useMemo(() => [
     "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
-    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","ta","te","tr","uk",
+    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","se","ta","te","tr","uk","lv",
     "fa","ku","sl","sr","bg"
   ], []);
   
@@ -267,7 +267,7 @@ export default function AdminCardUpdatePage() {
                             className="lang-option-item"
                             onClick={() => handleAddLanguage(l)}
                           >
-                            <span className={`fi fi-${countryCodeForLang(l)} lang-option-flag`}></span>
+                            <img src={getFlagImageForLang(l)} alt={`${l} flag`} className="w-5 h-3.5 rounded lang-option-flag" />
                             <span className="lang-option-label">{langLabel(l)}</span>
                             <span className="lang-option-code">({l})</span>
                           </button>
@@ -288,7 +288,7 @@ export default function AdminCardUpdatePage() {
                   <div key={lang} className="subtitle-item">
                     <div className="subtitle-header">
                       <div className="subtitle-lang">
-                        <span className={`fi fi-${countryCodeForLang(lang)} w-5 h-3.5`}></span>
+                        <img src={getFlagImageForLang(lang)} alt={`${lang} flag`} className="w-5 h-3.5 rounded" />
                         <span className="subtitle-lang-label">{langLabel(lang)}</span>
                         <span className="subtitle-lang-code">({lang})</span>
                       </div>
@@ -428,7 +428,7 @@ export default function AdminCardUpdatePage() {
             <h3 className="confirm-modal-title">Xác nhận xoá ngôn ngữ</h3>
             <p className="confirm-modal-text">Bạn có chắc muốn xoá phụ đề:</p>
             <div className="confirm-modal-lang">
-              <span className={`fi fi-${countryCodeForLang(confirmRemove.lang)} w-6 h-4`}></span>
+              <img src={getFlagImageForLang(confirmRemove.lang)} alt={`${confirmRemove.lang} flag`} className="w-6 h-4 rounded" />
               <span className="confirm-modal-lang-label">{langLabel(confirmRemove.lang)}</span>
               <span className="confirm-modal-lang-code">({confirmRemove.lang})</span>
             </div>

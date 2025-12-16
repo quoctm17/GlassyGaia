@@ -11,7 +11,7 @@ export type CanonicalLang =
   | "id" | "it" | "ja" | "ko" | "ms" | "ml" | "no" | "nb"
   | "pl" | "pt" | "pt_br" | "pt_pt" | "ro" | "ru"
   | "es" | "es_la" | "es_es" | "sv" | "se" | "ta" | "te" | "th"
-  | "tr" | "uk" | "vi"
+  | "tr" | "uk" | "vi" | "lv"
   | "fa" | "ku" | "sl" | "sr" | "bg"
   | "rec" | "triage"; // pseudo labels if needed
 
@@ -78,6 +78,7 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
   sl: "sl", slovenian: "sl",
   sr: "sr", serbian: "sr",
   bg: "bg", bulgarian: "bg",
+  lv: "lv", latvian: "lv",
 
   // Pseudo labels
   rec: "rec", triage: "triage",
@@ -149,6 +150,7 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   te: ["te", "telugu"],
   tr: ["tr", "turkish"],
   uk: ["uk", "ukrainian"],
+  lv: ["lv", "latvian"],
   rec: ["rec"],
   triage: ["triage"],
 };
@@ -214,6 +216,7 @@ export function langLabel(code: string): string {
     te: "Telugu",
     tr: "Turkish",
     uk: "Ukrainian",
+    lv: "Latvian",
     rec: "Rec",
     triage: "Triage",
   } as const;
@@ -277,6 +280,7 @@ export function langFlag(code: string): string {
     te: "🇮🇳",
     tr: "🇹🇷",
     uk: "🇺🇦",
+    lv: "🇱🇻",
     rec: "🌐",
     triage: "🌐",
   } as const;
@@ -344,6 +348,7 @@ export function countryCodeForLang(code: string): string {
     te: "in",
     tr: "tr",
     uk: "ua",
+    lv: "lv",
     rec: "xx",
     triage: "xx",
   } as const;
@@ -411,6 +416,7 @@ export function languageCssBase(code: string): string {
     te: 'telugu',
     tr: 'turkish',
     uk: 'ukrainian',
+    lv: 'latvian',
     rec: 'rec',
     triage: 'triage',
   };
@@ -499,6 +505,7 @@ function getFlagFileName(countryCode: string): string {
     fa: "iran",
     ku: "iraq",
     gb: "united_kingdom_the",
+    lv: "latvia",
   };
   return map[countryCode] || countryCode;
 }
