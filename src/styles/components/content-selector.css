@@ -1,9 +1,7 @@
 /* ================= Content Selector Component ================= */
 
 .content-selector-panel {
-  border-radius: 12px;
   padding-top: 22px;
-  padding-left: 12px;
   font-family: 'Press Start 2P', 'Courier New', monospace;
   font-size: 11px;
   letter-spacing: 0.5px;
@@ -11,7 +9,6 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   scrollbar-width: thin;
   max-height: calc(100vh - 140px);
   min-height: 0;
@@ -52,8 +49,7 @@
 }
 
 .content-search-row {
-  margin-bottom: 12px;
-  padding-right: 12px;
+  padding: 0px 12px;
 }
 
 .content-selector-body {
@@ -160,12 +156,15 @@
   padding: 8px 10px;
   border: 2px solid transparent;
   border-radius: 8px;
-  font-size: 10px;
-  letter-spacing: 0.5px;
+  /* Use Inter-4 typography for content buttons */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
   cursor: pointer;
   position: relative;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -196,8 +195,12 @@
   padding: 2px 6px;
   border: none;
   border-radius: 6px;
-  font-size: 9px;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
+  /* Use Inter-4 typography for count text */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
   flex-shrink: 0;
 }
 

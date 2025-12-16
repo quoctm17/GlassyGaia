@@ -1,14 +1,77 @@
 /* ================= Search Page Layout ================= */
 /* Breakpoints reference: xs=480px, sm=640px, md=768px, lg=1024px, xl=1280px, 2xl=1440px, 3xl=1920px */
 
-.search-layout-wrapper {
+.search-page-container {
+  display: flex;
   min-height: 100vh;
-  padding: 0;
-  overflow-x: hidden;
+  width: 100%;
+}
+
+.filter-panel-wrapper {
+  flex-shrink: 0;
+  width: 20%;
+  min-width: 220px;
+  max-width: 260px;
+  background-color: var(--sidenav-bg);
+  border-right: 1px solid var(--border);
+  height: auto;
+  min-height: 100vh;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.search-layout-wrapper {
+  flex: 1;
+  min-height: 100vh;
   overflow-y: visible;
   height: auto;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  position: relative;
+}
+
+.filter-panel-toggle-btn {
+  flex-shrink: 0;
+  padding: 5px;
+  border-radius: 8px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.filter-panel-toggle-btn:hover {
+  /* No background change on hover - only icon brightness changes */
+}
+
+.filter-panel-toggle-btn:hover img {
+  filter: var(--icon-hover-select-filter);
+}
+
+.filter-panel-toggle-btn img {
+  width: 28px;
+  height: 28px;
+  filter: var(--icon-primary-filter);
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+
+.filter-panel-toggle-btn img.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.search-content-wrapper {
+  display: flex;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 1920px;
+  margin: 0 auto;
+  padding: 0 1rem;
 }
 
 .search-flex-row {
@@ -31,7 +94,8 @@
   min-height: 0;
   align-self: stretch;
   overflow: hidden;
-  width: 320px;
+  width: 16%;
+  min-width: 200px;
 }
 
 .filter-panel.open {
@@ -87,7 +151,52 @@
   flex-direction: column;
   overflow-x: hidden;
   overflow-y: visible;
-  padding-top: 140px; /* Space for fixed search-controls */
+}
+
+.search-results {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0; /* Prevent stretching when there are few items */
+}
+
+/* Layout: Default (1 column when FilterPanel open, 2 columns when closed) */
+.search-results.layout-default {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
+}
+
+.search-results.layout-default.filter-panel-closed {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
+}
+
+/* Layout: 1 Column (always 1 column) */
+.search-results.layout-1-column {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
+}
+
+/* Layout: 2 Columns (always 2 columns) */
+.search-results.layout-2-column {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
 }
 
 /* Skeleton loading animation */
@@ -105,84 +214,101 @@
 }
 
 .search-controls {
-  position: fixed;
-  top: 64px; /* Below NavBar */
-  left: 320px; /* FilterPanel width when open */
-  right: 0;
-  z-index: 250;
+  position: relative;
+  width: 100%;
   background-color: var(--background);
-  padding-top: 16px;
-  padding-bottom: 16px;
-  margin-bottom: 16px;
+  padding: 16px 16px;
   flex-shrink: 0;
   transition: left 0.3s ease; /* Smooth transition when FilterPanel toggles */
 }
 
-/* Tablet: Adjust top position for taller NavBar */
-@media (max-width: 1140px) and (min-width: 769px) {
-  .search-controls {
-    top: 100px;
-  }
+.search-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
 }
 
-/* Adjust search-controls position when FilterPanel is closed */
-.filter-panel.closed ~ .search-main .search-controls {
-  left: 0; /* Full width when FilterPanel is hidden */
+.search-bar-container .pixel-searchbar {
+  flex: 1;
 }
+
+.search-stats {
+  text-align: right;
+  margin-left: auto;
+  padding-top: 8px;
+  color: var(--neutral);
+  font-style: italic;
+}
+
+/* Search controls no longer fixed, no position adjustment needed */
 
 /* ================= Responsive Design ================= */
 /* Breakpoints: xs=480px, sm=640px, md=768px, lg=1024px, xl=1280px, 2xl=1440px, 3xl=1920px */
 
-/* Convert font sizes and spacing from 1440px and below, but keep desktop FilterPanel */
-@media (max-width: 1440px) {
-  .filter-panel {
-    width: 20% !important;
-    min-width: 240px;
-  }
-
-  .search-controls {
-    padding: 8px;
-    left: 20% !important;
-  }
-}
-
 /* Large Desktop and below (2xl: 1440px) */
 @media (max-width: 1280px) {
-  .search-layout-wrapper {
+  .search-controls {
     padding: 8px;
+    padding-top: 20px;
   }
 }
 
 /* Desktop and below (xl: 1280px) */
 @media (max-width: 1280px) {
-  .search-layout-wrapper {
-    padding: 8px;
-  }
-
   .search-controls {
     padding: 8px;
+    padding-top: 20px;
   }
 }
 
 /* Laptop and below (lg: 1024px) */
 @media (max-width: 1024px) {
-  .search-layout-wrapper {
-    padding: 8px;
-  }
-
   .search-controls {
     padding: 6px;
   }
 
+  /* Keep sidebar roughly 20–22% of viewport on tablet */
+  .filter-panel-wrapper {
+    width: 22%;
+    min-width: 200px;
+    max-width: 240px;
+  }
+
   .filter-panel {
-    width: 300px !important;
+    width: 22% !important;
+    min-width: 200px !important;
   }
 }
 
 /* Mobile/Tablet (md: 768px and below) */
 @media (max-width: 768px) {
+  .search-page-container {
+    flex-direction: column;
+  }
+
+  .filter-panel-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    /* Use a smaller relative width on mobile so content area stays visible */
+    width: 70vw;
+    max-width: 260px;
+    z-index: 1000;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    border-right: none;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .filter-panel-wrapper.open {
+    transform: translateX(0);
+  }
+
   .search-layout-wrapper {
-    padding: 4px;
+    width: 100%;
   }
 
   .filter-panel {
@@ -226,10 +352,6 @@
 
 /* Small Mobile (sm: 640px and below) */
 @media (max-width: 640px) {
-  .search-layout-wrapper {
-    padding: 2px;
-  }
-
   .search-controls {
     padding: 4px;
   }
@@ -242,10 +364,6 @@
 
 /* Extra Small Mobile (xs: 480px and below) */
 @media (max-width: 480px) {
-  .search-layout-wrapper {
-    padding: 0;
-  }
-
   .search-controls {
     padding: 4px;
   }

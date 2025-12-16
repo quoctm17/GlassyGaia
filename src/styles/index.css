@@ -378,7 +378,6 @@ body,
 /* Base search layout wrapper */
 .search-layout-wrapper {
   max-width: 100%;
-  overflow-x: hidden;
   height: auto;
 }
 
@@ -540,13 +539,6 @@ body,
   width: 100%;
   overflow: visible;
   padding-top: 64px;
-}
-
-/* Tablet: Increase padding for wrapped NavBar */
-@media (max-width: 1140px) and (min-width: 769px) {
-  .app-main {
-    padding-top: 100px;
-  }
 }
 
 /* Hide spin buttons / number input arrows (Chrome, Edge, Safari) */
@@ -748,7 +740,6 @@ input[type=number]:focus {
 
   .pixel-tabs {
     gap: 8px;
-    flex-wrap: wrap;
     justify-content: center;
   }
 
@@ -1273,7 +1264,6 @@ input[type=number]:focus {
 /* Prevent horizontal scroll on all screen sizes */
 body,
 html {
-  overflow-x: hidden;
   /* overflow-y removed to allow natural scrolling for sticky positioning */
   max-width: 100vw;
 }

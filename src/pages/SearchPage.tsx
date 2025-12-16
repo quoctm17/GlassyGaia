@@ -1,595 +1,480 @@
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import SearchResultCard from "../components/SearchResultCard";
-import type { CardDoc, LevelFrameworkStats } from "../types";
-import { listAllItems } from "../services/firestore";
 import FilterPanel from "../components/FilterPanel";
 import FilterModal from "../components/FilterModal";
 import CustomizeModal from "../components/CustomizeModal";
+import type { CardDoc, FilmDoc } from "../types";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
-import mediaIcon from "../assets/icons/media.svg";
+import {
+  apiSearch,
+  apiListItems,
+  apiSearchCounts,
+  apiSearchCardsFTS,
+} from "../services/cfApi";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
 import filterIcon from "../assets/icons/filter.svg";
 import customIcon from "../assets/icons/custom.svg";
 import "../styles/pages/search-page.css";
 
 function SearchPage() {
-  const { preferences, setVolume, setResultLayout } = useUser();
-  const location = useLocation();
+  const { preferences } = useUser();
+  // inputValue: giá trị đang gõ trong ô SearchBar (không dùng để query trực tiếp)
+  const [searchInput, setSearchInput] = useState("");
+  // query: giá trị đã được debounce, dùng để gọi API + highlight
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true); // Start with true for initial load
-  // Derive loading state from actual fetch; avoid a separate 'searching' toggle to prevent spinner flicker
-  const [allResults, setAllResults] = useState<CardDoc[]>([]);
-  const [displayCount, setDisplayCount] = useState<number>(28); // How many cards to render
-  const [page, setPage] = useState<number>(1);
-  const pageSize = 100; // Smaller batch for faster queries
-  const [hasMore, setHasMore] = useState<boolean>(true);
-  const [total, setTotal] = useState<number>(0); // paginator total (scoped when film selected)
-  const [globalTotal, setGlobalTotal] = useState<number>(0); // always global All Sources total
-  const [globalContentCounts, setGlobalContentCounts] = useState<Record<string, number>>({}); // Keep global counts for ContentSelector
-  const [filmFilter, setFilmFilter] = useState<string[]>([]); // Changed to array for multi-select
-  const [filmTitleMap, setFilmTitleMap] = useState<Record<string, string>>({});
-  const [films, setFilms] = useState<string[]>([]);
-  const [filmTypeMap, setFilmTypeMap] = useState<Record<string, string>>({});
-  const [filmStatsMap, setFilmStatsMap] = useState<Record<string, LevelFrameworkStats | null>>({});
-  const [minDifficulty, setMinDifficulty] = useState<number>(0);
-  const [maxDifficulty, setMaxDifficulty] = useState<number>(100);
+  const [loading, setLoading] = useState(true);
+  const [firstLoading, setFirstLoading] = useState(true);
+  const [cards, setCards] = useState<CardDoc[]>([]);
+  const [total, setTotal] = useState(0);
+  const [contentFilter, setContentFilter] = useState<string[]>([]);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [allItems, setAllItems] = useState<FilmDoc[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [serverContentCounts, setServerContentCounts] = useState<Record<string, number>>({});
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
+  const [minDifficulty, setMinDifficulty] = useState(0);
+  const [maxDifficulty, setMaxDifficulty] = useState(100);
   const [minLevel, setMinLevel] = useState<string | null>(null);
   const [maxLevel, setMaxLevel] = useState<string | null>(null);
-  const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
-  const [filterPanelOpen, setFilterPanelOpen] = useState<boolean>(true); // Filter panel visibility
-  const [isMobile, setIsMobile] = useState<boolean>(false); // Track if mobile/tablet
-  const [filterModalOpen, setFilterModalOpen] = useState<boolean>(false); // Filter modal visibility
-  const [customizeModalOpen, setCustomizeModalOpen] = useState<boolean>(false); // Customize modal visibility
-  // removed filmAvailMap (unused after suggestion source simplification)
+  const [volume, setVolume] = useState(80);
+  const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
+  const pageSize = 50;
+  const isTextSearch = useMemo(() => query.trim().length >= 2, [query]);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isFetchingRef = useRef<boolean>(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Use AbortController to cancel stale search requests
-  const searchAbortRef = useRef<AbortController | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const loadingMoreRef = useRef<boolean>(false);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Fix timeout type
-  const hasLoadedRef = useRef<boolean>(false); // Track if initial search completed
-  const fetchStartRef = useRef<number>(0); // Track fetch start for spinner minimum duration
-  const isDebouncingRef = useRef<boolean>(false); // Track if currently debouncing
-  const emptyCacheRef = useRef<Map<string, { timestamp: number; results: CardDoc[]; total: number; perContent: Record<string, number> }>>(new Map());
+  const fetchCards = useCallback(
+    async (searchQuery: string, pageNum: number) => {
+      const trimmed = searchQuery.trim();
+      const isText = trimmed.length >= 2;
+      // Prevent concurrent requests
+      if (isFetchingRef.current && pageNum > 1) {
+        return; // Skip if already fetching (only for pagination)
+      }
 
-  // LanguageSelector writes to preferences directly; no local mirror needed
+      // Cancel previous request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
 
-  const fetchPage = useCallback(async (q: string, pageNum: number, sizeOverride?: number) => {
-    fetchStartRef.current = Date.now();
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set('q', q || '');
-      // Backend will handle Japanese normalization internally
-      if (preferences.main_language) params.set('main_language', preferences.main_language);
-      // Backend filters
-      params.set('minDifficulty', String(minDifficulty));
-      params.set('maxDifficulty', String(maxDifficulty));
-      // Level framework filters
-      if (minLevel) params.set('minLevel', minLevel);
-      if (maxLevel) params.set('maxLevel', maxLevel);
-      // Do NOT pass content type when a specific film is selected.
-      // We want server totals/per-content counts to remain global across all contents.
-      // Pass all selected subtitle languages (CSV) up to 3
-      const subsArr = Array.isArray(preferences.subtitle_languages) ? preferences.subtitle_languages : [];
-      if (subsArr.length) params.set('subtitle_languages', subsArr.join(','));
-      // When content filter is active, pass to backend for proper pagination
-      // Otherwise get global results for ContentSelector display
-      if (filmFilter.length > 0) {
-        params.set('content_slug', filmFilter.join(','));
-      }
-      params.set('page', String(pageNum));
-      params.set('size', String(sizeOverride ?? pageSize));
-      // Cancel any pending search request
-      if (searchAbortRef.current) {
-        searchAbortRef.current.abort();
-      }
-      const abortController = new AbortController();
-      searchAbortRef.current = abortController;
-      
-      const base = ((import.meta as unknown) as { env?: Record<string, string | undefined> }).env?.VITE_WORKER_BASE || '';
-      const apiUrl = base ? `${base.replace(/\/$/, '')}/api/search?${params.toString()}` : `/api/search?${params.toString()}`;
-      const res = await fetch(apiUrl, { 
-        headers: { 'Accept': 'application/json' },
-        signal: abortController.signal
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const ct = res.headers.get('content-type') || '';
-      if (!/application\/json/i.test(ct)) {
-        const text = await res.text();
-        throw new Error(`Non-JSON response: ${text.slice(0, 120)}...`);
-      }
-      const payload = await res.json();
-      // Legacy mapper removed; worker now returns full media URLs
-      const mapped: CardDoc[] = (payload.items || []).map((r: Record<string, unknown>) => {
-        const imgKey = typeof r.image_key === 'string' ? r.image_key : '';
-        const audKey = typeof r.audio_key === 'string' ? r.audio_key : '';
-        const imgUrl = typeof r.image_url === 'string' ? r.image_url : '';
-        const audUrl = typeof r.audio_url === 'string' ? r.audio_url : '';
-        const img = imgUrl || (imgKey ? `/media/${imgKey}` : '');
-        const aud = audUrl || (audKey ? `/media/${audKey}` : '');
-        const lang = typeof r.language === 'string' ? r.language : '';
-        const subs: Record<string, string> = {};
-        if (lang && typeof r.text === 'string') subs[lang] = r.text as string;
-        if (typeof r.subs_json === 'string' && r.subs_json) {
-          try {
-            const extra = JSON.parse(r.subs_json as string);
-            if (extra && typeof extra === 'object') {
-              for (const k of Object.keys(extra)) {
-                if (typeof (extra as Record<string, unknown>)[k] === 'string') subs[k] = (extra as Record<string, string>)[k];
-              }
-            }
-          } catch { /* ignore parse error */ }
-        }
-        const cardId = typeof r.card_id === 'string' ? r.card_id : (typeof r.card_id === 'number' ? String(r.card_id) : '');
-        const contentSlug = typeof r.content_slug === 'string' ? r.content_slug : '';
-        const episodeSlug = typeof r.episode_slug === 'string' ? r.episode_slug : '';
-        const episodeNum = typeof r.episode_number === 'number' ? r.episode_number : Number.isFinite(Number(r.episode_number)) ? Number(r.episode_number) : 0;
-        const startTime = typeof r.start_time === 'number' ? r.start_time : Number.isFinite(Number(r.start_time)) ? Number(r.start_time) : 0;
-        const endTime = typeof r.end_time === 'number' ? r.end_time : Number.isFinite(Number(r.end_time)) ? Number(r.end_time) : 0;
-        const difficulty = typeof r.difficulty_score === 'number' ? r.difficulty_score : Number.isFinite(Number(r.difficulty_score)) ? Number(r.difficulty_score) : undefined;
-        // Parse levels array
-        let levels: Array<{ framework: string; level: string; language?: string }> | undefined = undefined;
-        if (Array.isArray(r.levels)) {
-          levels = r.levels as Array<{ framework: string; level: string; language?: string }>;
-        } else if (typeof r.levels_json === 'string' && r.levels_json) {
-          try {
-            const parsed = JSON.parse(r.levels_json as string);
-            if (Array.isArray(parsed)) levels = parsed;
-          } catch { /* ignore */ }
-        }
-        return {
-          id: String(cardId),
-          film_id: String(contentSlug),
-          episode_id: String(episodeSlug || (episodeNum ? `e${episodeNum}` : '')),
-          episode: Number(episodeNum ?? 0),
-          image_url: img,
-          audio_url: aud,
-          start: Number(startTime ?? 0),
-          end: Number(endTime ?? 0),
-          difficulty_score: difficulty,
-          sentence: typeof r.text === 'string' ? (r.text as string) : undefined,
-          subtitle: subs,
-          levels,
-        };
-      });
+      abortControllerRef.current = new AbortController();
+      isFetchingRef.current = true;
 
-      const totalNum = Number(payload.total ?? 0);
-      setTotal(totalNum);
-      // Only update globalTotal when no content filter active
-      if (filmFilter.length === 0) {
-        setGlobalTotal(totalNum);
-      }
-      // Update per-content counts
-      if (payload.per_content && typeof payload.per_content === 'object') {
-        const counts = payload.per_content as Record<string, number>;
-        // Only update global counts when no filter active (preserve global counts when filtering)
-        if (filmFilter.length === 0) {
-          setGlobalContentCounts(counts);
-        }
-      }
-      // For infinite scroll: append results if not first page, replace if first page
       if (pageNum === 1) {
-        setAllResults(mapped);
+        setLoading(true);
+        setIsLoadingMore(false);
       } else {
-        setAllResults((prev) => [...prev, ...mapped]);
+        setIsLoadingMore(true);
       }
-      // Check if there are more results to load
-      setHasMore(mapped.length === pageSize);
-      return { mapped, total: totalNum, perContent: payload.per_content || {} };
-    } catch (e) {
-      // Ignore abort errors (expected when request is cancelled)
-      if ((e as Error).name === 'AbortError') {
-        return;
-      }
-      // Gracefully handle initial empty DB / 404
-      console.warn(
-        "Search fetch error (treated as empty):",
-        (e as Error)?.message
-      );
-      setAllResults([]);
-      return { mapped: [], total: 0, perContent: {} };
-    } finally {
-      const elapsed = Date.now() - fetchStartRef.current;
-      const minSpinner = 150;
-      const delay = Math.max(0, minSpinner - elapsed);
-      setTimeout(() => {
-        // Only clear loading if not debouncing
-        if (!isDebouncingRef.current) {
-          setLoading(false);
-        }
-      }, delay);
-      loadingMoreRef.current = false;
-    }
-  }, [preferences.main_language, minDifficulty, maxDifficulty, minLevel, maxLevel, preferences.subtitle_languages, filmFilter, pageSize]);
 
-  // Detect mobile/tablet screen
-  useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
-      // Close filter panel by default on mobile
-      if (mobile) {
-        setFilterPanelOpen(false);
+      try {
+        if (isText) {
+          // Use FTS endpoint for text search with increasing limit (pseudo-pagination)
+          const maxLimit = 200;
+          const effectiveLimit = Math.min(pageNum * pageSize, maxLimit);
+          const items = await apiSearchCardsFTS({
+            q: trimmed,
+            limit: effectiveLimit,
+            mainLanguage: preferences.main_language || null,
+            subtitleLanguages: preferences.subtitle_languages || [],
+            contentIds: contentFilter.length ? contentFilter : undefined,
+            minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
+            maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
+            minLevel: minLevel || undefined,
+            maxLevel: maxLevel || undefined,
+          });
+          setCards(items);
+          setTotal(items.length);
+          setPage(pageNum);
+          // If we hit the current limit and haven't reached maxLimit, allow more loads
+          setHasMore(items.length === effectiveLimit && effectiveLimit < maxLimit);
+        } else {
+          // Browsing mode: use paginated /api/search
+          const result = await apiSearch({
+            query: "",
+            page: pageNum,
+            size: pageSize,
+            mainLanguage: preferences.main_language || null,
+            subtitleLanguages: preferences.subtitle_languages || [],
+            contentIds: contentFilter.length > 0 ? contentFilter : undefined,
+            minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
+            maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
+            minLevel: minLevel || undefined,
+            maxLevel: maxLevel || undefined,
+            signal: abortControllerRef.current.signal,
+          });
+
+          if (pageNum === 1) {
+            setCards(result.items);
+          } else {
+            setCards((prev) => [...prev, ...result.items]);
+          }
+
+          setTotal(result.total);
+          setPage(pageNum);
+          setHasMore(pageNum * pageSize < result.total);
+        }
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          // Request was cancelled - still need to reset loading
+          if (pageNum === 1) {
+            setLoading(false);
+            setFirstLoading(false);
+          } else {
+            setIsLoadingMore(false);
+          }
+          isFetchingRef.current = false;
+          return;
+        }
+        console.error("Search error:", error);
+        // Don't clear cards on error for pagination - keep what we have
+        if (pageNum === 1) {
+          setCards([]);
+          setTotal(0);
+        }
+      } finally {
+        isFetchingRef.current = false;
+        if (pageNum === 1) {
+          setLoading(false);
+          setFirstLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
       }
+    },
+    [preferences.main_language, preferences.subtitle_languages, pageSize, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel]
+  );
+
+  // Fetch all content items on mount only (cached by apiListItems)
+  useEffect(() => {
+    let cancelled = false;
+    setItemsLoading(true);
+    apiListItems()
+      .then((items) => {
+        if (!cancelled) {
+          setAllItems(items);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("Failed to load content items:", error);
+          setAllItems([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setItemsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
     };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Infinite scroll detection (window-based to ensure reliability)
+  // Fetch card counts per content from server (bao gồm filter + query)
   useEffect(() => {
-    const handleScroll = () => {
-      if (loadingMoreRef.current) return;
-
-      const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 1500;
-      if (nearBottom) {
-        // If we have more items in memory, just show them
-        if (displayCount < allResults.length) {
-          setDisplayCount(prev => Math.min(prev + 28, allResults.length));
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const counts = await apiSearchCounts({
+          mainLanguage: preferences.main_language || null,
+          subtitleLanguages: preferences.subtitle_languages || [],
+          // Use query + languages only so counts stay stable even when content filter changes
+          query: query.trim().length >= 2 ? query : "",
+          contentIds: undefined,
+          minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
+          maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
+          minLevel: minLevel || undefined,
+          maxLevel: maxLevel || undefined,
+        });
+        if (!cancelled) {
+          setServerContentCounts(counts);
         }
-        // If we're running out of items in memory (within 50 cards) and there's more on server, fetch next batch early
-        // This prevents users from hitting the end before fetch completes when scrolling quickly
-        if (hasMore && allResults.length > 0 && allResults.length - displayCount < 50 && !loadingMoreRef.current) {
-          loadingMoreRef.current = true;
-          const nextPage = page + 1;
-          setPage(nextPage);
-          fetchPage(query, nextPage);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load content counts:", error);
+          setServerContentCounts({});
         }
       }
     };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [query, page, hasMore, fetchPage, displayCount, allResults.length]);
-
-  const runSearch = async (q: string, sizeOverride?: number) => {
-    setPage(1);
-    setDisplayCount(28); // Reset display count on new search
-    // Backend handles all normalization internally, just send raw query
-    const qToSend = q;
-    
-    // Cache key for empty query to speed up initial load / language switch
-    const cacheKey = () => {
-      const subsArr = Array.isArray(preferences.subtitle_languages) ? preferences.subtitle_languages : [];
-      const subsKey = subsArr.slice(0, 3).sort().join(',');
-      const filterKey = filmFilter.length > 0 ? filmFilter.slice().sort().join(',') : 'all';
-      return `${preferences.main_language || 'en'}|${subsKey}|${filterKey}`;
+    run();
+    return () => {
+      cancelled = true;
     };
+  }, [preferences.main_language, preferences.subtitle_languages, query, minDifficulty, maxDifficulty, minLevel, maxLevel]);
 
-    // If empty query and cached data is fresh (<=60s), return immediately
-    // Only use cache when no content filter is active AND initial load is done
-    if (!qToSend.trim() && filmFilter.length === 0 && hasLoadedRef.current) {
-      const key = cacheKey();
-      const cached = emptyCacheRef.current.get(key);
-      const now = Date.now();
-      if (cached && now - cached.timestamp <= 60000) {
-        setAllResults(cached.results);
-        setTotal(cached.total);
-        setGlobalTotal(cached.total);
-        setGlobalContentCounts(cached.perContent);
-        setLoading(false);
-        return;
-      }
-    }
-
-    // Single request now returns both results AND per_content counts
-    const resp = await fetchPage(qToSend, 1, sizeOverride);
-    hasLoadedRef.current = true;
-
-    // Store cache for empty query (only when no content filter active)
-    if (!qToSend.trim() && filmFilter.length === 0 && resp) {
-      emptyCacheRef.current.set(cacheKey(), {
-        timestamp: Date.now(),
-        results: resp.mapped,
-        total: resp.total,
-        perContent: resp.perContent || {}
-      });
-    }
-  };
-
+  // Debounce: chuyển searchInput -> query (giảm re-render & lag khi gõ)
   useEffect(() => {
-    // Ensure loading stays true during initial load
-    setLoading(true);
-    runSearch("", 15); // Reduced from 30 to 15 for faster first paint
-    // preload film titles for facet labels
-    listAllItems()
-      .then((fs) => {
-        const titleMap: Record<string, string> = {};
-        const order: string[] = [];
-        const langMap: Record<string, string> = {};
-        const typeMap: Record<string, string> = {};
-        const statsMap: Record<string, LevelFrameworkStats | null> = {};
-        fs.forEach((f) => {
-          titleMap[f.id] = f.title || f.id;
-          order.push(f.id);
-          if (f.main_language) langMap[f.id] = f.main_language;
-          if (f.type) typeMap[f.id] = f.type;
-          // Parse level_framework_stats
-          if (f.level_framework_stats) {
-            try {
-              const parsed = typeof f.level_framework_stats === 'string'
-                ? JSON.parse(f.level_framework_stats)
-                : f.level_framework_stats;
-              statsMap[f.id] = Array.isArray(parsed) ? parsed : null;
-            } catch {
-              statsMap[f.id] = null;
-            }
-          } else {
-            statsMap[f.id] = null;
-          }
-        });
-        setFilmTitleMap(titleMap);
-        setFilms(order);
-        setFilmLangMap(langMap);
-        setFilmTypeMap(typeMap);
-        setFilmStatsMap(statsMap);
-      })
-      .catch((e) => {
-        console.warn(
-          "Films fetch error (treated as empty):",
-          (e as Error)?.message
-        );
-        setFilmTitleMap({});
-        setFilms([]);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]); // Refresh whenever navigation occurs to this page
-
-  // Listen for content updates (uploads/deletes) to refresh lists and search
-  useEffect(() => {
-    const handler = () => {
-      runSearch(query);
-      listAllItems().then((fs) => {
-        const titleMap: Record<string, string> = {};
-        const order: string[] = [];
-        const langMap: Record<string, string> = {};
-        const typeMap: Record<string, string> = {};
-        const statsMap: Record<string, LevelFrameworkStats | null> = {};
-        fs.forEach((f) => {
-          titleMap[f.id] = f.title || f.id;
-          order.push(f.id);
-          if (f.main_language) langMap[f.id] = f.main_language;
-          if (f.type) typeMap[f.id] = f.type;
-          // Parse level_framework_stats
-          if (f.level_framework_stats) {
-            try {
-              const parsed = typeof f.level_framework_stats === 'string'
-                ? JSON.parse(f.level_framework_stats)
-                : f.level_framework_stats;
-              statsMap[f.id] = Array.isArray(parsed) ? parsed : null;
-            } catch {
-              statsMap[f.id] = null;
-            }
-          } else {
-            statsMap[f.id] = null;
-          }
-        });
-        setFilmTitleMap(titleMap);
-        setFilms(order);
-        setFilmLangMap(langMap);
-        setFilmTypeMap(typeMap);
-        setFilmStatsMap(statsMap);
-      }).catch(() => {});
-    };
-    window.addEventListener('content-updated', handler);
-    return () => window.removeEventListener('content-updated', handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
-
-  // Re-run when main language changes (after initial load is done to avoid double initial fetch)
-  useEffect(() => {
-    if (!hasLoadedRef.current) return;
-    setLoading(true);
-    runSearch(query, 80);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preferences.main_language]);
-
-  // Debounced live search on query changes (500ms delay for better performance)
-  useEffect(() => {
-    // Skip debounce during initial load to avoid duplicate fetch
-    if (!hasLoadedRef.current) return;
-    
-    // Show loading immediately when user types
-    setLoading(true);
-    isDebouncingRef.current = true;
-    // Clear any existing timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
-    const handle = setTimeout(() => {
-      isDebouncingRef.current = false;
-      runSearch(query);
-    }, 500);
-    searchTimeoutRef.current = handle;
+
+    const trimmed = searchInput.trim();
+    // Nếu input rỗng thì reset query và load lại chế độ browse
+    if (!trimmed) {
+      setQuery("");
+      return;
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      setQuery(trimmed);
+    }, 400);
+
     return () => {
-      clearTimeout(handle);
-      isDebouncingRef.current = false;
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [searchInput]);
 
-  // Re-run when subtitle language preference changes (after Done in selector)
+  // Khi query (đã debounce) hoặc filter / language đổi thì gọi API
   useEffect(() => {
-    setLoading(true);
-    runSearch(query, 100);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [preferences.subtitle_languages]);
+    setPage  (1);
+    setHasMore(true);
+    const trimmed = query.trim();
+    if (trimmed.length >= 2) {
+      fetchCards(trimmed, 1);
+    } else {
+      fetchCards("", 1);
+    }
+  }, [query, preferences.main_language, preferences.subtitle_languages, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel, fetchCards]);
 
-  // Re-run when difficulty, level framework, or film filter changes
+  // Filter items by mainLanguage
+  const filteredItems = useMemo(() => {
+    const mainLang = preferences.main_language || "en";
+    return allItems.filter((item) => item.main_language === mainLang);
+  }, [allItems, preferences.main_language]);
+
+  // Build maps for FilterPanel from all items (filtered by mainLanguage)
+  const filmTitleMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    filteredItems.forEach((item) => {
+      if (item.id) {
+        map[item.id] = item.title || item.id;
+      }
+    });
+    return map;
+  }, [filteredItems]);
+
+  const filmTypeMap = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    filteredItems.forEach((item) => {
+      if (item.id) {
+        map[item.id] = item.type;
+      }
+    });
+    return map;
+  }, [filteredItems]);
+
+  const filmLangMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    filteredItems.forEach((item) => {
+      if (item.id && item.main_language) {
+        map[item.id] = item.main_language;
+      }
+    });
+    return map;
+  }, [filteredItems]);
+
+  const filmStatsMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    filteredItems.forEach((item) => {
+      if (item.id) {
+        map[item.id] = item.level_framework_stats || null;
+      }
+    });
+    return map;
+  }, [filteredItems]);
+
+  const allContentIds = useMemo(() => {
+    return filteredItems.map((item) => item.id).filter((id): id is string => !!id);
+  }, [filteredItems]);
+
+  // Content counts: 
+  // - Khi không search: dùng tổng từ server (apiSearchCounts với main_language + subtitle_languages + contentIds)
+  // - Khi search: dùng apiSearchCounts với q + mainLanguage + contentIds để lấy tổng số card match theo content
+  const contentCounts = useMemo(() => {
+    return serverContentCounts;
+  }, [serverContentCounts]);
+
+  // No client-side filtering needed - API handles contentFilter
+  const filteredCards = cards;
+
+  // Infinite scroll: load next page when near bottom (with debounce)
   useEffect(() => {
-    setLoading(true);
-    runSearch(query, 100);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minDifficulty, maxDifficulty, minLevel, maxLevel, filmFilter]);
+    const handleScroll = () => {
+      // Clear previous timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
 
-
-  // no film/episode context in global search
-
-  // When content is filtered, backend returns filtered total in pagination
-  // So we don't need to filter displayedResults client-side
-  // Only display the first 'displayCount' items for progressive rendering
-  const displayedResults = allResults.slice(0, displayCount);
-
-  const toggleFilterPanel = () => {
-    setFilterPanelOpen(prev => !prev);
-  };
+      // Debounce scroll handler to prevent too many calls
+      scrollTimeoutRef.current = setTimeout(() => {
+        if (!hasMore || loading || isLoadingMore || isFetchingRef.current) return;
+        const threshold = 400; // px from bottom
+        if (window.innerHeight + window.scrollY >= document.body.offsetHeight - threshold) {
+          fetchCards(query, page + 1);
+        }
+      }, 200); // 200ms debounce
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [hasMore, loading, isLoadingMore, page, query, fetchCards, isTextSearch]);
 
   return (
-    <div className="search-layout-wrapper">
-      {/* Mobile/Tablet overlay - only show on small screens */}
-      {isMobile && filterPanelOpen && (
-        <div 
-          className="filter-panel-overlay"
-          onClick={toggleFilterPanel}
-          aria-hidden="true"
+    <div className="search-page-container">
+      {isFilterPanelOpen && (
+        <FilterPanel
+          filmTitleMap={filmTitleMap}
+          filmTypeMap={filmTypeMap}
+          filmLangMap={filmLangMap}
+          filmStatsMap={filmStatsMap}
+          allResults={cards}
+          contentCounts={contentCounts}
+          totalCount={total}
+          allContentIds={allContentIds}
+          filmFilter={contentFilter}
+          onSelectFilm={setContentFilter}
+          mainLanguage={preferences.main_language || "en"}
         />
       )}
-      
-      <div className="search-flex-row" style={{ display: 'flex' }}>
-        <aside className={`filter-panel flex-shrink-0 ${filterPanelOpen ? 'open' : 'closed'}`}>
-          {/* Close button for mobile/tablet */}
-          <button
-            onClick={toggleFilterPanel}
-            className="filter-panel-close-btn"
-            aria-label="Close filters"
-          >
-            ✕
-          </button>
-          <FilterPanel
-            filmTitleMap={filmTitleMap}
-            filmTypeMap={filmTypeMap}
-            filmLangMap={filmLangMap}
-            filmStatsMap={filmStatsMap}
-            allResults={allResults}
-            contentCounts={globalContentCounts}
-            totalCount={globalTotal}
-            filmFilter={filmFilter}
-            onSelectFilm={(ids) => setFilmFilter(ids)}
-            allContentIds={films}
-            mainLanguage={preferences.main_language || "en"}
-          />
-        </aside>
-        <main className="search-main flex-1" ref={scrollContainerRef}>
-        <div className="search-controls">
-          <div className="w-full flex gap-3 items-center mb-2">
-            <button
-              onClick={toggleFilterPanel}
-              className="filter-toggle-btn"
-              aria-label={filterPanelOpen ? "Close filters" : "Open filters"}
-              title={filterPanelOpen ? "Close filters" : "Open filters"}
-            >
-              <img 
-                src={rightAngleIcon} 
-                alt="Toggle" 
-                className={`filter-toggle-icon ${filterPanelOpen ? 'rotate' : ''}`}
-              />
-              <img src={mediaIcon} alt="Content" className="filter-toggle-icon" />
-            </button>
-            <SearchBar
-              value={query}
-              onChange={(v) => setQuery(v)}
-              onClear={() => {
-                setFilmFilter([]);
-              }}
-              placeholder={`Search across all films...`}
-              loading={loading}
-            />
-            <button 
-              className={`filter-toggle-icon-button ${filterModalOpen ? 'active' : ''}`}
-              onClick={() => setFilterModalOpen(true)}
-              aria-label="Open filters"
-            >
-              <img src={filterIcon} alt="Filters" className="filter-toggle-icon" />
-            </button>
-            <button 
-              className={`filter-toggle-icon-button ${customizeModalOpen ? 'active' : ''}`}
-              onClick={() => setCustomizeModalOpen(true)}
-              aria-label="Customize view"
-            >
-              <img src={customIcon} alt="Customize" className="filter-toggle-icon" />
-            </button>
-            
-            <FilterModal 
-              isOpen={filterModalOpen}
-              onClose={() => setFilterModalOpen(false)}
-              minDifficulty={minDifficulty}
-              maxDifficulty={maxDifficulty}
-              onDifficultyChange={(min, max) => { setMinDifficulty(min); setMaxDifficulty(max); }}
-              minLevel={minLevel}
-              maxLevel={maxLevel}
-              onLevelChange={(min, max) => { setMinLevel(min); setMaxLevel(max); }}
-              mainLanguage={preferences.main_language || "en"}
-            />
-            
-            <CustomizeModal 
-              isOpen={customizeModalOpen}
-              onClose={() => setCustomizeModalOpen(false)}
-              volume={preferences.volume || 80}
-              onVolumeChange={(vol) => setVolume(vol)}
-              resultLayout={preferences.resultLayout || 'default'}
-              onLayoutChange={(layout) => setResultLayout(layout)}
-            />
-          </div>
 
-          <div className="flex justify-between items-center mb-4" style={{ paddingLeft: '8rem', paddingRight: '8rem' }}>
-            <div className="flex items-center gap-2 cursor-pointer">
-              <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
-                Search By
-              </span>
-              <img 
-                src={rightAngleIcon} 
-                alt="Dropdown" 
-                style={{ 
-                  width: '16px', 
-                  height: '16px', 
-                  transform: 'rotate(90deg)',
-                  filter: 'var(--icon-neutral-filter)'
-                }}
+      <div className="search-layout-wrapper">
+        <main className="search-main">
+          <div className="search-controls">
+            <div className="search-bar-container">
+              <button
+                className="filter-panel-toggle-btn"
+                onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+                aria-label={
+                  isFilterPanelOpen ? "Close filter panel" : "Open filter panel"
+                }
+              >
+                <img
+                  src={rightAngleIcon}
+                  alt="Toggle filter"
+                  className={isFilterPanelOpen ? "rotate-180" : ""}
+                />
+              </button>
+              <SearchBar
+                value={searchInput}
+                onChange={(v) => setSearchInput(v)}
+                placeholder="Search across all films..."
+                loading={loading || firstLoading}
               />
+              <button
+                className="filter-panel-toggle-btn"
+                onClick={() => setIsFilterModalOpen(true)}
+                aria-label="Open filters"
+              >
+                <img
+                  src={filterIcon}
+                  alt="Filter"
+                />
+              </button>
+              <button
+                className="filter-panel-toggle-btn"
+                onClick={() => setIsCustomizeModalOpen(true)}
+                aria-label="Customize"
+              >
+                <img
+                  src={customIcon}
+                  alt="Customize"
+                />
+              </button>
             </div>
-            <span className="typography-inter-3" style={{ color: 'var(--neutral)' }}>
-              {loading && total === 0 ? "Searching..." : (total === 0 && query.length === 0 ? "Enter search query" : `${total} Results`)}
-            </span>
-          </div>
-        </div>
 
-        <div className={
-          preferences.resultLayout === 'default' 
-            ? (filterPanelOpen ? '' : 'grid grid-cols-2 gap-4')
-            : preferences.resultLayout === '2-column'
-            ? 'grid grid-cols-2 gap-4'
-            : ''
-        }>
-          {loading && displayedResults.length === 0 ? (
-            // Show skeleton cards during initial load
-            Array.from({ length: 6 }).map((_, i) => (
-              <div key={`skeleton-${i}`} className="search-card-skeleton" style={{
-                height: '300px',
-                background: 'linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%)',
-                backgroundSize: '200% 100%',
-                animation: 'skeleton-loading 1.5s ease-in-out infinite',
-                borderRadius: '8px',
-                marginBottom: '1rem'
-              }} />
-            ))
-          ) : (
-            displayedResults.map((c) => (
-              <SearchResultCard
-                key={String(c.id)}
-                card={c}
-                highlightQuery={query}
-                primaryLang={filmLangMap[String(c.film_id ?? "")]}
-                filmTitle={filmTitleMap[String(c.film_id ?? "")]}
-              />
-            ))
-          )}
-        </div>
+            <div className="search-stats typography-inter-4">
+              {loading ? "Searching..." : `${total} Cards`}
+            </div>
+          </div>
+
+          <div className={`search-results layout-${resultLayout === 'default' ? 'default' : resultLayout === '1-column' ? '1-column' : '2-column'} ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
+            {loading && cards.length === 0
+              ? Array.from({ length: 6 }).map((_, i) => (
+                  <div
+                    key={`skeleton-${i}`}
+                    className="search-card-skeleton"
+                    style={{
+                      height: "300px",
+                      background:
+                        `linear-gradient(90deg, var(--hover-bg) 25%, var(--hover-bg-subtle) 50%, var(--hover-bg) 75%)`,
+                      backgroundSize: "200% 100%",
+                      animation: "skeleton-loading 1.5s ease-in-out infinite",
+                      borderRadius: "8px",
+                      marginBottom: "1rem",
+                    }}
+                  />
+                ))
+              : (
+                <>
+                  {filteredCards.map((card) => {
+                    const stableKey = `${card.film_id || "item"}-${
+                      card.episode_id || card.episode || "e"
+                    }-${card.id}`;
+                    return (
+                      <SearchResultCard
+                      key={stableKey}
+                      card={card}
+                      highlightQuery={query}
+                      primaryLang={preferences.main_language}
+                    />
+                  )})}
+                  {isLoadingMore && (
+                    <div className="search-card-skeleton" style={{
+                      height: "160px",
+                      background:
+                        `linear-gradient(90deg, var(--hover-bg) 25%, var(--hover-bg-subtle) 50%, var(--hover-bg) 75%)`,
+                      backgroundSize: "200% 100%",
+                      animation: "skeleton-loading 1.5s ease-in-out infinite",
+                      borderRadius: "8px",
+                      marginBottom: "1rem",
+                    }} />
+                  )}
+                </>
+              )}
+          </div>
         </main>
       </div>
+
+      <FilterModal
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        minDifficulty={minDifficulty}
+        maxDifficulty={maxDifficulty}
+        onDifficultyChange={(min, max) => {
+          setMinDifficulty(min);
+          setMaxDifficulty(max);
+        }}
+        minLevel={minLevel}
+        maxLevel={maxLevel}
+        onLevelChange={(min, max) => {
+          setMinLevel(min);
+          setMaxLevel(max);
+        }}
+        mainLanguage={preferences.main_language || "en"}
+      />
+
+      <CustomizeModal
+        isOpen={isCustomizeModalOpen}
+        onClose={() => setIsCustomizeModalOpen(false)}
+        volume={volume}
+        onVolumeChange={setVolume}
+        resultLayout={resultLayout}
+        onLayoutChange={setResultLayout}
+      />
     </div>
   );
 }

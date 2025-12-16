@@ -213,7 +213,7 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
             className="content-search-input"
           />
         </div>
-        <div className="typography-inter-3" style={{ textAlign: 'right', marginTop: '8px', color: 'var(--neutral)' }}>
+        <div className="typography-inter-4" style={{ textAlign: 'right', marginTop: '8px', color: 'var(--neutral)' }}>
           {value.length === 0 ? '0 selected' : `${value.length} selected`}
         </div>
       </div>

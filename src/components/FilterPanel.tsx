@@ -1,4 +1,5 @@
 
+import { useEffect, useRef } from 'react';
 import type { CardDoc, LevelFrameworkStats } from '../types';
 import ContentSelector from './ContentSelector';
 import '../styles/components/filter-panel.css';
@@ -30,6 +31,16 @@ export default function FilterPanel({
   onSelectFilm, 
   mainLanguage 
 }: FilterPanelProps) {
+  const prevMainLanguageRef = useRef<string | null>(null);
+
+  // Khi mainLanguage thay đổi, reset selection trong ContentSelector
+  useEffect(() => {
+    if (prevMainLanguageRef.current && prevMainLanguageRef.current !== mainLanguage) {
+      onSelectFilm([]);
+    }
+    prevMainLanguageRef.current = mainLanguage;
+  }, [mainLanguage, onSelectFilm]);
+
   return (
     <div className="filter-panel-wrapper">
       <ContentSelector
