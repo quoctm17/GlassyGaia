@@ -33,7 +33,6 @@ function SearchPage() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [allItems, setAllItems] = useState<FilmDoc[]>([]);
-  const [itemsLoading, setItemsLoading] = useState(true);
   const [serverContentCounts, setServerContentCounts] = useState<Record<string, number>>({});
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
@@ -155,7 +154,6 @@ function SearchPage() {
   // Fetch all content items on mount only (cached by apiListItems)
   useEffect(() => {
     let cancelled = false;
-    setItemsLoading(true);
     apiListItems()
       .then((items) => {
         if (!cancelled) {
@@ -166,11 +164,6 @@ function SearchPage() {
         if (!cancelled) {
           console.error("Failed to load content items:", error);
           setAllItems([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setItemsLoading(false);
         }
       });
     return () => {
