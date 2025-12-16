@@ -75,7 +75,7 @@ export default function AdminContentIngestPage() {
   const ALL_LANG_OPTIONS: string[] = [
     "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
     "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","se","ta","te","tr","uk","lv",
-    "fa","ku","sl","sr","bg"
+    "fa","ku","ckb","kmr","sdh","sl","sr","bg"
   ];
   const SORTED_LANG_OPTIONS = useMemo(() => {
     // Sort by human-friendly label A->Z

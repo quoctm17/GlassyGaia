@@ -12,7 +12,7 @@ export type CanonicalLang =
   | "pl" | "pt" | "pt_br" | "pt_pt" | "ro" | "ru"
   | "es" | "es_la" | "es_es" | "sv" | "se" | "ta" | "te" | "th"
   | "tr" | "uk" | "vi" | "lv"
-  | "fa" | "ku" | "sl" | "sr" | "bg"
+  | "fa" | "ku" | "ckb" | "kmr" | "sdh" | "sl" | "sr" | "bg"
   | "rec" | "triage"; // pseudo labels if needed
 
 const aliasToCanonical: Record<string, CanonicalLang> = {
@@ -75,6 +75,9 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
   uk: "uk", ukrainian: "uk",
   fa: "fa", persian: "fa", farsi: "fa",
   ku: "ku", kurdish: "ku",
+  ckb: "ckb", "central kurdish": "ckb", sorani: "ckb", "kurdish (sorani)": "ckb",
+  kmr: "kmr", "northern kurdish": "kmr", kurmanji: "kmr", "kurdish (kurmanji)": "kmr",
+  sdh: "sdh", "southern kurdish": "sdh",
   sl: "sl", slovenian: "sl",
   sr: "sr", serbian: "sr",
   bg: "bg", bulgarian: "bg",
@@ -141,6 +144,9 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   es_es: ["es_es", "spanish (spain)", "spanish", "es-es"],
   fa: ["fa", "persian", "farsi"],
   ku: ["ku", "kurdish"],
+  ckb: ["ckb", "central kurdish", "sorani", "kurdish (sorani)"],
+  kmr: ["kmr", "northern kurdish", "kurmanji", "kurdish (kurmanji)"],
+  sdh: ["sdh", "southern kurdish"],
   sl: ["sl", "slovenian"],
   sr: ["sr", "serbian"],
   bg: ["bg", "bulgarian"],
@@ -208,6 +214,9 @@ export function langLabel(code: string): string {
     es_es: "Spanish (Spain)",
     fa: "Persian",
     ku: "Kurdish",
+    ckb: "Central Kurdish (Sorani)",
+    kmr: "Northern Kurdish (Kurmanji)",
+    sdh: "Southern Kurdish",
     sl: "Slovenian",
     sr: "Serbian",
     bg: "Bulgarian",
@@ -272,6 +281,9 @@ export function langFlag(code: string): string {
     es_es: "🇪🇸",
     fa: "🇮🇷",
     ku: "🇮🇶",
+    ckb: "🇮🇶",
+    kmr: "🇮🇶",
+    sdh: "🇮🇶",
     sl: "🇸🇮",
     sr: "🇷🇸",
     bg: "🇧🇬",
@@ -340,6 +352,9 @@ export function countryCodeForLang(code: string): string {
     es_es: "es",
     fa: "ir",
     ku: "iq",
+    ckb: "iq",
+    kmr: "iq",
+    sdh: "iq",
     sl: "si",
     sr: "rs",
     bg: "bg",
@@ -408,6 +423,9 @@ export function languageCssBase(code: string): string {
     es_es: 'spanish-es',
     fa: 'persian',
     ku: 'kurdish',
+    ckb: 'kurdish',
+    kmr: 'kurdish',
+    sdh: 'kurdish',
     sl: 'slovenian',
     sr: 'serbian',
     bg: 'bulgarian',
@@ -503,7 +521,7 @@ function getFlagFileName(countryCode: string): string {
     sl: "slovenia",
     sr: "serbia",
     fa: "iran",
-    ku: "iraq",
+    iq: "iraq",
     gb: "united_kingdom_the",
     lv: "latvia",
   };
