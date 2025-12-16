@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import SearchResultCard from "../components/SearchResultCard";
 import FilterPanel from "../components/FilterPanel";
+import FilterModal from "../components/FilterModal";
+import CustomizeModal from "../components/CustomizeModal";
 import type { CardDoc, FilmDoc } from "../types";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
@@ -11,6 +13,8 @@ import {
   apiSearchCardsFTS,
 } from "../services/cfApi";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
+import filterIcon from "../assets/icons/filter.svg";
+import customIcon from "../assets/icons/custom.svg";
 import "../styles/pages/search-page.css";
 
 function SearchPage() {
@@ -31,6 +35,14 @@ function SearchPage() {
   const [allItems, setAllItems] = useState<FilmDoc[]>([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [serverContentCounts, setServerContentCounts] = useState<Record<string, number>>({});
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
+  const [minDifficulty, setMinDifficulty] = useState(0);
+  const [maxDifficulty, setMaxDifficulty] = useState(100);
+  const [minLevel, setMinLevel] = useState<string | null>(null);
+  const [maxLevel, setMaxLevel] = useState<string | null>(null);
+  const [volume, setVolume] = useState(80);
+  const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
   const pageSize = 50;
   const isTextSearch = useMemo(() => query.trim().length >= 2, [query]);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,6 +85,10 @@ function SearchPage() {
             mainLanguage: preferences.main_language || null,
             subtitleLanguages: preferences.subtitle_languages || [],
             contentIds: contentFilter.length ? contentFilter : undefined,
+            minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
+            maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
+            minLevel: minLevel || undefined,
+            maxLevel: maxLevel || undefined,
           });
           setCards(items);
           setTotal(items.length);
@@ -88,6 +104,10 @@ function SearchPage() {
             mainLanguage: preferences.main_language || null,
             subtitleLanguages: preferences.subtitle_languages || [],
             contentIds: contentFilter.length > 0 ? contentFilter : undefined,
+            minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
+            maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
+            minLevel: minLevel || undefined,
+            maxLevel: maxLevel || undefined,
             signal: abortControllerRef.current.signal,
           });
 
@@ -129,7 +149,7 @@ function SearchPage() {
         }
       }
     },
-    [preferences.main_language, preferences.subtitle_languages, pageSize, contentFilter]
+    [preferences.main_language, preferences.subtitle_languages, pageSize, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel]
   );
 
   // Fetch all content items on mount only (cached by apiListItems)
@@ -169,6 +189,10 @@ function SearchPage() {
           // Use query + languages only so counts stay stable even when content filter changes
           query: query.trim().length >= 2 ? query : "",
           contentIds: undefined,
+          minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
+          maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
+          minLevel: minLevel || undefined,
+          maxLevel: maxLevel || undefined,
         });
         if (!cancelled) {
           setServerContentCounts(counts);
@@ -184,7 +208,7 @@ function SearchPage() {
     return () => {
       cancelled = true;
     };
-  }, [preferences.main_language, preferences.subtitle_languages, query]);
+  }, [preferences.main_language, preferences.subtitle_languages, query, minDifficulty, maxDifficulty, minLevel, maxLevel]);
 
   // Debounce: chuyển searchInput -> query (giảm re-render & lag khi gõ)
   useEffect(() => {
@@ -220,7 +244,7 @@ function SearchPage() {
     } else {
       fetchCards("", 1);
     }
-  }, [query, preferences.main_language, preferences.subtitle_languages, contentFilter, fetchCards]);
+  }, [query, preferences.main_language, preferences.subtitle_languages, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel, fetchCards]);
 
   // Filter items by mainLanguage
   const filteredItems = useMemo(() => {
@@ -350,6 +374,26 @@ function SearchPage() {
                 placeholder="Search across all films..."
                 loading={loading || firstLoading}
               />
+              <button
+                className="filter-panel-toggle-btn"
+                onClick={() => setIsFilterModalOpen(true)}
+                aria-label="Open filters"
+              >
+                <img
+                  src={filterIcon}
+                  alt="Filter"
+                />
+              </button>
+              <button
+                className="filter-panel-toggle-btn"
+                onClick={() => setIsCustomizeModalOpen(true)}
+                aria-label="Customize"
+              >
+                <img
+                  src={customIcon}
+                  alt="Customize"
+                />
+              </button>
             </div>
 
             <div className="search-stats typography-inter-4">
@@ -357,7 +401,7 @@ function SearchPage() {
             </div>
           </div>
 
-          <div className="search-results">
+          <div className={`search-results layout-${resultLayout === 'default' ? 'default' : resultLayout === '1-column' ? '1-column' : '2-column'} ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
             {loading && cards.length === 0
               ? Array.from({ length: 6 }).map((_, i) => (
                   <div
@@ -404,6 +448,33 @@ function SearchPage() {
           </div>
         </main>
       </div>
+
+      <FilterModal
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        minDifficulty={minDifficulty}
+        maxDifficulty={maxDifficulty}
+        onDifficultyChange={(min, max) => {
+          setMinDifficulty(min);
+          setMaxDifficulty(max);
+        }}
+        minLevel={minLevel}
+        maxLevel={maxLevel}
+        onLevelChange={(min, max) => {
+          setMinLevel(min);
+          setMaxLevel(max);
+        }}
+        mainLanguage={preferences.main_language || "en"}
+      />
+
+      <CustomizeModal
+        isOpen={isCustomizeModalOpen}
+        onClose={() => setIsCustomizeModalOpen(false)}
+        volume={volume}
+        onVolumeChange={setVolume}
+        resultLayout={resultLayout}
+        onLayoutChange={setResultLayout}
+      />
     </div>
   );
 }

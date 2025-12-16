@@ -10,12 +10,14 @@
   min-height: 64px;
   background: var(--background);
   width: 100%;
+  flex-wrap: nowrap;
 }
 
 .pixel-tabs {
   display: flex;
   gap: 14px;
   align-items: center;
+  flex-wrap: nowrap;
 }
 
 .pixel-tabs-desktop {
@@ -34,7 +36,7 @@
   border-radius: 4px;
   transition: all 0.3s ease;
   font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: 0.5px;
 }
@@ -180,7 +182,7 @@
   transition: all 0.3s ease;
   font-weight: 600;
   font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 15px;
+  font-size: 12px;
   letter-spacing: 0.5px;
 }
 
@@ -210,16 +212,17 @@
 }
 
 /* ================= Responsive Design ================= */
-/* From 1440px and below: Convert to mobile/tablet layout */
+/* From 1440px and below: Scale down to prevent wrapping */
 @media (max-width: 1440px) {
   .pixel-navbar {
-    padding: 8px 12px;
-    flex-wrap: wrap;
-    gap: 8px;
+    padding: 6px 12px;
+    gap: 6px;
+    flex-wrap: nowrap;
   }
 
   .pixel-tabs-desktop {
-    gap: 0.75rem;
+    gap: 0.6rem;
+    flex-wrap: nowrap;
   }
 
   .pixel-tab {
@@ -245,35 +248,47 @@
   }
 }
 
-/* Tablet range: NavBar wraps to 2 rows */
-@media (max-width: 1140px) and (min-width: 769px) {
+/* From 1280px: Further scale down */
+@media (max-width: 1280px) {
   .pixel-navbar {
-    min-height: 100px; /* Accommodate 2 rows of tabs */
-  }
-}
-
-/* Below 1024px: More compact mobile/tablet layout */
-@media (max-width: 1024px) {
-  .pixel-navbar {
-    padding: 6px 10px;
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .pixel-navbar > div:first-child {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    padding: 5px 10px;
+    gap: 5px;
   }
 
   .pixel-tabs-desktop {
-    flex-wrap: wrap;
     gap: 0.5rem;
-    order: 2;
-    width: 100%;
-    margin-top: 8px;
+  }
+
+  .pixel-tab {
+    font-size: 12px;
+    padding: 2px 4px;
+    gap: 3px;
+  }
+}
+
+/* From 1140px: Even smaller */
+@media (max-width: 1140px) {
+  .pixel-tab {
+    font-size: 11px;
+    padding: 2px 3px;
+  }
+
+  .pixel-tabs-desktop {
+    gap: 0.4rem;
+  }
+}
+
+/* Below 1024px: Keep single row, scale down further */
+@media (max-width: 1024px) {
+  .pixel-navbar {
+    padding: 5px 8px;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .pixel-tabs-desktop {
+    gap: 0.3rem;
+    flex-wrap: nowrap;
   }
 
   .pixel-tab {

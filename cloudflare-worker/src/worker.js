@@ -144,6 +144,14 @@ function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) });
 }
 
+// Normalize Chinese text by removing pinyin brackets [pinyin] for search
+// Example: "请[qǐng]问[wèn]" -> "请问"
+function normalizeChineseTextForSearch(text) {
+  if (!text) return text;
+  // Remove all [pinyin] patterns
+  return text.replace(/\[[^\]]+\]/g, '');
+}
+
 // Map level to numeric index for range filtering
 function getLevelIndex(level, language) {
   const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -166,6 +174,54 @@ function getLevelIndex(level, language) {
   if (hskIdx >= 0) return hskIdx;
   
   return -1;
+}
+
+// Compare two levels within the same framework
+// Returns: -1 if level1 < level2, 0 if equal, 1 if level1 > level2
+function compareLevels(level1, level2, framework) {
+  const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
+  const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  
+  const fwUpper = framework ? String(framework).toUpperCase() : '';
+  let order = [];
+  
+  if (fwUpper === 'CEFR') {
+    order = CEFR;
+  } else if (fwUpper === 'JLPT') {
+    order = JLPT;
+  } else if (fwUpper === 'HSK') {
+    order = HSK;
+  } else {
+    // Try to detect framework from levels
+    const l1Upper = String(level1).toUpperCase();
+    const l2Upper = String(level2).toUpperCase();
+    
+    if (CEFR.includes(l1Upper) && CEFR.includes(l2Upper)) {
+      order = CEFR;
+    } else if (JLPT.includes(l1Upper) && JLPT.includes(l2Upper)) {
+      order = JLPT;
+    } else if (HSK.includes(String(level1)) && HSK.includes(String(level2))) {
+      order = HSK;
+    } else {
+      return 0; // Cannot compare
+    }
+  }
+  
+  const idx1 = order.indexOf(String(level1).toUpperCase());
+  const idx2 = order.indexOf(String(level2).toUpperCase());
+  
+  if (idx1 === -1 || idx2 === -1) return 0;
+  return idx1 - idx2;
+}
+
+// Get framework from main language
+function getFrameworkFromLanguage(language) {
+  if (!language) return 'CEFR';
+  const langLower = String(language).toLowerCase();
+  if (langLower === 'ja' || langLower === 'japanese') return 'JLPT';
+  if (langLower === 'zh' || langLower === 'chinese' || langLower === 'zh-cn' || langLower === 'zh-tw') return 'HSK';
+  return 'CEFR'; // Default to CEFR for English and other languages
 }
 
 // ==================== AUTHENTICATION HELPERS ====================
@@ -463,6 +519,42 @@ export default {
             : [];
           const contentIdsCount = contentIdsArr.length;
 
+          // Parse difficulty filters
+          const difficultyMinRaw = url.searchParams.get('difficulty_min');
+          const difficultyMaxRaw = url.searchParams.get('difficulty_max');
+          const difficultyMin = difficultyMinRaw ? Number(difficultyMinRaw) : null;
+          const difficultyMax = difficultyMaxRaw ? Number(difficultyMaxRaw) : null;
+          const hasDifficultyFilter = (difficultyMin !== null && difficultyMin > 0) || (difficultyMax !== null && difficultyMax < 100);
+
+          // Parse level filters
+          const levelMinRaw = url.searchParams.get('level_min');
+          const levelMaxRaw = url.searchParams.get('level_max');
+          const levelMin = levelMinRaw ? String(levelMinRaw).trim() : null;
+          const levelMax = levelMaxRaw ? String(levelMaxRaw).trim() : null;
+          const hasLevelFilter = levelMin !== null || levelMax !== null;
+          const framework = getFrameworkFromLanguage(mainLanguage);
+
+          // Build allowed levels list for level filter
+          let allowedLevels = null;
+          if (hasLevelFilter) {
+            const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+            const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
+            const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+            
+            let levelOrder = [];
+            if (framework === 'CEFR') levelOrder = CEFR;
+            else if (framework === 'JLPT') levelOrder = JLPT;
+            else if (framework === 'HSK') levelOrder = HSK;
+            
+            if (levelOrder.length > 0) {
+              const minIdx = levelMin ? levelOrder.indexOf(levelMin.toUpperCase()) : 0;
+              const maxIdx = levelMax ? levelOrder.indexOf(levelMax.toUpperCase()) : levelOrder.length - 1;
+              if (minIdx >= 0 && maxIdx >= 0 && minIdx <= maxIdx) {
+                allowedLevels = levelOrder.slice(minIdx, maxIdx + 1);
+              }
+            }
+          }
+
           // NOTE: Text search (q=...) is handled by the dedicated /search endpoint using FTS,
           // to avoid heavy queries inside this paginated /api/search. Here we ignore q
           // and only filter by main_language, subtitle_languages and content_ids.
@@ -529,6 +621,13 @@ export default {
                 ${contentIdsCount > 0 ? `
                 AND ci.slug IN (${contentIdsPlaceholders})
                 ` : ''}
+                ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
+                ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
+                  SELECT 1 FROM card_difficulty_levels cdl
+                  WHERE cdl.card_id = c.id
+                    AND cdl.framework = ?
+                    AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
+                )` : ''}
                 ${textSearchCondition}
             )
             SELECT
@@ -569,6 +668,13 @@ export default {
               ${contentIdsCount > 0 ? `
               AND ci.slug IN (${contentIdsPlaceholders})
               ` : ''}
+              ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
+              ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
+                SELECT 1 FROM card_difficulty_levels cdl
+                WHERE cdl.card_id = c.id
+                  AND cdl.framework = ?
+                  AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
+              )` : ''}
               ${textSearchCondition};
           `;
 
@@ -609,7 +715,23 @@ export default {
             countParams.push(...contentIdsArr);
           }
           
-          // 4. Add text search query if needed
+          // 4. Add difficulty filters if needed
+          if (hasDifficultyFilter) {
+            params.push(difficultyMin !== null ? difficultyMin : 0);
+            params.push(difficultyMax !== null ? difficultyMax : 100);
+            countParams.push(difficultyMin !== null ? difficultyMin : 0);
+            countParams.push(difficultyMax !== null ? difficultyMax : 100);
+          }
+          
+          // 5. Add level filters if needed
+          if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
+            params.push(framework);
+            params.push(...allowedLevels);
+            countParams.push(framework);
+            countParams.push(...allowedLevels);
+          }
+          
+          // 6. Add text search query if needed
           if (hasTextQuery) {
             if (useLikeSearch) {
               // LIKE search: use normalized query with wildcards
@@ -627,7 +749,7 @@ export default {
             }
           }
           
-          // 5. Add pagination params (only for main query, not count)
+          // 7. Add pagination params (only for main query, not count)
           params.push(size);
           params.push(offset);
 
@@ -659,6 +781,26 @@ export default {
               subsMap.get(row.card_id)[row.language] = row.text;
             }
 
+            // Fetch difficulty levels for all matched cards
+            const levelsStmt = `
+              SELECT card_id, framework, level, language
+              FROM card_difficulty_levels
+              WHERE card_id IN (${placeholders})
+            `;
+            const levelsResult = await env.DB.prepare(levelsStmt).bind(...cardIds).all();
+            const levelsMap = new Map();
+            
+            for (const row of (levelsResult.results || [])) {
+              if (!levelsMap.has(row.card_id)) {
+                levelsMap.set(row.card_id, []);
+              }
+              levelsMap.get(row.card_id).push({
+                framework: row.framework,
+                level: row.level,
+                language: row.language || null
+              });
+            }
+
             // Map cards to response format
             items = cardRows.map(r => ({
               card_id: r.card_id,
@@ -673,7 +815,8 @@ export default {
               audio_url: makeMediaUrl(r.audio_key),
               difficulty_score: r.difficulty_score,
               text: '', // Will be filled from subtitle
-              subtitle: subsMap.get(r.card_id) || {}
+              subtitle: subsMap.get(r.card_id) || {},
+              levels: levelsMap.get(r.card_id) || undefined
             }));
           }
 
@@ -706,6 +849,42 @@ export default {
             ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean)))
             : [];
           const contentIdsCount = contentIdsArr.length;
+
+          // Parse difficulty filters
+          const difficultyMinRaw = url.searchParams.get('difficulty_min');
+          const difficultyMaxRaw = url.searchParams.get('difficulty_max');
+          const difficultyMin = difficultyMinRaw ? Number(difficultyMinRaw) : null;
+          const difficultyMax = difficultyMaxRaw ? Number(difficultyMaxRaw) : null;
+          const hasDifficultyFilter = (difficultyMin !== null && difficultyMin > 0) || (difficultyMax !== null && difficultyMax < 100);
+
+          // Parse level filters
+          const levelMinRaw = url.searchParams.get('level_min');
+          const levelMaxRaw = url.searchParams.get('level_max');
+          const levelMin = levelMinRaw ? String(levelMinRaw).trim() : null;
+          const levelMax = levelMaxRaw ? String(levelMaxRaw).trim() : null;
+          const hasLevelFilter = levelMin !== null || levelMax !== null;
+          const framework = getFrameworkFromLanguage(mainLanguage);
+
+          // Build allowed levels list for level filter
+          let allowedLevels = null;
+          if (hasLevelFilter) {
+            const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+            const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
+            const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+            
+            let levelOrder = [];
+            if (framework === 'CEFR') levelOrder = CEFR;
+            else if (framework === 'JLPT') levelOrder = JLPT;
+            else if (framework === 'HSK') levelOrder = HSK;
+            
+            if (levelOrder.length > 0) {
+              const minIdx = levelMin ? levelOrder.indexOf(levelMin.toUpperCase()) : 0;
+              const maxIdx = levelMax ? levelOrder.indexOf(levelMax.toUpperCase()) : levelOrder.length - 1;
+              if (minIdx >= 0 && maxIdx >= 0 && minIdx <= maxIdx) {
+                allowedLevels = levelOrder.slice(minIdx, maxIdx + 1);
+              }
+            }
+          }
 
           // If there is a text query, use FTS/LIKE to compute counts for the matching cards
           if (q) {
@@ -755,7 +934,21 @@ export default {
               return json({ counts: countsMap });
             } else if (isCjkQuery) {
               // CJK fallback: LIKE search on subtitles
-              const like = `%${q}%`;
+              // Check if this is a Chinese query
+              const isChineseQuery = mainLanguage && (mainLanguage.toLowerCase() === 'zh' || mainLanguage.toLowerCase() === 'zh_trad' || mainLanguage.toLowerCase() === 'zh_hans' || mainLanguage.toLowerCase() === 'zh-cn' || mainLanguage.toLowerCase() === 'zh-tw' || mainLanguage.toLowerCase() === 'chinese') || /[\u4E00-\u9FFF]/.test(q);
+              
+              // For Chinese, normalize query by removing any brackets
+              const normalizedQuery = isChineseQuery ? normalizeChineseTextForSearch(q) : q;
+              
+              // Build pattern for Chinese: allow optional brackets between characters
+              let likePattern;
+              if (isChineseQuery && normalizedQuery.length > 0) {
+                const chars = normalizedQuery.split('');
+                likePattern = '%' + chars.join('%[%]%') + '%';
+              } else {
+                likePattern = `%${normalizedQuery}%`;
+              }
+              
               let sql = `
                 SELECT 
                   ci.slug AS content_id,
@@ -765,7 +958,7 @@ export default {
                 JOIN episodes e ON e.id = c.episode_id
                 JOIN content_items ci ON ci.id = e.content_item_id
                 WHERE cs.text LIKE ?`;
-              const params = [like];
+              const params = [likePattern];
               if (mainCanon) {
                 // Search only in main language subtitles and main_language content
                 sql += ' AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)';
@@ -785,6 +978,21 @@ export default {
                 sql += ` AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})`;
                 params.push(...contentIdsArr);
               }
+              if (hasDifficultyFilter) {
+                sql += ' AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?';
+                params.push(difficultyMin !== null ? difficultyMin : 0);
+                params.push(difficultyMax !== null ? difficultyMax : 100);
+              }
+              if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
+                sql += ` AND EXISTS (
+                  SELECT 1 FROM card_difficulty_levels cdl
+                  WHERE cdl.card_id = c.id
+                    AND cdl.framework = ?
+                    AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
+                )`;
+                params.push(framework);
+                params.push(...allowedLevels);
+              }
               sql += ' GROUP BY ci.slug';
 
               const det = await env.DB.prepare(sql).bind(...params).all();
@@ -800,19 +1008,50 @@ export default {
           }
 
           // No text query: simple counts by main_language / subtitle_languages / content_ids
-          const countsWhere = [
-            '(?1 IS NULL OR ci.main_language = ?1)',
-          ];
+          // Use positional placeholders for easier binding
+          const countsWhere = [];
+          const countsParams = [];
+          
+          // Main language filter
+          countsWhere.push('(? IS NULL OR ci.main_language = ?)');
+          countsParams.push(mainLanguage || null);
+          countsParams.push(mainLanguage || null);
+          
+          // Subtitle languages filter
           if (subtitleLangsCount > 0) {
             countsWhere.push(`(
               SELECT COUNT(DISTINCT cs.language)
               FROM card_subtitles cs
               WHERE cs.card_id = c.id
-                AND cs.language IN (${subtitleLangsArr.map((_, i) => `?${i + 3}`).join(',')})
-            ) = ?2`);
+                AND cs.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+            ) = ?`);
+            countsParams.push(...subtitleLangsArr);
+            countsParams.push(subtitleLangsCount);
           }
+          
+          // Content IDs filter
           if (contentIdsCount > 0) {
-            countsWhere.push(`ci.slug IN (${contentIdsArr.map((_, i) => `?${subtitleLangsCount > 0 ? i + 3 + subtitleLangsCount + 1 : i + 2}`).join(',')})`);
+            countsWhere.push(`ci.slug IN (${contentIdsArr.map(() => '?').join(',')})`);
+            countsParams.push(...contentIdsArr);
+          }
+          
+          // Difficulty filter
+          if (hasDifficultyFilter) {
+            countsWhere.push('c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?');
+            countsParams.push(difficultyMin !== null ? difficultyMin : 0);
+            countsParams.push(difficultyMax !== null ? difficultyMax : 100);
+          }
+          
+          // Level filter
+          if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
+            countsWhere.push(`EXISTS (
+              SELECT 1 FROM card_difficulty_levels cdl
+              WHERE cdl.card_id = c.id
+                AND cdl.framework = ?
+                AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
+            )`);
+            countsParams.push(framework);
+            countsParams.push(...allowedLevels);
           }
 
           const countsStmt = `
@@ -826,15 +1065,7 @@ export default {
             GROUP BY ci.slug
           `;
 
-          // Build params array for non-text counts
-          const baseParams = subtitleLangsCount > 0
-            ? [mainLanguage || null, subtitleLangsCount, ...subtitleLangsArr]
-            : [mainLanguage || null];
-          const countParams = contentIdsCount > 0
-            ? [...baseParams, ...contentIdsArr]
-            : baseParams;
-
-          const countsResult = await env.DB.prepare(countsStmt).bind(...countParams).all();
+          const countsResult = await env.DB.prepare(countsStmt).bind(...countsParams).all();
           const countsMap = {};
           for (const row of (countsResult.results || [])) {
             countsMap[row.content_id] = row.count || 0;
@@ -2051,6 +2282,10 @@ export default {
         const mainLang = url.searchParams.get('main'); // filter by content_items.main_language
         const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
         const contentIdsCsv = url.searchParams.get('content_ids') || '';
+        const difficultyMinRaw = url.searchParams.get('difficulty_min');
+        const difficultyMaxRaw = url.searchParams.get('difficulty_max');
+        const levelMinRaw = url.searchParams.get('level_min');
+        const levelMaxRaw = url.searchParams.get('level_max');
         const q = qRaw.trim();
         if (!q) return json([]);
         try {
@@ -2067,6 +2302,17 @@ export default {
             ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean)))
             : [];
           const contentIdsCount = contentIdsArr.length;
+
+          // Parse difficulty filters
+          const difficultyMin = difficultyMinRaw ? Number(difficultyMinRaw) : null;
+          const difficultyMax = difficultyMaxRaw ? Number(difficultyMaxRaw) : null;
+          const hasDifficultyFilter = (difficultyMin !== null && difficultyMin > 0) || (difficultyMax !== null && difficultyMax < 100);
+
+          // Parse level filters
+          const levelMin = levelMinRaw ? String(levelMinRaw).trim() : null;
+          const levelMax = levelMaxRaw ? String(levelMaxRaw).trim() : null;
+          const hasLevelFilter = levelMin !== null || levelMax !== null;
+          const framework = getFrameworkFromLanguage(mainLang);
 
           // ---------- 1) Try FTS5 search on card_subtitles_fts (exact token / phrase, no substring) ----------
           let rows = [];
@@ -2086,8 +2332,29 @@ export default {
               match = `"${tokens.join(' ')}"`;
             }
 
+            // Build allowed levels list for level filter
+            let allowedLevels = null;
+            if (hasLevelFilter) {
+              const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+              const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
+              const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+              
+              let levelOrder = [];
+              if (framework === 'CEFR') levelOrder = CEFR;
+              else if (framework === 'JLPT') levelOrder = JLPT;
+              else if (framework === 'HSK') levelOrder = HSK;
+              
+              if (levelOrder.length > 0) {
+                const minIdx = levelMin ? levelOrder.indexOf(levelMin.toUpperCase()) : 0;
+                const maxIdx = levelMax ? levelOrder.indexOf(levelMax.toUpperCase()) : levelOrder.length - 1;
+                if (minIdx >= 0 && maxIdx >= 0 && minIdx <= maxIdx) {
+                  allowedLevels = levelOrder.slice(minIdx, maxIdx + 1);
+                }
+              }
+            }
+
             const sqlFts = `
-              SELECT c.card_number,
+              SELECT DISTINCT c.card_number,
                      c.start_time AS start_time,
                      c.end_time AS end_time,
                      c.duration,
@@ -2119,6 +2386,13 @@ export default {
                      ) = ?`
                   : ''
               }
+              ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
+              ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
+                SELECT 1 FROM card_difficulty_levels cdl
+                WHERE cdl.card_id = c.id
+                  AND cdl.framework = ?
+                  AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
+              )` : ''}
               LIMIT ?`;
 
             const bindFts = [match];
@@ -2134,6 +2408,14 @@ export default {
               bindFts.push(...subtitleLangsArr);
               bindFts.push(subtitleLangsCount);
             }
+            if (hasDifficultyFilter) {
+              bindFts.push(difficultyMin !== null ? difficultyMin : 0);
+              bindFts.push(difficultyMax !== null ? difficultyMax : 100);
+            }
+            if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
+              bindFts.push(framework);
+              bindFts.push(...allowedLevels);
+            }
             bindFts.push(limit);
             const detFts = await env.DB.prepare(sqlFts).bind(...bindFts).all();
             rows = detFts.results || [];
@@ -2145,10 +2427,36 @@ export default {
           // ---------- 2) Fallback: LIKE search on card_subtitles.text if FTS returned nothing ----------
           // Only use LIKE for CJK languages; for Latin queries this causes many false positives.
           const isCjkQuery = /[\u3040-\u30FF\u3400-\u9FFF]/u.test(q);
+          // Check if this is a Chinese query (zh, zh_trad, zh_hans)
+          const isChineseQuery = mainCanon && (mainCanon === 'zh' || mainCanon === 'zh_trad' || mainCanon === 'zh_hans' || mainCanon === 'zh-cn' || mainCanon === 'zh-tw' || mainCanon === 'chinese') || /[\u4E00-\u9FFF]/.test(q);
+          
           if (!rows.length && isCjkQuery) {
-            const like = `%${q}%`;
+            // For Chinese, normalize query by removing any brackets (user might search with brackets)
+            const normalizedQuery = isChineseQuery ? normalizeChineseTextForSearch(q) : q;
+            
+            // For Chinese text with pinyin brackets, we need to match the normalized version
+            // Since SQLite doesn't support regex, we'll build a pattern that allows optional brackets
+            // between each character. For "请问", we want to match "请[qǐng]问[wèn]"
+            // Pattern: each Chinese char can be followed by optional [anything]
+            let likePattern;
+            if (isChineseQuery && normalizedQuery.length > 0) {
+              // Build pattern that matches Chinese characters with optional [pinyin] brackets between them
+              // Example: "请问" -> "%请%[%]%问%[%]%"
+              // This will match: "请[qǐng]问[wèn]" because:
+              // - %请% matches "请"
+              // - [%] matches "[qǐng]" (literal [ + any chars + literal ])
+              // - %问% matches "问"
+              // - [%] matches "[wèn]"
+              const chars = normalizedQuery.split('');
+              // Pattern: char1 + % + [ + % + ] + % + char2 + ...
+              // Use % before and after brackets to allow any characters (including the bracket content)
+              likePattern = '%' + chars.join('%[%]%') + '%';
+            } else {
+              likePattern = `%${normalizedQuery}%`;
+            }
+            
             const sqlLike = `
-              SELECT c.card_number,
+              SELECT DISTINCT c.card_number,
                      c.start_time AS start_time,
                      c.end_time AS end_time,
                      c.duration,
@@ -2180,8 +2488,15 @@ export default {
                      ) = ?`
                   : ''
               }
+              ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
+              ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
+                SELECT 1 FROM card_difficulty_levels cdl
+                WHERE cdl.card_id = c.id
+                  AND cdl.framework = ?
+                  AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
+              )` : ''}
               LIMIT ?`;
-            const bindLike = [like];
+            const bindLike = [likePattern];
             if (mainCanon) {
               // search in main language subtitles only
               bindLike.push(mainCanon);
@@ -2194,6 +2509,14 @@ export default {
               bindLike.push(...subtitleLangsArr);
               bindLike.push(subtitleLangsCount);
             }
+            if (hasDifficultyFilter) {
+              bindLike.push(difficultyMin !== null ? difficultyMin : 0);
+              bindLike.push(difficultyMax !== null ? difficultyMax : 100);
+            }
+            if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
+              bindLike.push(framework);
+              bindLike.push(...allowedLevels);
+            }
             bindLike.push(limit);
             const detLike = await env.DB.prepare(sqlLike).bind(...bindLike).all();
             rows = detLike.results || [];
@@ -2205,17 +2528,28 @@ export default {
             const subs = await env.DB.prepare('SELECT language,text FROM card_subtitles WHERE card_id=?').bind(r.internal_id).all();
             const subtitle = {};
             (subs.results || []).forEach(s => { subtitle[s.language] = s.text; });
+            // Fetch all difficulty levels for this card
+            let levels = [];
             let cefr = null;
             try {
-              const lvl = await env.DB.prepare('SELECT level FROM card_difficulty_levels WHERE card_id=? AND framework=?').bind(r.internal_id, 'CEFR').first();
-              cefr = lvl ? lvl.level : null;
+              const levelRows = await env.DB.prepare('SELECT framework, level, language FROM card_difficulty_levels WHERE card_id=?').bind(r.internal_id).all();
+              if (levelRows.results && levelRows.results.length > 0) {
+                levels = levelRows.results.map(l => ({
+                  framework: l.framework,
+                  level: l.level,
+                  language: l.language || null
+                }));
+                // Keep cefr_level for backward compatibility
+                const cefrRow = levelRows.results.find(l => l.framework === 'CEFR');
+                cefr = cefrRow ? cefrRow.level : null;
+              }
             } catch {}
             const displayId = String(r.card_number ?? '').padStart(3, '0');
             const episodeSlug = r.episode_slug || `${r.film_slug || 'item'}_${Number(r.episode_number) || 1}`;
             const startS = (r.start_time != null) ? r.start_time : 0;
             const endS = (r.end_time != null) ? r.end_time : 0;
             const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, is_available: r.is_available, cefr_level: cefr, film_id: r.film_slug, subtitle });
+            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, is_available: r.is_available, cefr_level: cefr, levels: levels.length > 0 ? levels : undefined, film_id: r.film_slug, subtitle });
           }
           return json(out);
         } catch (e) {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, memo } from "react";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
 import { toggleFavorite } from "../services/progress";
-import { canonicalizeLangCode, countryCodeForLang } from "../utils/lang";
+import { canonicalizeLangCode } from "../utils/lang";
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
 import "../styles/components/search-result-card.css";
@@ -43,15 +43,26 @@ const SearchResultCard = memo(function SearchResultCard({
   const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
-  const [imageLoaded, setImageLoaded] = useState<boolean>(false);
+  const [expandedSubtitles, setExpandedSubtitles] = useState<Set<string>>(new Set());
+
+
+  // Resolve image URL with optional R2 base for leading slashes
+  const resolvedImageUrl = useMemo(() => {
+    const base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
+    let url = card.image_url || '';
+    if (url && url.startsWith('/') && base) {
+      url = `${base}${url}`;
+    }
+    return url;
+  // card.image_url intentionally in deps (not card object) to avoid loop
+  }, [card.image_url]);
 
   // Update card when initialCard changes
   useEffect(() => {
     setCard(initialCard);
     // Reset to original when initialCard changes (new search result)
     setOriginalCardIndex(-1);
-    setImageLoaded(false); // Reset image loaded state
-  }, [initialCard]);
+  }, [initialCard.id, initialCard.image_url]);
 
   // Register/unregister audio instance in global registry
   useEffect(() => {
@@ -105,6 +116,13 @@ const SearchResultCard = memo(function SearchResultCard({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isHovered, currentCardIndex, originalCardIndex, episodeCards, card, isPlaying, favorite]);
 
+  // Create stable keys for dependency tracking
+  const subtitleKeys = useMemo(() => {
+    const keys = card.subtitle ? Object.keys(card.subtitle).sort().join(',') : '';
+    const overrideKeys = subsOverride ? Object.keys(subsOverride).sort().join(',') : '';
+    return `${keys}|${overrideKeys}`;
+  }, [card.subtitle, subsOverride]);
+
   const shownLangs = useMemo(() => {
     const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
     const ORDER = [
@@ -145,12 +163,18 @@ const SearchResultCard = memo(function SearchResultCard({
     );
     // Always include primary (film's audio language) first, then selected subtitle languages
     const finalOrder = (primary ? [primary] : []).concat(sortedSecondary);
+    // If no subtitle languages selected (langs is empty), only show primary language (without subtitle)
+    // If subtitle languages selected, show those that have subtitle data
+    if (langs.length === 0) {
+      // No subtitle languages selected - don't show any subtitles, only primary for sentence/audio
+      return primary ? [primary] : [];
+    }
     // Keep primary ALWAYS (will fallback to sentence if no subtitle), secondaries only if subtitle exists
     return finalOrder.filter((code) => {
       if (primary && code === primary) return true; // always show primary
       return !!subtitleText(effectiveCard, code); // secondary needs subtitle
     });
-  }, [card, subsOverride, langs, primaryLang]);
+  }, [card.id, subtitleKeys, langs, primaryLang]);
 
   // Lazy-fixup: if subtitles are missing in the list payload, fetch per-card detail once
   useEffect(() => {
@@ -692,24 +716,14 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Return to original card (C key)
   const handleReturnToOriginal = async () => {
-    console.log('🔄 Return to Original - Debug:', {
-      currentCardIndex,
-      originalCardIndex,
-      episodeCardsLength: episodeCards.length,
-      isDisabled: currentCardIndex === originalCardIndex || originalCardIndex < 0
-    });
-    
     if (originalCardIndex < 0 || originalCardIndex >= episodeCards.length) {
-      console.log('❌ Invalid originalCardIndex');
       return;
     }
     if (currentCardIndex === originalCardIndex) {
-      console.log('✅ Already at original');
       return; // Already at original
     }
     
     const originalCard = episodeCards[originalCardIndex];
-    console.log('📍 Original card:', originalCard);
     
     if (originalCard && card.film_id) {
       try {
@@ -822,63 +836,47 @@ const SearchResultCard = memo(function SearchResultCard({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="card-main-content">
-        {/* Left side: Metadata + Image */}
-        <div className="card-left-section">
-          {/* Metadata at top: Level badges, Episode slug, Time range */}
-          <div className="card-metadata-top">
-            {/* Level badges */}
-            {card.levels && Array.isArray(card.levels) && card.levels.length > 0 && (
-              <div className="level-badges-container">
-                {card.levels.map((lvl: { framework: string; level: string; language?: string }, idx: number) => (
-                  <span key={idx} className={`level-badge level-${(lvl.level || '').toLowerCase()}`}>
-                    {lvl.level}
-                  </span>
-                ))}
-              </div>
+        {/* Top: Metadata - Full width */}
+        <div className="card-metadata-top">
+          {/* Level badges */}
+          {card.levels && Array.isArray(card.levels) && card.levels.length > 0 && (
+            <div className="level-badges-container">
+              {card.levels.map((lvl: { framework: string; level: string; language?: string }, idx: number) => (
+                <span key={idx} className={`level-badge level-${(lvl.level || '').toLowerCase()}`}>
+                  {lvl.level}
+                </span>
+              ))}
+            </div>
+          )}
+          {/* Episode slug and Time range grouped */}
+          <div className="card-slug-time-group">
+            {card.episode_id && (
+              <div className="card-episode-slug">{card.episode_id}</div>
             )}
-            {/* Episode slug and Time range grouped */}
-            <div className="card-slug-time-group">
-              {card.episode_id && (
-                <div className="card-episode-slug">{card.episode_id}</div>
-              )}
-              <div className="card-time-range">
-                <span>{Math.floor(card.start)}s</span>
-                <span>–</span>
-                <span>{Math.floor(card.end)}s</span>
-              </div>
+            <div className="card-time-range">
+              <span>{Math.floor(card.start)}s</span>
+              <span>–</span>
+              <span>{Math.floor(card.end)}s</span>
             </div>
           </div>
-          
-          <div className="card-image-container">
+        </div>
+
+        {/* Bottom row: Left (image) + Center (subtitles) + Right (favorite/menu) */}
+        <div className="card-content-row">
+          {/* Left side: Image only */}
+          <div className="card-left-section">
+            <div className="card-image-container">
             <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
-              {!imageLoaded && (
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  backgroundColor: '#1a1a1a',
-                  background: 'linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'skeleton-loading 1.5s ease-in-out infinite',
-                  borderRadius: '4px'
-                }} />
-              )}
               <img
-                src={card.image_url}
+                src={resolvedImageUrl}
                 alt={card.id}
-                loading="lazy"
                 decoding="async"
                 className="card-image"
                 onContextMenu={(e) => e.preventDefault()}
                 draggable={false}
                 onClick={handleImageClick}
-                onLoad={() => setImageLoaded(true)}
                 style={{ 
                   cursor: card.audio_url ? 'pointer' : 'default',
-                  opacity: imageLoaded ? 1 : 0,
-                  transition: 'opacity 0.3s ease-in-out'
                 }}
               />
               {card.audio_url && (
@@ -951,10 +949,32 @@ const SearchResultCard = memo(function SearchResultCard({
               const name = codeToName(code);
               const roleClass = isPrimary ? `${name}-main` : `${name}-sub`;
               const rubyClass = needsRuby ? "hanzi-ruby" : "";
+              const isExpanded = expandedSubtitles.has(code);
+              const handleSubtitleMouseUp = () => {
+                // Check if user is selecting text after mouse up
+                // Use setTimeout to check after browser processes the selection
+                setTimeout(() => {
+                  const selection = window.getSelection();
+                  if (selection && selection.toString().length > 0) {
+                    // User is selecting text, don't toggle expand
+                    return;
+                  }
+                  // No text selection, toggle expand
+                  setExpandedSubtitles(prev => {
+                    const next = new Set(prev);
+                    if (next.has(code)) {
+                      next.delete(code);
+                    } else {
+                      next.add(code);
+                    }
+                    return next;
+                  });
+                }, 0);
+              };
               return (
                 <div
                   key={code}
-                  className={`${roleClass} ${rubyClass} subtitle-row`}
+                  className={`${roleClass} ${rubyClass} subtitle-row ${isExpanded ? 'expanded' : ''}`}
                   style={{
                     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
                     fontSize: isPrimary ? "20px" : "16px",
@@ -963,9 +983,11 @@ const SearchResultCard = memo(function SearchResultCard({
                     position: "relative",
                     // Main language uses --text color, secondary uses CSS class colors
                     color: isPrimary ? "var(--text)" : undefined,
+                    cursor: "pointer",
                   }}
+                  onMouseUp={handleSubtitleMouseUp}
+                  title={isExpanded ? "Click to collapse" : "Click to expand"}
                 >
-                  <span className={`inline-block align-middle mr-1.5 text-sm fi fi-${countryCodeForLang(code)}`}></span>
                   <span
                     className="subtitle-text"
                     dangerouslySetInnerHTML={{ __html: html }}
@@ -977,8 +999,8 @@ const SearchResultCard = memo(function SearchResultCard({
         </div>
         </div>
 
-        {/* Right: Favorite button and Menu */}
-        <div className="card-right-section">
+          {/* Right: Favorite button and Menu */}
+          <div className="card-right-section">
           <button
             className={`pixel-btn-fav ${favorite ? "active" : ""}`}
             onClick={onToggleFavorite}
@@ -1026,13 +1048,19 @@ const SearchResultCard = memo(function SearchResultCard({
             )}
           </div>
         </div>
+        </div>
       </div>
     </div>
   );
 }, (prevProps, nextProps) => {
   // Custom comparison for memo - only re-render if these props change
+  // Need to compare subtitle keys to detect when subtitle data changes
+  const prevSubKeys = prevProps.card.subtitle ? Object.keys(prevProps.card.subtitle).sort().join(',') : '';
+  const nextSubKeys = nextProps.card.subtitle ? Object.keys(nextProps.card.subtitle).sort().join(',') : '';
+  
   return (
     prevProps.card.id === nextProps.card.id &&
+    prevSubKeys === nextSubKeys &&
     prevProps.highlightQuery === nextProps.highlightQuery &&
     prevProps.primaryLang === nextProps.primaryLang &&
     prevProps.filmTitle === nextProps.filmTitle

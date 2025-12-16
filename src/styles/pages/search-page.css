@@ -10,8 +10,8 @@
 .filter-panel-wrapper {
   flex-shrink: 0;
   width: 20%;
-  min-width: 240px;
-  max-width: 320px;
+  min-width: 220px;
+  max-width: 260px;
   background-color: var(--sidenav-bg);
   border-right: 1px solid var(--border);
   height: auto;
@@ -47,7 +47,7 @@
 }
 
 .filter-panel-toggle-btn:hover {
-  background-color: var(--hover-bg);
+  /* No background change on hover - only icon brightness changes */
 }
 
 .filter-panel-toggle-btn:hover img {
@@ -55,10 +55,10 @@
 }
 
 .filter-panel-toggle-btn img {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   filter: var(--icon-primary-filter);
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, filter 0.3s ease;
 }
 
 .filter-panel-toggle-btn img.rotate-180 {
@@ -157,8 +157,46 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   min-width: 0;
+  min-height: 0; /* Prevent stretching when there are few items */
+}
+
+/* Layout: Default (1 column when FilterPanel open, 2 columns when closed) */
+.search-results.layout-default {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
+}
+
+.search-results.layout-default.filter-panel-closed {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
+}
+
+/* Layout: 1 Column (always 1 column) */
+.search-results.layout-1-column {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
+}
+
+/* Layout: 2 Columns (always 2 columns) */
+.search-results.layout-2-column {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  align-items: start;
+  align-content: start;
+  grid-auto-rows: min-content;
 }
 
 /* Skeleton loading animation */
@@ -230,8 +268,16 @@
     padding: 6px;
   }
 
+  /* Keep sidebar roughly 20–22% of viewport on tablet */
+  .filter-panel-wrapper {
+    width: 22%;
+    min-width: 200px;
+    max-width: 240px;
+  }
+
   .filter-panel {
-    width: 300px !important;
+    width: 22% !important;
+    min-width: 200px !important;
   }
 }
 
@@ -246,8 +292,9 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 280px;
-    max-width: 80vw;
+    /* Use a smaller relative width on mobile so content area stays visible */
+    width: 70vw;
+    max-width: 260px;
     z-index: 1000;
     height: 100vh;
     transform: translateX(-100%);

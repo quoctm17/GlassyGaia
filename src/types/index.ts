@@ -4,10 +4,18 @@ export type SubtitleMap = Record<string, string>; // e.g., { en: "Hello", ja: "ã
 
 export interface CardDoc {
   id: string; // card id (e.g., "000" or UUID)
+  card_id?: string; // card UUID from database (search API)
+  content_slug?: string; // parent content item slug (search API)
+  content_title?: string; // content title (search API)
+  episode_slug?: string; // episode slug (search API)
+  episode_number?: number; // episode number (search API)
+  card_number?: number; // card number within episode (search API)
   episode: number | string; // numeric order or episode identifier
   episode_id?: string; // normalized episode id (e.g., e1)
   start: number; // seconds (converted from ms in DB)
   end: number; // seconds (converted from ms in DB)
+  start_time?: number; // seconds (search API format)
+  end_time?: number; // seconds (search API format)
   duration?: number; // seconds
   audio_url: string; // fully qualified URL to audio resource
   image_url: string; // fully qualified URL to image resource

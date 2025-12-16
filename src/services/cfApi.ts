@@ -332,8 +332,12 @@ export async function apiSearchCardsFTS(params: {
   mainLanguage?: string | null;
   subtitleLanguages?: string[];
   contentIds?: string[];
+  minDifficulty?: number;
+  maxDifficulty?: number;
+  minLevel?: string | null;
+  maxLevel?: string | null;
 }): Promise<CardDoc[]> {
-  const { q, contentIds, subtitleLanguages } = params;
+  const { q, contentIds, subtitleLanguages, minDifficulty, maxDifficulty, minLevel, maxLevel } = params;
   const limit = params.limit ?? 100;
   const main = params.mainLanguage ? `&main=${encodeURIComponent(params.mainLanguage)}` : "";
   const contentIdsParam =
@@ -342,6 +346,10 @@ export async function apiSearchCardsFTS(params: {
     subtitleLanguages && subtitleLanguages.length
       ? `&subtitle_languages=${encodeURIComponent(subtitleLanguages.join(','))}`
       : '';
+  const difficultyMinParam = minDifficulty !== undefined && minDifficulty !== null ? `&difficulty_min=${minDifficulty}` : '';
+  const difficultyMaxParam = maxDifficulty !== undefined && maxDifficulty !== null ? `&difficulty_max=${maxDifficulty}` : '';
+  const levelMinParam = minLevel ? `&level_min=${encodeURIComponent(minLevel)}` : '';
+  const levelMaxParam = maxLevel ? `&level_max=${encodeURIComponent(maxLevel)}` : '';
 
   // Check cache first (short TTL)
   const cacheKey = getSearchCacheKey(params);
@@ -351,7 +359,7 @@ export async function apiSearchCardsFTS(params: {
   }
   
   const rows = await getJson<Array<Record<string, unknown>>>(
-    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}`
+    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}${difficultyMinParam}${difficultyMaxParam}${levelMinParam}${levelMaxParam}`
   );
   const result = rows.map(rowToCardDoc);
   searchCache.set(cacheKey, { data: result, timestamp: Date.now() });
@@ -366,6 +374,10 @@ export async function apiSearch(params: {
   mainLanguage?: string | null;
   subtitleLanguages?: string[];
   contentIds?: string[];
+  minDifficulty?: number;
+  maxDifficulty?: number;
+  minLevel?: string | null;
+  maxLevel?: string | null;
   signal?: AbortSignal;
 }): Promise<{ items: CardDoc[]; total: number; page: number; size: number }> {
   const query = params.query || '';
@@ -387,6 +399,22 @@ export async function apiSearch(params: {
   
   if (params.contentIds && params.contentIds.length > 0) {
     urlParams.set('content_ids', params.contentIds.join(','));
+  }
+  
+  if (params.minDifficulty !== undefined && params.minDifficulty !== null) {
+    urlParams.set('difficulty_min', String(params.minDifficulty));
+  }
+  
+  if (params.maxDifficulty !== undefined && params.maxDifficulty !== null) {
+    urlParams.set('difficulty_max', String(params.maxDifficulty));
+  }
+  
+  if (params.minLevel) {
+    urlParams.set('level_min', params.minLevel);
+  }
+  
+  if (params.maxLevel) {
+    urlParams.set('level_max', params.maxLevel);
   }
   
   assertApiBase();
@@ -415,6 +443,23 @@ export async function apiSearch(params: {
     difficulty_score: r.difficulty_score,
     sentence: r.text || '',
     subtitle: r.subtitle || {},
+    levels: (() => {
+      const levelsRaw = r.levels;
+      if (!levelsRaw) return undefined;
+      if (Array.isArray(levelsRaw)) {
+        return levelsRaw.map((l: unknown) => {
+          if (l && typeof l === 'object' && 'framework' in l && 'level' in l) {
+            return {
+              framework: String((l as Record<string, unknown>).framework || ''),
+              level: String((l as Record<string, unknown>).level || ''),
+              language: (l as Record<string, unknown>).language ? String((l as Record<string, unknown>).language) : undefined
+            };
+          }
+          return null;
+        }).filter(Boolean) as Array<{ framework: string; level: string; language?: string }>;
+      }
+      return undefined;
+    })(),
   }));
   
   return {
@@ -430,6 +475,10 @@ export async function apiSearchCounts(params: {
   subtitleLanguages?: string[];
   query?: string;
   contentIds?: string[];
+  minDifficulty?: number;
+  maxDifficulty?: number;
+  minLevel?: string | null;
+  maxLevel?: string | null;
   signal?: AbortSignal;
 }): Promise<Record<string, number>> {
   const urlParams = new URLSearchParams();
@@ -440,6 +489,22 @@ export async function apiSearchCounts(params: {
 
   if (params.subtitleLanguages && params.subtitleLanguages.length > 0) {
     urlParams.set('subtitle_languages', params.subtitleLanguages.join(','));
+  }
+  
+  if (params.minDifficulty !== undefined && params.minDifficulty !== null) {
+    urlParams.set('difficulty_min', String(params.minDifficulty));
+  }
+  
+  if (params.maxDifficulty !== undefined && params.maxDifficulty !== null) {
+    urlParams.set('difficulty_max', String(params.maxDifficulty));
+  }
+  
+  if (params.minLevel) {
+    urlParams.set('level_min', params.minLevel);
+  }
+  
+  if (params.maxLevel) {
+    urlParams.set('level_max', params.maxLevel);
   }
 
   if (params.query && params.query.trim().length > 0) {
@@ -1004,6 +1069,23 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
         if (v === '0' || v.toLowerCase() === 'false') return false;
       }
       if (typeof raw === 'boolean') return raw;
+      return undefined;
+    })(),
+    levels: (() => {
+      const levelsRaw = get("levels");
+      if (!levelsRaw) return undefined;
+      if (Array.isArray(levelsRaw)) {
+        return levelsRaw.map((l: unknown) => {
+          if (l && typeof l === 'object' && 'framework' in l && 'level' in l) {
+            return {
+              framework: String(l.framework || ''),
+              level: String(l.level || ''),
+              language: l.language ? String(l.language) : undefined
+            };
+          }
+          return null;
+        }).filter(Boolean) as Array<{ framework: string; level: string; language?: string }>;
+      }
       return undefined;
     })(),
   };

@@ -77,7 +77,11 @@ export default function SearchBar({
       <div className="pixel-input-wrapper">
         <div className="absolute inset-y-0 left-[14px] w-5 flex items-center justify-center">
           {loading ? (
-            <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--primary)' }} />
+            <Loader2
+              className="w-5 h-5 animate-spin"
+              style={{ color: 'var(--hover-select, #ec4899)' }}
+              strokeWidth={2.2}
+            />
           ) : (
             <img src={searchIcon} alt="Search" className="search-icon" />
           )}
