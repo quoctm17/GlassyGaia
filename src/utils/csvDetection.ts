@@ -28,7 +28,7 @@ export const SUPPORTED_CANON = [
   "ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi",
   "fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml",
   "no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te",
-  "th","tr","uk","vi","fa","ku","sl","sr","bg"
+  "th","tr","uk","vi","lv","fa","ku","sl","sr","bg"
 ] as const;
 
 // Language alias map
