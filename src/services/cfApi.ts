@@ -1077,10 +1077,11 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
       if (Array.isArray(levelsRaw)) {
         return levelsRaw.map((l: unknown) => {
           if (l && typeof l === 'object' && 'framework' in l && 'level' in l) {
+            const levelObj = l as Record<string, unknown>;
             return {
-              framework: String(l.framework || ''),
-              level: String(l.level || ''),
-              language: l.language ? String(l.language) : undefined
+              framework: String(levelObj.framework || ''),
+              level: String(levelObj.level || ''),
+              language: levelObj.language ? String(levelObj.language) : undefined
             };
           }
           return null;
