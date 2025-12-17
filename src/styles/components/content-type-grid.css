@@ -111,8 +111,8 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   background: none;
   border: none;
   display: flex;
@@ -128,8 +128,8 @@
 }
 
 .scroll-btn img {
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   filter: var(--icon-primary-filter);
 }
 
@@ -151,21 +151,24 @@
   min-width: 180px;
   max-width: 180px;
   cursor: pointer;
-  transition: border-color 0.3s ease, min-width 0.5s ease, max-width 0.5s ease;
+  transition: border-color 0.3s ease;
   overflow: visible;
   border: 2px solid transparent;
   position: relative;
 }
 
 .film-card.expanded {
-  min-width: 630px;
-  max-width: 630px;
+  min-width: 530px;
+  max-width: 530px;
   display: flex;
   flex-direction: row;
   border-color: var(--hover-select);
   background: var(--background);
   z-index: 100;
-  transition: border-color 0.3s ease, min-width 0.5s ease, max-width 0.5s ease;
+}
+
+.film-card:hover:not(.expanded) {
+  border-color: var(--hover-select);
 }
 
 .film-card.expanded .film-card-image {
@@ -175,11 +178,6 @@
   flex-shrink: 0;
 }
 
-.film-card:hover:not(.expanded) {
-  border-color: var(--hover-select);
-  transform: translateY(-4px);
-  transition: border-color 0.3s ease, transform 0.3s ease;
-}
 
 .film-card-image {
   position: relative;
@@ -212,16 +210,11 @@
   padding: 16px;
   background: var(--hover-bg);
   overflow-y: auto;
-  width: 450px;
-  opacity: 0;
-  transform: translateX(-20px);
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  width: 350px;
 }
 
 .film-card.expanded .film-detail-panel {
   display: flex;
-  opacity: 1;
-  transform: translateX(0);
 }
 
 .film-detail-close {
@@ -247,11 +240,13 @@
 }
 
 .film-detail-title {
-  font-size: 18px;
-  font-weight: 700;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 400;
   color: var(--main-language-text);
   margin-bottom: 12px;
-  line-height: 1.3;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
 }
 
 .film-detail-meta {
@@ -270,7 +265,9 @@
 }
 
 .film-detail-description {
-  font-size: 12px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
   color: var(--sub-language-text);
   line-height: 1.6;
   margin-bottom: 16px;
@@ -280,7 +277,14 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: help;
+  cursor: pointer;
+}
+
+.film-detail-description.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
 }
 
 .film-detail-subs-section {
@@ -357,20 +361,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: 10px;
+  padding: 12px 24px;
   background: none;
   border: none;
   color: var(--neutral);
-  font-weight: 600;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-weight: 400;
   font-size: 14px;
+  letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .film-detail-learn-btn .learn-icon {
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   filter: var(--icon-neutral-filter);
   transition: filter 0.2s;
 }
@@ -392,7 +398,7 @@
 .action-icon-btn {
   background: none;
   border: none;
-  padding: 6px;
+  padding: 10px;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
@@ -401,8 +407,8 @@
 }
 
 .action-icon-btn .action-icon {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   filter: var(--icon-neutral-filter);
   transition: filter 0.2s;
 }
@@ -425,8 +431,8 @@
   }
 
   .film-card.expanded {
-    min-width: 620px;
-    max-width: 620px;
+    min-width: 520px;
+    max-width: 520px;
   }
 
   .film-card.expanded .film-card-image {
@@ -446,8 +452,8 @@
   }
 
   .film-card.expanded {
-    min-width: 610px;
-    max-width: 610px;
+    min-width: 510px;
+    max-width: 510px;
   }
 
   .film-card.expanded .film-card-image {
@@ -477,8 +483,8 @@
   }
 
   .film-card.expanded {
-    min-width: 600px;
-    max-width: 600px;
+    min-width: 500px;
+    max-width: 500px;
   }
 
   .film-card.expanded .film-card-image {
@@ -521,8 +527,8 @@
   }
 
   .film-card.expanded {
-    min-width: 590px;
-    max-width: 590px;
+    min-width: 490px;
+    max-width: 490px;
   }
 
   .film-card.expanded .film-card-image {
@@ -547,8 +553,8 @@
   }
 
   .film-card.expanded {
-    min-width: 580px;
-    max-width: 580px;
+    min-width: 480px;
+    max-width: 480px;
   }
 
   .film-card.expanded .film-card-image {
