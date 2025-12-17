@@ -1,24 +1,21 @@
-// Local-storage based progress/favorites (no Firebase)
+// API-based progress/favorites using Cloudflare Worker
+
+function normalizeBase(input: string | undefined): string {
+  if (!input) return "";
+  let t = String(input).trim();
+  if (!/^https?:\/\//i.test(t)) t = `https://${t}`;
+  return t.replace(/\/$/, "");
+}
+
+const API_BASE = normalizeBase(import.meta.env.VITE_CF_API_BASE as string | undefined);
 
 export interface FavoriteEntry {
   card_id: string;
   film_id?: string;
   episode_id?: string;
-}
-
-const LS_KEY = "lingua_favorites"; // stores Record<uid, FavoriteEntry[]>
-
-function readAll(): Record<string, FavoriteEntry[]> {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, FavoriteEntry[]>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeAll(map: Record<string, FavoriteEntry[]>) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(map)); } catch { /* ignore */ }
+  notes?: string;
+  tags?: string[];
+  created_at?: number;
 }
 
 export async function logViewCard(_uid: string, _cardId: string, _langs: string[]) {
@@ -26,20 +23,32 @@ export async function logViewCard(_uid: string, _cardId: string, _langs: string[
   void _uid; void _cardId; void _langs;
 }
 
-export async function toggleFavorite(uid: string, cardId: string, meta?: { film_id?: string; episode_id?: string }) {
-  const all = readAll();
-  const arr = all[uid] || [];
-  const idx = arr.findIndex((e) => e.card_id === cardId);
-  if (idx >= 0) {
-    arr.splice(idx, 1);
-    all[uid] = arr;
-    writeAll(all);
+export async function toggleFavorite(uid: string, cardId: string, meta?: { film_id?: string; episode_id?: string }): Promise<boolean> {
+  // Check if already favorited
+  const favorites = await listFavorites(uid);
+  const exists = favorites.some(f => f.card_id === cardId);
+  
+  if (exists) {
+    // Remove favorite
+    const res = await fetch(`${API_BASE}/api/users/${uid}/favorites/${encodeURIComponent(cardId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to remove favorite');
     return false;
+  } else {
+    // Add favorite
+    const res = await fetch(`${API_BASE}/api/users/${uid}/favorites`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        card_id: cardId,
+        film_id: meta?.film_id,
+        episode_id: meta?.episode_id,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed to add favorite');
+    return true;
   }
-  arr.push({ card_id: cardId, film_id: meta?.film_id, episode_id: meta?.episode_id });
-  all[uid] = arr;
-  writeAll(all);
-  return true;
 }
 
 export async function addToDeck(_uid: string, _cardId: string, _deckId: string) {
@@ -48,6 +57,8 @@ export async function addToDeck(_uid: string, _cardId: string, _deckId: string) 
 }
 
 export async function listFavorites(uid: string): Promise<FavoriteEntry[]> {
-  const all = readAll();
-  return all[uid] || [];
+  const res = await fetch(`${API_BASE}/api/users/${uid}/favorites`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
 }

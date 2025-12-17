@@ -9,7 +9,6 @@ import SearchBar from './SearchBar';
 import rightAngleIcon from '../assets/icons/right-angle.svg';
 import enterMovieIcon from '../assets/icons/enter-movie-view.svg';
 import saveHeartIcon from '../assets/icons/save-heart.svg';
-import watchlistIcon from '../assets/icons/watchlist.svg';
 import LanguageTag from './LanguageTag';
 import { X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -35,6 +34,9 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
   
   // Collapsed state for each level group
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  
+  // Expanded description state
+  const [expandedDescId, setExpandedDescId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -363,7 +365,13 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
                               )}
                               
                               {f.description && (
-                                <p className="film-detail-description" title={f.description}>
+                                <p 
+                                  className={`film-detail-description ${expandedDescId === f.id ? 'expanded' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpandedDescId(prev => prev === f.id ? null : f.id);
+                                  }}
+                                >
                                   {f.description}
                                 </p>
                               )}
@@ -380,14 +388,9 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
                                   <span>Learn</span>
                                 </button>
                                 
-                                <div className="film-detail-action-icons">
-                                  <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
-                                    <img src={saveHeartIcon} alt="Save" className="action-icon" />
-                                  </button>
-                                  <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
-                                    <img src={watchlistIcon} alt="Watchlist" className="action-icon" />
-                                  </button>
-                                </div>
+                                <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
+                                  <img src={saveHeartIcon} alt="Save" className="action-icon" />
+                                </button>
                               </div>
                             </div>
                           </div>

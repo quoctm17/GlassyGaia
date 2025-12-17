@@ -12,7 +12,6 @@ import ContentMoviePage from './pages/ContentMoviePage';
 import WatchPage from './pages/WatchPage';
 
 // Non-critical pages - lazy load
-const FavoritesPage = lazy(() => import('./pages/FavoritesPage'));
 const SeriesPage = lazy(() => import('./pages/SeriesPage'));
 const BookPage = lazy(() => import('./pages/BookPage'));
 const VideoPage = lazy(() => import('./pages/VideoPage'));
@@ -83,7 +82,6 @@ function App() {
                 <Route path="/series" element={<SeriesPage />} />
                 <Route path="/book" element={<BookPage />} />
                 <Route path="/video" element={<VideoPage />} />
-                <Route path="/favorites" element={<FavoritesPage />} />
                 <Route path="/about" element={<AboutPage />} />
                 <Route path="/login" element={<LoginPageOld />} />
                 {/* Authentication Routes */}
