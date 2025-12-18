@@ -13,6 +13,7 @@ export type CanonicalLang =
   | "es" | "es_la" | "es_es" | "sv" | "se" | "ta" | "te" | "th"
   | "tr" | "uk" | "vi" | "lv"
   | "fa" | "ku" | "ckb" | "kmr" | "sdh" | "sl" | "sr" | "bg"
+  | "ur" | "sq" | "lt"
   | "rec" | "triage"; // pseudo labels if needed
 
 const aliasToCanonical: Record<string, CanonicalLang> = {
@@ -82,6 +83,9 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
   sr: "sr", serbian: "sr",
   bg: "bg", bulgarian: "bg",
   lv: "lv", latvian: "lv",
+  ur: "ur", urdu: "ur",
+  sq: "sq", albanian: "sq",
+  lt: "lt", lithuanian: "lt",
 
   // Pseudo labels
   rec: "rec", triage: "triage",
@@ -157,6 +161,9 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   tr: ["tr", "turkish"],
   uk: ["uk", "ukrainian"],
   lv: ["lv", "latvian"],
+  ur: ["ur", "urdu"],
+  sq: ["sq", "albanian"],
+  lt: ["lt", "lithuanian"],
   rec: ["rec"],
   triage: ["triage"],
 };
@@ -226,6 +233,9 @@ export function langLabel(code: string): string {
     tr: "Turkish",
     uk: "Ukrainian",
     lv: "Latvian",
+    ur: "Urdu",
+    sq: "Albanian",
+    lt: "Lithuanian",
     rec: "Rec",
     triage: "Triage",
   } as const;
@@ -293,6 +303,9 @@ export function langFlag(code: string): string {
     tr: "🇹🇷",
     uk: "🇺🇦",
     lv: "🇱🇻",
+    ur: "🇵🇰",
+    sq: "🇦🇱",
+    lt: "🇱🇹",
     rec: "🌐",
     triage: "🌐",
   } as const;
@@ -364,6 +377,9 @@ export function countryCodeForLang(code: string): string {
     tr: "tr",
     uk: "ua",
     lv: "lv",
+    ur: "pk",
+    sq: "al",
+    lt: "lt",
     rec: "xx",
     triage: "xx",
   } as const;
@@ -435,6 +451,9 @@ export function languageCssBase(code: string): string {
     tr: 'turkish',
     uk: 'ukrainian',
     lv: 'latvian',
+    ur: 'urdu',
+    sq: 'albanian',
+    lt: 'lithuanian',
     rec: 'rec',
     triage: 'triage',
   };
@@ -524,6 +543,9 @@ function getFlagFileName(countryCode: string): string {
     iq: "iraq",
     gb: "united_kingdom_the",
     lv: "latvia",
+    pk: "pakistan",
+    al: "albania",
+    lt: "lithuania",
   };
   return map[countryCode] || countryCode;
 }
