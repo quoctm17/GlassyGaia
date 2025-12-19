@@ -14,6 +14,7 @@ interface CardMediaFilesProps {
   setStartIndex: (val: number) => void;
   replaceMode: boolean;
   setReplaceMode: (val: boolean) => void;
+  hideImages?: boolean; // Hide image upload for video content
 }
 
 export default function CardMediaFiles({
@@ -29,15 +30,16 @@ export default function CardMediaFiles({
   startIndex,
   setStartIndex,
   replaceMode,
-  setReplaceMode
+  setReplaceMode,
+  hideImages = false
 }: CardMediaFilesProps) {
   return (
     <div className="admin-panel space-y-3">
       <div className="text-sm font-semibold typography-inter-2" style={{ color: 'var(--sub-language-text)' }}>Card Media Files</div>
       {/* File count validation warnings */}
-      {csvRowsCount > 0 && (imageFiles.length > 0 || audioFiles.length > 0) && (
+      {csvRowsCount > 0 && (hideImages ? audioFiles.length > 0 : (imageFiles.length > 0 || audioFiles.length > 0)) && (
         <div className="space-y-2">
-          {imageFiles.length !== csvRowsCount && (
+          {!hideImages && imageFiles.length !== csvRowsCount && (
             <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--warning)' }}>
               <span className="text-lg" style={{ color: 'var(--warning)' }}>⚠️</span>
               <div className="flex-1 text-sm typography-inter-3" style={{ color: 'var(--text)' }}>
@@ -71,7 +73,7 @@ export default function CardMediaFiles({
               </div>
             </div>
           )}
-          {imageFiles.length !== audioFiles.length && imageFiles.length > 0 && audioFiles.length > 0 && (
+          {!hideImages && imageFiles.length !== audioFiles.length && imageFiles.length > 0 && audioFiles.length > 0 && (
             <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--orange)' }}>
               <span className="text-lg" style={{ color: 'var(--orange)' }}>⚠️</span>
               <div className="flex-1 text-sm typography-inter-3" style={{ color: 'var(--text)' }}>
@@ -86,25 +88,32 @@ export default function CardMediaFiles({
               </div>
             </div>
           )}
-          {imageFiles.length === csvRowsCount && audioFiles.length === csvRowsCount && imageFiles.length > 0 && (
+          {((hideImages && audioFiles.length === csvRowsCount && audioFiles.length > 0) || 
+            (!hideImages && imageFiles.length === csvRowsCount && audioFiles.length === csvRowsCount && imageFiles.length > 0)) && (
             <div className="flex items-start gap-2 p-3 rounded-lg" style={{ backgroundColor: 'var(--secondary)', border: '1px solid var(--success)' }}>
               <span className="text-lg" style={{ color: 'var(--success)' }}>✓</span>
               <div className="flex-1 text-sm typography-inter-3" style={{ color: 'var(--text)' }}>
                 <div className="font-semibold" style={{ color: 'var(--success)' }}>Số lượng files khớp hoàn hảo!</div>
-                <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{csvRowsCount} cards = {imageFiles.length} ảnh = {audioFiles.length} audio</div>
+                <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                  {hideImages 
+                    ? `${csvRowsCount} cards = ${audioFiles.length} audio`
+                    : `${csvRowsCount} cards = ${imageFiles.length} ảnh = ${audioFiles.length} audio`}
+                </div>
               </div>
             </div>
           )}
         </div>
       )}
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="admin-subpanel">
-          <div className="text-xs mb-2 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Images (.webp recommended)</div>
-          <input type="file" accept="image/jpeg,image/webp" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-        </div>
+      <div className={`grid gap-3 ${hideImages ? 'md:grid-cols-1' : 'md:grid-cols-2'}`}>
+        {!hideImages && (
+          <div className="admin-subpanel">
+            <div className="text-xs mb-2 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Images (.webp recommended)</div>
+            <input type="file" accept="image/jpeg,image/webp" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+          </div>
+        )}
         <div className="admin-subpanel">
           <div className="text-xs mb-2 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Audio (.opus recommended)</div>
-          <input type="file" accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
+          <input type="file" accept="audio/mpeg,audio/wav,audio/opus,.mp3,.wav,.opus" multiple onChange={onPickAudio} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
         </div>
         <div className="flex flex-col gap-3 md:col-span-2">
           <div className="flex flex-col sm:flex-row gap-3">

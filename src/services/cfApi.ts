@@ -201,6 +201,7 @@ export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {
       title: f.title,
       description: f.description,
       cover_url: f.cover_url,
+      cover_landscape_url: (f as Partial<FilmDoc> & { cover_landscape_url?: string }).cover_landscape_url,
       main_language: lm.main_language || lm.language,
       type: f.type,
       release_year: f.release_year,

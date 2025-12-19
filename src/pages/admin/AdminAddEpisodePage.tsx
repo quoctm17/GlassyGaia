@@ -11,7 +11,9 @@ import { canonicalizeLangCode, langLabel, expandCanonicalToAliases } from '../..
 import { detectSubtitleHeaders, categorizeHeaders } from '../../utils/csvDetection';
 import ProgressBar from '../../components/ProgressBar';
 import LanguageTag from '../../components/LanguageTag';
-import { Loader2, CheckCircle, RefreshCcw, AlertTriangle } from 'lucide-react';
+import { Loader2, CheckCircle, RefreshCcw, AlertTriangle, Film, Clapperboard, Book as BookIcon, AudioLines, Video } from 'lucide-react';
+import { CONTENT_TYPE_LABELS } from '../../types/content';
+import type { ContentType } from '../../types/content';
 import CsvPreviewPanel from '../../components/admin/CsvPreviewPanel';
 import CardMediaFiles from '../../components/admin/CardMediaFiles';
 import ProgressPanel from '../../components/admin/ProgressPanel';
@@ -30,6 +32,7 @@ export default function AdminAddEpisodePage() {
   const [filmMainLang, setFilmMainLang] = useState('en');
   const [filmTitle, setFilmTitle] = useState('');
   const [filmDescription, setFilmDescription] = useState('');
+  const [filmType, setFilmType] = useState<string>('');
   const [existingEpisodes, setExistingEpisodes] = useState<Array<{ episode_number: number; title: string | null }>>([]);
   const existingEpisodeNums = useMemo(() => new Set(existingEpisodes.map(e => e.episode_number)), [existingEpisodes]);
 
@@ -90,6 +93,7 @@ export default function AdminAddEpisodePage() {
           setFilmMainLang(film.main_language || 'en');
           setFilmTitle(film.title || slug);
           setFilmDescription(film.description || '');
+          setFilmType(film.type || '');
         }
       } catch { /* ignore film fetch errors */ }
       try {
@@ -271,15 +275,19 @@ export default function AdminAddEpisodePage() {
   // Reset file flags when toggles are turned off
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
 
+  const isVideoContent = filmType === 'video';
   // Derived: can create episode (align with Ingest page expectations)
   const canCreate = useMemo(() => {
     const csvOk = csvValid === true;
-    // Require at least some card media like Ingest (both images and audio)
-    const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
+    // For video: only require audio files, skip images
+    // For other types: require both image and audio files
+    const cardMediaOk = isVideoContent 
+      ? audioFiles.length > 0 
+      : imageFiles.length > 0 && audioFiles.length > 0;
     const epCoverOk = !addEpCover || hasEpCoverFile;
     const optionalUploadsOk = epCoverOk;
     return !!(isAdmin && csvOk && cardMediaOk && optionalUploadsOk);
-  }, [isAdmin, csvValid, imageFiles.length, audioFiles.length, addEpCover, hasEpCoverFile]);
+  }, [isAdmin, csvValid, imageFiles.length, audioFiles.length, addEpCover, hasEpCoverFile, isVideoContent]);
 
   // Overall progress computation across all tasks (matches AdminContentIngestPage logic)
   useEffect(() => {
@@ -287,8 +295,11 @@ export default function AdminAddEpisodePage() {
     let completedSteps = 0;
 
     // 1. Card media (images + audio) - use EFFECTIVE totals from uploader (after skips)
-    totalSteps += imagesTotal + audioTotal;
-    completedSteps += imagesDone + audioDone;
+    // For video: only count audio, skip images
+    if (!isVideoContent) totalSteps += imagesTotal;
+    totalSteps += audioTotal;
+    if (!isVideoContent) completedSteps += imagesDone;
+    completedSteps += audioDone;
 
     // 2. Import CSV (required)
     totalSteps++;
@@ -322,7 +333,8 @@ export default function AdminAddEpisodePage() {
     epCoverDone,
     statsDone,
     stage,
-    progress
+    progress,
+    isVideoContent
   ]);
 
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -382,10 +394,14 @@ export default function AdminAddEpisodePage() {
       uploadAbortRef.current = new AbortController();
       importSucceededRef.current = false;
       setEpCoverDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
-      await Promise.all([
-        doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
-        doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)
-      ]);
+      // For video: only upload audio, skip images
+      const uploadPromises = isVideoContent
+        ? [doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)]
+        : [
+            doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
+            doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)
+          ];
+      await Promise.all(uploadPromises);
       if (cancelRequestedRef.current || uploadAbortRef.current?.signal.aborted) throw new Error('User cancelled');
       if(!csvText){ toast.error('CSV required'); return; }
       setStage('import');
@@ -402,7 +418,13 @@ export default function AdminAddEpisodePage() {
         episode_description: episodeDescription || undefined,
       };
       let cardIds: string[]|undefined = undefined;
-      if(infer){ const all=[...imageFiles, ...audioFiles]; const set=new Set<string>(); all.forEach(f=>{ const m=f.name.match(/(\d+)(?=\.[^.]+$)/); if(m){ const raw=m[1]; const id= raw.length>=padDigits? raw: raw.padStart(padDigits,'0'); set.add(id);} }); if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } }
+      if(infer){ 
+        // For video: only use audio files for inferring IDs
+        const all = isVideoContent ? audioFiles : [...imageFiles, ...audioFiles]; 
+        const set=new Set<string>(); 
+        all.forEach(f=>{ const m=f.name.match(/(\d+)(?=\.[^.]+$)/); if(m){ const raw=m[1]; const id= raw.length>=padDigits? raw: raw.padStart(padDigits,'0'); set.add(id);} }); 
+        if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } 
+      }
       
       // Build extension maps from uploaded files
       const imageExtensions: Record<string, string> = {};
@@ -436,7 +458,10 @@ export default function AdminAddEpisodePage() {
           if (isImage) { imageExtensions[cardId] = ext; } else { audioExtensions[cardId] = ext; }
         });
       };
-      buildExtMap(imageFiles, true);
+      // Only build image extension map if not video
+      if (!isVideoContent) {
+        buildExtMap(imageFiles, true);
+      }
       buildExtMap(audioFiles, false);
       
       try {
@@ -583,14 +608,30 @@ export default function AdminAddEpisodePage() {
       {isAdmin && (
         <div className="admin-panel space-y-3">
           <div className="typography-inter-1 admin-panel-title">Quick Guide (Add Episode)</div>
-          <div className="admin-subpanel text-xs space-y-2">
-            <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--text-muted)' }}>
-              <li>Content Slug cố định: {contentSlug}</li>
-              <li>Episode Num: chọn số tập mới (tránh trùng, sẽ hiện cảnh báo nếu trùng).</li>
-              <li>CSV bắt buộc: start,end + cột phụ đề cho main language {filmMainLang} (sentence auto, type tùy chọn).</li>
-              <li>Media tuỳ chọn: Cover tập, Full Audio/Video tập.</li>
-              <li>Card media: ảnh (.webp) & audio (.opus) cho từng card.</li>
+          <div className="admin-subpanel typography-inter-4 space-y-3">
+            <div style={{ color: 'var(--text)' }} className="font-semibold">A) Các trường nhập</div>
+            <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
+              <li><span style={{ color: 'var(--text)' }}>Content Slug</span>: cố định ({contentSlug})</li>
+              <li><span style={{ color: 'var(--text)' }}>Episode Num</span>: chọn số tập mới (tránh trùng, sẽ hiện cảnh báo nếu trùng).</li>
+              <li><span style={{ color: 'var(--text)' }}>Episode Title</span> và <span style={{ color: 'var(--text)' }}>Episode Description</span> (tuỳ chọn).</li>
+              <li><span style={{ color: 'var(--text)' }}>Episode Cover</span> (tuỳ chọn): Ảnh bìa ngang cho tập.</li>
             </ul>
+            <div style={{ color: 'var(--text)' }} className="font-semibold">B) CSV cần</div>
+            <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
+              <li>Cột bắt buộc: <code>start</code>, <code>end</code>.</li>
+              <li>Phải có cột phụ đề cho Main Language ({filmMainLang}).</li>
+              <li><code>type</code> tùy chọn; <code>sentence</code> tự động lấy từ phụ đề của Main Language.</li>
+            </ul>
+            <div style={{ color: 'var(--text)' }} className="font-semibold">C) Card Media Files</div>
+            <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
+              <li><strong>Với Type = Video</strong>: Chỉ cần upload <strong>Audio</strong> (.opus). Episode Cover sẽ được dùng làm image cho tất cả cards. Không cần upload Images cho cards.</li>
+              <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
+              <li><span style={{ color: 'var(--text)' }}>Infer IDs</span>: Tự động lấy số từ tên file làm card ID. Nếu tắt, dùng Pad Digits + Start Index.</li>
+            </ul>
+            <div className="text-[10px]" style={{ color: 'var(--neutral)', fontStyle: 'italic' }}>
+              <div>Main Language hiện tại: <span style={{ color: 'var(--primary)' }}>{langLabel(filmMainLang)} ({filmMainLang})</span></div>
+              <div>CSV phải có cột phụ đề tương ứng (vd: <code>en</code>, <code>vi</code>, <code>ja</code>, v.v.).</div>
+            </div>
           </div>
         </div>
       )}
@@ -605,6 +646,19 @@ export default function AdminAddEpisodePage() {
               <LanguageTag code={filmMainLang} withName={true} size="md" />
             </div>
           </div>
+          {filmType && (
+            <div className="flex items-center gap-2">
+              <label className="w-40 text-sm typography-inter-3" style={{ fontSize: '10px' }}>Content Type</label>
+              <div className="admin-input opacity-50 bg-gray-900/40 text-gray-400 cursor-not-allowed border border-gray-700 pointer-events-none flex items-center gap-2">
+                {filmType === 'movie' && <Film className="w-4 h-4" />}
+                {filmType === 'series' && <Clapperboard className="w-4 h-4" />}
+                {filmType === 'book' && <BookIcon className="w-4 h-4" />}
+                {filmType === 'audio' && <AudioLines className="w-4 h-4" />}
+                {filmType === 'video' && <Video className="w-4 h-4" />}
+                <span>{CONTENT_TYPE_LABELS[filmType as ContentType] || filmType}</span>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Episode Num</label>
             <input
@@ -632,21 +686,20 @@ export default function AdminAddEpisodePage() {
               <AlertTriangle className="w-4 h-4 text-yellow-400" />
             )}
           </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Episode Title</label>
             <input className="admin-input" value={episodeTitle} onChange={e => setEpisodeTitle(e.target.value)} placeholder="Optional episode title" />
           </div>
-          <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Episode Description</label>
-            <input 
-              className="admin-input" 
-              value={episodeDescription} 
-              onChange={e => setEpisodeDescription(e.target.value)} 
-              placeholder="Optional episode description"
-            />
-          </div>
+        </div>
+        <div className="flex items-start gap-2">
+          <label className="w-40 text-sm pt-2">Episode Description</label>
+          <textarea 
+            className="admin-input" 
+            rows={3}
+            value={episodeDescription} 
+            onChange={e => setEpisodeDescription(e.target.value)} 
+            placeholder="Optional episode description"
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
@@ -770,6 +823,7 @@ export default function AdminAddEpisodePage() {
         setStartIndex={setStartIndex}
         replaceMode={replaceMode}
         setReplaceMode={setReplaceMode}
+        hideImages={isVideoContent}
       />
 
       {/* Actions + Progress */}
@@ -786,11 +840,11 @@ export default function AdminAddEpisodePage() {
             stage={stage}
             progress={progress}
             items={[
-              { label: '1. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` },
-              { label: '2. Audio', done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
-              { label: '3. Import CSV', done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
-              ...(addEpCover && hasEpCoverFile ? [{ label: '4. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
-              { label: '5. Calculating Stats', done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
+              ...(isVideoContent ? [] : [{ label: '1. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` }]),
+              { label: isVideoContent ? '1. Audio' : '2. Audio', done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
+              { label: isVideoContent ? '2. Import CSV' : '3. Import CSV', done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
+              ...(addEpCover && hasEpCoverFile ? [{ label: isVideoContent ? '3. Episode Cover' : '4. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
+              { label: isVideoContent ? (addEpCover && hasEpCoverFile ? '4. Calculating Stats' : '3. Calculating Stats') : '5. Calculating Stats', done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
             ]}
           />
         )}

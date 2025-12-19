@@ -37,11 +37,8 @@ export default function AdminContentDetailPage() {
         const f = await apiGetFilm(contentSlug); // still film API for content item
         if (!mounted) return;
         setItem(f);
-        console.log('[AdminContentDetailPage] Film data:', f);
         const subs = Array.isArray(f?.available_subs) ? f!.available_subs.filter(Boolean) : [];
-        console.log('[AdminContentDetailPage] Available Subs from film:', subs);
         const langList = subs.length ? subs : (f?.main_language ? [f.main_language] : []);
-        console.log('[AdminContentDetailPage] Final languages list:', langList);
         setLanguages(langList);
       } catch (e) { setError((e as Error).message); }
       finally { setLoadingItem(false); }
@@ -83,12 +80,9 @@ export default function AdminContentDetailPage() {
 
   const coverLandscapeDisplayUrl = useMemo(() => {
     if (!item) return '';
-    let url = (item as {cover_landscape_url?: string}).cover_landscape_url || '';
+    let url = item.cover_landscape_url || '';
     if (url.startsWith('/') && r2Base) url = r2Base + url;
-    if (!url && item.id) {
-      const path = `/items/${item.id}/cover_image/cover_landscape.jpg`;
-      url = r2Base ? r2Base + path : path;
-    }
+    // Don't use fallback path - rely on API to return cover_landscape_url if available
     if (url) {
       url += (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
     }

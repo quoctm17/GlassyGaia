@@ -61,8 +61,9 @@ export default function AdminEpisodeDetailPage() {
         const rows = await apiFetchCardsForFilm(contentSlug, episodeSlug, 2000);
         if (!mounted) return;
         setCards(rows);
-      } catch {
-        // ignore fetch errors
+      } catch (e) {
+        console.error('[AdminEpisodeDetailPage] Error fetching cards:', e);
+        setError((e as Error).message);
       } finally {
         setLoadingCards(false);
       }
