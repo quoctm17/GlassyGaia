@@ -110,8 +110,19 @@ export async function apiListFilms(): Promise<FilmDoc[]> {
 
 // List all content items (any type) without client-side filtering
 // Uses localStorage cache with 5-minute TTL to reduce repeated fetches
+const ITEMS_CACHE_KEY = 'glassygaia_items_cache';
+
+// Invalidate items cache (call after creating/updating/deleting content)
+export function invalidateItemsCache(): void {
+  try {
+    localStorage.removeItem(ITEMS_CACHE_KEY);
+  } catch {
+    // Failed to clear cache (silent)
+  }
+}
+
 export async function apiListItems(): Promise<FilmDoc[]> {
-  const CACHE_KEY = 'glassygaia_items_cache';
+  const CACHE_KEY = ITEMS_CACHE_KEY;
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   
   try {

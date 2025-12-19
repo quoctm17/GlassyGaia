@@ -9,7 +9,7 @@ import {
   uploadEpisodeCoverImage,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem } from "../../services/cfApi";
+import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, invalidateItemsCache } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
 import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Video, Loader2, RefreshCcw, ArrowLeft } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
@@ -662,6 +662,7 @@ export default function AdminContentIngestPage() {
         }
       } catch { /* ignore */ }
       try { invalidateGlobalCardsCache(); } catch { /* ignore */ }
+      try { invalidateItemsCache(); } catch { /* ignore */ }
       try { window.dispatchEvent(new CustomEvent('content-updated')); } catch { /* ignore */ }
       // Sau khi upload xong, gọi lại apiGetFilm để cập nhật trạng thái slug
       const film = await apiGetFilm(filmId).catch(() => null);

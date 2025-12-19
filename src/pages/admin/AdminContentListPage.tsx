@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react';
-import { apiListItems, apiGetFilm, apiDeleteItem } from '../../services/cfApi';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { apiListItems, apiGetFilm, apiDeleteItem, invalidateItemsCache } from '../../services/cfApi';
 import { useUser } from "../../context/UserContext";
 import { getAvailableMainLanguages } from "../../services/firestore";
 import type { FilmDoc } from '../../types';
@@ -43,36 +43,52 @@ export default function AdminContentListPage() {
   const [sortColumn, setSortColumn] = useState<'slug' | 'title' | 'type' | 'main_language' | 'release_year' | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
+  // Refactored fetch function to be reusable
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch base list first
+      const items = await apiListItems();
+
+      // Enrich with details (available_subs, cover, etc.) similar to ContentMoviePage
+      const detailed = await Promise.all(
+        items.map(async (f) => {
+          const d = await apiGetFilm(f.id).catch(() => null);
+          return d
+            ? { ...f, ...d, available_subs: Array.isArray(d.available_subs) ? d.available_subs : (Array.isArray(f.available_subs) ? f.available_subs : []) }
+            : f;
+        })
+      );
+      setRows(detailed);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
-      setLoading(true);
-      try {
-        // Fetch base list first
-        const items = await apiListItems();
-        if (!mounted) return;
-
-        // Enrich with details (available_subs, cover, etc.) similar to ContentMoviePage
-        const detailed = await Promise.all(
-          items.map(async (f) => {
-            const d = await apiGetFilm(f.id).catch(() => null);
-            return d
-              ? { ...f, ...d, available_subs: Array.isArray(d.available_subs) ? d.available_subs : (Array.isArray(f.available_subs) ? f.available_subs : []) }
-              : f;
-          })
-        );
-        if (!mounted) return;
-        setRows(detailed);
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setLoading(false);
-      }
+      await fetchItems();
+      if (!mounted) return;
     })();
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [fetchItems]);
+
+  // Listen for content-updated event to refresh list immediately
+  useEffect(() => {
+    const handleContentUpdated = () => {
+      // Refresh the list when content is created/updated
+      fetchItems();
+    };
+    window.addEventListener('content-updated', handleContentUpdated);
+    return () => {
+      window.removeEventListener('content-updated', handleContentUpdated);
+    };
+  }, [fetchItems]);
 
   // Close any open popovers when clicking outside
   // Removed global mousedown close so toggle works properly via portal logic
@@ -274,6 +290,12 @@ export default function AdminContentListPage() {
       const deletedSlugs = results.filter(r => r.success).map(r => r.slug);
       setRows(prev => prev.filter(r => !deletedSlugs.includes(r.id)));
       setSelectedIds(new Set());
+
+      // Invalidate cache and notify other components
+      try {
+        invalidateItemsCache();
+        window.dispatchEvent(new CustomEvent('content-updated'));
+      } catch { /* ignore */ }
 
       // Refresh global main-language options
       try {
@@ -870,6 +892,11 @@ export default function AdminContentListPage() {
             setDeletionPercent(100);
             setDeletionProgress({ stage: 'Hoàn tất', details: `Đã xoá ${res.episodes_deleted} episodes, ${res.cards_deleted} cards, ${res.media_deleted} media files` });
             setRows(prev => prev.filter(r => r.id !== confirmDelete!.slug));
+            // Invalidate cache and notify other components
+            try {
+              invalidateItemsCache();
+              window.dispatchEvent(new CustomEvent('content-updated'));
+            } catch { /* ignore */ }
             // Refresh global main-language options; if current no longer available, switch to first
             try {
               const langs = await getAvailableMainLanguages();
