@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Database, Table, Shield, Key, Users, Settings, Heart, BookOpen, TrendingUp, BarChart3, MoreHorizontal, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Database, Table, Shield, Key, Users, Settings, BookOpen, TrendingUp, BarChart3, MoreHorizontal, Eye, Pencil, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import { apiGetDatabaseStats, apiGetTableData, apiUpdateTableRecord, apiDeleteTableRecord } from '../../services/cfApi';

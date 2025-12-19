@@ -989,12 +989,6 @@ export default function AdminContentIngestPage() {
               <>
                 <input id="cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => {
                   setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0);
-                  const file = (e.target as HTMLInputElement).files?.[0];
-                  if (file) {
-                    const isWebP = file.type === 'image/webp';
-                    const ext = isWebP ? 'webp' : 'jpg';
-                    // Update path display dynamically
-                  }
                 }} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
                 <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover.webp (or .jpg)</div>
               </>

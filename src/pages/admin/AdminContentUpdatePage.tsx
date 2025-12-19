@@ -5,7 +5,7 @@ import { useUser } from '../../context/UserContext';
 import { uploadCoverImage } from '../../services/storageUpload';
 import { apiUpdateFilmMeta, apiGetFilm } from '../../services/cfApi';
 import { Film, Clapperboard, Book as BookIcon, AudioLines, Video, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
-import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from '../../types/content';
+import { CONTENT_TYPE_LABELS } from '../../types/content';
 import type { ContentType } from '../../types/content';
 import '../../styles/components/admin/admin-forms.css';
 
