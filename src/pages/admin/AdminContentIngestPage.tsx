@@ -364,6 +364,13 @@ export default function AdminContentIngestPage() {
   useEffect(() => { if (!addCover) setHasCoverFile(false); }, [addCover]);
   useEffect(() => { if (!addCoverLandscape) setHasCoverLandscapeFile(false); }, [addCoverLandscape]);
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
+  
+  // Auto-enable episode cover for video content
+  useEffect(() => {
+    if (contentType === 'video' && !addEpCover) {
+      setAddEpCover(true);
+    }
+  }, [contentType, addEpCover]);
 
   // Debounced slug availability auto-check
   useEffect(() => {
@@ -387,12 +394,19 @@ export default function AdminContentIngestPage() {
     const csvOk = csvValid === true;
     const titleOk = (title || "").trim().length > 0;
     const typeOk = !!contentType;
-    // Required card media: at least 1 image and 1 audio file
-    const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
+    const isVideo = contentType === 'video';
+    // For video: only require audio files, episode cover is required
+    // For other types: require both image and audio files
+    const cardMediaOk = isVideo 
+      ? audioFiles.length > 0 
+      : imageFiles.length > 0 && audioFiles.length > 0;
     // Optional toggles: if checked, require a file chosen for that input (use reactive flags)
     const coverOk = !addCover || hasCoverFile;
     const coverLandscapeOk = !addCoverLandscape || hasCoverLandscapeFile;
-    const epCoverOk = !addEpCover || hasEpCoverFile;
+    // For video: episode cover is required (must be checked and have file)
+    const epCoverOk = isVideo 
+      ? (addEpCover && hasEpCoverFile)
+      : (!addEpCover || hasEpCoverFile);
     const optionalUploadsOk = coverOk && coverLandscapeOk && epCoverOk;
     return !!(isAdmin && slugOk && csvOk && titleOk && typeOk && cardMediaOk && optionalUploadsOk);
   }, [isAdmin, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile]);
@@ -433,7 +447,10 @@ export default function AdminContentIngestPage() {
     if (!file) return undefined;
     setStage("cover");
     await uploadCoverImage({ filmId, episodeNum, file });
-    const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover.jpg` : `/items/${filmId}/cover_image/cover.jpg`;
+    // Extract extension from file type (webp or jpg)
+    const isWebP = file.type === 'image/webp';
+    const ext = isWebP ? 'webp' : 'jpg';
+    const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover.${ext}` : `/items/${filmId}/cover_image/cover.${ext}`;
     setCoverUrl(url); setCoverDone(1);
     // Removed early apiUpdateFilmMeta call (film may not exist yet). Cover URL will be applied via import filmMeta.
     toast.success("Cover uploaded");
@@ -445,7 +462,10 @@ export default function AdminContentIngestPage() {
     if (!file) return undefined;
     setStage("cover_landscape");
     await uploadCoverImage({ filmId, episodeNum, file, landscape: true });
-    const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover_landscape.jpg` : `/items/${filmId}/cover_image/cover_landscape.jpg`;
+    // Extract extension from file type (webp or jpg)
+    const isWebP = file.type === 'image/webp';
+    const ext = isWebP ? 'webp' : 'jpg';
+    const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover_landscape.${ext}` : `/items/${filmId}/cover_image/cover_landscape.${ext}`;
     setCoverLandscapeDone(1);
     toast.success("Cover landscape uploaded");
     return url;
@@ -496,12 +516,16 @@ export default function AdminContentIngestPage() {
       setCoverDone(0); setCoverLandscapeDone(0); setEpCoverDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
       // 1. Upload cover for content (if any)
       const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
-      await doUploadCoverLandscape().catch(() => undefined);
+      const uploadedCoverLandscapeUrl = await doUploadCoverLandscape().catch(() => undefined);
       // 2. Upload card media (images/audio) for cards (these do not depend on episode row)
-      await Promise.all([
-        doUploadMedia("image", imageFiles, uploadAbortRef.current!.signal),
-        doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)
-      ]);
+      // For video: only upload audio, skip images
+      const uploadPromises = contentType === 'video' 
+        ? [doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)]
+        : [
+            doUploadMedia("image", imageFiles, uploadAbortRef.current!.signal),
+            doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)
+          ];
+      await Promise.all(uploadPromises);
       if (cancelRequestedRef.current || uploadAbortRef.current?.signal.aborted) throw new Error("User cancelled");
       // 3. Import CSV to create episode 1 (must be before episode-level media upload)
       if (!csvText) { toast.error("Please select a CSV for cards"); setBusy(false); return; }
@@ -510,6 +534,7 @@ export default function AdminContentIngestPage() {
         title,
         description,
         cover_url: uploadedCoverUrl ?? coverUrl ?? "",
+        cover_landscape_url: uploadedCoverLandscapeUrl,
         language: mainLanguage,
         available_subs: [],
         episodes: 1,
@@ -523,7 +548,8 @@ export default function AdminContentIngestPage() {
       // derive cardIds from filenames when infer enabled
       let cardIds: string[] | undefined = undefined;
       if (infer) {
-        const all = [...imageFiles, ...audioFiles];
+        // For video: only use audio files for inferring IDs
+        const all = contentType === 'video' ? audioFiles : [...imageFiles, ...audioFiles];
         const set = new Set<string>();
         all.forEach(f => { const m = f.name.match(/(\d+)(?=\.[^.]+$)/); if (m) { const raw = m[1]; const id = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0"); set.add(id); } });
         if (set.size) { cardIds = Array.from(set).sort((a,b)=>parseInt(a,10)-parseInt(b,10)); }
@@ -572,7 +598,10 @@ export default function AdminContentIngestPage() {
         });
       };
       
-      buildExtMap(imageFiles, true);
+      // Only build image extension map if not video
+      if (contentType !== 'video') {
+        buildExtMap(imageFiles, true);
+      }
       buildExtMap(audioFiles, false);
       
       try {
@@ -775,10 +804,15 @@ export default function AdminContentIngestPage() {
               <li><span style={{ color: 'var(--text)' }}>Title</span>, <span style={{ color: 'var(--text)' }}>Description</span> mô tả.</li>
               <li><span style={{ color: 'var(--text)' }}>Episode 1</span>: tự động tạo, không chỉnh sửa số tập ở đây.</li>
               <li><span style={{ color: 'var(--text)' }}>Episode Title</span> (tuỳ chọn).</li>
-              <li><span style={{ color: 'var(--text)' }}>Type</span>: cleaned text for the card (should be the main-language snippet used for study; remove audio/pronunciation cues like <code>[music]</code> or <code>(sfx)</code>). Not used to classify content type.</li>
+              <li><span style={{ color: 'var(--text)' }}>Type</span>: Loại nội dung: <code>movie</code>, <code>series</code>, <code>book</code>, <code>audio</code>, <code>video</code>.</li>
               <li><span style={{ color: 'var(--text)' }}>Release Year</span> (tuỳ chọn) helps categorize.</li>
               <li><span style={{ color: 'var(--text)' }}>Media tuỳ chọn</span>: Cover (content + episode), Full Audio/Video cho Episode.</li>
-              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: ảnh (.webp) & audio (.opus) cho cards (bắt buộc).</li>
+              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: 
+                <ul className="list-disc pl-5 mt-1 space-y-1">
+                  <li><strong>Với Type = Video</strong>: Chỉ cần upload <strong>Audio</strong> (.opus). <strong>Episode Cover Landscape</strong> là bắt buộc (sẽ dùng làm image cho tất cả cards). Không cần upload Images cho cards.</li>
+                  <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
+                </ul>
+              </li>
             </ul>
             <div className="admin-instructions-title">B) CSV cần</div>
             <ul className="admin-instructions-list typography-inter-4">
@@ -945,32 +979,40 @@ export default function AdminContentIngestPage() {
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
               <input id="chk-cover" type="checkbox" checked={addCover} onChange={e => setAddCover(e.target.checked)} />
-              <label htmlFor="chk-cover" className="cursor-pointer whitespace-nowrap">Add Cover Portrait (jpg)</label>
+              <label htmlFor="chk-cover" className="cursor-pointer whitespace-nowrap">Add Cover Portrait (webp)</label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa dọc (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover.jpg</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa dọc (.webp recommended) lưu tại items/&lt;slug&gt;/cover_image/cover.webp</span>
               </span>
             </div>
             {addCover && (
               <>
-                <input id="cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
-                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover.jpg</div>
+                <input id="cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => {
+                  setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0);
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) {
+                    const isWebP = file.type === 'image/webp';
+                    const ext = isWebP ? 'webp' : 'jpg';
+                    // Update path display dynamically
+                  }
+                }} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover.webp (or .jpg)</div>
               </>
             )}
           </div>
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
               <input id="chk-cover-landscape" type="checkbox" checked={addCoverLandscape} onChange={e => setAddCoverLandscape(e.target.checked)} />
-              <label htmlFor="chk-cover-landscape" className="cursor-pointer whitespace-nowrap">Add Cover Landscape (jpg)</label>
+              <label htmlFor="chk-cover-landscape" className="cursor-pointer whitespace-nowrap">Add Cover Landscape (webp)</label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa ngang (.jpg) lưu tại items/&lt;slug&gt;/cover_image/cover_landscape.jpg</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa ngang (.webp recommended) lưu tại items/&lt;slug&gt;/cover_image/cover_landscape.webp</span>
               </span>
             </div>
             {addCoverLandscape && (
               <>
                 <input id="cover-landscape-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasCoverLandscapeFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
-                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover_landscape.jpg</div>
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover_landscape.webp (or .jpg)</div>
               </>
             )}
           </div>
@@ -1010,18 +1052,44 @@ export default function AdminContentIngestPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
-              <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} />
-              <label htmlFor="chk-ep-cover" className="cursor-pointer whitespace-nowrap">Add Cover Landscape (Episode)</label>
+              <input 
+                id="chk-ep-cover" 
+                type="checkbox" 
+                checked={addEpCover} 
+                onChange={e => setAddEpCover(e.target.checked)}
+                disabled={contentType === 'video'}
+              />
+              <label htmlFor="chk-ep-cover" className={`cursor-pointer whitespace-nowrap ${contentType === 'video' ? 'opacity-60' : ''}`}>
+                Add Cover Landscape (Episode)
+                {contentType === 'video' && <span className="text-red-500 ml-1">*</span>}
+              </label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa ngang cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>
+                  {contentType === 'video' 
+                    ? 'Ảnh bìa ngang cho tập (BẮT BUỘC với Video). Sẽ dùng làm image cho tất cả cards trong episode này.'
+                    : 'Ảnh bìa ngang cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg'}
+                </span>
               </span>
             </div>
-            {addEpCover && (
+            {(addEpCover || contentType === 'video') && (
               <>
-                <input id="ep-cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
-                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
+                <input 
+                  id="ep-cover-file" 
+                  type="file" 
+                  accept="image/jpeg,image/webp" 
+                  onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} 
+                  className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" 
+                  style={{ borderColor: 'var(--primary)' }} 
+                />
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.webp (or .jpg)</div>
+                {contentType === 'video' && !hasEpCoverFile && (
+                  <div className="text-xs text-red-500">⚠️ Bắt buộc upload Episode Cover Landscape cho Video content</div>
+                )}
               </>
+            )}
+            {contentType === 'video' && !addEpCover && (
+              <div className="text-xs text-red-500">⚠️ Episode Cover Landscape là bắt buộc cho Video content</div>
             )}
           </div>
 
@@ -1137,6 +1205,7 @@ export default function AdminContentIngestPage() {
         setStartIndex={setStartIndex}
         replaceMode={replaceMode}
         setReplaceMode={setReplaceMode}
+        hideImages={contentType === 'video'}
       />
 
       {/* Actions + Progress */}
@@ -1153,15 +1222,19 @@ export default function AdminContentIngestPage() {
           <ProgressPanel
             stage={stage}
             progress={(() => {
+              const isVideo = contentType === 'video';
               let totalSteps = 0;
               let completedSteps = 0;
               if (addCover && hasCoverFile) { totalSteps++; if (coverDone > 0) completedSteps++; }
               if (addCoverLandscape && hasCoverLandscapeFile) { totalSteps++; if (coverLandscapeDone > 0) completedSteps++; }
-              totalSteps += imagesTotal + audioTotal;
-              completedSteps += imagesDone + audioDone;
+              // For video: only count audio, skip images
+              if (!isVideo) totalSteps += imagesTotal;
+              totalSteps += audioTotal;
+              if (!isVideo) completedSteps += imagesDone;
+              completedSteps += audioDone;
               totalSteps++;
               if (importDone) completedSteps++;
-              if (addEpCover && hasEpCoverFile) { totalSteps++; if (epCoverDone > 0) completedSteps++; }
+              if ((addEpCover || isVideo) && hasEpCoverFile) { totalSteps++; if (epCoverDone > 0) completedSteps++; }
               totalSteps++;
               if (statsDone) completedSteps++;
               return totalSteps === 0 ? 0 : (completedSteps === totalSteps ? 100 : Math.min(99, Math.floor((completedSteps / totalSteps) * 100)));
@@ -1169,11 +1242,11 @@ export default function AdminContentIngestPage() {
             items={[
               ...(addCover && hasCoverFile ? [{ label: '1. Cover Portrait', done: coverDone > 0, pending: stage === 'cover' || (busy && coverDone === 0) }] : []),
               ...(addCoverLandscape && hasCoverLandscapeFile ? [{ label: '2. Cover Landscape', done: coverLandscapeDone > 0, pending: stage === 'cover_landscape' || (busy && coverLandscapeDone === 0) }] : []),
-              { label: '3. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` },
-              { label: '4. Audio', done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
-              { label: '5. Import CSV', done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
-              ...(addEpCover && hasEpCoverFile ? [{ label: '6. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
-              { label: '7. Calculating Stats', done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
+              ...(contentType !== 'video' ? [{ label: '3. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` }] : []),
+              { label: contentType === 'video' ? '3. Audio' : '4. Audio', done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
+              { label: contentType === 'video' ? '4. Import CSV' : '5. Import CSV', done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
+              ...((addEpCover || contentType === 'video') && hasEpCoverFile ? [{ label: contentType === 'video' ? '5. Episode Cover' : '6. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
+              { label: contentType === 'video' ? '6. Calculating Stats' : '7. Calculating Stats', done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
             ]}
           />
         )}

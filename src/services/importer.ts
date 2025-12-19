@@ -9,6 +9,7 @@ export type ImportFilmMeta = {
   language: string; // primary
   available_subs: string[];
   cover_url?: string;
+  cover_landscape_url?: string;
   episodes: number;
   total_cards?: number;
   description?: string;
@@ -16,6 +17,7 @@ export type ImportFilmMeta = {
   episode_title?: string; // optional: title of current episode being ingested
   episode_description?: string; // optional: description of current episode being ingested
   is_original?: boolean; // original version flag (true: source language, false: alternate/dub)
+  type?: string; // content type: 'movie', 'series', 'book', 'audio', 'video'
 };
 
 export type ColumnMapping = {
@@ -320,7 +322,10 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
     const imageExt = opts.imageExtensions?.[cardIdStr] || opts.imageExtensions?.[String(displayId)] || "jpg";
     const audioExt = opts.audioExtensions?.[cardIdStr] || opts.audioExtensions?.[String(displayId)] || "mp3";
     
-    const image_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image", ext: imageExt });
+    // For video content: don't set image_url (will use episode cover_landscape_key instead)
+    // For other content types: build image_url as usual
+    const isVideoContent = filmMeta.type === 'video';
+    const image_url = isVideoContent ? undefined : buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image", ext: imageExt });
     const audio_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "audio", ext: audioExt });
 
     const subtitle: Record<string, string> = {};

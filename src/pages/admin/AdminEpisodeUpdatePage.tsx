@@ -221,11 +221,16 @@ export default function AdminEpisodeUpdatePage() {
     setConfirmedAsLanguage(new Set());
     try { const parsed = Papa.parse<Record<string,string>>(text,{header:true,skipEmptyLines:'greedy'}); const headers=(parsed.meta.fields||[]).map(h=>(h||'').trim()); const rows=(parsed.data||[]) as Record<string,string>[]; setCsvHeaders(headers); setCsvRows(rows); if(!rows.length){ setCsvErrors(['CSV không có dữ liệu hàng nào.']); setCsvValid(false); } else { validateCsv(headers, rows); } } catch { setCsvErrors(['Lỗi đọc CSV.']); setCsvValid(false); }
   };
+  const isVideoContent = film?.type === 'video';
   const canReimport = useMemo(() => {
     const csvOk = csvValid === true && !!csvRows.length;
-    const cardMediaOk = imageFiles.length > 0 && audioFiles.length > 0;
+    // For video: only require audio files, skip images
+    // For other types: require both image and audio files
+    const cardMediaOk = isVideoContent 
+      ? audioFiles.length > 0 
+      : imageFiles.length > 0 && audioFiles.length > 0;
     return csvOk && cardMediaOk && !loading;
-  }, [csvValid, csvRows.length, imageFiles.length, audioFiles.length, loading]);
+  }, [csvValid, csvRows.length, imageFiles.length, audioFiles.length, loading, isVideoContent]);
   const [reimportBusy, setReimportBusy] = useState(false);
   const [reimportStage, setReimportStage] = useState<'idle'|'deleting'|'uploading_media'|'uploading_episode_media'|'import'|'stats'|'done'>('idle');
   const [confirmRollback, setConfirmRollback] = useState(false);
@@ -256,7 +261,8 @@ export default function AdminEpisodeUpdatePage() {
       
       if (cancelRequestedRef.current) throw new Error('User cancelled');
       
-      // Step 2: Upload card media (images and audio)
+      // Step 2: Upload card media (images/audio) for cards
+      // For video: only upload audio, skip images
       setReimportStage('uploading_media');
       const doUploadMedia = async (type: MediaType, files: File[], signal?: AbortSignal) => {
         if (!files.length) return;
@@ -278,10 +284,14 @@ export default function AdminEpisodeUpdatePage() {
         }
       };
       
-      await Promise.all([
-        doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
-        doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)
-      ]);
+      // For video: only upload audio, skip images
+      const uploadPromises = isVideoContent
+        ? [doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)]
+        : [
+            doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
+            doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)
+          ];
+      await Promise.all(uploadPromises);
       
       if (cancelRequestedRef.current || uploadAbortRef.current?.signal.aborted) throw new Error('User cancelled');
       
@@ -512,25 +522,30 @@ export default function AdminEpisodeUpdatePage() {
       {/* Quick Guide */}
       {ep && (
         <div className="admin-panel space-y-3">
-          <div className="typography-inter-2" style={{ color: 'var(--text)' }}>Hướng dẫn nhanh</div>
+          <div className="typography-inter-1 admin-panel-title">Quick Guide</div>
           <div className="admin-subpanel typography-inter-4 space-y-3">
             <div style={{ color: 'var(--text)' }} className="font-semibold">A) Cập nhật Media (Save)</div>
             <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
               <li><span style={{ color: 'var(--text)' }}>Save</span>: Chỉ cập nhật media của episode (Cover, Full Audio, Full Video) mà không thay đổi cards.</li>
               <li><span style={{ color: 'var(--text)' }}>Title</span>: Tiêu đề của episode.</li>
-              <li><span style={{ color: 'var(--text)' }}>Cover Image</span>: Ảnh bìa episode (.webp).</li>
+              <li><span style={{ color: 'var(--text)' }}>Cover Image (Landscape)</span>: Ảnh bìa ngang cho episode (.webp).</li>
               <li><span style={{ color: 'var(--text)' }}>Full Audio</span>: File audio đầy đủ (.opus hoặc .wav).</li>
               <li><span style={{ color: 'var(--text)' }}>Full Video</span>: File video đầy đủ (.mp4).</li>
               <li style={{ color: 'var(--warning-text, #fbbf24)' }}>Lưu ý: Save chỉ cập nhật những file bạn chọn, không ảnh hưởng đến cards hiện tại.</li>
             </ul>
             <div style={{ color: 'var(--text)' }} className="font-semibold">B) Thay thế toàn bộ Episode (Replace Episode)</div>
             <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
-              <li><span style={{ color: 'var(--text)' }}>Replace Episode</span>: Xóa toàn bộ episode cũ (cards + media), sau đó tạo lại episode mới với CSV và media mới.</li>
+              <li><span style={{ color: 'var(--text)' }}>Replace Episode</span>: Giữ nguyên episode và media, chỉ thay thế cards (xóa cards cũ, import cards mới từ CSV).</li>
               <li><span style={{ color: 'var(--text)' }}>CSV</span>: Cột bắt buộc: <code>start</code>, <code>end</code>. Phải có cột phụ đề cho Main Language (<span style={{ color: 'var(--primary)' }}>{filmMainLang}</span>).</li>
-              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: Images (.webp) và Audio (.opus) cho cards (bắt buộc).</li>
+              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: 
+                <ul className="list-disc pl-5 mt-1 space-y-1">
+                  <li><strong>Với Type = Video</strong>: Chỉ cần upload <strong>Audio</strong> (.opus). Episode Cover Landscape sẽ được dùng làm image cho tất cả cards. Không cần upload Images cho cards.</li>
+                  <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
+                </ul>
+              </li>
               <li><span style={{ color: 'var(--text)' }}>Infer IDs</span>: Tự động lấy số từ tên file làm card ID. Nếu tắt, dùng Pad Digits + Start Index.</li>
               <li><span style={{ color: 'var(--text)' }}>Episode Media</span> (tuỳ chọn): Cover, Full Audio, Full Video sẽ được upload sau khi import CSV thành công.</li>
-              <li style={{ color: 'var(--error-text, #f87171)' }}>Cảnh báo: Replace Episode sẽ XÓA TẤT CẢ cards và media cũ. Hành động này KHÔNG THỂ HOÀN TÁC.</li>
+              <li style={{ color: 'var(--error-text, #f87171)' }}>Cảnh báo: Replace Episode sẽ XÓA TẤT CẢ cards cũ. Hành động này KHÔNG THỂ HOÀN TÁC.</li>
               <li style={{ color: 'var(--warning-text, #fbbf24)' }}>Nếu cần rollback: Nhấn Stop trong quá trình upload và chọn OK để xóa episode đã tạo.</li>
             </ul>
             <div className="text-[10px]" style={{ color: 'var(--neutral)', fontStyle: 'italic' }}>
@@ -586,7 +601,7 @@ export default function AdminEpisodeUpdatePage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="admin-form-label">Cover Image (Portrait)</label>
+              <label className="admin-form-label">Cover Image (Landscape)</label>
               <div className="space-y-2">
                 {ep.cover_url && (
                   <div className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
@@ -599,7 +614,7 @@ export default function AdminEpisodeUpdatePage() {
                   onChange={(e) => setCoverFile(e.target.files?.[0] || null)} 
                   className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
                 />
-                <div className="typography-inter-4" style={{ color: 'var(--neutral)', fontSize: '11px' }}>Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover.jpg</div>
+                <div className="typography-inter-4" style={{ color: 'var(--neutral)', fontSize: '11px' }}>Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover.webp (or .jpg)</div>
               </div>
             </div>
           </div>
@@ -802,6 +817,7 @@ export default function AdminEpisodeUpdatePage() {
             setStartIndex={setStartIndex}
             replaceMode={false}
             setReplaceMode={() => {}}
+            hideImages={isVideoContent}
           />
 
           {/* Replace Action */}
@@ -825,20 +841,20 @@ export default function AdminEpisodeUpdatePage() {
                     pending: reimportStage === 'deleting',
                     value: reimportStage === 'deleting' && deletionPercent > 0 ? `${Math.min(100, deletionPercent)}%` : undefined,
                   },
-                  {
+                  ...(isVideoContent ? [] : [{
                     label: '2. Images',
                     done: imagesDone === imageFiles.length && imageFiles.length > 0,
                     pending: imageFiles.length > 0 && imagesDone < imageFiles.length,
                     value: `${imagesDone}/${imageFiles.length}`,
-                  },
+                  }]),
                   {
-                    label: '3. Audio',
+                    label: isVideoContent ? '2. Audio' : '3. Audio',
                     done: audioDone === audioFiles.length && audioFiles.length > 0,
                     pending: audioFiles.length > 0 && audioDone < audioFiles.length,
                     value: `${audioDone}/${audioFiles.length}`,
                   },
                   {
-                    label: '4. Import CSV',
+                    label: isVideoContent ? '3. Import CSV' : '4. Import CSV',
                     done: reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media',
                     pending: reimportStage === 'import',
                   },
@@ -860,8 +876,11 @@ export default function AdminEpisodeUpdatePage() {
                 let completedSteps = 0;
                 totalSteps++;
                 if (reimportStage !== 'idle' && reimportStage !== 'deleting') completedSteps++;
-                totalSteps += imageFiles.length + audioFiles.length;
-                completedSteps += imagesDone + audioDone;
+                // For video: only count audio, skip images
+                if (!isVideoContent) totalSteps += imageFiles.length;
+                totalSteps += audioFiles.length;
+                if (!isVideoContent) completedSteps += imagesDone;
+                completedSteps += audioDone;
                 totalSteps++;
                 if (reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media') completedSteps++;
                 if (coverFile) {

@@ -17,7 +17,6 @@ type TableName =
   | 'user_roles'
   | 'user_preferences'
   | 'user_study_sessions'
-  | 'user_favorites'
   | 'user_progress'
   | 'user_episode_stats';
 
@@ -71,12 +70,6 @@ const tables: TableInfo[] = [
     displayName: 'Study Sessions',
     description: 'Lưu thông tin về các phiên học tập của người dùng, dùng để tính toán thời gian học tổng thể',
     icon: <BookOpen className="w-5 h-5" />,
-  },
-  {
-    name: 'user_favorites',
-    displayName: 'Favorites',
-    description: 'Lưu danh sách các nội dung (content_items) mà người dùng đã đánh dấu là yêu thích',
-    icon: <Heart className="w-5 h-5" />,
   },
   {
     name: 'user_progress',

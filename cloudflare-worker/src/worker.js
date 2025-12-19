@@ -1949,6 +1949,21 @@ export default {
           if (!result || result.changes === 0) {
             return json({ error: 'Episode update failed or not found' }, { status: 404 });
           }
+          // If cover_key was updated, sync cards for video content
+          if (coverKeyRaw && typeof coverKeyRaw === 'string' && coverKeyRaw.trim() !== '') {
+            try {
+              // Check if content type is video
+              const contentInfo = await env.DB.prepare('SELECT ci.type FROM content_items ci JOIN episodes e ON ci.id = e.content_item_id WHERE e.id = ?').bind(episode.id).first();
+              if (contentInfo && contentInfo.type === 'video') {
+                const coverKey = String(coverKeyRaw).replace(/^https?:\/\/[^/]+\//, '');
+                // Update all cards in this episode for video content (replace any existing image_key)
+                await env.DB.prepare('UPDATE cards SET image_key = ? WHERE episode_id = ?').bind(coverKey, episode.id).run();
+              }
+            } catch (e) {
+              // Log but don't fail the update
+              console.error('Failed to sync cards with cover_key:', e);
+            }
+          }
           return json({ ok: true });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -1972,10 +1987,23 @@ export default {
             epNum = m ? Number(m[1]) : 1;
           }
           let ep;
+          // Priority 1: Try to find by slug first (most reliable, exact match)
           try {
-            ep = await env.DB.prepare('SELECT id,slug FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+            ep = await env.DB.prepare('SELECT id,slug,episode_number FROM episodes WHERE content_item_id=? AND slug=?').bind(filmRow.id, episodeSlug).first();
           } catch (e) {
-            try { ep = await env.DB.prepare('SELECT id,slug FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch {}
+            try { 
+              ep = await env.DB.prepare('SELECT id,slug,episode_num AS episode_number FROM episodes WHERE content_item_id=? AND slug=?').bind(filmRow.id, episodeSlug).first();
+            } catch {}
+          }
+          // Priority 2: Fallback to episode_number if slug match failed
+          if (!ep) {
+            try {
+              ep = await env.DB.prepare('SELECT id,slug,episode_number FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+            } catch (e) {
+              try { 
+                ep = await env.DB.prepare('SELECT id,slug,episode_num AS episode_number FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
+              } catch {}
+            }
           }
           if (!ep) return json([]);
           let res;
@@ -2060,7 +2088,6 @@ export default {
           const cardIds = rows.map(r => r.internal_id);
           const subsMap = new Map();
           const cefrMap = new Map();
-          console.log('[WORKER] Episode cards - Total cards:', rows.length, 'Card IDs:', cardIds.length);
           if (cardIds.length > 0) {
             // Split into batches to avoid SQLite's 999 parameter limit
             const batchSize = 500;
@@ -2069,13 +2096,11 @@ export default {
                 const batch = cardIds.slice(i, i + batchSize);
                 const ph = batch.map(() => '?').join(',');
                 const batchSubs = await env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...batch).all();
-                console.log('[WORKER] Batch', Math.floor(i/batchSize) + 1, '- fetched', batchSubs.results?.length || 0, 'subtitle rows for', batch.length, 'cards');
                 (batchSubs.results || []).forEach(s => {
                   if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
                   subsMap.get(s.card_id)[s.language] = s.text;
                 });
               }
-              console.log('[WORKER] Final subsMap size:', subsMap.size, '| Sample entry:', subsMap.size > 0 ? subsMap.entries().next().value : 'none');
             } catch (e) {
               console.error('[WORKER] Error fetching subtitles:', e);
             }
@@ -2103,7 +2128,9 @@ export default {
             out.push({ id: displayId, episode_id: outEpisodeId, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, is_available: r.is_available, subtitle });
           }
           return json(out);
-        } catch { return json([]); }
+        } catch (e) {
+          return json([]);
+        }
       }
 
       // 5b) Cards for a given item across all parts (optional episode filter omitted)
@@ -2761,8 +2788,9 @@ export default {
             const uuid = crypto.randomUUID();
             // Normalize cover key if provided
             const coverKey = (film.cover_key || film.cover_url) ? String((film.cover_key || film.cover_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
+            const coverLandscapeKey = (film.cover_landscape_key || film.cover_landscape_url) ? String((film.cover_landscape_key || film.cover_landscape_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
             const totalEpisodesIns = (film.total_episodes && Number(film.total_episodes) > 0) ? Math.floor(Number(film.total_episodes)) : 1;
-            await env.DB.prepare('INSERT INTO content_items (id,slug,title,main_language,type,description,cover_key,release_year,total_episodes,is_original) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(
+            await env.DB.prepare('INSERT INTO content_items (id,slug,title,main_language,type,description,cover_key,cover_landscape_key,release_year,total_episodes,is_original) VALUES (?,?,?,?,?,?,?,?,?,?,?)').bind(
               uuid,
               filmSlug,
               film.title || filmSlug,
@@ -2770,6 +2798,7 @@ export default {
               film.type || 'movie',
               film.description || '',
               coverKey,
+              coverLandscapeKey,
               film.release_year || null,
               totalEpisodesIns,
               (film.is_original === false ? 0 : 1)
@@ -2778,13 +2807,15 @@ export default {
           } else {
             // Update metadata if provided
             const coverKey = (film.cover_key || film.cover_url) ? String((film.cover_key || film.cover_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
+            const coverLandscapeKey = (film.cover_landscape_key || film.cover_landscape_url) ? String((film.cover_landscape_key || film.cover_landscape_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
             const totalEpisodes = (film.total_episodes && Number(film.total_episodes) > 0) ? Math.floor(Number(film.total_episodes)) : null;
-            await env.DB.prepare('UPDATE content_items SET title=COALESCE(?,title), main_language=COALESCE(?,main_language), type=COALESCE(?,type), description=COALESCE(?,description), cover_key=COALESCE(?,cover_key), release_year=COALESCE(?,release_year), total_episodes=COALESCE(?,total_episodes), is_original=COALESCE(?,is_original) WHERE id=?').bind(
+            await env.DB.prepare('UPDATE content_items SET title=COALESCE(?,title), main_language=COALESCE(?,main_language), type=COALESCE(?,type), description=COALESCE(?,description), cover_key=COALESCE(?,cover_key), cover_landscape_key=COALESCE(?,cover_landscape_key), release_year=COALESCE(?,release_year), total_episodes=COALESCE(?,total_episodes), is_original=COALESCE(?,is_original) WHERE id=?').bind(
               film.title || null,
               film.language || film.main_language || null,
               film.type || null,
               film.description || null,
               coverKey,
+              coverLandscapeKey,
               film.release_year || null,
               totalEpisodes,
               (typeof film.is_original === 'boolean' ? (film.is_original ? 1 : 0) : null),
@@ -2884,6 +2915,23 @@ export default {
 
           const normalizeKey = (u) => (u ? String(u).replace(/^https?:\/\/[^/]+\//, '') : null);
 
+          // Get content type and episode cover_landscape_key for video content
+          let contentType = null;
+          let episodeCoverKey = null;
+          try {
+            const contentInfo = await env.DB.prepare('SELECT ci.type, e.cover_key FROM content_items ci JOIN episodes e ON ci.id = e.content_item_id WHERE e.id = ?').bind(episode.id).first();
+            if (contentInfo) {
+              contentType = contentInfo.type;
+              episodeCoverKey = contentInfo.cover_key || null;
+            }
+          } catch (e) {
+            // Fallback: try to get content type only
+            try {
+              const contentInfo = await env.DB.prepare('SELECT type FROM content_items WHERE id = (SELECT content_item_id FROM episodes WHERE id = ?)').bind(episode.id).first();
+              if (contentInfo) contentType = contentInfo.type;
+            } catch {}
+          }
+
           const cardIds = []; // keep generated uuids in order for debugging if needed
           let seqCounter = 1; // safe fallback when card_number is missing/invalid
           for (const c of cards) {
@@ -2900,13 +2948,23 @@ export default {
             // is_available: default 1 (true), set to 0 (false) if card explicitly has is_available=false
             const isAvail = (c.is_available === false || c.is_available === 0) ? 0 : 1;
 
+            // For video content: always use episode cover_key if available, regardless of image_url
+            let imageKey = normalizeKey(c.image_url);
+            if (contentType === 'video' && episodeCoverKey) {
+              // For video content, always use episode cover_key, even if image_url is provided
+              imageKey = episodeCoverKey;
+            } else if ((!imageKey || imageKey === '') && contentType === 'video' && episodeCoverKey) {
+              // Fallback: use episode cover_key if image_url is null/empty
+              imageKey = episodeCoverKey;
+            }
+
             cardsNewSchema.push(
               env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time,end_time,duration,image_key,audio_key,sentence,card_type,length,difficulty_score,is_available) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                .bind(cardUuid, episode.id, cardNum, sStart, sEnd, dur, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null), isAvail)
+                .bind(cardUuid, episode.id, cardNum, sStart, sEnd, dur, imageKey, normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null), isAvail)
             );
             cardsLegacySchema.push(
               env.DB.prepare('INSERT INTO cards (id,episode_id,card_number,start_time_ms,end_time_ms,image_key,audio_key,sentence,card_type,length,difficulty_score,is_available) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-                .bind(cardUuid, episode.id, cardNum, sStart * 1000, sEnd * 1000, normalizeKey(c.image_url), normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null), isAvail)
+                .bind(cardUuid, episode.id, cardNum, sStart * 1000, sEnd * 1000, imageKey, normalizeKey(c.audio_url), c.sentence || null, c.type || c.card_type || null, (typeof c.length === 'number' ? Math.floor(c.length) : null), (typeof diffScoreVal === 'number' ? diffScoreVal : null), isAvail)
             );
 
             if (c.subtitle) {
@@ -3701,7 +3759,6 @@ export default {
               user: userResult.meta.changes || 0,
               progress: 0,
               episode_stats: 0,
-              favorites: 0,
               study_sessions: 0,
               preferences: 0,
               roles: 0,
@@ -3929,7 +3986,6 @@ export default {
             'user_roles',
             'user_preferences',
             'user_study_sessions',
-            'user_favorites',
             'user_progress',
             'user_episode_stats'
           ];
@@ -3957,7 +4013,7 @@ export default {
           // Whitelist of allowed tables
           const allowedTables = [
             'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
-            'user_preferences', 'user_study_sessions', 'user_favorites',
+            'user_preferences', 'user_study_sessions',
             'user_progress', 'user_episode_stats'
           ];
           
@@ -3986,7 +4042,7 @@ export default {
           // Whitelist of allowed tables
           const allowedTables = [
             'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
-            'user_preferences', 'user_study_sessions', 'user_favorites',
+            'user_preferences', 'user_study_sessions',
             'user_progress', 'user_episode_stats'
           ];
           
@@ -4010,10 +4066,10 @@ export default {
           let primaryKeyColumn = 'id';
           if (tableName === 'users' || tableName === 'user_logins' || tableName === 'user_roles' || 
               tableName === 'user_preferences' || tableName === 'user_study_sessions' || 
-              tableName === 'user_favorites' || tableName === 'user_progress' || tableName === 'user_episode_stats') {
+              tableName === 'user_progress' || tableName === 'user_episode_stats') {
             // Check if uid exists for this table
             const hasUid = ['users', 'user_logins', 'user_roles', 'user_preferences', 
-                           'user_study_sessions', 'user_favorites', 'user_progress', 
+                           'user_study_sessions', 'user_progress', 
                            'user_episode_stats'].includes(tableName);
             if (hasUid && body.uid) {
               primaryKeyColumn = 'uid';
@@ -4042,7 +4098,7 @@ export default {
           // Whitelist of allowed tables
           const allowedTables = [
             'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
-            'user_preferences', 'user_study_sessions', 'user_favorites',
+            'user_preferences', 'user_study_sessions',
             'user_progress', 'user_episode_stats'
           ];
           
@@ -4053,7 +4109,7 @@ export default {
           // Determine primary key column (id or uid)
           let primaryKeyColumn = 'id';
           if (['users', 'user_logins', 'user_roles', 'user_preferences', 
-               'user_study_sessions', 'user_favorites', 'user_progress', 
+               'user_study_sessions', 'user_progress', 
                'user_episode_stats'].includes(tableName)) {
             primaryKeyColumn = 'uid';
           }

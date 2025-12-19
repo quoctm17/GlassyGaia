@@ -352,11 +352,12 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                 <div key={i} className="flex items-center gap-1">
                   {i > 0 && <span className="opacity-60">/</span>}
                   <button
-                    className={`hover:underline ${
-                      i === crumbs.length - 1
-                        ? "text-pink-300"
-                        : "text-pink-400"
-                    }`}
+                    className="hover:underline"
+                    style={{ 
+                      color: i === crumbs.length - 1 
+                        ? 'var(--primary)' 
+                        : 'var(--hover-select)' 
+                    }}
                     onClick={() => {
                       setPrefix(c.path);
                       setSelected(new Set());
@@ -371,7 +372,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
         })()}
       </div>
       {loading && (
-        <div className="flex items-center gap-2 text-pink-400">
+        <div className="flex items-center gap-2" style={{ color: 'var(--primary)' }}>
           <Loader2 className="animate-spin" /> Loading...
         </div>
       )}
@@ -385,14 +386,27 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                 <th className="w-12">
                   <button
                     type="button"
-                    className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors ${
-                      visibleItems.filter((i) => i.type === "file").length > 0 &&
-                      visibleItems.filter((i) => i.type === "file").every((i) => selected.has(i.key))
-                        ? 'bg-pink-500 border-pink-500'
+                    className="w-5 h-5 border-2 rounded flex items-center justify-center transition-colors"
+                    style={{
+                      backgroundColor: visibleItems.filter((i) => i.type === "file").length > 0 &&
+                        visibleItems.filter((i) => i.type === "file").every((i) => selected.has(i.key))
+                        ? 'var(--primary)'
                         : selected.size > 0
-                        ? 'bg-pink-500/50 border-pink-500'
-                        : 'border-gray-600 hover:border-pink-500'
-                    }`}
+                        ? 'var(--primary)'
+                        : 'transparent',
+                      borderColor: selected.size > 0 ? 'var(--primary)' : 'var(--border)',
+                      color: selected.size > 0 ? 'var(--text)' : 'transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selected.size === 0) {
+                        e.currentTarget.style.borderColor = 'var(--primary)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selected.size === 0) {
+                        e.currentTarget.style.borderColor = 'var(--border)';
+                      }
+                    }}
                     onClick={() => {
                       const allFiles = visibleItems.filter((i) => i.type === "file");
                       const allSelected = allFiles.length > 0 && allFiles.every((i) => selected.has(i.key));
@@ -400,7 +414,7 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                     }}
                     title={selected.size > 0 ? 'Deselect all' : 'Select all'}
                   >
-                    {selected.size > 0 && <Check className="w-3 h-3 text-white" />}
+                    {selected.size > 0 && <Check className="w-3 h-3" style={{ color: 'var(--text)' }} />}
                   </button>
                 </th>
               )}
@@ -415,21 +429,35 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
             {visibleItems.map((item, idx) => {
               const isSelected = selected.has(item.key);
               return (
-              <tr key={item.key} className={isSelected && item.type === 'file' ? 'bg-pink-500/10' : ''}>
-                <td className="text-gray-400">{idx + 1}</td>
+              <tr 
+                key={item.key} 
+                style={isSelected && item.type === 'file' ? { backgroundColor: 'var(--hover-bg-subtle)' } : {}}
+              >
+                <td style={{ color: 'var(--sub-language-text)' }}>{idx + 1}</td>
                 {(Array.isArray(visibleItems) && visibleItems.some((i) => i.type === "file")) && (
                   <td>
                     {item.type === "file" ? (
                       <button
                         type="button"
-                        className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors ${
-                          isSelected
-                            ? 'bg-pink-500 border-pink-500'
-                            : 'border-gray-600 hover:border-pink-500'
-                        }`}
+                        className="w-5 h-5 border-2 rounded flex items-center justify-center transition-colors"
+                        style={{
+                          backgroundColor: isSelected ? 'var(--primary)' : 'transparent',
+                          borderColor: isSelected ? 'var(--primary)' : 'var(--border)',
+                          color: isSelected ? 'var(--text)' : 'transparent'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = 'var(--primary)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = 'var(--border)';
+                          }
+                        }}
                         onClick={() => toggleOne(item.key, !isSelected)}
                       >
-                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                        {isSelected && <Check className="w-3 h-3" style={{ color: 'var(--text)' }} />}
                       </button>
                     ) : null}
                   </td>
@@ -437,7 +465,8 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                 <td>
                   {item.type === "directory" ? (
                     <button
-                      className="flex items-center gap-2 text-pink-600 hover:underline"
+                      className="flex items-center gap-2 hover:underline"
+                      style={{ color: 'var(--hover-select)' }}
                       onClick={() => onEnterFolder(item.key)}
                     >
                       <Folder size={18} /> {item.name}
@@ -447,7 +476,8 @@ export default function R2Browser({ initialPageSize = 50 }: { initialPageSize?: 
                       href={item.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-2 text-pink-700 hover:underline"
+                      className="flex items-center gap-2 hover:underline"
+                      style={{ color: 'var(--primary)' }}
                     >
                       <FileIcon size={16} /> {item.name}
                     </a>

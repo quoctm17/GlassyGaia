@@ -3,9 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useUser } from '../../context/UserContext';
 import { uploadCoverImage } from '../../services/storageUpload';
-import { apiUpdateFilmMeta } from '../../services/cfApi';
-import { Film, Clapperboard, Book as BookIcon, AudioLines, ArrowLeft } from 'lucide-react';
+import { apiUpdateFilmMeta, apiGetFilm } from '../../services/cfApi';
+import { Film, Clapperboard, Book as BookIcon, AudioLines, Video, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from '../../types/content';
+import type { ContentType } from '../../types/content';
 import '../../styles/components/admin/admin-forms.css';
 
 export default function AdminContentUpdatePage() {
@@ -23,14 +24,11 @@ export default function AdminContentUpdatePage() {
 	const [coverUrl, setCoverUrl] = useState('');
 	const [coverLandscapeUrl, setCoverLandscapeUrl] = useState('');
 	// New optional fields (tri-state): undefined = unchanged, string/number = set, null = clear
-	const [contentType, setContentType] = useState<string | null | undefined>(undefined);
 	const [releaseYear, setReleaseYear] = useState<number | null | undefined>(undefined);
 	const [isAvailable, setIsAvailable] = useState<boolean | number | null | undefined>(undefined);
 
 	// Dropdown state and refs for outside-click close
-	const [typeOpen, setTypeOpen] = useState(false);
 	const [yearOpen, setYearOpen] = useState(false);
-	const typeRef = useRef<HTMLDivElement | null>(null);
 	const yearRef = useRef<HTMLDivElement | null>(null);
 
 	const [busy, setBusy] = useState(false);
@@ -40,6 +38,11 @@ export default function AdminContentUpdatePage() {
 
 	const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
 
+	// Current content type (read-only, for display)
+	const [currentContentType, setCurrentContentType] = useState<ContentType | ''>('');
+	// Current availability status (read-only, for display)
+	const [currentIsAvailable, setCurrentIsAvailable] = useState<boolean | undefined>(undefined);
+
 	// Prefill contentSlug from query when present and lock the input
 	useEffect(() => {
 		if (slugFromQuery) {
@@ -47,13 +50,42 @@ export default function AdminContentUpdatePage() {
 		}
 	}, [slugFromQuery]);
 
+	// Load current content type from API
+	useEffect(() => {
+		if (!contentSlug) return;
+		let mounted = true;
+		(async () => {
+			try {
+				const film = await apiGetFilm(contentSlug);
+				if (!mounted) return;
+				if (film?.type) {
+					setCurrentContentType(film.type as ContentType);
+				}
+				// Load current availability status
+				if (film?.is_available !== undefined) {
+					setCurrentIsAvailable(film.is_available);
+					// Prefill isAvailable if not set yet
+					if (isAvailable === undefined) {
+						setIsAvailable(film.is_available ? 1 : 0);
+					}
+				}
+			} catch {
+				// Ignore errors
+			}
+		})();
+		return () => { mounted = false; };
+	}, [contentSlug]);
+
 	async function handleUploadCoverIfAny() {
 		const input = document.getElementById('update-cover-file') as HTMLInputElement | null;
 		const file = input?.files?.[0];
 		if (!file) return; // optional
 		setStage('uploading-cover');
 		await uploadCoverImage({ filmId: contentSlug, episodeNum: 1, file });
-		const url = r2Base ? `${r2Base}/items/${contentSlug}/cover_image/cover.jpg` : `/items/${contentSlug}/cover_image/cover.jpg`;
+		// Extract extension from file type (webp or jpg)
+		const isWebP = file.type === 'image/webp';
+		const ext = isWebP ? 'webp' : 'jpg';
+		const url = r2Base ? `${r2Base}/items/${contentSlug}/cover_image/cover.${ext}` : `/items/${contentSlug}/cover_image/cover.${ext}`;
 		setCoverUrl(url);
 		setCoverUploaded(true);
 		toast.success('Cover uploaded');
@@ -65,7 +97,10 @@ export default function AdminContentUpdatePage() {
 		if (!file) return; // optional
 		setStage('uploading-cover-landscape');
 		await uploadCoverImage({ filmId: contentSlug, episodeNum: 1, file, landscape: true });
-		const url = r2Base ? `${r2Base}/items/${contentSlug}/cover_image/cover_landscape.jpg` : `/items/${contentSlug}/cover_image/cover_landscape.jpg`;
+		// Extract extension from file type (webp or jpg)
+		const isWebP = file.type === 'image/webp';
+		const ext = isWebP ? 'webp' : 'jpg';
+		const url = r2Base ? `${r2Base}/items/${contentSlug}/cover_image/cover_landscape.${ext}` : `/items/${contentSlug}/cover_image/cover_landscape.${ext}`;
 		setCoverLandscapeUrl(url);
 		setCoverLandscapeUploaded(true);
 		toast.success('Cover landscape uploaded');
@@ -99,7 +134,7 @@ export default function AdminContentUpdatePage() {
 				cover_url: coverUrl || undefined,
 				cover_landscape_url: coverLandscapeUrl || undefined,
 			};
-			if (contentType !== undefined) payload.type = contentType;
+			// Type is read-only, don't include in payload
 			if (releaseYear !== undefined) payload.release_year = releaseYear;
 			if (isAvailable !== undefined) payload.is_available = isAvailable;
 			await apiUpdateFilmMeta(payload);
@@ -116,7 +151,6 @@ export default function AdminContentUpdatePage() {
 	useEffect(() => {
 		function onDocMouseDown(e: MouseEvent) {
 			const t = e.target as Node;
-			if (typeRef.current && !typeRef.current.contains(t)) setTypeOpen(false);
 			if (yearRef.current && !yearRef.current.contains(t)) setYearOpen(false);
 		}
 		document.addEventListener('mousedown', onDocMouseDown);
@@ -151,14 +185,32 @@ export default function AdminContentUpdatePage() {
 			)}
 
 			{isAdmin && (
-				<div className="admin-panel space-y-4">
-					<div className="text-sm font-semibold">Hướng dẫn</div>
-					<div className="text-xs space-y-2" style={{ color: 'var(--text)' }}>
-						<p>Có thể sửa các trường metadata: <code>Title</code>, <code>Description</code>, <code>Cover (Portrait)</code>, <code>Cover Landscape</code>, <code>Type</code> (tùy chọn), <code>Release Year</code> (tùy chọn). Không đổi slug để tránh mất liên kết tới media/cards.</p>
-						<p>Ảnh bìa portrait sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover.jpg</code>.</p>
-						<p>Ảnh bìa landscape sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover_landscape.jpg</code>.</p>
-						<p>Nếu để trống Title/Description sẽ giữ nguyên giá trị cũ. Với Type/Release Year: không chọn = giữ nguyên; chọn Clear = xóa khỏi metadata.</p>
+				<>
+					{/* Quick Guide */}
+					<div className="admin-panel space-y-3">
+						<div className="typography-inter-1 admin-panel-title">Quick Guide</div>
+						<div className="admin-subpanel typography-inter-4 space-y-3">
+							<div style={{ color: 'var(--text)' }} className="font-semibold">A) Các trường có thể sửa</div>
+							<ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
+								<li><span style={{ color: 'var(--text)' }}>Title</span>: Tiêu đề của content.</li>
+								<li><span style={{ color: 'var(--text)' }}>Description</span>: Mô tả của content.</li>
+								<li><span style={{ color: 'var(--text)' }}>Cover (Portrait)</span>: Ảnh bìa dọc (.webp recommended).</li>
+								<li><span style={{ color: 'var(--text)' }}>Cover Landscape</span>: Ảnh bìa ngang (.webp recommended).</li>
+								<li><span style={{ color: 'var(--text)' }}>Release Year</span> (tùy chọn): Năm phát hành.</li>
+								<li><span style={{ color: 'var(--text)' }}>Availability</span>: Trạng thái hiển thị trong search.</li>
+							</ul>
+							<div style={{ color: 'var(--text)' }} className="font-semibold">B) Lưu ý</div>
+							<ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
+								<li>Không đổi <code>Content Slug</code> và <code>Type</code> để tránh mất liên kết tới media/cards.</li>
+								<li>Ảnh bìa portrait sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover.webp (or .jpg)</code>.</li>
+								<li>Ảnh bìa landscape sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover_landscape.webp (or .jpg)</code>.</li>
+								<li>Nếu để trống Title/Description sẽ giữ nguyên giá trị cũ.</li>
+								<li>Với Release Year: không chọn = giữ nguyên; chọn Clear = xóa khỏi metadata.</li>
+							</ul>
+						</div>
 					</div>
+
+					<div className="admin-panel space-y-4">
 
 					<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
 						<div className="flex items-center gap-2">
@@ -174,47 +226,19 @@ export default function AdminContentUpdatePage() {
 								title="Slug is prefilled from list and locked"
 							/>
 						</div>
-
-						<div className="flex items-center gap-2" ref={typeRef}>
-							<label className="w-40 text-sm">Type</label>
-							<div className="relative w-full">
-								<button
-									type="button"
-									className="admin-input flex items-center justify-between"
-									onClick={() => setTypeOpen(v => !v)}
-									title="Loại nội dung (không bắt buộc)"
-								>
-									<span className="inline-flex items-center gap-2">
-										{contentType && contentType === 'movie' && <Film className="w-4 h-4" />}
-										{contentType && contentType === 'series' && <Clapperboard className="w-4 h-4" />}
-										{contentType && contentType === 'book' && <BookIcon className="w-4 h-4" />}
-										{contentType && contentType === 'audio' && <AudioLines className="w-4 h-4" />}
-										<span>
-											{contentType === undefined
-												? 'Unchanged'
-												: contentType === null
-													? 'Cleared'
-													: CONTENT_TYPE_LABELS[contentType as keyof typeof CONTENT_TYPE_LABELS]}
-										</span>
-									</span>
-									<span style={{ color: 'var(--sub-language-text)' }}>▼</span>
-								</button>
-								{typeOpen && (
-									<div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
-										{CONTENT_TYPES.map((t) => (
-											<div key={t} className="admin-dropdown-item text-sm" onClick={() => { setContentType(t); setTypeOpen(false); }}>
-												{t === 'movie' && <Film className="w-4 h-4" />}
-												{t === 'series' && <Clapperboard className="w-4 h-4" />}
-												{t === 'book' && <BookIcon className="w-4 h-4" />}
-												{t === 'audio' && <AudioLines className="w-4 h-4" />}
-												<span>{CONTENT_TYPE_LABELS[t]}</span>
-											</div>
-										))}
-										<div className="admin-dropdown-clear" onClick={() => { setContentType(null); setTypeOpen(false); }}>Clear</div>
-									</div>
-								)}
+						{currentContentType && (
+							<div className="flex items-center gap-2">
+								<label className="w-40 text-sm">Current Type</label>
+								<div className="admin-input opacity-50 cursor-not-allowed pointer-events-none flex items-center gap-2" style={{ backgroundColor: 'var(--card-bg)', color: 'var(--sub-language-text)', borderColor: 'var(--border)' }}>
+									{currentContentType === 'movie' && <Film className="w-4 h-4" />}
+									{currentContentType === 'series' && <Clapperboard className="w-4 h-4" />}
+									{currentContentType === 'book' && <BookIcon className="w-4 h-4" />}
+									{currentContentType === 'audio' && <AudioLines className="w-4 h-4" />}
+									{currentContentType === 'video' && <Video className="w-4 h-4" />}
+									<span>{CONTENT_TYPE_LABELS[currentContentType] || currentContentType}</span>
+								</div>
 							</div>
-						</div>
+						)}
 
 						<div className="flex items-center gap-2" ref={yearRef}>
 							<label className="w-40 text-sm">Release Year</label>
@@ -271,19 +295,39 @@ export default function AdminContentUpdatePage() {
 						/>
 					</div>
 
-					<div className="flex items-center gap-2 md:col-span-2">
-						<label className="w-40 text-sm">Availability</label>
-						<div className="flex items-center gap-3">
-							<span className={`status-badge ${(isAvailable === 1 || isAvailable === true) ? 'active' : (isAvailable === 0 || isAvailable === false) ? 'inactive' : ''}`} style={{
-								...(isAvailable !== 1 && isAvailable !== true && isAvailable !== 0 && isAvailable !== false && {
-									backgroundColor: 'var(--neutral-bg)',
-									color: 'var(--text)',
-									borderColor: 'var(--neutral)'
-								})
-							}}>
-								{(isAvailable === 1 || isAvailable === true) ? 'Available' : 
-								 (isAvailable === 0 || isAvailable === false) ? 'Unavailable' : 'Unchanged'}
-							</span>
+					<div className="pt-2 md:col-span-2" style={{ borderTop: '2px solid var(--border)' }}>
+						<div className="flex items-center justify-between">
+							<div className="flex items-center gap-2">
+								<span className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Status:</span>
+								<span className={`status-badge ${(isAvailable === 1 || isAvailable === true) ? 'active' : (isAvailable === 0 || isAvailable === false) ? 'inactive' : (currentIsAvailable !== undefined ? (currentIsAvailable ? 'active' : 'inactive') : '')}`}>
+									{(isAvailable === 1 || isAvailable === true) ? (
+										<>
+											<CheckCircle className="w-3 h-3" />
+											Available
+										</>
+									) : (isAvailable === 0 || isAvailable === false) ? (
+										<>
+											<XCircle className="w-3 h-3" />
+											Unavailable
+										</>
+									) : (
+										<>
+											{currentIsAvailable !== undefined && (currentIsAvailable ? (
+												<>
+													<CheckCircle className="w-3 h-3" />
+													Available
+												</>
+											) : (
+												<>
+													<XCircle className="w-3 h-3" />
+													Unavailable
+												</>
+											))}
+											{currentIsAvailable === undefined && 'Unchanged'}
+										</>
+									)}
+								</span>
+							</div>
 							<button
 								type="button"
 								className="admin-btn secondary !py-1 !px-3 text-xs"
@@ -295,15 +339,17 @@ export default function AdminContentUpdatePage() {
 									}
 								}}
 							>
-								Toggle
+								Toggle to {(isAvailable === 1 || isAvailable === true) ? 'Unavailable' : (isAvailable === 0 || isAvailable === false) ? 'Available' : (currentIsAvailable ? 'Unavailable' : 'Available')}
 							</button>
-							<span className="text-xs typography-inter-4" style={{ color: 'var(--neutral)' }}>
-								{(isAvailable === 1 || isAvailable === true) ? 'Content xuất hiện trong search' : 
-								 (isAvailable === 0 || isAvailable === false) ? 'Content bị ẩn khỏi search' : 'Giữ nguyên giá trị hiện tại'}
-							</span>
+						</div>
+						<div className="typography-inter-4 mt-2" style={{ color: 'var(--neutral)' }}>
+							{(isAvailable === 1 || isAvailable === true) ? 'Content xuất hiện trong kết quả search' : 
+							 (isAvailable === 0 || isAvailable === false) ? 'Content bị ẩn khỏi search' : 
+							 (currentIsAvailable !== undefined ? (currentIsAvailable ? 'Content xuất hiện trong kết quả search' : 'Content bị ẩn khỏi search') : 'Giữ nguyên giá trị hiện tại')}
 						</div>
 					</div>
-				</div>					<div className="flex items-center gap-3">
+					</div>
+					<div className="flex items-center gap-3">
 						<button
 							className="admin-btn primary"
 							disabled={busy || !contentSlug || !isAdmin}
@@ -320,7 +366,8 @@ export default function AdminContentUpdatePage() {
 							{coverLandscapeUploaded && <div className="text-green-400">Cover landscape updated. URL: {coverLandscapeUrl}</div>}
 						</div>
 					)}
-				</div>
+					</div>
+				</>
 			)}
 		</div>
 	);

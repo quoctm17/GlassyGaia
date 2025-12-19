@@ -220,7 +220,6 @@
   border-radius: 10px;
   overflow: hidden;
   margin-bottom: 16px;
-  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.35), 0 0 10px rgba(236, 72, 153, 0.35);
 }
 
 .admin-section .admin-table {
