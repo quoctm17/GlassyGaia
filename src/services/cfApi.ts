@@ -779,6 +779,7 @@ export async function apiUpdateFilmMeta(params: {
   release_year?: number | null;
   is_original?: boolean | null;
   is_available?: boolean | number | null;
+  video_has_images?: boolean | number | null;
 }) {
   assertApiBase();
   const { filmSlug, ...body } = params;

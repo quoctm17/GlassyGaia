@@ -54,6 +54,7 @@ export interface FilmDoc {
   avg_difficulty_score?: number | null;
   level_framework_stats?: string | LevelFrameworkStats[] | null;
   is_available?: boolean; // visibility flag (default: true)
+  video_has_images?: boolean; // for video content: true = has individual card images, false = uses episode cover for all cards
 }
 
 export interface UserPreferences {

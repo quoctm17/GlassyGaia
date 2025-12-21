@@ -9,7 +9,7 @@ import {
   uploadEpisodeCoverImage,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, invalidateItemsCache } from "../../services/cfApi";
+import { apiUpdateEpisodeMeta, apiUpdateFilmMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, invalidateItemsCache } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
 import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Video, Loader2, RefreshCcw, ArrowLeft } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
@@ -669,6 +669,18 @@ export default function AdminContentIngestPage() {
         toast.error("Không tính được thống kê cho nội dung này");
       }
       setStage("done"); toast.success("Content + Episode 1 created successfully");
+      // Save video_has_images to content_items if video content
+      if (contentType === 'video') {
+        try {
+          await apiUpdateFilmMeta({
+            filmSlug: filmId,
+            video_has_images: videoHasImages ? 1 : 0,
+          });
+        } catch (err) {
+          console.warn('Failed to save video_has_images:', err);
+          // Non-blocking error
+        }
+      }
       // Post-success: refresh global main-language options and notify Search to refresh
       try {
         const langs = await getAvailableMainLanguages();
