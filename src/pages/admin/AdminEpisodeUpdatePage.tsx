@@ -75,12 +75,11 @@ export default function AdminEpisodeUpdatePage() {
           setFilm(f); 
           if (f?.main_language) setFilmMainLang(f.main_language);
           // Load video_has_images from film data
-          // video_has_images = 1 (true) = has individual card images
-          // video_has_images = 0 (false) = uses episode cover for all cards
+          // video_has_images = true = has individual card images
+          // video_has_images = false = uses episode cover for all cards
           if (f?.type === 'video') {
-            // Handle both number (0/1) and boolean (false/true) from API
-            const hasImages = f.video_has_images === 1 || f.video_has_images === true;
-            setVideoHasImages(hasImages);
+            // API returns boolean, default to true if undefined
+            setVideoHasImages(f.video_has_images !== false);
           } else {
             setVideoHasImages(true); // Reset when not video
           }
