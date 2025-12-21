@@ -1,0 +1,61 @@
+/* SRS State Badge Styles */
+
+.srs-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.5px;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  text-transform: uppercase;
+}
+
+/* ================= SRS State Colors ================= */
+.srs-badge.srs-none,
+.level-badge.srs-none {
+  background: #6B7280;
+  color: #ffffff;
+  border-color: #4B5563;
+}
+
+.srs-badge.srs-new,
+.level-badge.srs-new {
+  background: #9E9E9E;
+  color: #ffffff;
+  border-color: #757575;
+}
+
+.srs-badge.srs-again,
+.level-badge.srs-again {
+  background: #FF6A7A;
+  color: #ffffff;
+  border-color: #FF4757;
+}
+
+.srs-badge.srs-hard,
+.level-badge.srs-hard {
+  background: #FFB664;
+  color: #1e293b;
+  border-color: #FFA040;
+}
+
+.srs-badge.srs-good,
+.level-badge.srs-good {
+  background: #55CDAA;
+  color: #1e293b;
+  border-color: #3DB894;
+}
+
+.srs-badge.srs-easy,
+.level-badge.srs-easy {
+  background: #5EBBFF;
+  color: #1e293b;
+  border-color: #3DA5F0;
+}
+

@@ -13,6 +13,12 @@ export default function AdminContentCardDetailPage() {
   const [card, setCard] = useState<CardDoc | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState(false);
+
+  // Reset image error when card changes
+  useEffect(() => {
+    setImageError(false);
+  }, [card?.id]);
 
   useEffect(() => {
     if (!contentSlug || !episodeId || !cardId) return;
@@ -155,18 +161,19 @@ export default function AdminContentCardDetailPage() {
               <div className="admin-media-section">
                 <div className="admin-media-header">
                   <span className="typography-inter-4 admin-media-label">Image:</span>
-                  {card.image_url && (
+                  {card.image_url && !imageError && (
                     <a href={card.image_url} target="_blank" rel="noreferrer" className="admin-btn secondary inline-flex items-center gap-1">
                       <ExternalLink className="w-3 h-3" />
                       <span>Open</span>
                     </a>
                   )}
                 </div>
-                {card.image_url ? (
+                {card.image_url && !imageError ? (
                   <img 
                     src={card.image_url} 
                     alt="card" 
-                    className="admin-media-image" 
+                    className="admin-media-image"
+                    onError={() => setImageError(true)}
                   />
                 ) : (
                   <div className="typography-inter-4 admin-media-placeholder">No image</div>
