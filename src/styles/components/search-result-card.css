@@ -10,7 +10,8 @@
   animation: pixelFadeIn .5s ease forwards;
   background: var(--background);
   border: none;
-  border-bottom: 2px solid var(--primary);
+  border-bottom: 1px solid var(--primary);
+  border-bottom-color: color-mix(in srgb, var(--primary) 80%, transparent);
   min-height: fit-content; /* Allow cards to grow dynamically */
   height: auto; /* Dynamic height based on content */
 }
@@ -87,7 +88,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 10px;
-  border: 2px solid var(--primary);
+  border: 1px solid var(--primary);
   border-radius: 999px;
   flex-shrink: 0;
   white-space: nowrap;
@@ -692,9 +693,6 @@
     max-width: 220px;
   }
 
-  .card-main-content {
-    gap: 12px;
-  }
 }
 
 /* Laptop and below (lg: 1024px) */
@@ -713,9 +711,6 @@
     max-width: 200px;
   }
 
-  .card-main-content {
-    gap: 12px;
-  }
 }
 
 /* Mobile/Tablet (md: 768px and below) */
@@ -726,7 +721,6 @@
 
   .card-main-content {
     flex-direction: column;
-    gap: 12px;
   }
 
   .card-left-section {

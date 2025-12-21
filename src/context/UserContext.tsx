@@ -1,7 +1,6 @@
 /* eslint react-refresh/only-export-components: 0 */
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { AppUser, UserPreferences } from "../types";
-import { listFavorites } from "../services/progress";
 import { registerUser, getUserProfile, updateUserPreferences, getUserRoles } from "../services/userManagement";
 import { loginWithEmailPassword } from "../services/authentication";
 // Google OAuth2 (replaces Firebase) – used for Google sign-in
@@ -22,8 +21,6 @@ interface CtxValue {
   setMainLanguage: (lang: string) => Promise<void>;
   setVolume: (volume: number) => void;
   setResultLayout: (layout: 'default' | '1-column' | '2-column') => void;
-  favoriteIds: Set<string>;
-  setFavoriteLocal: (cardId: string, val: boolean) => void;
   // Language selector coordination: only one can be open at a time
   openLanguageSelector: "main" | "subtitle" | null;
   setOpenLanguageSelector: (which: "main" | "subtitle" | null) => void;
@@ -53,7 +50,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [preferences, setPreferences] = useState<UserPreferences>(defaultPrefs);
   const [loading, setLoading] = useState(true);
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [adminKey, setAdminKey] = useState<string>("");
   const [openLanguageSelector, setOpenLanguageSelector] = useState<"main" | "subtitle" | null>(null);
   const [theme, setThemeState] = useState<"light" | "dark">(() => {
@@ -134,11 +130,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         })
         .finally(() => setLoading(false));
     } else {
-      // No stored user: treat as signed-out but keep app usable; load favorites for local guest id
-      listFavorites("local")
-        .then((favs) => setFavoriteIds(new Set(favs.map((f) => f.card_id))))
-        .catch(() => setFavoriteIds(new Set()))
-        .finally(() => setLoading(false));
+      // No stored user: treat as signed-out but keep app usable
+      setLoading(false);
     }
   }, [hasGoogleConfig]);
 
@@ -220,14 +213,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("resultLayout", resultLayout);
   };
 
-  const setFavoriteLocal = (cardId: string, val: boolean) => {
-    setFavoriteIds((prev) => {
-      const next = new Set(prev);
-      if (val) next.add(cardId);
-      else next.delete(cardId);
-      return next;
-    });
-  };
 
   const signInGoogle = async () => {
     if (!hasGoogleConfig) {
@@ -275,13 +260,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             roles: result.user.roles || [],
           });
           
-          // Load favorites
-          try {
-            const favs = await listFavorites(result.user.id);
-            setFavoriteIds(new Set(favs.map((f) => f.card_id)));
-          } catch (error) {
-            console.error('Failed to load favorites:', error);
-          }
         } catch (error) {
           console.error('Failed to register user in database:', error);
         }
@@ -336,13 +314,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setPreferences(defaultPrefs);
       }
       
-      // Load favorites
-      try {
-        const favs = await listFavorites(result.user.id);
-        setFavoriteIds(new Set(favs.map((f) => f.card_id)));
-      } catch (error) {
-        console.error('Failed to load favorites:', error);
-      }
       
       return { success: true };
     } catch (error) {
@@ -355,7 +326,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('user_id');
     setPreferences(defaultPrefs);
     setUser(null);
-    setFavoriteIds(new Set());
   };
   
   // Role checking helpers
@@ -386,8 +356,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         preferences, 
         setSubtitleLanguages, 
         setSubtitleRequireAll, 
-        favoriteIds, 
-        setFavoriteLocal, 
         setMainLanguage,
         setVolume,
         setResultLayout,

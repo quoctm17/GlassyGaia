@@ -28,6 +28,7 @@ export default function AdminEpisodeUpdatePage() {
   const [error, setError] = useState<string | null>(null);
   const [film, setFilm] = useState<FilmDoc | null>(null);
   const [filmMainLang, setFilmMainLang] = useState<string>('en');
+  const [videoHasImages, setVideoHasImages] = useState(true); // Video-specific: whether video has individual card images
 
   // File upload states
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -73,6 +74,16 @@ export default function AdminEpisodeUpdatePage() {
         if (mounted) { 
           setFilm(f); 
           if (f?.main_language) setFilmMainLang(f.main_language);
+          // Load video_has_images from film data
+          // video_has_images = 1 (true) = has individual card images
+          // video_has_images = 0 (false) = uses episode cover for all cards
+          if (f?.type === 'video') {
+            // Handle both number (0/1) and boolean (false/true) from API
+            const hasImages = f.video_has_images === 1 || f.video_has_images === true;
+            setVideoHasImages(hasImages);
+          } else {
+            setVideoHasImages(true); // Reset when not video
+          }
         }
         const row = await apiGetEpisodeDetail({ filmSlug: contentSlug!, episodeNum });
         if (!mounted) return;
@@ -224,13 +235,15 @@ export default function AdminEpisodeUpdatePage() {
   const isVideoContent = film?.type === 'video';
   const canReimport = useMemo(() => {
     const csvOk = csvValid === true && !!csvRows.length;
-    // For video: only require audio files, skip images
+    // For video: check videoHasImages to determine requirements
     // For other types: require both image and audio files
     const cardMediaOk = isVideoContent 
-      ? audioFiles.length > 0 
+      ? (videoHasImages 
+          ? (imageFiles.length > 0 && audioFiles.length > 0)
+          : audioFiles.length > 0)
       : imageFiles.length > 0 && audioFiles.length > 0;
     return csvOk && cardMediaOk && !loading;
-  }, [csvValid, csvRows.length, imageFiles.length, audioFiles.length, loading, isVideoContent]);
+  }, [csvValid, csvRows.length, isVideoContent, videoHasImages, imageFiles.length, audioFiles.length, loading]);
   const [reimportBusy, setReimportBusy] = useState(false);
   const [reimportStage, setReimportStage] = useState<'idle'|'deleting'|'uploading_media'|'uploading_episode_media'|'import'|'stats'|'done'>('idle');
   const [confirmRollback, setConfirmRollback] = useState(false);
@@ -262,7 +275,7 @@ export default function AdminEpisodeUpdatePage() {
       if (cancelRequestedRef.current) throw new Error('User cancelled');
       
       // Step 2: Upload card media (images/audio) for cards
-      // For video: only upload audio, skip images
+      // For video: check videoHasImages to determine what to upload
       setReimportStage('uploading_media');
       const doUploadMedia = async (type: MediaType, files: File[], signal?: AbortSignal) => {
         if (!files.length) return;
@@ -284,8 +297,9 @@ export default function AdminEpisodeUpdatePage() {
         }
       };
       
-      // For video: only upload audio, skip images
-      const uploadPromises = isVideoContent
+      // For video without images: only upload audio, skip images
+      // For video with images or other types: upload both images and audio
+      const uploadPromises = (isVideoContent && !videoHasImages)
         ? [doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)]
         : [
             doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
@@ -312,7 +326,9 @@ export default function AdminEpisodeUpdatePage() {
       // Infer card IDs if needed
       let cardIds: string[]|undefined = undefined;
       if(infer){ 
-        const all=[...imageFiles, ...audioFiles]; 
+        // For video without images: only use audio files for inferring IDs
+        // For video with images or other types: use both image and audio files
+        const all = (isVideoContent && !videoHasImages) ? audioFiles : [...imageFiles, ...audioFiles]; 
         const set=new Set<string>(); 
         all.forEach(f=>{ 
           const m=f.name.match(/(\d+)(?=\.[^.]+$)/); 
@@ -357,7 +373,10 @@ export default function AdminEpisodeUpdatePage() {
           if (isImage) { imageExtensions[cardId] = ext; } else { audioExtensions[cardId] = ext; }
         });
       };
-      buildExtMap(imageFiles, true);
+      // Only build image extension map if video has images or not video type
+      if (!isVideoContent || videoHasImages) {
+        buildExtMap(imageFiles, true);
+      }
       buildExtMap(audioFiles, false);
       
       // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian)
@@ -379,6 +398,7 @@ export default function AdminEpisodeUpdatePage() {
         audioExtensions,
         overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
         confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined,
+        videoHasImages: isVideoContent ? videoHasImages : undefined,
       }, () => {});
       
       toast.success('CSV imported successfully');
@@ -539,7 +559,12 @@ export default function AdminEpisodeUpdatePage() {
               <li><span style={{ color: 'var(--text)' }}>CSV</span>: Cột bắt buộc: <code>start</code>, <code>end</code>. Phải có cột phụ đề cho Main Language (<span style={{ color: 'var(--primary)' }}>{filmMainLang}</span>).</li>
               <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: 
                 <ul className="list-disc pl-5 mt-1 space-y-1">
-                  <li><strong>Với Type = Video</strong>: Chỉ cần upload <strong>Audio</strong> (.opus). Episode Cover Landscape sẽ được dùng làm image cho tất cả cards. Không cần upload Images cho cards.</li>
+                  <li><strong>Với Type = Video</strong>: Có 2 trường hợp:
+                    <ul className="list-disc pl-5 mt-1 space-y-1">
+                      <li><strong>Video có ảnh</strong>: Upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho từng card (giống các type khác).</li>
+                      <li><strong>Video không có ảnh</strong>: Chỉ upload <strong>Audio</strong> (.opus). Episode Cover Landscape sẽ được dùng làm image cho tất cả cards.</li>
+                    </ul>
+                  </li>
                   <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
                 </ul>
               </li>
@@ -716,6 +741,24 @@ export default function AdminEpisodeUpdatePage() {
                 <LanguageTag code={filmMainLang} withName={true} size="md" />
               </div>
             </div>
+            {/* Video-specific: display video_has_images setting (read-only) */}
+            {film?.type === 'video' && (
+              <div className="flex items-center gap-2">
+                <label className="w-40 text-sm typography-inter-3" style={{ fontSize: '10px' }}>Video Images</label>
+                <div className="flex items-center gap-3 flex-1">
+                  <input 
+                    id="chk-video-images-update" 
+                    type="checkbox" 
+                    checked={videoHasImages} 
+                    disabled={true}
+                    style={{ opacity: 0.5, cursor: 'not-allowed' }}
+                  />
+                  <label htmlFor="chk-video-images-update" className="text-xs opacity-60" style={{ color: 'var(--text)' }}>
+                    {videoHasImages ? 'Video has individual card images' : 'Video uses episode cover for all cards'} <span className="text-gray-400">(read-only from content settings)</span>
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* CSV Upload */}
@@ -817,7 +860,7 @@ export default function AdminEpisodeUpdatePage() {
             setStartIndex={setStartIndex}
             replaceMode={false}
             setReplaceMode={() => {}}
-            hideImages={isVideoContent}
+            hideImages={isVideoContent && !videoHasImages}
           />
 
           {/* Replace Action */}
@@ -841,20 +884,20 @@ export default function AdminEpisodeUpdatePage() {
                     pending: reimportStage === 'deleting',
                     value: reimportStage === 'deleting' && deletionPercent > 0 ? `${Math.min(100, deletionPercent)}%` : undefined,
                   },
-                  ...(isVideoContent ? [] : [{
+                  ...((isVideoContent && !videoHasImages) ? [] : [{
                     label: '2. Images',
                     done: imagesDone === imageFiles.length && imageFiles.length > 0,
                     pending: imageFiles.length > 0 && imagesDone < imageFiles.length,
                     value: `${imagesDone}/${imageFiles.length}`,
                   }]),
                   {
-                    label: isVideoContent ? '2. Audio' : '3. Audio',
+                    label: (isVideoContent && !videoHasImages) ? '2. Audio' : ((isVideoContent && videoHasImages) ? '3. Audio' : '3. Audio'),
                     done: audioDone === audioFiles.length && audioFiles.length > 0,
                     pending: audioFiles.length > 0 && audioDone < audioFiles.length,
                     value: `${audioDone}/${audioFiles.length}`,
                   },
                   {
-                    label: isVideoContent ? '3. Import CSV' : '4. Import CSV',
+                    label: (isVideoContent && !videoHasImages) ? '3. Import CSV' : ((isVideoContent && videoHasImages) ? '4. Import CSV' : '4. Import CSV'),
                     done: reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media',
                     pending: reimportStage === 'import',
                   },

@@ -13,7 +13,6 @@ import watchlistIcon from "../assets/icons/watchlist.svg";
 import loginIcon from "../assets/icons/log-in.svg";
 import logoutIcon from "../assets/icons/log-out.svg";
 import adminIcon from "../assets/icons/xp-dimond.svg";
-import favoriteIcon from "../assets/icons/save-heart.svg";
 import "../styles/components/navbar.css";
 
 export default function NavBar() {
@@ -140,14 +139,6 @@ export default function NavBar() {
                     Admin Panel
                   </Link>
                 )}
-                <Link
-                  to="/favorites"
-                  className="user-dropdown-item"
-                  onClick={() => setOpen(false)}
-                >
-                  <img src={favoriteIcon} alt="Favorites" className="dropdown-icon" />
-                  Favorites
-                </Link>
                 <Link
                   to="/about"
                   className="user-dropdown-item"

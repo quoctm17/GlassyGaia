@@ -57,7 +57,6 @@
     color: #FFFFFF !important;
     background: var(--primary) !important;
     border-color: var(--hover-select);
-    box-shadow: 0 0 0 2px var(--hover-select) inset;
 }
 
 /* Highlighted primary action in nav (Create Film) */
@@ -69,7 +68,6 @@
 }
 .admin-nav-link.highlight:hover {
     filter: brightness(1.05);
-    box-shadow: 0 0 0 2px rgba(236,72,153,0.55), 0 0 14px rgba(236,72,153,0.55);
 }
 
 .admin-btn {
@@ -82,19 +80,16 @@
   border-radius: 50px;
   cursor: pointer;
   letter-spacing: 0.5px;
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.2);
   transition: all 0.15s ease;
 }.admin-btn:disabled,
 .admin-btn[disabled] {
     opacity: 0.5;
     cursor: not-allowed;
-    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
 }
 
 .admin-btn:hover:not(:disabled) {
     background: var(--hover-select);
     transform: translate(-2px, -2px);
-    box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.3);
 }
 
 .admin-btn.secondary {
@@ -116,20 +111,17 @@
     background: #dc2626;
     color: #FFFFFF;
     border: 3px solid #991b1b;
-    box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.2);
 }
 
 .admin-btn.danger:hover:not(:disabled) {
     background: #b91c1c;
     transform: translate(-2px, -2px);
-    box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.3);
 }
 
 .admin-btn:disabled:hover,
 .admin-btn[disabled]:hover {
     opacity: 0.5;
     cursor: not-allowed;
-    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
     transform: none;
 }
 
@@ -141,13 +133,11 @@
   border: 2px solid var(--hover-select);
   border-radius: 8px;
   font-size: 13px;
-  box-shadow: 0 0 0 2px rgba(236,72,153,0.15);
   font-family: 'Inter', sans-serif;
   letter-spacing: 0.5px;
 }.admin-input:focus {
     outline: none;
     background: #fff0fa;
-    box-shadow: 0 0 0 2px rgba(236,72,153,0.55), 0 0 8px rgba(236,72,153,0.4);
 }
 
 .admin-user-block {
@@ -237,7 +227,6 @@
         width: 260px;
         max-width: 80vw;
         z-index: 60;
-        box-shadow: 4px 0 16px rgba(0,0,0,0.6);
         display: flex;
         flex-direction: column;
         align-items: stretch;
@@ -393,7 +382,6 @@
     border: 2px solid var(--primary);
     border-radius: 12px;
     padding: 14px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
     color: var(--text);
 }
 
@@ -449,9 +437,9 @@
     background: var(--border);
 }
 
-.admin-progress-dot.done { background: var(--success); box-shadow: 0 0 0 2px rgba(16,185,129,0.2); }
-.admin-progress-dot.pending { background: var(--warning); box-shadow: 0 0 0 2px rgba(245,158,11,0.25); }
-.admin-progress-dot.waiting { background: var(--neutral); box-shadow: 0 0 0 2px rgba(158,158,158,0.25); }
+.admin-progress-dot.done { background: var(--success); }
+.admin-progress-dot.pending { background: var(--warning); }
+.admin-progress-dot.waiting { background: var(--neutral); }
 
 .admin-panel-title {
     font-size: 12px;
@@ -470,7 +458,6 @@
     background: var(--background);
     border: 2px solid var(--primary);
     border-radius: 10px;
-    box-shadow: 0 0 0 2px var(--hover-select) inset;
 }
 
 .admin-dropdown-item {
@@ -508,7 +495,6 @@
 }
 .admin-panel input[type="checkbox"]:focus {
     outline: none;
-    box-shadow: 0 0 0 2px var(--hover-select);
 }
 
 @media (max-width: 860px) {
@@ -688,7 +674,6 @@
     border-radius: 10px;
     padding: 14px;
     margin-bottom: 12px;
-    box-shadow: 0 0 0 2px var(--hover-select) inset;
     transition: all 0.2s ease;
     cursor: pointer;
 }
@@ -879,7 +864,6 @@
 .flag-svg {
     width: 16px;
     height: 12px;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
     border-radius: 2px;
     display: inline-block;
     vertical-align: middle;
@@ -982,7 +966,6 @@ html.no-flag-emoji .emoji-flag { display: none; }
   border: 3px solid var(--primary);
   border-radius: 12px;
   padding: 24px;
-  box-shadow: 0 0 0 2px var(--hover-select) inset, 0 0 24px rgba(236, 72, 153, 0.35);
 }
 
 .admin-modal-title {

@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState, memo } from "react";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
-import { toggleFavorite } from "../services/progress";
 import { canonicalizeLangCode } from "../utils/lang";
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
 import "../styles/components/search-result-card.css";
-import saveHeartIcon from "../assets/icons/save-heart.svg";
 import threeDotsIcon from "../assets/icons/three-dots.svg";
 import buttonPlayIcon from "../assets/icons/button-play.svg";
 import eyeIcon from "../assets/icons/eye.svg";
@@ -28,10 +26,8 @@ const SearchResultCard = memo(function SearchResultCard({
   highlightQuery,
   primaryLang,
 }: Props) {
-  const { preferences, user, signInGoogle, favoriteIds, setFavoriteLocal } =
-    useUser();
+  const { preferences } = useUser();
   const langs = useMemo(() => preferences.subtitle_languages || [], [preferences.subtitle_languages]);
-  const [favorite, setFavorite] = useState<boolean>(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const [subsOverride, setSubsOverride] = useState<Record<string, string> | null>(null);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
@@ -94,9 +90,6 @@ const SearchResultCard = memo(function SearchResultCard({
       } else if (e.key === ' ' || e.key === 'Spacebar') {
         e.preventDefault();
         handleImageClick();
-      } else if ((e.key === 's' || e.key === 'S') && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        onToggleFavorite();
       } else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleReplayAudio();
@@ -114,7 +107,7 @@ const SearchResultCard = memo(function SearchResultCard({
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isHovered, currentCardIndex, originalCardIndex, episodeCards, card, isPlaying, favorite]);
+  }, [isHovered, currentCardIndex, originalCardIndex, episodeCards, card, isPlaying]);
 
   // Create stable keys for dependency tracking
   const subtitleKeys = useMemo(() => {
@@ -536,10 +529,6 @@ const SearchResultCard = memo(function SearchResultCard({
     }
   }
 
-  useEffect(() => {
-    // keep heart state in sync with account favorites
-    setFavorite(user ? favoriteIds.has(card.id) : false);
-  }, [user, favoriteIds, card.id]);
 
   // Load episode cards for navigation (centered around current card)
   // Only load ONCE when initialCard changes, don't reload during A/D navigation
@@ -617,9 +606,18 @@ const SearchResultCard = memo(function SearchResultCard({
           prevCard.episode_id || card.episode_id || `e${card.episode}`,
           String(prevCard.id)
         );
-        setCard(fullCard || prevCard);
+        // Preserve levels from current card if new card doesn't have them
+        const cardToSet = fullCard || prevCard;
+        setCard({
+          ...cardToSet,
+          levels: cardToSet.levels || card.levels
+        });
       } catch {
-        setCard(prevCard);
+        // Preserve levels from current card if new card doesn't have them
+        setCard({
+          ...prevCard,
+          levels: prevCard.levels || card.levels
+        });
       }
       setCurrentCardIndex(currentCardIndex - 1);
       
@@ -655,9 +653,18 @@ const SearchResultCard = memo(function SearchResultCard({
           nextCard.episode_id || card.episode_id || `e${card.episode}`,
           String(nextCard.id)
         );
-        setCard(fullCard || nextCard);
+        // Preserve levels from current card if new card doesn't have them
+        const cardToSet = fullCard || nextCard;
+        if (!cardToSet.levels && card.levels) {
+          cardToSet.levels = card.levels;
+        }
+        setCard(cardToSet);
       } catch {
-        setCard(nextCard);
+        // Preserve levels from current card if new card doesn't have them
+        setCard({
+          ...nextCard,
+          levels: nextCard.levels || card.levels
+        });
       }
       setCurrentCardIndex(currentCardIndex + 1);
       
@@ -681,23 +688,6 @@ const SearchResultCard = memo(function SearchResultCard({
     }
   };
 
-  const onToggleFavorite = async () => {
-    if (!user) {
-      await signInGoogle();
-      return;
-    }
-    const episode_id =
-      card.episode_id ||
-      (typeof card.episode === "number"
-        ? `e${card.episode}`
-        : String(card.episode));
-    const next = await toggleFavorite(user.uid, card.id, {
-      film_id: card.film_id,
-      episode_id,
-    });
-    setFavorite(next);
-    setFavoriteLocal(card.id, next);
-  };
 
   // Replay audio from beginning
   const handleReplayAudio = () => {
@@ -732,9 +722,18 @@ const SearchResultCard = memo(function SearchResultCard({
           originalCard.episode_id || card.episode_id || `e${card.episode}`,
           String(originalCard.id)
         );
-        setCard(fullCard || originalCard);
+        // Preserve levels from current card if new card doesn't have them
+        const cardToSet = fullCard || originalCard;
+        if (!cardToSet.levels && card.levels) {
+          cardToSet.levels = card.levels;
+        }
+        setCard(cardToSet);
       } catch {
-        setCard(originalCard);
+        // Preserve levels from current card if new card doesn't have them
+        setCard({
+          ...originalCard,
+          levels: originalCard.levels || card.levels
+        });
       }
       setCurrentCardIndex(originalCardIndex);
       
@@ -861,7 +860,7 @@ const SearchResultCard = memo(function SearchResultCard({
           </div>
         </div>
 
-        {/* Bottom row: Left (image) + Center (subtitles) + Right (favorite/menu) */}
+        {/* Bottom row: Left (image) + Center (subtitles) + Right (menu) */}
         <div className="card-content-row">
           {/* Left side: Image only */}
           <div className="card-left-section">
@@ -999,16 +998,8 @@ const SearchResultCard = memo(function SearchResultCard({
         </div>
         </div>
 
-          {/* Right: Favorite button and Menu */}
+          {/* Right: Menu */}
           <div className="card-right-section">
-          <button
-            className={`pixel-btn-fav ${favorite ? "active" : ""}`}
-            onClick={onToggleFavorite}
-            title={favorite ? "Remove from Favorites (S)" : "Add to Favorites (S)"}
-          >
-            <img src={saveHeartIcon} alt="Favorite" />
-          </button>
-          
           <div className="card-menu-container" ref={menuRef}>
             <button
               className="pixel-btn-menu"

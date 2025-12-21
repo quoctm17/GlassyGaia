@@ -1478,10 +1478,10 @@ export default {
         const filmSlug = decodeURIComponent(filmMatch[1]);
         try {
           // Case-insensitive slug matching for stability
-          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
+          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats,video_has_images FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
           if (!film) {
             // Fallback: allow direct UUID id lookup in case caller still uses internal id
-            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats FROM content_items WHERE id=?').bind(filmSlug).first();
+            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats,video_has_images FROM content_items WHERE id=?').bind(filmSlug).first();
           }
           if (!film) return new Response('Not found', { status: 404, headers: withCors() });
           // Languages and episodes are optional; if the table is missing, default gracefully
@@ -1552,7 +1552,7 @@ export default {
             } catch {}
           }
           
-          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: levelStats, is_available: film.is_available ?? 1 });
+          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: levelStats, is_available: film.is_available ?? 1, video_has_images: film.video_has_images === 1 || film.video_has_images === true });
         } catch (e) {
           return new Response('Not found', { status: 404, headers: withCors() });
         }
@@ -1666,6 +1666,20 @@ export default {
               val = Number(raw) ? 1 : 0;
             }
             if (val !== null) { setClauses.push('is_original=?'); values.push(val); }
+          }
+
+          // New: video_has_images flag (boolean). Accepts boolean or number; coerces to 0/1.
+          if (has('video_has_images')) {
+            const raw = body.video_has_images;
+            let val = null;
+            if (raw === null) {
+              val = null;
+            } else if (typeof raw === 'boolean') {
+              val = raw ? 1 : 0;
+            } else if (raw !== '' && raw != null) {
+              val = Number(raw) ? 1 : 0;
+            }
+            if (val !== null) { setClauses.push('video_has_images=?'); values.push(val); }
           }
 
           // New: is_available flag (boolean). Accepts boolean or number; coerces to 0/1.

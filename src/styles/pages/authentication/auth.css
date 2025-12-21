@@ -1,14 +1,14 @@
-/* Authentication Pages Styles - Dark Pink Pixel Theme */
+/* Authentication Pages Styles - Using Theme Colors */
 
 .auth-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1a0f26 0%, #2a1b3b 50%, #1a0f26 100%);
+  background: var(--background);
   background-attachment: fixed;
   padding: 20px;
-  font-family: 'Press Start 2P', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   position: relative;
   overflow: hidden;
 }
@@ -22,8 +22,8 @@
   right: 0;
   bottom: 0;
   background-image: 
-    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(236, 72, 153, 0.03) 2px, rgba(236, 72, 153, 0.03) 4px),
-    repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(236, 72, 153, 0.03) 2px, rgba(236, 72, 153, 0.03) 4px);
+    repeating-linear-gradient(0deg, transparent, transparent 2px, color-mix(in srgb, var(--primary) 3%, transparent) 2px, color-mix(in srgb, var(--primary) 3%, transparent) 4px),
+    repeating-linear-gradient(90deg, transparent, transparent 2px, color-mix(in srgb, var(--primary) 3%, transparent) 2px, color-mix(in srgb, var(--primary) 3%, transparent) 4px);
   pointer-events: none;
   animation: pixelMove 20s linear infinite;
 }
@@ -41,38 +41,14 @@
 }
 
 .auth-card {
-  background: #2a1b3b;
-  border: 3px solid #ec4899;
-  border-radius: 0;
+  background: var(--secondary);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
   padding: 32px;
-  box-shadow: 
-    0 0 0 2px #2a1b3b,
-    0 0 0 5px #ec4899,
-    0 8px 16px rgba(0, 0, 0, 0.4),
-    0 0 30px rgba(236, 72, 153, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   position: relative;
 }
 
-/* Pixel corners decoration */
-.auth-card::before,
-.auth-card::after {
-  content: '';
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  background: #ec4899;
-  box-shadow: 0 0 10px rgba(236, 72, 153, 0.6);
-}
-
-.auth-card::before {
-  top: -3px;
-  left: -3px;
-}
-
-.auth-card::after {
-  bottom: -3px;
-  right: -3px;
-}
 
 /* Header */
 .auth-header {
@@ -84,33 +60,29 @@
   width: 64px;
   height: 64px;
   margin: 0 auto 16px;
-  border: 2px solid #ec4899;
-  border-radius: 0;
+  border: 2px solid var(--primary);
+  border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 0 15px rgba(236, 72, 153, 0.4);
-  image-rendering: pixelated;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .auth-logo img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  image-rendering: pixelated;
 }
 
 .auth-title {
-  font-size: 18px;
-  color: #f5d0fe;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
   margin: 0 0 8px 0;
-  text-shadow: 
-    2px 2px 0 #ec4899,
-    0 0 20px rgba(236, 72, 153, 0.5);
-  line-height: 1.6;
+  line-height: 1.4;
 }
 
 .auth-subtitle {
-  font-size: 10px;
-  color: #f9a8d4;
+  font-size: 14px;
+  color: var(--text-muted);
   margin: 0;
   line-height: 1.6;
 }
@@ -127,11 +99,12 @@
   align-items: center;
   gap: 8px;
   padding: 12px;
-  background: rgba(248, 113, 113, 0.1);
-  border: 2px solid #f87171;
-  color: #fca5a5;
-  font-size: 10px;
+  background: var(--error-bg);
+  border: 1px solid var(--error);
+  color: var(--error-text);
+  font-size: 14px;
   line-height: 1.6;
+  border-radius: 6px;
 }
 
 .auth-input-group {
@@ -141,10 +114,10 @@
 }
 
 .auth-label {
-  font-size: 10px;
-  color: #f9a8d4;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
 }
 
 .auth-input-wrapper {
@@ -156,9 +129,9 @@
 .auth-input-icon {
   position: absolute;
   left: 12px;
-  width: 16px;
-  height: 16px;
-  color: #ec4899;
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
   pointer-events: none;
   z-index: 1;
 }
@@ -166,27 +139,24 @@
 .auth-input {
   width: 100%;
   padding: 12px 12px 12px 40px;
-  background: #1a0f26;
-  border: 2px solid #ec4899;
-  color: #f5d0fe;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
   outline: none;
   transition: all 0.2s;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
 }
 
 .auth-input::placeholder {
-  color: #9333ea;
+  color: var(--text-muted);
   opacity: 0.6;
 }
 
 .auth-input:focus {
-  border-color: #f472b6;
-  box-shadow: 
-    inset 0 2px 4px rgba(0, 0, 0, 0.3),
-    0 0 0 3px rgba(236, 72, 153, 0.2),
-    0 0 15px rgba(236, 72, 153, 0.3);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .auth-input:disabled {
@@ -256,30 +226,16 @@
   justify-content: center;
   gap: 8px;
   padding: 12px 20px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
-  text-transform: uppercase;
-  border: 2px solid;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid;
   cursor: pointer;
   transition: all 0.2s;
   position: relative;
   overflow: hidden;
   outline: none;
-}
-
-.auth-btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s;
-}
-
-.auth-btn:hover::before {
-  left: 100%;
+  border-radius: 6px;
 }
 
 .auth-btn:disabled {
@@ -293,49 +249,35 @@
 
 /* Primary Button */
 .auth-btn.primary {
-  background: #ec4899;
-  border-color: #f472b6;
-  color: #fff;
-  box-shadow: 
-    0 4px 0 #be185d,
-    0 6px 12px rgba(236, 72, 153, 0.4);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--background);
 }
 
 .auth-btn.primary:hover:not(:disabled) {
-  background: #f472b6;
-  transform: translateY(-2px);
-  box-shadow: 
-    0 6px 0 #be185d,
-    0 8px 16px rgba(236, 72, 153, 0.5);
+  background: var(--hover-select);
+  border-color: var(--hover-select);
 }
 
 .auth-btn.primary:active:not(:disabled) {
-  transform: translateY(2px);
-  box-shadow: 
-    0 2px 0 #be185d,
-    0 4px 8px rgba(236, 72, 153, 0.3);
+  opacity: 0.9;
 }
 
 /* Google Button */
 .auth-btn.google {
-  background: #1a0f26;
-  border-color: #ec4899;
-  color: #f5d0fe;
-  box-shadow: 
-    0 0 0 1px #ec4899,
-    0 4px 12px rgba(236, 72, 153, 0.2);
+  background: var(--background);
+  border-color: var(--primary);
+  color: var(--text);
 }
 
 .auth-btn.google:hover:not(:disabled) {
-  background: #2a1b3b;
-  border-color: #f472b6;
-  box-shadow: 
-    0 0 0 1px #f472b6,
-    0 6px 16px rgba(236, 72, 153, 0.3);
+  background: var(--hover-bg-subtle);
+  border-color: var(--hover-select);
 }
 
 .auth-btn.google svg {
-  filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.5));
+  width: 20px;
+  height: 20px;
 }
 
 /* Divider */
@@ -344,16 +286,16 @@
   align-items: center;
   gap: 12px;
   margin: 24px 0;
-  color: #9333ea;
-  font-size: 10px;
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 .auth-divider::before,
 .auth-divider::after {
   content: '';
   flex: 1;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #ec4899, transparent);
+  height: 1px;
+  background: var(--border);
 }
 
 /* Footer */
@@ -361,28 +303,28 @@
   text-align: center;
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 2px dashed rgba(236, 72, 153, 0.3);
+  border-top: 1px solid var(--border);
 }
 
 .auth-footer p {
-  font-size: 10px;
-  color: #f9a8d4;
+  font-size: 14px;
+  color: var(--text-muted);
   margin: 0;
-  line-height: 1.8;
+  line-height: 1.6;
 }
 
 /* Links */
 .auth-link {
-  color: #ec4899;
+  color: var(--primary);
   text-decoration: none;
   transition: all 0.2s;
   position: relative;
-  text-shadow: 0 0 8px rgba(236, 72, 153, 0.3);
+  font-weight: 500;
 }
 
 .auth-link:hover {
-  color: #f472b6;
-  text-shadow: 0 0 12px rgba(244, 114, 182, 0.5);
+  color: var(--hover-select);
+  text-decoration: underline;
 }
 
 /* Responsive */
@@ -396,20 +338,20 @@
   }
 
   .auth-title {
-    font-size: 16px;
+    font-size: 20px;
   }
 
   .auth-subtitle {
-    font-size: 9px;
+    font-size: 12px;
   }
 
   .auth-input {
-    font-size: 9px;
+    font-size: 14px;
     padding: 10px 10px 10px 36px;
   }
 
   .auth-btn {
-    font-size: 9px;
+    font-size: 14px;
     padding: 10px 16px;
   }
 }

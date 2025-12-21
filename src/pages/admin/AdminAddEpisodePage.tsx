@@ -33,6 +33,7 @@ export default function AdminAddEpisodePage() {
   const [filmTitle, setFilmTitle] = useState('');
   const [filmDescription, setFilmDescription] = useState('');
   const [filmType, setFilmType] = useState<string>('');
+  const [videoHasImages, setVideoHasImages] = useState(true); // Video-specific: whether video has individual card images
   const [existingEpisodes, setExistingEpisodes] = useState<Array<{ episode_number: number; title: string | null }>>([]);
   const existingEpisodeNums = useMemo(() => new Set(existingEpisodes.map(e => e.episode_number)), [existingEpisodes]);
 
@@ -94,6 +95,16 @@ export default function AdminAddEpisodePage() {
           setFilmTitle(film.title || slug);
           setFilmDescription(film.description || '');
           setFilmType(film.type || '');
+          // Load video_has_images from film data
+          // video_has_images = 1 (true) = has individual card images
+          // video_has_images = 0 (false) = uses episode cover for all cards
+          if (film.type === 'video') {
+            // Handle both number (0/1) and boolean (false/true) from API
+            const hasImages = film.video_has_images === 1 || film.video_has_images === true;
+            setVideoHasImages(hasImages);
+          } else {
+            setVideoHasImages(true); // Reset when not video
+          }
         }
       } catch { /* ignore film fetch errors */ }
       try {
@@ -275,19 +286,39 @@ export default function AdminAddEpisodePage() {
   // Reset file flags when toggles are turned off
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
 
+  // Auto-enable episode cover for video content without images
+  useEffect(() => {
+    if (filmType === 'video' && !videoHasImages && !addEpCover) {
+      setAddEpCover(true);
+    }
+  }, [filmType, videoHasImages, addEpCover]);
+
+  // Reset videoHasImages when filmType changes away from video
+  useEffect(() => {
+    if (filmType !== 'video') {
+      setVideoHasImages(true); // Reset to default
+    }
+  }, [filmType]);
+
   const isVideoContent = filmType === 'video';
   // Derived: can create episode (align with Ingest page expectations)
   const canCreate = useMemo(() => {
     const csvOk = csvValid === true;
-    // For video: only require audio files, skip images
+    // For video: check videoHasImages to determine requirements
     // For other types: require both image and audio files
     const cardMediaOk = isVideoContent 
-      ? audioFiles.length > 0 
+      ? (videoHasImages 
+          ? (imageFiles.length > 0 && audioFiles.length > 0)
+          : audioFiles.length > 0)
       : imageFiles.length > 0 && audioFiles.length > 0;
-    const epCoverOk = !addEpCover || hasEpCoverFile;
+    // For video without images: episode cover is required (must be checked and have file)
+    // For video with images or other types: episode cover is optional
+    const epCoverOk = (isVideoContent && !videoHasImages)
+      ? (addEpCover && hasEpCoverFile)
+      : (!addEpCover || hasEpCoverFile);
     const optionalUploadsOk = epCoverOk;
     return !!(isAdmin && csvOk && cardMediaOk && optionalUploadsOk);
-  }, [isAdmin, csvValid, imageFiles.length, audioFiles.length, addEpCover, hasEpCoverFile, isVideoContent]);
+  }, [isAdmin, csvValid, isVideoContent, videoHasImages, imageFiles.length, audioFiles.length, addEpCover, hasEpCoverFile]);
 
   // Overall progress computation across all tasks (matches AdminContentIngestPage logic)
   useEffect(() => {
@@ -295,18 +326,19 @@ export default function AdminAddEpisodePage() {
     let completedSteps = 0;
 
     // 1. Card media (images + audio) - use EFFECTIVE totals from uploader (after skips)
-    // For video: only count audio, skip images
-    if (!isVideoContent) totalSteps += imagesTotal;
+    // For video without images: only count audio, skip images
+    // For video with images or other types: count both images and audio
+    if (!isVideoContent || videoHasImages) totalSteps += imagesTotal;
     totalSteps += audioTotal;
-    if (!isVideoContent) completedSteps += imagesDone;
+    if (!isVideoContent || videoHasImages) completedSteps += imagesDone;
     completedSteps += audioDone;
 
     // 2. Import CSV (required)
     totalSteps++;
     if (importDone) completedSteps++;
 
-    // 3. Episode Cover (optional)
-    if (addEpCover && hasEpCoverFile) {
+    // 3. Episode Cover (optional for video with images, required for video without images)
+    if ((addEpCover || (isVideoContent && !videoHasImages)) && hasEpCoverFile) {
       totalSteps++;
       if (epCoverDone > 0) completedSteps++;
     }
@@ -334,7 +366,8 @@ export default function AdminAddEpisodePage() {
     statsDone,
     stage,
     progress,
-    isVideoContent
+    isVideoContent,
+    videoHasImages
   ]);
 
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -394,8 +427,9 @@ export default function AdminAddEpisodePage() {
       uploadAbortRef.current = new AbortController();
       importSucceededRef.current = false;
       setEpCoverDone(0); setImagesDone(0); setAudioDone(0); setImportDone(false); setStatsDone(false);
-      // For video: only upload audio, skip images
-      const uploadPromises = isVideoContent
+      // For video: check videoHasImages to determine what to upload
+      // For other types: upload both images and audio
+      const uploadPromises = (isVideoContent && !videoHasImages)
         ? [doUploadMedia('audio', audioFiles, uploadAbortRef.current!.signal)]
         : [
             doUploadMedia('image', imageFiles, uploadAbortRef.current!.signal),
@@ -419,8 +453,9 @@ export default function AdminAddEpisodePage() {
       };
       let cardIds: string[]|undefined = undefined;
       if(infer){ 
-        // For video: only use audio files for inferring IDs
-        const all = isVideoContent ? audioFiles : [...imageFiles, ...audioFiles]; 
+        // For video without images: only use audio files for inferring IDs
+        // For video with images or other types: use both image and audio files
+        const all = (isVideoContent && !videoHasImages) ? audioFiles : [...imageFiles, ...audioFiles]; 
         const set=new Set<string>(); 
         all.forEach(f=>{ const m=f.name.match(/(\d+)(?=\.[^.]+$)/); if(m){ const raw=m[1]; const id= raw.length>=padDigits? raw: raw.padStart(padDigits,'0'); set.add(id);} }); 
         if(set.size){ cardIds = Array.from(set).sort((a,b)=> parseInt(a)-parseInt(b)); } 
@@ -458,8 +493,8 @@ export default function AdminAddEpisodePage() {
           if (isImage) { imageExtensions[cardId] = ext; } else { audioExtensions[cardId] = ext; }
         });
       };
-      // Only build image extension map if not video
-      if (!isVideoContent) {
+      // Only build image extension map if video has images or not video type
+      if (!isVideoContent || videoHasImages) {
         buildExtMap(imageFiles, true);
       }
       buildExtMap(audioFiles, false);
@@ -471,7 +506,7 @@ export default function AdminAddEpisodePage() {
           const low = hdr.trim().toLowerCase();
           if (low === 'id' || low === 'in') confirmedMap['id'] = hdr;
         });
-        await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds, imageExtensions, audioExtensions, overrideMainSubtitleHeader: mainLangHeaderOverride || undefined, confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined }, () => {});
+        await importFilmFromCsv({ filmSlug: contentSlug!, episodeNum, filmMeta, csvText, mode: replaceMode? 'replace':'append', cardStartIndex: startIndex, cardPadDigits: padDigits, cardIds, imageExtensions, audioExtensions, overrideMainSubtitleHeader: mainLangHeaderOverride || undefined, confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined, videoHasImages: isVideoContent ? videoHasImages : undefined }, () => {});
         importSucceededRef.current = true;
         setImportDone(true);
         toast.success('Import completed');
@@ -624,7 +659,12 @@ export default function AdminAddEpisodePage() {
             </ul>
             <div style={{ color: 'var(--text)' }} className="font-semibold">C) Card Media Files</div>
             <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
-              <li><strong>Với Type = Video</strong>: Chỉ cần upload <strong>Audio</strong> (.opus). Episode Cover sẽ được dùng làm image cho tất cả cards. Không cần upload Images cho cards.</li>
+              <li><strong>Với Type = Video</strong>: Có 2 trường hợp:
+                <ul className="list-disc pl-5 mt-1 space-y-1">
+                  <li><strong>Video có ảnh</strong>: Upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho từng card (giống các type khác).</li>
+                  <li><strong>Video không có ảnh</strong>: Chỉ upload <strong>Audio</strong> (.opus). <strong>Episode Cover Landscape</strong> là bắt buộc (sẽ dùng làm image cho tất cả cards).</li>
+                </ul>
+              </li>
               <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
               <li><span style={{ color: 'var(--text)' }}>Infer IDs</span>: Tự động lấy số từ tên file làm card ID. Nếu tắt, dùng Pad Digits + Start Index.</li>
             </ul>
@@ -701,17 +741,51 @@ export default function AdminAddEpisodePage() {
             placeholder="Optional episode description"
           />
         </div>
+        {/* Video-specific: display video_has_images setting (read-only) */}
+        {filmType === 'video' && (
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Video Images</label>
+            <div className="flex items-center gap-3 flex-1">
+              <input 
+                id="chk-video-images" 
+                type="checkbox" 
+                checked={videoHasImages} 
+                disabled={true}
+                style={{ opacity: 0.5, cursor: 'not-allowed' }}
+              />
+              <label htmlFor="chk-video-images" className="text-xs opacity-60" style={{ color: 'var(--text)' }}>
+                {videoHasImages ? 'Video has individual card images' : 'Video uses episode cover for all cards'} <span className="text-gray-400">(read-only from content settings)</span>
+              </label>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
-              <input id="chk-ep-cover" type="checkbox" checked={addEpCover} onChange={e => setAddEpCover(e.target.checked)} style={{ flexShrink: 0 }} />
-              <label htmlFor="chk-ep-cover" className="cursor-pointer" style={{ lineHeight: '1' }}>Add Cover (Portrait/Episode)</label>
+              <input 
+                id="chk-ep-cover" 
+                type="checkbox" 
+                checked={addEpCover} 
+                onChange={e => setAddEpCover(e.target.checked)}
+                disabled={filmType === 'video' && !videoHasImages}
+                style={{ flexShrink: 0 }} 
+              />
+              <label htmlFor="chk-ep-cover" className={`cursor-pointer ${(filmType === 'video' && !videoHasImages) ? 'opacity-60' : ''}`} style={{ lineHeight: '1' }}>
+                Add Cover Landscape (Episode)
+                {(filmType === 'video' && !videoHasImages) && <span className="text-red-500 ml-1">*</span>}
+              </label>
             </div>
-            {addEpCover && (
+            {(addEpCover || (filmType === 'video' && !videoHasImages)) && (
               <>
                 <input id="ep-cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
                 <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug + '_' + episodeNum}/cover/cover.jpg</div>
+                {(filmType === 'video' && !videoHasImages && !hasEpCoverFile) && (
+                  <div className="text-xs text-red-500">⚠️ Bắt buộc upload Episode Cover Landscape cho Video content không có ảnh</div>
+                )}
               </>
+            )}
+            {(filmType === 'video' && !videoHasImages && !addEpCover) && (
+              <div className="text-xs text-red-500">⚠️ Episode Cover Landscape là bắt buộc cho Video content không có ảnh</div>
             )}
           </div>
         </div>
@@ -823,7 +897,7 @@ export default function AdminAddEpisodePage() {
         setStartIndex={setStartIndex}
         replaceMode={replaceMode}
         setReplaceMode={setReplaceMode}
-        hideImages={isVideoContent}
+        hideImages={isVideoContent && !videoHasImages}
       />
 
       {/* Actions + Progress */}
@@ -840,11 +914,11 @@ export default function AdminAddEpisodePage() {
             stage={stage}
             progress={progress}
             items={[
-              ...(isVideoContent ? [] : [{ label: '1. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` }]),
-              { label: isVideoContent ? '1. Audio' : '2. Audio', done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
-              { label: isVideoContent ? '2. Import CSV' : '3. Import CSV', done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
-              ...(addEpCover && hasEpCoverFile ? [{ label: isVideoContent ? '3. Episode Cover' : '4. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
-              { label: isVideoContent ? (addEpCover && hasEpCoverFile ? '4. Calculating Stats' : '3. Calculating Stats') : '5. Calculating Stats', done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
+              ...((isVideoContent && !videoHasImages) ? [] : [{ label: '1. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` }]),
+              { label: (isVideoContent && !videoHasImages) ? '1. Audio' : ((isVideoContent && videoHasImages) ? '2. Audio' : '2. Audio'), done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
+              { label: (isVideoContent && !videoHasImages) ? '2. Import CSV' : ((isVideoContent && videoHasImages) ? '3. Import CSV' : '3. Import CSV'), done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
+              ...((addEpCover || (isVideoContent && !videoHasImages)) && hasEpCoverFile ? [{ label: (isVideoContent && !videoHasImages) ? '3. Episode Cover' : '4. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
+              { label: (isVideoContent && !videoHasImages) ? ((addEpCover || (isVideoContent && !videoHasImages)) && hasEpCoverFile ? '4. Calculating Stats' : '3. Calculating Stats') : ((isVideoContent && videoHasImages) ? '4. Calculating Stats' : '5. Calculating Stats'), done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
             ]}
           />
         )}
