@@ -97,7 +97,13 @@ export async function signInWithGoogle(): Promise<{
       
       document.body.appendChild(container);
 
-      window.google!.accounts.id.initialize({
+      if (!window.google) {
+        document.body.removeChild(container);
+        resolve({ success: false, error: 'Google Identity Services not loaded' });
+        return;
+      }
+
+      window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID!,
         callback: async (response: { credential: string }) => {
           document.body.removeChild(container);
@@ -114,7 +120,7 @@ export async function signInWithGoogle(): Promise<{
       });
 
       // Render button in the popup
-      window.google!.accounts.id.renderButton(buttonContainer, {
+      window.google.accounts.id.renderButton(buttonContainer, {
         type: 'standard',
         theme: 'outline',
         size: 'large',
@@ -193,6 +199,11 @@ export function renderGoogleSignInButton(
   assertGoogleConfig();
 
   initGoogleAuth().then(() => {
+    if (!window.google) {
+      onError?.('Google Identity Services not loaded');
+      return;
+    }
+
     window.google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID!,
       callback: (response: { credential: string }) => {

@@ -1,11 +1,11 @@
 /* eslint react-refresh/only-export-components: 0 */
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import type { AppUser, UserPreferences } from "../types";
 import { listFavorites } from "../services/progress";
 import { registerUser, getUserProfile, updateUserPreferences, getUserRoles } from "../services/userManagement";
 import { loginWithEmailPassword } from "../services/authentication";
 // Google OAuth2 (replaces Firebase) – used for Google sign-in
-import { signInWithGoogle, signInWithGoogleIdToken } from "../services/googleAuth";
+import { signInWithGoogle } from "../services/googleAuth";
 
 interface CtxValue {
   user: AppUser | null;
