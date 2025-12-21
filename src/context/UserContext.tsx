@@ -4,9 +4,8 @@ import type { AppUser, UserPreferences } from "../types";
 import { listFavorites } from "../services/progress";
 import { registerUser, getUserProfile, updateUserPreferences, getUserRoles } from "../services/userManagement";
 import { loginWithEmailPassword } from "../services/authentication";
-// Firebase Auth (client-only) – used solely for Google sign-in to obtain user email
-import { initializeApp, getApps, type FirebaseOptions } from "firebase/app";
-import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+// Google OAuth2 (replaces Firebase) – used for Google sign-in
+import { signInWithGoogle, signInWithGoogleIdToken } from "../services/googleAuth";
 
 interface CtxValue {
   user: AppUser | null;
@@ -48,22 +47,8 @@ const defaultPrefs: UserPreferences = {
 const UserCtx = createContext<CtxValue | undefined>(undefined);
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
-  // Initialize Firebase app lazily (if config present). We only use Auth for Google sign-in to get email.
-  const firebaseConfig = useMemo(() => {
-    return {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-      appId: import.meta.env.VITE_FIREBASE_APP_ID,
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    } as const;
-  }, []);
-
-  const hasFirebaseConfig = !!firebaseConfig.apiKey && !!firebaseConfig.authDomain;
-  if (hasFirebaseConfig && getApps().length === 0) {
-    initializeApp(firebaseConfig as FirebaseOptions);
-  }
+  // Check if Google OAuth is configured
+  const hasGoogleConfig = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const [user, setUser] = useState<AppUser | null>(null);
   const [preferences, setPreferences] = useState<UserPreferences>(defaultPrefs);
@@ -97,101 +82,65 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const savedKey = localStorage.getItem("admin_key");
     if (savedKey) setAdminKey(savedKey);
 
-    // Subscribe to Firebase Auth (if configured); otherwise keep user null (anonymous navigation allowed)
-    if (hasFirebaseConfig) {
-      const auth = getAuth();
-      const unsub = onAuthStateChanged(auth, async (u) => {
-        if (u) {
-          // User signed in - register/update in D1 database
-          try {
-            const userProfile = await registerUser({
-              id: u.uid,
-              email: u.email || undefined,
-              display_name: u.displayName || undefined,
-              photo_url: u.photoURL || undefined,
-              auth_provider: 'google',
-            });
-            
-            // Load preferences from database
-            if (userProfile.subtitle_languages) {
-              try {
-                const langs = JSON.parse(userProfile.subtitle_languages);
-                setPreferences({
-                  subtitle_languages: Array.isArray(langs) && langs.length ? langs : defaultPrefs.subtitle_languages,
-                  require_all_langs: userProfile.require_all_languages === 1,
-                  main_language: userProfile.main_language || defaultPrefs.main_language,
-                });
-              } catch {
-                // If parsing fails, use defaults
-                setPreferences(defaultPrefs);
-              }
-            } else {
-              // No preferences in DB yet - migrate from localStorage if exists
-              const localLangs = localStorage.getItem("subtitle_languages");
-              const localMode = localStorage.getItem("subtitle_require_all");
-              const mainLang = localStorage.getItem("main_language");
-              
-              if (localLangs || localMode || mainLang) {
-                // Migrate to DB
-                const langs = localLangs ? JSON.parse(localLangs) : defaultPrefs.subtitle_languages;
-                const requireAll = localMode === "1";
-                const main = mainLang || defaultPrefs.main_language;
-                
-                await updateUserPreferences(u.uid, {
-                  subtitle_languages: langs,
-                  require_all_languages: requireAll,
-                  main_language: main,
-                });
-                
-                setPreferences({
-                  subtitle_languages: langs,
-                  require_all_langs: requireAll,
-                  main_language: main,
-                });
-              } else {
-                setPreferences(defaultPrefs);
-              }
+    // Check for stored user session (if any)
+    // Note: Google OAuth doesn't maintain session like Firebase, so we check localStorage
+    const storedUserId = localStorage.getItem('user_id');
+    
+    if (storedUserId && hasGoogleConfig) {
+      // Try to load user from database
+      getUserProfile(storedUserId)
+        .then((userProfile) => {
+          // Load preferences
+          if (userProfile.subtitle_languages) {
+            try {
+              const langs = JSON.parse(userProfile.subtitle_languages);
+              setPreferences({
+                subtitle_languages: Array.isArray(langs) && langs.length ? langs : defaultPrefs.subtitle_languages,
+                require_all_langs: userProfile.require_all_languages === 1,
+                main_language: userProfile.main_language || defaultPrefs.main_language,
+              });
+            } catch {
+              setPreferences(defaultPrefs);
             }
-            
-            setUser({ uid: u.uid, displayName: u.displayName, email: u.email, photoURL: u.photoURL || undefined });
-          } catch (error) {
-            console.error('Failed to register user in database:', error);
-            // Fallback to local state
-            setPreferences(defaultPrefs);
           }
           
-          // Load user roles before setting user (to avoid race condition)
-          let roleNames: string[] = [];
-          try {
-            const roles = await getUserRoles(u.uid);
-            roleNames = roles.map(r => r.role_name);
-          } catch (error) {
-            console.error('Failed to load user roles:', error);
-          }
-          
-          // Set user with roles included
-          setUser({ 
-            uid: u.uid, 
-            displayName: u.displayName, 
-            email: u.email, 
-            photoURL: u.photoURL || undefined,
-            roles: roleNames
-          });
-        } else {
+          // Load roles
+          getUserRoles(storedUserId)
+            .then((roles) => {
+              const roleNames = roles.map(r => r.role_name);
+              setUser({
+                uid: userProfile.id,
+                displayName: userProfile.display_name,
+                email: userProfile.email,
+                photoURL: userProfile.photo_url,
+                roles: roleNames,
+              });
+            })
+            .catch(() => {
+              setUser({
+                uid: userProfile.id,
+                displayName: userProfile.display_name,
+                email: userProfile.email,
+                photoURL: userProfile.photo_url,
+                roles: [],
+              });
+            });
+        })
+        .catch(() => {
+          // User not found or error - clear stored ID
+          localStorage.removeItem('user_id');
           setUser(null);
           setPreferences(defaultPrefs);
-        }
-        setLoading(false);
-      });
-      return () => unsub();
+        })
+        .finally(() => setLoading(false));
     } else {
-      // No Firebase config: treat as signed-out but keep app usable; load favorites for local guest id
+      // No stored user: treat as signed-out but keep app usable; load favorites for local guest id
       listFavorites("local")
         .then((favs) => setFavoriteIds(new Set(favs.map((f) => f.card_id))))
         .catch(() => setFavoriteIds(new Set()))
         .finally(() => setLoading(false));
     }
-  }, [hasFirebaseConfig]);
+  }, [hasGoogleConfig]);
 
   // Persist admin key for convenience across admin pages
   useEffect(() => {
@@ -281,12 +230,68 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInGoogle = async () => {
-    if (!hasFirebaseConfig) return;
-    const auth = getAuth();
-    const provider = new GoogleAuthProvider();
-    provider.addScope('profile');
-    provider.addScope('email');
-    await signInWithPopup(auth, provider);
+    if (!hasGoogleConfig) {
+      console.error('Google OAuth not configured. Please set VITE_GOOGLE_CLIENT_ID');
+      return;
+    }
+    
+    try {
+      const result = await signInWithGoogle();
+      
+      if (result.success && result.user) {
+        // Store user ID for session persistence
+        localStorage.setItem('user_id', result.user.id);
+        
+        // Register/update user in database
+        try {
+          const userProfile = await registerUser({
+            id: result.user.id,
+            email: result.user.email,
+            display_name: result.user.display_name,
+            photo_url: result.user.photo_url,
+            auth_provider: 'google',
+          });
+          
+          // Load preferences
+          if (userProfile.subtitle_languages) {
+            try {
+              const langs = JSON.parse(userProfile.subtitle_languages);
+              setPreferences({
+                subtitle_languages: Array.isArray(langs) && langs.length ? langs : defaultPrefs.subtitle_languages,
+                require_all_langs: userProfile.require_all_languages === 1,
+                main_language: userProfile.main_language || defaultPrefs.main_language,
+              });
+            } catch {
+              setPreferences(defaultPrefs);
+            }
+          }
+          
+          // Set user with roles
+          setUser({
+            uid: result.user.id,
+            displayName: result.user.display_name,
+            email: result.user.email,
+            photoURL: result.user.photo_url,
+            roles: result.user.roles || [],
+          });
+          
+          // Load favorites
+          try {
+            const favs = await listFavorites(result.user.id);
+            setFavoriteIds(new Set(favs.map((f) => f.card_id)));
+          } catch (error) {
+            console.error('Failed to load favorites:', error);
+          }
+        } catch (error) {
+          console.error('Failed to register user in database:', error);
+        }
+      } else {
+        throw new Error(result.error || 'Google sign-in failed');
+      }
+    } catch (error) {
+      console.error('Google sign-in error:', error);
+      throw error;
+    }
   };
 
   const signInEmailPassword = async (email: string, password: string) => {
@@ -346,12 +351,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOutApp = async () => {
-    if (hasFirebaseConfig) {
-      const auth = getAuth();
-      await signOut(auth);
-    }
+    // Clear stored user ID
+    localStorage.removeItem('user_id');
     setPreferences(defaultPrefs);
     setUser(null);
+    setFavoriteIds(new Set());
   };
   
   // Role checking helpers
