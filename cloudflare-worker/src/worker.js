@@ -2948,14 +2948,16 @@ export default {
             // is_available: default 1 (true), set to 0 (false) if card explicitly has is_available=false
             const isAvail = (c.is_available === false || c.is_available === 0) ? 0 : 1;
 
-            // For video content: always use episode cover_key if available, regardless of image_url
+            // For video content: use episode cover_key only if image_url is not provided
+            // If video has individual card images (image_url is set), use image_url instead
             let imageKey = normalizeKey(c.image_url);
             if (contentType === 'video' && episodeCoverKey) {
-              // For video content, always use episode cover_key, even if image_url is provided
-              imageKey = episodeCoverKey;
-            } else if ((!imageKey || imageKey === '') && contentType === 'video' && episodeCoverKey) {
-              // Fallback: use episode cover_key if image_url is null/empty
-              imageKey = episodeCoverKey;
+              // Only use episode cover_key if image_url is not provided (video without images)
+              // If image_url is provided (video with images), use image_url instead
+              if (!imageKey || imageKey === '') {
+                imageKey = episodeCoverKey;
+              }
+              // If imageKey is set (from image_url), keep it and don't override with episodeCoverKey
             }
 
             cardsNewSchema.push(

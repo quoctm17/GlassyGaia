@@ -57,6 +57,8 @@ export interface ImportOptions {
   // Maps cardId -> extension (e.g., { "0001": "webp", "0002": "jpg" })
   imageExtensions?: Record<string, string>;
   audioExtensions?: Record<string, string>;
+  // Optional: for video content, whether it has individual card images (true) or uses episode cover (false)
+  videoHasImages?: boolean;
 }
 
 function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; detectedLangs: string[]; primary?: string } {
@@ -322,10 +324,11 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
     const imageExt = opts.imageExtensions?.[cardIdStr] || opts.imageExtensions?.[String(displayId)] || "jpg";
     const audioExt = opts.audioExtensions?.[cardIdStr] || opts.audioExtensions?.[String(displayId)] || "mp3";
     
-    // For video content: don't set image_url (will use episode cover_landscape_key instead)
-    // For other content types: build image_url as usual
+    // For video content without images: don't set image_url (will use episode cover_key instead)
+    // For video content with images or other content types: build image_url as usual
     const isVideoContent = filmMeta.type === 'video';
-    const image_url = isVideoContent ? undefined : buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image", ext: imageExt });
+    const videoUsesEpisodeCover = isVideoContent && opts.videoHasImages === false;
+    const image_url = videoUsesEpisodeCover ? undefined : buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "image", ext: imageExt });
     const audio_url = buildR2MediaUrl({ filmId: filmSlug, episodeId: `e${String(episodeNum).padStart(3,'0')}`, cardId: displayId, type: "audio", ext: audioExt });
 
     const subtitle: Record<string, string> = {};

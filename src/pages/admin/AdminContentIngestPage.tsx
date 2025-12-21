@@ -119,6 +119,8 @@ export default function AdminContentIngestPage() {
   const [addCover, setAddCover] = useState(false);
   const [addCoverLandscape, setAddCoverLandscape] = useState(false);
   const [addEpCover, setAddEpCover] = useState(false);
+  // Video-specific: whether video has individual card images or uses episode cover
+  const [videoHasImages, setVideoHasImages] = useState(true);
 
   // Progress state
   const [busy, setBusy] = useState(false);
@@ -365,12 +367,19 @@ export default function AdminContentIngestPage() {
   useEffect(() => { if (!addCoverLandscape) setHasCoverLandscapeFile(false); }, [addCoverLandscape]);
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
   
-  // Auto-enable episode cover for video content
+  // Auto-enable episode cover for video content without images
   useEffect(() => {
-    if (contentType === 'video' && !addEpCover) {
+    if (contentType === 'video' && !videoHasImages && !addEpCover) {
       setAddEpCover(true);
     }
-  }, [contentType, addEpCover]);
+  }, [contentType, videoHasImages, addEpCover]);
+  
+  // Reset videoHasImages when contentType changes away from video
+  useEffect(() => {
+    if (contentType !== 'video') {
+      setVideoHasImages(true); // Reset to default
+    }
+  }, [contentType]);
 
   // Debounced slug availability auto-check
   useEffect(() => {
@@ -395,21 +404,25 @@ export default function AdminContentIngestPage() {
     const titleOk = (title || "").trim().length > 0;
     const typeOk = !!contentType;
     const isVideo = contentType === 'video';
-    // For video: only require audio files, episode cover is required
+    // For video with images: require both image and audio files (like other types)
+    // For video without images: only require audio files, episode cover is required
     // For other types: require both image and audio files
-    const cardMediaOk = isVideo 
-      ? audioFiles.length > 0 
+    const cardMediaOk = isVideo
+      ? (videoHasImages 
+          ? (imageFiles.length > 0 && audioFiles.length > 0)
+          : audioFiles.length > 0)
       : imageFiles.length > 0 && audioFiles.length > 0;
     // Optional toggles: if checked, require a file chosen for that input (use reactive flags)
     const coverOk = !addCover || hasCoverFile;
     const coverLandscapeOk = !addCoverLandscape || hasCoverLandscapeFile;
-    // For video: episode cover is required (must be checked and have file)
-    const epCoverOk = isVideo 
+    // For video without images: episode cover is required (must be checked and have file)
+    // For video with images or other types: episode cover is optional
+    const epCoverOk = (isVideo && !videoHasImages)
       ? (addEpCover && hasEpCoverFile)
       : (!addEpCover || hasEpCoverFile);
     const optionalUploadsOk = coverOk && coverLandscapeOk && epCoverOk;
     return !!(isAdmin && slugOk && csvOk && titleOk && typeOk && cardMediaOk && optionalUploadsOk);
-  }, [isAdmin, filmId, slugChecked, slugAvailable, csvValid, title, contentType, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile]);
+  }, [isAdmin, filmId, slugChecked, slugAvailable, csvValid, title, contentType, videoHasImages, imageFiles.length, audioFiles.length, addCover, addCoverLandscape, addEpCover, hasCoverFile, hasCoverLandscapeFile, hasEpCoverFile]);
 
   // Handlers
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -518,8 +531,9 @@ export default function AdminContentIngestPage() {
       const uploadedCoverUrl = await doUploadCover().catch(() => undefined);
       const uploadedCoverLandscapeUrl = await doUploadCoverLandscape().catch(() => undefined);
       // 2. Upload card media (images/audio) for cards (these do not depend on episode row)
-      // For video: only upload audio, skip images
-      const uploadPromises = contentType === 'video' 
+      // For video without images: only upload audio, skip images
+      // For video with images or other types: upload both images and audio
+      const uploadPromises = (contentType === 'video' && !videoHasImages)
         ? [doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)]
         : [
             doUploadMedia("image", imageFiles, uploadAbortRef.current!.signal),
@@ -548,8 +562,9 @@ export default function AdminContentIngestPage() {
       // derive cardIds from filenames when infer enabled
       let cardIds: string[] | undefined = undefined;
       if (infer) {
-        // For video: only use audio files for inferring IDs
-        const all = contentType === 'video' ? audioFiles : [...imageFiles, ...audioFiles];
+        // For video without images: only use audio files for inferring IDs
+        // For video with images or other types: use both image and audio files
+        const all = (contentType === 'video' && !videoHasImages) ? audioFiles : [...imageFiles, ...audioFiles];
         const set = new Set<string>();
         all.forEach(f => { const m = f.name.match(/(\d+)(?=\.[^.]+$)/); if (m) { const raw = m[1]; const id = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0"); set.add(id); } });
         if (set.size) { cardIds = Array.from(set).sort((a,b)=>parseInt(a,10)-parseInt(b,10)); }
@@ -598,8 +613,8 @@ export default function AdminContentIngestPage() {
         });
       };
       
-      // Only build image extension map if not video
-      if (contentType !== 'video') {
+      // Only build image extension map if video has images or not video type
+      if (contentType !== 'video' || videoHasImages) {
         buildExtMap(imageFiles, true);
       }
       buildExtMap(audioFiles, false);
@@ -624,6 +639,7 @@ export default function AdminContentIngestPage() {
           audioExtensions,
           overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
           confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined,
+          videoHasImages: contentType === 'video' ? videoHasImages : undefined,
         }, () => {});
         // Mark as created for rollback tracking
         createdFilmRef.current = filmId;
@@ -810,7 +826,12 @@ export default function AdminContentIngestPage() {
               <li><span style={{ color: 'var(--text)' }}>Media tuỳ chọn</span>: Cover (content + episode), Full Audio/Video cho Episode.</li>
               <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: 
                 <ul className="list-disc pl-5 mt-1 space-y-1">
-                  <li><strong>Với Type = Video</strong>: Chỉ cần upload <strong>Audio</strong> (.opus). <strong>Episode Cover Landscape</strong> là bắt buộc (sẽ dùng làm image cho tất cả cards). Không cần upload Images cho cards.</li>
+                  <li><strong>Với Type = Video</strong>: Có 2 trường hợp:
+                    <ul className="list-disc pl-5 mt-1 space-y-1">
+                      <li><strong>Video có ảnh</strong>: Upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho từng card (giống các type khác).</li>
+                      <li><strong>Video không có ảnh</strong>: Chỉ upload <strong>Audio</strong> (.opus). <strong>Episode Cover Landscape</strong> là bắt buộc (sẽ dùng làm image cho tất cả cards).</li>
+                    </ul>
+                  </li>
                   <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
                 </ul>
               </li>
@@ -875,18 +896,18 @@ export default function AdminContentIngestPage() {
           <div className="admin-form-help typography-inter-4">
             💡 Slug tự động chuẩn hóa: bỏ dấu tiếng Việt/Unicode, chỉ giữ a-z, 0-9, _ (ví dụ: "vẽ chuyện" → "ve_chuyen")
           </div>
-          <div className="admin-form-row">
-            <label className="admin-form-label">Main Language</label>
-            <div className="admin-form-input-wrapper" ref={langDropdownRef}>
-              <button type="button" className="admin-input admin-dropdown-button" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
-                <span className="admin-dropdown-button-content">
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Main Language</label>
+            <div className="relative w-full" ref={langDropdownRef}>
+              <button type="button" className="admin-input admin-dropdown-button flex items-center justify-between" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
+                <span className="admin-dropdown-button-content flex items-center gap-2">
                   <img src={getFlagImageForLang(mainLanguage)} alt={`${mainLanguage} flag`} className="admin-flag-icon" />
                   <span>{langLabel(mainLanguage)} ({mainLanguage})</span>
                 </span>
                 <span className="admin-dropdown-arrow">▼</span>
               </button>
               {langOpen && (
-                <div className="admin-dropdown-container admin-dropdown-panel">
+                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
                   <div className="admin-dropdown-search-header">
                     <input
                       autoFocus
@@ -903,15 +924,15 @@ export default function AdminContentIngestPage() {
                     </div>
                   ))}
                   {FILTERED_LANG_OPTIONS.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-pink-200/70">No languages match “{langQuery}”.</div>
+                    <div className="px-3 py-2 text-xs text-pink-200/70">No languages match "{langQuery}".</div>
                   )}
                 </div>
               )}
             </div>
           </div>
-          <div className="admin-form-row">
-            <label className="admin-form-label admin-form-label-required">Title</label>
-            <input className="admin-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" />
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Title <span className="text-red-500">*</span></label>
+            <input className="admin-input w-full" value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" />
           </div>
                     <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Release Year</label>
@@ -970,6 +991,24 @@ export default function AdminContentIngestPage() {
             </div>
           </div>
         </div>
+        {/* Video-specific: toggle for images - separate row to avoid overlap */}
+        {contentType === 'video' && (
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">Video Images</label>
+            <div className="flex items-center gap-3 flex-1">
+              <input id="chk-video-images" type="checkbox" checked={videoHasImages} onChange={e => setVideoHasImages(e.target.checked)} />
+              <label htmlFor="chk-video-images" className="text-xs cursor-pointer" style={{ color: 'var(--text)' }}>
+                Video has individual card images (uncheck to use episode cover for all cards)
+              </label>
+              <span className="relative group inline-flex">
+                <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>
+                  Checked: Upload images for each card (like other content types). Unchecked: Use episode cover image for all cards (requires episode cover upload).
+                </span>
+              </span>
+            </div>
+          </div>
+        )}
         <div className="flex items-start gap-2">
           <label className="w-40 text-sm pt-1">Description</label>
           <textarea className="admin-input" rows={3} value={description} onChange={e => setDescription(e.target.value)} />
@@ -1052,22 +1091,22 @@ export default function AdminContentIngestPage() {
                 type="checkbox" 
                 checked={addEpCover} 
                 onChange={e => setAddEpCover(e.target.checked)}
-                disabled={contentType === 'video'}
+                disabled={contentType === 'video' && !videoHasImages}
               />
-              <label htmlFor="chk-ep-cover" className={`cursor-pointer whitespace-nowrap ${contentType === 'video' ? 'opacity-60' : ''}`}>
+              <label htmlFor="chk-ep-cover" className={`cursor-pointer whitespace-nowrap ${(contentType === 'video' && !videoHasImages) ? 'opacity-60' : ''}`}>
                 Add Cover Landscape (Episode)
-                {contentType === 'video' && <span className="text-red-500 ml-1">*</span>}
+                {(contentType === 'video' && !videoHasImages) && <span className="text-red-500 ml-1">*</span>}
               </label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
                 <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>
-                  {contentType === 'video' 
-                    ? 'Ảnh bìa ngang cho tập (BẮT BUỘC với Video). Sẽ dùng làm image cho tất cả cards trong episode này.'
+                  {(contentType === 'video' && !videoHasImages)
+                    ? 'Ảnh bìa ngang cho tập (BẮT BUỘC với Video không có ảnh). Sẽ dùng làm image cho tất cả cards trong episode này.'
                     : 'Ảnh bìa ngang cho tập lưu tại items/&lt;slug&gt;/episodes/&lt;slug&gt;_&lt;num&gt;/cover/cover.jpg'}
                 </span>
               </span>
             </div>
-            {(addEpCover || contentType === 'video') && (
+            {(addEpCover || (contentType === 'video' && !videoHasImages)) && (
               <>
                 <input 
                   id="ep-cover-file" 
@@ -1078,13 +1117,13 @@ export default function AdminContentIngestPage() {
                   style={{ borderColor: 'var(--primary)' }} 
                 />
                 <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.webp (or .jpg)</div>
-                {contentType === 'video' && !hasEpCoverFile && (
-                  <div className="text-xs text-red-500">⚠️ Bắt buộc upload Episode Cover Landscape cho Video content</div>
+                {(contentType === 'video' && !videoHasImages && !hasEpCoverFile) && (
+                  <div className="text-xs text-red-500">⚠️ Bắt buộc upload Episode Cover Landscape cho Video content không có ảnh</div>
                 )}
               </>
             )}
-            {contentType === 'video' && !addEpCover && (
-              <div className="text-xs text-red-500">⚠️ Episode Cover Landscape là bắt buộc cho Video content</div>
+            {(contentType === 'video' && !videoHasImages && !addEpCover) && (
+              <div className="text-xs text-red-500">⚠️ Episode Cover Landscape là bắt buộc cho Video content không có ảnh</div>
             )}
           </div>
 
@@ -1200,7 +1239,7 @@ export default function AdminContentIngestPage() {
         setStartIndex={setStartIndex}
         replaceMode={replaceMode}
         setReplaceMode={setReplaceMode}
-        hideImages={contentType === 'video'}
+        hideImages={contentType === 'video' && !videoHasImages}
       />
 
       {/* Actions + Progress */}
@@ -1218,18 +1257,20 @@ export default function AdminContentIngestPage() {
             stage={stage}
             progress={(() => {
               const isVideo = contentType === 'video';
+              const videoNoImages = isVideo && !videoHasImages;
               let totalSteps = 0;
               let completedSteps = 0;
               if (addCover && hasCoverFile) { totalSteps++; if (coverDone > 0) completedSteps++; }
               if (addCoverLandscape && hasCoverLandscapeFile) { totalSteps++; if (coverLandscapeDone > 0) completedSteps++; }
-              // For video: only count audio, skip images
-              if (!isVideo) totalSteps += imagesTotal;
+              // For video without images: only count audio, skip images
+              // For video with images or other types: count both images and audio
+              if (!videoNoImages) totalSteps += imagesTotal;
               totalSteps += audioTotal;
-              if (!isVideo) completedSteps += imagesDone;
+              if (!videoNoImages) completedSteps += imagesDone;
               completedSteps += audioDone;
               totalSteps++;
               if (importDone) completedSteps++;
-              if ((addEpCover || isVideo) && hasEpCoverFile) { totalSteps++; if (epCoverDone > 0) completedSteps++; }
+              if ((addEpCover || videoNoImages) && hasEpCoverFile) { totalSteps++; if (epCoverDone > 0) completedSteps++; }
               totalSteps++;
               if (statsDone) completedSteps++;
               return totalSteps === 0 ? 0 : (completedSteps === totalSteps ? 100 : Math.min(99, Math.floor((completedSteps / totalSteps) * 100)));
@@ -1237,11 +1278,11 @@ export default function AdminContentIngestPage() {
             items={[
               ...(addCover && hasCoverFile ? [{ label: '1. Cover Portrait', done: coverDone > 0, pending: stage === 'cover' || (busy && coverDone === 0) }] : []),
               ...(addCoverLandscape && hasCoverLandscapeFile ? [{ label: '2. Cover Landscape', done: coverLandscapeDone > 0, pending: stage === 'cover_landscape' || (busy && coverLandscapeDone === 0) }] : []),
-              ...(contentType !== 'video' ? [{ label: '3. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` }] : []),
-              { label: contentType === 'video' ? '3. Audio' : '4. Audio', done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
-              { label: contentType === 'video' ? '4. Import CSV' : '5. Import CSV', done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
-              ...((addEpCover || contentType === 'video') && hasEpCoverFile ? [{ label: contentType === 'video' ? '5. Episode Cover' : '6. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
-              { label: contentType === 'video' ? '6. Calculating Stats' : '7. Calculating Stats', done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
+              ...((contentType !== 'video' || videoHasImages) ? [{ label: '3. Images', done: imagesTotal > 0 && imagesDone >= imagesTotal, pending: busy && imagesDone < imagesTotal, value: `${imagesDone}/${imagesTotal}` }] : []),
+              { label: (contentType === 'video' && !videoHasImages) ? '3. Audio' : ((contentType === 'video' && videoHasImages) ? '4. Audio' : '4. Audio'), done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
+              { label: (contentType === 'video' && !videoHasImages) ? '4. Import CSV' : ((contentType === 'video' && videoHasImages) ? '5. Import CSV' : '5. Import CSV'), done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
+              ...((addEpCover || (contentType === 'video' && !videoHasImages)) && hasEpCoverFile ? [{ label: (contentType === 'video' && !videoHasImages) ? '5. Episode Cover' : '6. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
+              { label: (contentType === 'video' && !videoHasImages) ? '6. Calculating Stats' : ((contentType === 'video' && videoHasImages) ? '6. Calculating Stats' : '7. Calculating Stats'), done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
             ]}
           />
         )}
