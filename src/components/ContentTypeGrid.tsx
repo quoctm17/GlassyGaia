@@ -1,17 +1,17 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { listContentByType } from '../services/firestore';
-import { apiGetFilm } from '../services/cfApi';
+import { apiGetFilm, apiGetSRSDistribution, type SRSDistribution } from '../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../types';
-import { CONTENT_TYPE_LABELS, type ContentType } from '../types/content';
+import { type ContentType } from '../types/content';
 import { useUser } from '../context/UserContext';
 import { canonicalizeLangCode } from '../utils/lang';
 import SearchBar from './SearchBar';
 import rightAngleIcon from '../assets/icons/right-angle.svg';
-import enterMovieIcon from '../assets/icons/enter-movie-view.svg';
 import saveHeartIcon from '../assets/icons/save-heart.svg';
 import LanguageTag from './LanguageTag';
-import { X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { sortLevelsByDifficulty } from '../utils/levelSort';
+import { getLevelBadgeColors } from '../utils/levelColors';
 import '../styles/components/content-type-grid.css';
 
 interface ContentTypeGridProps {
@@ -21,22 +21,28 @@ interface ContentTypeGridProps {
   onlySelectedMainLanguage?: boolean; // filter by user's selected main language
 }
 
-export default function ContentTypeGrid({ type, headingOverride, onlySelectedMainLanguage }: ContentTypeGridProps) {
+export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: ContentTypeGridProps) {
   const [allItems, setAllItems] = useState<FilmDoc[]>([]); // all items from API
   const [expandedFilmId, setExpandedFilmId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true); // loading state for API
-  const { preferences } = useUser();
+  const [srsDistributions, setSrsDistributions] = useState<Record<string, SRSDistribution>>({});
+  const { user, preferences } = useUser();
   const selectedMain = preferences?.main_language || 'en';
   const navigate = useNavigate();
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Get current framework based on main language (no dropdown needed)
+  const currentFramework = useMemo(() => {
+    const lang = selectedMain.toLowerCase();
+    if (lang === 'ja' || lang.startsWith('ja')) return 'jlpt';
+    if (lang === 'zh' || lang.startsWith('zh')) return 'hsk';
+    return 'cefr'; // Default to CEFR for English and others
+  }, [selectedMain]);
+  
   // Collapsed state for each level group
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  
-  // Expanded description state
-  const [expandedDescId, setExpandedDescId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -66,9 +72,24 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
     return () => { mounted = false; };
   }, [type, onlySelectedMainLanguage, selectedMain]);
 
+  // Parse level framework stats
+  const parseLevelStats = (raw: unknown): LevelFrameworkStats | null => {
+    if (!raw) return null;
+    if (Array.isArray(raw)) return raw as LevelFrameworkStats;
+    if (typeof raw === 'string') {
+      try {
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr as LevelFrameworkStats : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
   // Get dominant level for a film based on level_framework_stats
   const getDominantLevel = (film: FilmDoc): string | null => {
-    const stats = film.level_framework_stats as unknown as LevelFrameworkStats;
+    const stats = parseLevelStats(film.level_framework_stats);
     if (!stats || !Array.isArray(stats) || stats.length === 0) {
       return null;
     }
@@ -89,6 +110,50 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
     }
     
     return maxLevel;
+  };
+
+  // Load SRS distributions for all films when user is available
+  useEffect(() => {
+    if (!user?.uid || allItems.length === 0) return;
+    
+    let mounted = true;
+    (async () => {
+      const distributions: Record<string, SRSDistribution> = {};
+      
+      // Load SRS distributions for all films in parallel
+      await Promise.all(
+        allItems.map(async (film) => {
+          try {
+            const dist = await apiGetSRSDistribution(user.uid, film.id);
+            if (mounted) {
+              distributions[film.id] = dist;
+            }
+          } catch (error) {
+            console.error(`Failed to load SRS distribution for ${film.id}:`, error);
+            // Default to all none on error
+            if (mounted) {
+              distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+            }
+          }
+        })
+      );
+      
+      if (mounted) {
+        setSrsDistributions(distributions);
+      }
+    })();
+    
+    return () => { mounted = false; };
+  }, [user?.uid, allItems]);
+
+  // Get SRS distribution for a film
+  const getSRSDistribution = (film: FilmDoc): SRSDistribution => {
+    if (!user?.uid) {
+      // No user, return all none
+      return { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+    }
+    
+    return srsDistributions[film.id] || { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
   };
 
   // Normalize level to group key (JLPT, CEFR, HSK → unified groups)
@@ -180,17 +245,31 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
     return groups;
   }, [filteredItems]);
 
-  // Get all non-empty groups
+  // Get all non-empty groups filtered by framework
   const nonEmptyGroups = useMemo(() => {
     const result: Array<{ level: string; films: FilmDoc[] }> = [];
     
-    // Order: JLPT → CEFR → HSK → Unknown
-    const levelsOrder = [
-      'N5', 'N4', 'N3', 'N2', 'N1',
-      'A1', 'A2', 'B1', 'B2', 'C1', 'C2',
-      'HSK1', 'HSK2', 'HSK3', 'HSK4', 'HSK5', 'HSK6', 'HSK7', 'HSK8', 'HSK9',
-      'Unknown'
-    ];
+    // Define level orders by framework
+    const jlptOrder = ['N5', 'N4', 'N3', 'N2', 'N1'];
+    const cefrOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+    const hskOrder = ['HSK1', 'HSK2', 'HSK3', 'HSK4', 'HSK5', 'HSK6', 'HSK7', 'HSK8', 'HSK9'];
+    
+    let levelsOrder: string[] = [];
+    if (currentFramework === 'jlpt') {
+      levelsOrder = [...jlptOrder, 'Unknown'];
+    } else if (currentFramework === 'cefr') {
+      levelsOrder = [...cefrOrder, 'Unknown'];
+    } else if (currentFramework === 'hsk') {
+      levelsOrder = [...hskOrder, 'Unknown'];
+    } else {
+      // Fallback to all frameworks
+      levelsOrder = [
+        ...jlptOrder,
+        ...cefrOrder,
+        ...hskOrder,
+        'Unknown'
+      ];
+    }
     
     for (const level of levelsOrder) {
       const films = groupedByLevel[level] || [];
@@ -200,7 +279,7 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
     }
     
     return result;
-  }, [groupedByLevel]);
+  }, [groupedByLevel, currentFramework]);
 
   const toggleGroup = (level: string) => {
     const newSet = new Set(collapsedGroups);
@@ -212,11 +291,29 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
     setCollapsedGroups(newSet);
   };
 
-  const toggleExpand = (filmId: string) => {
+  const toggleExpand = (filmId: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    
+    // If already expanded and clicking on the same card, navigate to WatchPage
+    if (expandedFilmId === filmId) {
+      navigate(`/watch/${filmId}`);
+      return;
+    }
+    
+    // Otherwise, toggle expand/collapse
     setExpandedFilmId(prev => prev === filmId ? null : filmId);
   };
 
-  const label = headingOverride || CONTENT_TYPE_LABELS[type] || type;
+  // Get framework label
+  const getFrameworkLabel = (framework: 'jlpt' | 'cefr' | 'hsk'): string => {
+    if (framework === 'jlpt') return 'JLPT Level';
+    if (framework === 'cefr') return 'CEFR Level';
+    if (framework === 'hsk') return 'HSK Level';
+    return 'Level';
+  };
+
   const R2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
 
   // Horizontal scroll handler for each level group
@@ -230,17 +327,22 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
 
   return (
     <div className="content-type-grid-container">
-      <h1 className="content-type-grid-title">{label}</h1>
-      
       {/* Search bar */}
       <div className="content-type-grid-search">
-        <SearchBar
-          value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder="Search by title..."
-          showClear
-          loading={loading}
-        />
+        <div className="content-type-grid-search-row">
+          <div className="framework-dropdown-container">
+            <div className="framework-dropdown-btn">
+              <span>{getFrameworkLabel(currentFramework)}</span>
+            </div>
+          </div>
+          <SearchBar
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search by title..."
+            showClear
+            loading={loading}
+          />
+        </div>
       </div>
 
       {/* Level groups */}
@@ -273,13 +375,14 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
               <div key={level} className="level-group">
                 <div className="level-group-header" onClick={() => toggleGroup(level)}>
                   <div className="level-group-badge">
-                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px', marginRight: '8px' }}>Level</span>
-                    <span className={`level-badge level-${level.toLowerCase()}`}>{level}</span>
-                    <span className="level-count">({films.length})</span>
+                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px'}}>Level</span>
+                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px' }}>{level}</span>
+                    <img 
+                      src={rightAngleIcon} 
+                      alt="Expand" 
+                      className={`level-group-icon ${isCollapsed ? 'collapsed' : 'expanded'}`}
+                    />
                   </div>
-                  <button className="level-collapse-btn">
-                    {isCollapsed ? '+' : '−'}
-                  </button>
                 </div>
 
                 {!isCollapsed && (
@@ -305,8 +408,9 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
                           <div
                             key={f.id}
                             className={`film-card ${isExpanded ? 'expanded' : ''}`}
+                            onClick={(e) => toggleExpand(f.id, e)}
                           >
-                            <div className="film-card-image" onClick={() => toggleExpand(f.id)}>
+                            <div className="film-card-image">
                               {cover && (
                                 <img
                                   src={cover}
@@ -326,71 +430,147 @@ export default function ContentTypeGrid({ type, headingOverride, onlySelectedMai
                             
                             {/* Inline Detail Panel */}
                             <div className="film-detail-panel">
-                              <button className="film-detail-close" onClick={(e) => { e.stopPropagation(); toggleExpand(f.id); }}>
-                                <X size={16} />
-                              </button>
-                              
-                              <h3 className="film-detail-title">{f.title || f.id}</h3>
-                              
-                              {(f.available_subs && f.available_subs.length > 0) && (
-                                <div className="film-detail-subs-section">
-                                  <button 
-                                    className="subs-scroll-btn subs-scroll-btn-left"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const container = e.currentTarget.parentElement?.querySelector('.film-detail-subs');
-                                      if (container) container.scrollBy({ left: -200, behavior: 'smooth' });
-                                    }}
-                                  >
-                                    <img src={rightAngleIcon} alt="Previous" style={{ transform: 'rotate(180deg)', width: '12px', height: '12px' }} />
-                                  </button>
+                              <div className="film-detail-grid">
+                                <div className="film-detail-col-1">
+                                  <h3 className="film-detail-title" title={f.title || f.id}>{f.title || f.id}</h3>
                                   
-                                  <div className="film-detail-subs">
-                                    {f.available_subs.map(l => (
-                                      <LanguageTag key={l} code={l} size="md" withName={false} />
-                                    ))}
+                                  {/* Framework Level Distribution */}
+                                  {(() => {
+                                    const levelStats = parseLevelStats(f.level_framework_stats);
+                                    if (!levelStats || levelStats.length === 0) return null;
+                                    
+                                    // Get the first framework entry (or combine all)
+                                    const firstEntry = levelStats[0];
+                                    if (!firstEntry || !firstEntry.levels) return null;
+                                    
+                                    const sortedLevels = sortLevelsByDifficulty(firstEntry.levels);
+                                    
+                                    return (
+                                      <div className="film-detail-level-distribution">
+                                        <div className="film-detail-level-bar">
+                                          {sortedLevels.map(([level, percent]) => {
+                                            const colors = getLevelBadgeColors(level);
+                                            return (
+                                              <div
+                                                key={level}
+                                                className="film-detail-level-segment"
+                                                style={{ 
+                                                  width: `${percent}%`,
+                                                  backgroundColor: colors.background
+                                                }}
+                                                title={`${level}: ${percent}%`}
+                                              />
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                  
+                                  {/* SRS State Distribution */}
+                                  {(() => {
+                                    const srsDistribution = getSRSDistribution(f);
+                                    const srsOrder: Array<keyof SRSDistribution> = ['none', 'new', 'again', 'hard', 'good', 'easy'];
+                                    
+                                    return (
+                                      <div className="film-detail-srs-distribution">
+                                        <div className="film-detail-srs-bar">
+                                          {srsOrder.map(state => {
+                                            const percent = srsDistribution[state] || 0;
+                                            if (percent === 0) return null;
+                                            
+                                            return (
+                                              <div
+                                                key={state}
+                                                className={`film-detail-srs-segment srs-${state}`}
+                                                style={{ width: `${percent}%` }}
+                                                title={`${state}: ${percent}%`}
+                                              />
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                  
+                                  {(f.available_subs && f.available_subs.length > 0) && (
+                                    <div className="film-detail-subs-section">
+                                      <button 
+                                        className="subs-scroll-btn subs-scroll-btn-left"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const container = e.currentTarget.parentElement?.querySelector('.film-detail-subs');
+                                          if (container) container.scrollBy({ left: -200, behavior: 'smooth' });
+                                        }}
+                                      >
+                                        <img src={rightAngleIcon} alt="Previous" style={{ transform: 'rotate(180deg)', width: '12px', height: '12px' }} />
+                                      </button>
+                                      
+                                      <div className="film-detail-subs">
+                                        {f.available_subs.map(l => (
+                                          <LanguageTag key={l} code={l} size="md" withName={false} />
+                                        ))}
+                                      </div>
+                                      
+                                      <button 
+                                        className="subs-scroll-btn subs-scroll-btn-right"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const container = e.currentTarget.parentElement?.querySelector('.film-detail-subs');
+                                          if (container) container.scrollBy({ left: 200, behavior: 'smooth' });
+                                        }}
+                                      >
+                                        <img src={rightAngleIcon} alt="Next" style={{ width: '12px', height: '12px' }} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Category Section */}
+                                  <div className="film-detail-category-section">
+                                    <button 
+                                      className="category-scroll-btn category-scroll-btn-left"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const container = e.currentTarget.parentElement?.querySelector('.film-detail-categories');
+                                        if (container) container.scrollBy({ left: -200, behavior: 'smooth' });
+                                      }}
+                                    >
+                                      <img src={rightAngleIcon} alt="Previous" style={{ transform: 'rotate(180deg)', width: '12px', height: '12px' }} />
+                                    </button>
+                                    
+                                    <div className="film-detail-categories">
+                                      <span className="film-detail-category-item">Cate 1</span>
+                                      <span className="film-detail-category-item">Cate 2</span>
+                                      <span className="film-detail-category-item">Cate 3</span>
+                                      <span className="film-detail-category-item">Cate 4</span>
+                                    </div>
+                                    
+                                    <button 
+                                      className="category-scroll-btn category-scroll-btn-right"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const container = e.currentTarget.parentElement?.querySelector('.film-detail-categories');
+                                        if (container) container.scrollBy({ left: 200, behavior: 'smooth' });
+                                      }}
+                                    >
+                                      <img src={rightAngleIcon} alt="Next" style={{ width: '12px', height: '12px' }} />
+                                    </button>
                                   </div>
-                                  
-                                  <button 
-                                    className="subs-scroll-btn subs-scroll-btn-right"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const container = e.currentTarget.parentElement?.querySelector('.film-detail-subs');
-                                      if (container) container.scrollBy({ left: 200, behavior: 'smooth' });
-                                    }}
-                                  >
-                                    <img src={rightAngleIcon} alt="Next" style={{ width: '12px', height: '12px' }} />
+                                </div>
+                                
+                                <div className="film-detail-col-2">
+                                  <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
+                                    <img src={saveHeartIcon} alt="Save" className="action-icon" />
                                   </button>
                                 </div>
-                              )}
-                              
-                              {f.description && (
-                                <p 
-                                  className={`film-detail-description ${expandedDescId === f.id ? 'expanded' : ''}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setExpandedDescId(prev => prev === f.id ? null : f.id);
-                                  }}
-                                >
-                                  {f.description}
-                                </p>
-                              )}
-                              
-                              <div className="film-detail-actions">
-                                <button
-                                  className="film-detail-learn-btn"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    navigate(`/watch/${encodeURIComponent(f.id)}`);
-                                  }}
-                                >
-                                  <img src={enterMovieIcon} alt="Learn" className="learn-icon" />
-                                  <span>Learn</span>
-                                </button>
                                 
-                                <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
-                                  <img src={saveHeartIcon} alt="Save" className="action-icon" />
-                                </button>
+                                {f.description && (
+                                  <div className="film-detail-description-wrapper">
+                                    <p className="film-detail-description" title={f.description}>
+                                      {f.description}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>

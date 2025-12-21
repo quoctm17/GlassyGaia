@@ -36,6 +36,7 @@
   --light-teal-bg: rgba(204, 251, 241, 0.3);
   --light-teal-text: #115E59;
   --light-success-text: #065F46;
+  --light-description-text: #948979;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -72,6 +73,7 @@
   --dark-teal-bg: rgba(19, 78, 74, 0.3);
   --dark-teal-text: #5EEAD4;
   --dark-success-text: #6EE7B7;
+  --dark-description-text: #948979;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -125,6 +127,7 @@
   --teal-bg: var(--light-teal-bg);
   --teal-text: var(--light-teal-text);
   --success-text: var(--light-success-text);
+  --description-text: var(--light-description-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -173,6 +176,7 @@
   --teal-bg: var(--dark-teal-bg);
   --teal-text: var(--dark-teal-text);
   --success-text: var(--dark-success-text);
+  --description-text: var(--dark-description-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);

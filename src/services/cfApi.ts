@@ -294,6 +294,47 @@ export async function apiListEpisodes(
   }
 }
 
+export interface SRSDistribution {
+  none: number;
+  new: number;
+  again: number;
+  hard: number;
+  good: number;
+  easy: number;
+}
+
+/**
+ * Get SRS state distribution for a film
+ */
+export async function apiGetSRSDistribution(
+  userId: string,
+  filmId: string
+): Promise<SRSDistribution> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    user_id: userId,
+    film_id: filmId,
+  });
+
+  const res = await fetch(`${API_BASE}/api/srs/distribution?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      // Return default distribution (all none)
+      return { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+    }
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get SRS distribution: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
 export async function apiFetchCardsForFilm(
   filmId: string,
   episodeId?: string,

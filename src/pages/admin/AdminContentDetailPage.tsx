@@ -82,12 +82,30 @@ export default function AdminContentDetailPage() {
     if (!item) return '';
     let url = item.cover_landscape_url || '';
     if (url.startsWith('/') && r2Base) url = r2Base + url;
-    // Don't use fallback path - rely on API to return cover_landscape_url if available
+    // Fallback: construct URL from cover_landscape_key path if cover_landscape_url is not available
+    // Try webp first (recommended format), fallback to jpg if needed
+    if (!url && item.id) {
+      const path = `/items/${item.id}/cover_image/cover_landscape.webp`;
+      url = r2Base ? r2Base + path : path;
+    }
     if (url) {
       url += (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
     }
     return url;
   }, [item, r2Base]);
+
+  // Check if landscape cover actually exists (from API, not fallback)
+  const hasLandscapeCover = useMemo(() => {
+    return !!(item?.cover_landscape_url);
+  }, [item?.cover_landscape_url]);
+
+  // Track image load errors
+  const [imageErrors, setImageErrors] = useState<{ portrait: boolean; landscape: boolean }>({ portrait: false, landscape: false });
+
+  // Reset errors when item changes
+  useEffect(() => {
+    setImageErrors({ portrait: false, landscape: false });
+  }, [item?.id]);
 
   function parseLevelStats(raw: unknown): LevelFrameworkStats | null {
     if (!raw) return null;
@@ -256,9 +274,9 @@ export default function AdminContentDetailPage() {
               <div className="typography-inter-2 mt-1" style={{ fontSize: '14px', color: 'var(--text)' }}>{item.description || '-'}</div>
             </div>
             {/* Cover images side-by-side */}
-            {(coverDisplayUrl || coverLandscapeDisplayUrl) && (
+            {item && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {coverDisplayUrl && (
+                {coverDisplayUrl && !imageErrors.portrait ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Portrait):</label>
@@ -267,10 +285,24 @@ export default function AdminContentDetailPage() {
                         Open
                       </a>
                     </div>
-                    <img src={coverDisplayUrl} alt="cover" className="w-32 h-auto rounded border-2 transition-colors" style={{ borderColor: 'var(--primary)', boxShadow: '0 0 10px rgba(236, 72, 153, 0.4)' }} />
+                    <img 
+                      src={coverDisplayUrl} 
+                      alt="cover" 
+                      className="w-32 h-auto rounded border-2 transition-colors" 
+                      style={{ borderColor: 'var(--primary)', boxShadow: '0 0 10px rgba(236, 72, 153, 0.4)' }}
+                      onError={() => setImageErrors(prev => ({ ...prev, portrait: true }))}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Portrait):</label>
+                    <div className="w-32 h-48 rounded border-2 flex items-center justify-center" style={{ borderColor: 'var(--primary)', backgroundColor: 'var(--secondary)' }}>
+                      <span className="typography-inter-4 text-xs text-center px-2" style={{ color: 'var(--neutral)' }}>No portrait cover</span>
+                    </div>
                   </div>
                 )}
-                {coverLandscapeDisplayUrl && (
+                
+                {hasLandscapeCover && coverLandscapeDisplayUrl && !imageErrors.landscape ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Landscape):</label>
@@ -279,7 +311,20 @@ export default function AdminContentDetailPage() {
                         Open
                       </a>
                     </div>
-                    <img src={coverLandscapeDisplayUrl} alt="cover landscape" className="w-48 h-auto rounded border-2 transition-colors" style={{ borderColor: 'var(--primary)', boxShadow: '0 0 10px rgba(236, 72, 153, 0.4)' }} />
+                    <img 
+                      src={coverLandscapeDisplayUrl} 
+                      alt="cover landscape" 
+                      className="w-48 h-auto rounded border-2 transition-colors" 
+                      style={{ borderColor: 'var(--primary)', boxShadow: '0 0 10px rgba(236, 72, 153, 0.4)' }}
+                      onError={() => setImageErrors(prev => ({ ...prev, landscape: true }))}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Landscape):</label>
+                    <div className="w-48 h-32 rounded border-2 flex items-center justify-center" style={{ borderColor: 'var(--primary)', backgroundColor: 'var(--secondary)' }}>
+                      <span className="typography-inter-4 text-xs text-center px-2" style={{ color: 'var(--neutral)' }}>No landscape cover</span>
+                    </div>
                   </div>
                 )}
               </div>

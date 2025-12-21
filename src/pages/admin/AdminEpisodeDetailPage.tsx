@@ -20,6 +20,12 @@ export default function AdminEpisodeDetailPage() {
   const [openMenuFor, setOpenMenuFor] = useState<{ id: string; anchor: HTMLElement; closing?: boolean } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [coverImageError, setCoverImageError] = useState(false);
+
+  // Reset cover image error when episode changes
+  useEffect(() => {
+    setCoverImageError(false);
+  }, [ep?.slug]);
 
   function parseEpisodeNumber(slug: string | undefined): number {
     if (!slug) return 1;
@@ -189,7 +195,7 @@ export default function AdminEpisodeDetailPage() {
               <div className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)', marginTop: '0.25rem' }}>{ep.description || '-'}</div>
             </div>
             {/* Episode Cover (Landscape) */}
-            {ep.cover_url && (
+            {ep.cover_url && !coverImageError ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Landscape):</label>
@@ -198,7 +204,19 @@ export default function AdminEpisodeDetailPage() {
                     Open
                   </a>
                 </div>
-                <img src={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} alt="cover landscape" className="w-64 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]" />
+                <img 
+                  src={ep.cover_url + (ep.cover_url.includes('?') ? '&' : '?') + 'v=' + Date.now()} 
+                  alt="cover landscape" 
+                  className="w-64 h-auto rounded border-2 border-pink-500 hover:border-pink-400 transition-colors shadow-[0_0_10px_rgba(236,72,153,0.4)]"
+                  onError={() => setCoverImageError(true)}
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Cover (Landscape):</label>
+                <div className="w-64 h-36 rounded border-2 flex items-center justify-center" style={{ borderColor: 'var(--primary)', backgroundColor: 'var(--secondary)' }}>
+                  <span className="typography-inter-4 text-xs text-center px-2" style={{ color: 'var(--neutral)' }}>No landscape cover</span>
+                </div>
               </div>
             )}
           </div>

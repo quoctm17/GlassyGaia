@@ -3734,6 +3734,88 @@ export default {
         }
       }
 
+      // Get SRS state distribution for a film
+      if (path === '/api/srs/distribution' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const filmId = url.searchParams.get('film_id');
+          
+          if (!userId || !filmId) {
+            return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
+          }
+          
+          // Get total number of cards in this film
+          const filmRow = await env.DB.prepare(`
+            SELECT num_cards FROM content_items WHERE slug = ?
+          `).bind(filmId).first();
+          
+          const totalCards = filmRow?.num_cards || 0;
+          
+          // Get SRS state distribution from user_card_states
+          const srsStats = await env.DB.prepare(`
+            SELECT srs_state, COUNT(*) as count
+            FROM user_card_states
+            WHERE user_id = ? AND film_id = ?
+            GROUP BY srs_state
+          `).bind(userId, filmId).all();
+          
+          const stats = srsStats.results || [];
+          const savedCards = stats.reduce((sum, row) => sum + (row.count || 0), 0);
+          
+          // Calculate distribution
+          const distribution = {
+            none: 0,
+            new: 0,
+            again: 0,
+            hard: 0,
+            good: 0,
+            easy: 0
+          };
+          
+          if (totalCards === 0) {
+            // No cards in film, all none
+            distribution.none = 100;
+          } else if (savedCards === 0) {
+            // No cards saved, all none
+            distribution.none = 100;
+          } else {
+            // Calculate percentages based on saved cards
+            stats.forEach((row) => {
+              const state = row.srs_state || 'none';
+              const count = row.count || 0;
+              if (state in distribution) {
+                distribution[state] = Math.round((count / totalCards) * 100);
+              }
+            });
+            
+            // Calculate none percentage (cards not saved)
+            const noneCount = totalCards - savedCards;
+            distribution.none = Math.round((noneCount / totalCards) * 100);
+            
+            // Normalize to ensure total is 100%
+            const total = Object.values(distribution).reduce((a, b) => a + b, 0);
+            if (total !== 100) {
+              const diff = 100 - total;
+              // Adjust the largest non-none value
+              const nonNoneStates = ['new', 'again', 'hard', 'good', 'easy'];
+              let maxState = 'new';
+              let maxValue = distribution.new;
+              nonNoneStates.forEach(state => {
+                if (distribution[state] > maxValue) {
+                  maxValue = distribution[state];
+                  maxState = state;
+                }
+              });
+              distribution[maxState] += diff;
+            }
+          }
+          
+          return json(distribution);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
       // ==================== USER MANAGEMENT ====================
       
       // Register/Create user (upsert)
