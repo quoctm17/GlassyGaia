@@ -322,7 +322,6 @@
     border-radius: 10px;
     overflow: auto;
     background: var(--background);
-    box-shadow: 0 0 0 2px var(--hover-select) inset;
 }
 
 .admin-table {
@@ -387,7 +386,6 @@
     border: 3px solid var(--primary);
     border-radius: 10px;
     padding: 16px;
-    box-shadow: 0 0 0 2px var(--hover-select) inset;
 }
 
 .admin-progress-panel {

@@ -395,6 +395,135 @@ export default {
         }
       }
       
+      // Google OAuth login
+      if (path === '/auth/google' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { id_token } = body;
+          
+          if (!id_token) {
+            return json({ error: 'Google ID token is required' }, { status: 400 });
+          }
+          
+          const clientId = env.GOOGLE_CLIENT_ID;
+          const clientSecret = env.GOOGLE_CLIENT_SECRET;
+          
+          if (!clientId || !clientSecret) {
+            return json({ error: 'Google OAuth not configured' }, { status: 500 });
+          }
+          
+          // Verify token with Google
+          const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${id_token}`;
+          const verifyRes = await fetch(verifyUrl);
+          
+          if (!verifyRes.ok) {
+            return json({ error: 'Invalid Google token' }, { status: 401 });
+          }
+          
+          const tokenInfo = await verifyRes.json();
+          
+          // Verify audience matches our client ID
+          if (tokenInfo.aud !== clientId) {
+            return json({ error: 'Token audience mismatch' }, { status: 401 });
+          }
+          
+          // Extract user info
+          const googleId = tokenInfo.sub;
+          const email = tokenInfo.email;
+          const displayName = tokenInfo.name || email?.split('@')[0];
+          const photoUrl = tokenInfo.picture;
+          const emailVerified = tokenInfo.email_verified === 'true';
+          
+          if (!email) {
+            return json({ error: 'Email not provided by Google' }, { status: 400 });
+          }
+          
+          // Generate user ID from Google ID (consistent with Firebase approach)
+          const userId = googleId;
+          
+          const now = Date.now();
+          
+          // Check if user exists
+          const existingUser = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`).bind(userId).first();
+          const isNewUser = !existingUser;
+          
+          // Upsert user
+          await env.DB.prepare(`
+            INSERT INTO users (id, email, display_name, photo_url, auth_provider, email_verified, last_login_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              email = COALESCE(?, email),
+              display_name = COALESCE(?, display_name),
+              photo_url = COALESCE(?, photo_url),
+              email_verified = ?,
+              last_login_at = ?,
+              updated_at = ?
+          `).bind(
+            userId, email, displayName, photoUrl, 'google', emailVerified ? 1 : 0, now, now,
+            email, displayName, photoUrl, emailVerified ? 1 : 0, now, now
+          ).run();
+          
+          // Assign role based on email whitelist
+          if (email) {
+            const adminEmails = [
+              'phungnguyeniufintechclub@gmail.com',
+              'trang.vtae@gmail.com',
+              'nhungngth03@gmail.com'
+            ];
+            const superAdminEmail = 'tranminhquoc0711@gmail.com';
+            
+            let assignedRole = 'user'; // default
+            if (email === superAdminEmail) {
+              assignedRole = 'superadmin';
+            } else if (adminEmails.includes(email)) {
+              assignedRole = 'admin';
+            }
+            
+            // Insert or update user role
+            await env.DB.prepare(`
+              INSERT INTO user_roles (user_id, role_name, granted_by, granted_at)
+              VALUES (?, ?, 'system', ?)
+              ON CONFLICT(user_id, role_name) DO UPDATE SET granted_at = ?
+            `).bind(userId, assignedRole, now, now).run();
+          } else if (isNewUser) {
+            // Assign default 'user' role
+            await env.DB.prepare(`
+              INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
+              VALUES (?, 'user', 'system', ?)
+            `).bind(userId, now).run();
+          }
+          
+          // Get user with preferences and roles
+          const user = await env.DB.prepare(`
+            SELECT u.*, up.main_language, up.subtitle_languages, up.require_all_languages,
+                   GROUP_CONCAT(ur.role_name) as roles
+            FROM users u
+            LEFT JOIN user_preferences up ON u.id = up.user_id
+            LEFT JOIN user_roles ur ON u.id = ur.user_id
+            WHERE u.id = ?
+            GROUP BY u.id
+          `).bind(userId).first();
+          
+          // Parse roles from comma-separated string
+          const roleNames = user.roles ? user.roles.split(',') : [];
+          
+          return json({
+            success: true,
+            user: {
+              id: user.id,
+              email: user.email,
+              display_name: user.display_name,
+              photo_url: user.photo_url,
+              auth_provider: 'google',
+              roles: roleNames
+            }
+          });
+        } catch (e) {
+          console.error('Google OAuth error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
       // Login with email/password
       if (path === '/auth/login' && request.method === 'POST') {
         try {
@@ -2948,14 +3077,16 @@ export default {
             // is_available: default 1 (true), set to 0 (false) if card explicitly has is_available=false
             const isAvail = (c.is_available === false || c.is_available === 0) ? 0 : 1;
 
-            // For video content: always use episode cover_key if available, regardless of image_url
+            // For video content: use episode cover_key only if image_url is not provided
+            // If video has individual card images (image_url is set), use image_url instead
             let imageKey = normalizeKey(c.image_url);
             if (contentType === 'video' && episodeCoverKey) {
-              // For video content, always use episode cover_key, even if image_url is provided
-              imageKey = episodeCoverKey;
-            } else if ((!imageKey || imageKey === '') && contentType === 'video' && episodeCoverKey) {
-              // Fallback: use episode cover_key if image_url is null/empty
-              imageKey = episodeCoverKey;
+              // Only use episode cover_key if image_url is not provided (video without images)
+              // If image_url is provided (video with images), use image_url instead
+              if (!imageKey || imageKey === '') {
+                imageKey = episodeCoverKey;
+              }
+              // If imageKey is set (from image_url), keep it and don't override with episodeCoverKey
             }
 
             cardsNewSchema.push(
