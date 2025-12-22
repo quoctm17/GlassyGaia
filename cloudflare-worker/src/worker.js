@@ -3816,6 +3816,696 @@ export default {
         }
       }
 
+      // ==================== CARD STATE MANAGEMENT ====================
+      
+      // Helper function to get card UUID from display ID
+      async function getCardUUID(filmId, episodeId, cardDisplayId) {
+        if (!filmId || !episodeId || !cardDisplayId) return null;
+        
+        // Try to parse card number from display ID (e.g., "000" -> 0)
+        const cardNum = parseInt(cardDisplayId);
+        if (isNaN(cardNum)) return null;
+        
+        // Get film internal ID
+        const film = await env.DB.prepare(`
+          SELECT id FROM content_items WHERE slug = ?
+        `).bind(filmId).first();
+        
+        if (!film) return null;
+        
+        // Parse episode number from episode ID (e.g., "e1" -> 1)
+        let epNum = parseInt(String(episodeId).replace(/^e/i, ''));
+        if (isNaN(epNum)) {
+          const m = String(episodeId).match(/_(\d+)$/);
+          epNum = m ? parseInt(m[1]) : 1;
+        }
+        
+        // Get episode internal ID
+        const ep = await env.DB.prepare(`
+          SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
+        `).bind(film.id, epNum).first();
+        
+        if (!ep) return null;
+        
+        // Get card UUID
+        const card = await env.DB.prepare(`
+          SELECT id FROM cards WHERE episode_id = ? AND card_number = ?
+        `).bind(ep.id, cardNum).first();
+        
+        return card?.id || null;
+      }
+
+      // Save/unsave a card (toggle SRS state between 'none' and 'new')
+      if (path === '/api/card/save' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id, card_id, film_id, episode_id } = body;
+          
+          if (!user_id || !card_id) {
+            return json({ error: 'Missing required parameters (user_id, card_id)' }, { status: 400 });
+          }
+          
+          // Get card UUID from display ID
+          const cardUUID = await getCardUUID(film_id, episode_id, card_id);
+          if (!cardUUID) {
+            return json({ error: 'Card not found' }, { status: 404 });
+          }
+          
+          // Get film_id and episode_id from card if not provided
+          let finalFilmId = film_id;
+          let finalEpisodeId = episode_id;
+          
+          if (!finalFilmId || !finalEpisodeId) {
+            const cardInfo = await env.DB.prepare(`
+              SELECT e.content_item_id, e.id as episode_id
+              FROM cards c
+              JOIN episodes e ON c.episode_id = e.id
+              WHERE c.id = ?
+            `).bind(cardUUID).first();
+            
+            if (cardInfo) {
+              // Get film slug from content_item_id
+              const filmInfo = await env.DB.prepare(`
+                SELECT slug FROM content_items WHERE id = ?
+              `).bind(cardInfo.content_item_id).first();
+              
+              finalFilmId = filmInfo?.slug || film_id;
+              finalEpisodeId = cardInfo.episode_id || episode_id;
+            }
+          }
+          
+          // Check if card state already exists
+          const existing = await env.DB.prepare(`
+            SELECT id, srs_state FROM user_card_states
+            WHERE user_id = ? AND card_id = ?
+            LIMIT 1
+          `).bind(user_id, cardUUID).first();
+          
+          let saved = false;
+          
+          if (existing) {
+            if (existing.srs_state === 'none') {
+              // Change from 'none' to 'new' (save)
+              await env.DB.prepare(`
+                UPDATE user_card_states
+                SET srs_state = 'new',
+                    state_created_at = unixepoch() * 1000,
+                    state_updated_at = unixepoch() * 1000,
+                    updated_at = unixepoch() * 1000
+                WHERE user_id = ? AND card_id = ?
+              `).bind(user_id, cardUUID).run();
+              saved = true;
+            } else {
+              // Change from any state to 'none' (unsave)
+              await env.DB.prepare(`
+                UPDATE user_card_states
+                SET srs_state = 'none',
+                    state_updated_at = unixepoch() * 1000,
+                    updated_at = unixepoch() * 1000
+                WHERE user_id = ? AND card_id = ?
+              `).bind(user_id, cardUUID).run();
+              saved = false;
+            }
+          } else {
+            // Create new state with 'new' (save)
+            const stateId = crypto.randomUUID();
+            await env.DB.prepare(`
+              INSERT INTO user_card_states (
+                id, user_id, card_id, film_id, episode_id,
+                srs_state, state_created_at, state_updated_at,
+                created_at, updated_at
+              )
+              VALUES (?, ?, ?, ?, ?, 'new', unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
+            `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId).run();
+            saved = true;
+          }
+          
+          return json({ saved });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Check if a card is saved
+      if (path === '/api/card/save-status' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const cardId = url.searchParams.get('card_id');
+          const filmId = url.searchParams.get('film_id');
+          const episodeId = url.searchParams.get('episode_id');
+          
+          if (!userId || !cardId) {
+            return json({ error: 'Missing required parameters (user_id, card_id)' }, { status: 400 });
+          }
+          
+          // Get card UUID from display ID
+          const cardUUID = await getCardUUID(filmId, episodeId, cardId);
+          if (!cardUUID) {
+            return json({ saved: false, srs_state: 'none', review_count: 0 });
+          }
+          
+          const result = await env.DB.prepare(`
+            SELECT srs_state, review_count FROM user_card_states
+            WHERE user_id = ? AND card_id = ?
+            LIMIT 1
+          `).bind(userId, cardUUID).first();
+          
+          const saved = result && result.srs_state && result.srs_state !== 'none';
+          
+          return json({ 
+            saved, 
+            srs_state: result?.srs_state || 'none',
+            review_count: result?.review_count || 0
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Increment review count for a card
+      if (path === '/api/card/increment-review' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id, card_id, film_id, episode_id } = body;
+          
+          if (!user_id || !card_id) {
+            return json({ error: 'Missing required parameters (user_id, card_id)' }, { status: 400 });
+          }
+          
+          let cardUUID = null;
+          
+          // Try to get card UUID from display ID if film_id and episode_id are provided
+          if (film_id && episode_id) {
+            cardUUID = await getCardUUID(film_id, episode_id, card_id);
+          }
+          
+          // If getCardUUID failed or film_id/episode_id not provided, try alternative methods
+          if (!cardUUID) {
+            // First, try if card_id is already a UUID (direct lookup)
+            const directCard = await env.DB.prepare(`
+              SELECT id FROM cards WHERE id = ?
+            `).bind(card_id).first();
+            
+            if (directCard) {
+              cardUUID = directCard.id;
+            } else if (film_id && episode_id) {
+              // Try alternative parsing if we have film_id and episode_id
+              const film = await env.DB.prepare(`
+                SELECT id FROM content_items WHERE slug = ?
+              `).bind(film_id).first();
+              
+              if (film) {
+                let epNum = parseInt(String(episode_id).replace(/^e/i, ''));
+                if (isNaN(epNum)) {
+                  const m = String(episode_id).match(/_(\d+)$/);
+                  epNum = m ? parseInt(m[1]) : null;
+                }
+                
+                if (epNum !== null && !isNaN(epNum)) {
+                  const ep = await env.DB.prepare(`
+                    SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
+                  `).bind(film.id, epNum).first();
+                  
+                  if (ep) {
+                    const cardNum = parseInt(card_id);
+                    if (!isNaN(cardNum)) {
+                      const card = await env.DB.prepare(`
+                        SELECT id FROM cards WHERE episode_id = ? AND card_number = ?
+                      `).bind(ep.id, cardNum).first();
+                      if (card) {
+                        cardUUID = card.id;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          if (!cardUUID) {
+            return json({ error: 'Card not found. Please provide film_id and episode_id.' }, { status: 404 });
+          }
+          
+          // Check if card state exists, if not create it
+          const existing = await env.DB.prepare(`
+            SELECT id, review_count FROM user_card_states
+            WHERE user_id = ? AND card_id = ?
+            LIMIT 1
+          `).bind(user_id, cardUUID).first();
+          
+          let reviewCount = 0;
+          
+          if (existing) {
+            // Increment existing review count
+            await env.DB.prepare(`
+              UPDATE user_card_states
+              SET review_count = review_count + 1,
+                  updated_at = unixepoch() * 1000
+              WHERE user_id = ? AND card_id = ?
+            `).bind(user_id, cardUUID).run();
+            
+            reviewCount = (existing.review_count || 0) + 1;
+          } else {
+            // Create new state with review_count = 1
+            // Get film_id and episode_id from card if not provided
+            let finalFilmId = film_id;
+            let finalEpisodeId = episode_id;
+            
+            if (!finalFilmId || !finalEpisodeId) {
+              const cardInfo = await env.DB.prepare(`
+                SELECT e.content_item_id, e.id as episode_id
+                FROM cards c
+                JOIN episodes e ON c.episode_id = e.id
+                WHERE c.id = ?
+              `).bind(cardUUID).first();
+              
+              if (cardInfo) {
+                const filmInfo = await env.DB.prepare(`
+                  SELECT slug FROM content_items WHERE id = ?
+                `).bind(cardInfo.content_item_id).first();
+                
+                finalFilmId = filmInfo?.slug || film_id;
+                finalEpisodeId = cardInfo.episode_id || episode_id;
+              }
+            }
+            
+            const stateId = crypto.randomUUID();
+            await env.DB.prepare(`
+              INSERT INTO user_card_states (
+                id, user_id, card_id, film_id, episode_id,
+                srs_state, review_count, state_created_at, state_updated_at,
+                created_at, updated_at
+              )
+              VALUES (?, ?, ?, ?, ?, 'none', 1, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
+            `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId).run();
+            
+            reviewCount = 1;
+          }
+          
+          return json({ review_count: reviewCount });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Update SRS state for a card
+      if (path === '/api/card/srs-state' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id, card_id, film_id, episode_id, srs_state } = body;
+          
+          if (!user_id || !card_id || !srs_state) {
+            return json({ error: 'Missing required parameters (user_id, card_id, srs_state)' }, { status: 400 });
+          }
+          
+          // Validate srs_state
+          const validStates = ['none', 'new', 'again', 'hard', 'good', 'easy'];
+          if (!validStates.includes(srs_state)) {
+            return json({ error: 'Invalid srs_state' }, { status: 400 });
+          }
+          
+          // Get card UUID from display ID
+          const cardUUID = await getCardUUID(film_id, episode_id, card_id);
+          if (!cardUUID) {
+            return json({ error: 'Card not found' }, { status: 404 });
+          }
+          
+          // Check if card state exists
+          const existing = await env.DB.prepare(`
+            SELECT id FROM user_card_states
+            WHERE user_id = ? AND card_id = ?
+            LIMIT 1
+          `).bind(user_id, cardUUID).first();
+          
+          if (existing) {
+            // Update existing state
+            await env.DB.prepare(`
+              UPDATE user_card_states
+              SET srs_state = ?,
+                  state_updated_at = unixepoch() * 1000,
+                  updated_at = unixepoch() * 1000
+              WHERE user_id = ? AND card_id = ?
+            `).bind(srs_state, user_id, cardUUID).run();
+          } else {
+            // Create new state (should not happen if card is not saved, but handle it)
+            // Get film_id and episode_id from card
+            const cardInfo = await env.DB.prepare(`
+              SELECT e.content_item_id, e.id as episode_id
+              FROM cards c
+              JOIN episodes e ON c.episode_id = e.id
+              WHERE c.id = ?
+            `).bind(cardUUID).first();
+            
+            let finalFilmId = film_id || null;
+            let finalEpisodeId = episode_id || null;
+            
+            if (cardInfo) {
+              if (!finalFilmId) {
+                const filmInfo = await env.DB.prepare(`
+                  SELECT slug FROM content_items WHERE id = ?
+                `).bind(cardInfo.content_item_id).first();
+                finalFilmId = filmInfo?.slug || null;
+              }
+              if (!finalEpisodeId) {
+                finalEpisodeId = cardInfo.episode_id || null;
+              }
+            }
+            
+            const stateId = crypto.randomUUID();
+            await env.DB.prepare(`
+              INSERT INTO user_card_states (
+                id, user_id, card_id, film_id, episode_id,
+                srs_state, state_created_at, state_updated_at,
+                created_at, updated_at
+              )
+              VALUES (?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
+            `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId, srs_state).run();
+          }
+          
+          return json({ success: true, srs_state });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get list of saved cards for a user
+      if (path === '/api/user/saved-cards' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const page = parseInt(url.searchParams.get('page') || '1');
+          const limit = parseInt(url.searchParams.get('limit') || '50');
+          const offset = (page - 1) * limit;
+          
+          if (!userId) {
+            return json({ error: 'Missing required parameter (user_id)' }, { status: 400 });
+          }
+          
+          // Get saved cards with card details
+          const cards = await env.DB.prepare(`
+            SELECT 
+              ucs.card_id,
+              ucs.srs_state,
+              ucs.film_id,
+              ucs.episode_id,
+              c.card_number,
+              c.start_time,
+              c.end_time,
+              c.duration,
+              c.image_key,
+              c.audio_key,
+              c.sentence,
+              c.card_type,
+              c.length,
+              c.difficulty_score,
+              e.slug as episode_slug,
+              e.episode_number,
+              ci.slug as film_slug,
+              ci.title as film_title,
+              ucs.state_created_at,
+              ucs.state_updated_at
+            FROM user_card_states ucs
+            JOIN cards c ON ucs.card_id = c.id
+            JOIN episodes e ON c.episode_id = e.id
+            JOIN content_items ci ON e.content_item_id = ci.id
+            WHERE ucs.user_id = ? AND ucs.srs_state != 'none'
+            ORDER BY ucs.state_updated_at DESC
+            LIMIT ? OFFSET ?
+          `).bind(userId, limit, offset).all();
+          
+          // Get total count
+          const countResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total
+            FROM user_card_states
+            WHERE user_id = ? AND srs_state != 'none'
+          `).bind(userId).first();
+          
+          const total = countResult?.total || 0;
+          
+          // Format cards similar to CardDoc - load subtitles for each card
+          const formattedCards = await Promise.all((cards.results || []).map(async (row) => {
+            const filmSlug = row.film_slug || row.film_id;
+            const epSlug = row.episode_slug || row.episode_id;
+            const cardDisplayId = String(row.card_number || '').padStart(3, '0');
+            
+            // Load subtitles for this card
+            const subs = await env.DB.prepare(`
+              SELECT language, text FROM card_subtitles WHERE card_id = ?
+            `).bind(row.card_id).all();
+            
+            const subtitle = {};
+            (subs.results || []).forEach((s) => {
+              subtitle[s.language] = s.text;
+            });
+            
+            // Build image and audio URLs
+            const R2Base = (env.R2_PUBLIC_BASE || '').replace(/\/$/, '');
+            const imageUrl = row.image_key 
+              ? (R2Base ? `${R2Base}/items/${filmSlug}/${epSlug}/image/${filmSlug}_${cardDisplayId}.jpg` : `/items/${filmSlug}/${epSlug}/image/${filmSlug}_${cardDisplayId}.jpg`)
+              : '';
+            const audioUrl = row.audio_key
+              ? (R2Base ? `${R2Base}/items/${filmSlug}/${epSlug}/audio/${filmSlug}_${cardDisplayId}.mp3` : `/items/${filmSlug}/${epSlug}/audio/${filmSlug}_${cardDisplayId}.mp3`)
+              : '';
+            
+            return {
+              id: cardDisplayId,
+              film_id: filmSlug,
+              episode_id: epSlug,
+              episode: epSlug,
+              start: row.start_time || 0,
+              end: row.end_time || 0,
+              duration: row.duration || 0,
+              image_url: imageUrl,
+              audio_url: audioUrl,
+              sentence: row.sentence || null,
+              card_type: row.card_type || null,
+              length: row.length || null,
+              difficulty_score: row.difficulty_score || null,
+              subtitle: subtitle,
+              srs_state: row.srs_state,
+              film_title: row.film_title,
+            };
+          }));
+          
+          return json({
+            cards: formattedCards,
+            total,
+            page,
+            limit,
+            has_more: offset + formattedCards.length < total
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get user portfolio/stats
+      if (path === '/api/user/portfolio' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          
+          if (!userId) {
+            return json({ error: 'Missing required parameter (user_id)' }, { status: 400 });
+          }
+          
+          // Get user scores
+          const scores = await env.DB.prepare(`
+            SELECT 
+              total_xp,
+              level,
+              coins,
+              current_streak,
+              longest_streak,
+              total_listening_time,
+              total_reading_time
+            FROM user_scores
+            WHERE user_id = ?
+          `).bind(userId).first();
+          
+          // Get total cards saved (with srs_state != 'none')
+          const savedCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total
+            FROM user_card_states
+            WHERE user_id = ? AND srs_state != 'none'
+          `).bind(userId).first();
+          
+          // Get total cards reviewed (sum of review_count)
+          const reviewedCardsResult = await env.DB.prepare(`
+            SELECT SUM(review_count) as total
+            FROM user_card_states
+            WHERE user_id = ?
+          `).bind(userId).first();
+          
+          return json({
+            user_id: userId,
+            total_xp: scores?.total_xp || 0,
+            level: scores?.level || 1,
+            coins: scores?.coins || 0,
+            current_streak: scores?.current_streak || 0,
+            longest_streak: scores?.longest_streak || 0,
+            total_cards_saved: savedCardsResult?.total || 0,
+            total_cards_reviewed: reviewedCardsResult?.total || 0,
+            total_listening_time: scores?.total_listening_time || 0,
+            total_reading_time: scores?.total_reading_time || 0,
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // ==================== CONTENT STATS & LIKES ====================
+      
+      // Get saved cards count for a user and film
+      if (path === '/api/content/saved-cards-count' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const filmId = url.searchParams.get('film_id');
+          
+          if (!userId || !filmId) {
+            return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
+          }
+          
+          // Count saved cards (cards with any SRS state except 'none')
+          const result = await env.DB.prepare(`
+            SELECT COUNT(*) as count
+            FROM user_card_states
+            WHERE user_id = ? AND film_id = ? AND srs_state != 'none'
+          `).bind(userId, filmId).first();
+          
+          return json({ count: result?.count || 0 });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get like count for a film
+      if (path === '/api/content/like-count' && request.method === 'GET') {
+        try {
+          const filmId = url.searchParams.get('film_id');
+          
+          if (!filmId) {
+            return json({ error: 'Missing required parameter (film_id)' }, { status: 400 });
+          }
+          
+          // Get like count from denormalized table
+          const result = await env.DB.prepare(`
+            SELECT like_count
+            FROM content_like_counts
+            WHERE content_item_id = (SELECT id FROM content_items WHERE slug = ?)
+          `).bind(filmId).first();
+          
+          return json({ count: result?.like_count || 0 });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Check if user liked a film
+      if (path === '/api/content/like-status' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const filmId = url.searchParams.get('film_id');
+          
+          if (!userId || !filmId) {
+            return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
+          }
+          
+          const result = await env.DB.prepare(`
+            SELECT 1
+            FROM content_likes
+            WHERE user_id = ? AND content_item_id = (SELECT id FROM content_items WHERE slug = ?)
+            LIMIT 1
+          `).bind(userId, filmId).first();
+          
+          return json({ liked: !!result });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Toggle like status for a film
+      if (path === '/api/content/like' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id, film_id } = body;
+          
+          if (!user_id || !film_id) {
+            return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
+          }
+          
+          // Get content_item_id from slug
+          const contentItem = await env.DB.prepare(`
+            SELECT id FROM content_items WHERE slug = ?
+          `).bind(film_id).first();
+          
+          if (!contentItem) {
+            return json({ error: 'Content not found' }, { status: 404 });
+          }
+          
+          const contentItemId = contentItem.id;
+          
+          // Check if already liked
+          const existing = await env.DB.prepare(`
+            SELECT id FROM content_likes
+            WHERE user_id = ? AND content_item_id = ?
+            LIMIT 1
+          `).bind(user_id, contentItemId).first();
+          
+          let liked = false;
+          
+          if (existing) {
+            // Unlike: delete the like
+            await env.DB.prepare(`
+              DELETE FROM content_likes
+              WHERE user_id = ? AND content_item_id = ?
+            `).bind(user_id, contentItemId).run();
+            liked = false;
+            
+            // Manually update like count (decrement)
+            await env.DB.prepare(`
+              UPDATE content_like_counts 
+              SET like_count = MAX(0, like_count - 1), updated_at = unixepoch() * 1000
+              WHERE content_item_id = ?
+            `).bind(contentItemId).run();
+          } else {
+            // Like: insert new like
+            const likeId = crypto.randomUUID();
+            await env.DB.prepare(`
+              INSERT INTO content_likes (id, user_id, content_item_id, created_at, updated_at)
+              VALUES (?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+            `).bind(likeId, user_id, contentItemId).run();
+            liked = true;
+            
+            // Manually update like count (increment)
+            // First try to update existing row
+            const updateResult = await env.DB.prepare(`
+              UPDATE content_like_counts 
+              SET like_count = like_count + 1, updated_at = unixepoch() * 1000
+              WHERE content_item_id = ?
+            `).bind(contentItemId).run();
+            
+            // If no row was updated, insert a new one
+            if (updateResult.changes === 0) {
+              await env.DB.prepare(`
+                INSERT INTO content_like_counts (content_item_id, like_count, updated_at)
+                VALUES (?, 1, unixepoch() * 1000)
+              `).bind(contentItemId).run();
+            }
+          }
+          
+          // Get updated like count
+          const countResult = await env.DB.prepare(`
+            SELECT like_count FROM content_like_counts WHERE content_item_id = ?
+          `).bind(contentItemId).first();
+          
+          return json({ 
+            liked,
+            like_count: countResult?.like_count || 0
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
       // ==================== USER MANAGEMENT ====================
       
       // Register/Create user (upsert)

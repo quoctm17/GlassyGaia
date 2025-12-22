@@ -8,18 +8,32 @@
 }
 
 .filter-panel-wrapper {
+  position: sticky;
+  top: 43px; /* Navbar height */
+  align-self: flex-start;
   flex-shrink: 0;
   width: 20%;
   min-width: 220px;
   max-width: 260px;
   background-color: var(--sidenav-bg);
   border-right: 1px solid var(--border);
-  height: auto;
-  min-height: 100vh;
-  align-self: stretch;
+  height: calc(100vh - 43px); /* Full viewport height minus navbar */
+  max-height: calc(100vh - 43px);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  z-index: 100;
+}
+
+/* Hide filter panel when closed on desktop */
+@media (min-width: 769px) {
+  .filter-panel-wrapper:not(.open) {
+    display: none;
+  }
+  
+  .filter-panel-wrapper.open {
+    display: flex;
+  }
 }
 
 .search-layout-wrapper {
@@ -47,7 +61,8 @@
 }
 
 .filter-panel-toggle-btn:hover {
-  /* No background change on hover - only icon brightness changes */
+  /* No background change on hover - only icon brightness changes via child img */
+  opacity: 1;
 }
 
 .filter-panel-toggle-btn:hover img {
@@ -123,10 +138,45 @@
   font-size: 18px;
   z-index: 100;
   transition: all 0.2s ease;
+  background-color: var(--primary);
+  color: var(--secondary);
+  font-weight: bold;
+}
+
+.filter-panel-close-btn:hover {
+  background-color: var(--hover-select);
+  color: white;
+  transform: scale(1.1);
 }
 
 .filter-panel-overlay {
   display: none;
+}
+
+/* Show overlay only on mobile when filter panel is open */
+@media (max-width: 768px) {
+  .filter-panel-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 999;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Show overlay when filter panel is open */
+  .search-page-container:has(.filter-panel-wrapper.open) .filter-panel-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .vertical-resizer {
@@ -169,6 +219,7 @@
   align-items: start;
   align-content: start;
   grid-auto-rows: min-content;
+  margin-top: 85px;
 }
 
 .search-results.layout-default.filter-panel-closed {
@@ -199,6 +250,16 @@
   grid-auto-rows: min-content;
 }
 
+/* Mobile: Force 1 column layout regardless of setting */
+@media (max-width: 768px) {
+  .search-results.layout-default,
+  .search-results.layout-default.filter-panel-closed,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 /* Skeleton loading animation */
 @keyframes skeleton-loading {
   0% {
@@ -214,12 +275,21 @@
 }
 
 .search-controls {
-  position: relative;
-  width: 100%;
+  position: fixed;
+  top: 45px;
+  left: 13%; /* Match filter panel width */
+  right: 0;
   background-color: var(--background);
-  padding: 16px 16px;
+  padding: 16px 10px 16px 20px; /* Increased left padding */
   flex-shrink: 0;
-  transition: left 0.3s ease; /* Smooth transition when FilterPanel toggles */
+  z-index: 99;
+  transition: left 0.3s ease;
+  box-sizing: border-box;
+}
+
+/* When filter panel is closed, search-controls should be full width */
+.search-layout-wrapper.filter-panel-closed .search-controls {
+  left: 0 !important;
 }
 
 .search-bar-container {
@@ -241,31 +311,105 @@
   font-style: italic;
 }
 
-/* Search controls no longer fixed, no position adjustment needed */
-
 /* ================= Responsive Design ================= */
 /* Breakpoints: xs=480px, sm=640px, md=768px, lg=1024px, xl=1280px, 2xl=1440px, 3xl=1920px */
+/* Sorted from largest to smallest */
 
-/* Large Desktop and below (2xl: 1440px) */
-@media (max-width: 1280px) {
+/* Large Desktop (1661px and below) */
+@media (max-width: 1661px) {
   .search-controls {
-    padding: 8px;
-    padding-top: 20px;
+    left: 14%;
+    padding-left: 40px;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
+  }
+}
+
+/* Desktop (1575px and below) */
+@media (max-width: 1575px) {
+  .search-controls {
+    left: 15%;
+    padding-left: 40px;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
+  }
+}
+
+/* Desktop (1475px and below) */
+@media (max-width: 1475px) {
+  .search-controls {
+    left: 16%;
+    padding-left: 40px;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
+  }
+}
+
+/* Desktop (1375px and below) */
+@media (max-width: 1375px) {
+  .search-controls {
+    left: 17%;
+    padding-left: 40px;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
+  }
+}
+
+/* Medium screens - adjust when filter panel hits min-width */
+@media (min-width: 1101px) and (max-width: 1300px) {
+  .search-controls {
+    left: 22%;
+    padding-left: 20px;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
   }
 }
 
 /* Desktop and below (xl: 1280px) */
 @media (max-width: 1280px) {
   .search-controls {
-    padding: 8px;
+    padding: 8px 10px 8px 20px;
     padding-top: 20px;
+    left: 21%;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
+  }
+}
+
+/* Adjust for filter panel min-width on smaller screens */
+@media (max-width: 1100px) {
+  .search-controls {
+    left: 25%;
+    padding-left: 20px;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
   }
 }
 
 /* Laptop and below (lg: 1024px) */
 @media (max-width: 1024px) {
   .search-controls {
-    padding: 6px;
+    padding: 6px 10px 6px 20px;
+    padding-top: 40px;
+    left: 24%;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
   }
 
   /* Keep sidebar roughly 20–22% of viewport on tablet */
@@ -273,11 +417,25 @@
     width: 22%;
     min-width: 200px;
     max-width: 240px;
+    height: calc(100vh - 43px);
+    max-height: calc(100vh - 43px);
   }
 
   .filter-panel {
     width: 22% !important;
     min-width: 200px !important;
+  }
+}
+
+/* Medium Tablet (850px and below) - transition before mobile */
+@media (max-width: 850px) {
+  .search-controls {
+    left: 26%;
+    padding-left: 30px;
+  }
+  
+  .search-layout-wrapper.filter-panel-closed .search-controls {
+    left: 0 !important;
   }
 }
 
@@ -301,10 +459,15 @@
     transition: transform 0.3s ease;
     border-right: none;
     box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+    display: flex !important; /* Always show on mobile for animation */
   }
 
   .filter-panel-wrapper.open {
     transform: translateX(0);
+  }
+  
+  .filter-panel-wrapper:not(.open) {
+    transform: translateX(-100%);
   }
 
   .search-layout-wrapper {
@@ -332,12 +495,10 @@
     justify-content: center;
   }
 
-  .filter-panel-overlay {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 999;
+  .filter-panel-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .vertical-resizer {
@@ -347,6 +508,7 @@
   .search-controls {
     padding: 6px;
     left: 0 !important; /* Full width on mobile */
+    right: 0 !important;
   }
 }
 

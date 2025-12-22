@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useRef, useState, memo } from "react";
+import { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
 import { canonicalizeLangCode } from "../utils/lang";
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
+import { apiToggleSaveCard, apiGetCardSaveStatus, apiUpdateCardSRSState, apiIncrementReviewCount } from "../services/cfApi";
+import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from "../constants/srsStates";
 import "../styles/components/search-result-card.css";
 import threeDotsIcon from "../assets/icons/three-dots.svg";
 import buttonPlayIcon from "../assets/icons/button-play.svg";
 import eyeIcon from "../assets/icons/eye.svg";
 import warningIcon from "../assets/icons/icon-warning.svg";
+import saveHeartIcon from "../assets/icons/save-heart.svg";
 
 // Global registry to ensure only one audio plays at a time across all cards
 const activeAudioInstances = new Set<HTMLAudioElement>();
@@ -18,6 +21,7 @@ interface Props {
   highlightQuery?: string; // optional search keyword to highlight in subtitles
   primaryLang?: string; // film's primary (audio) language to show first
   filmTitle?: string; // content title to display
+  volume?: number; // audio volume (0-100)
 }
 
 // Memoized component to prevent unnecessary re-renders
@@ -25,8 +29,9 @@ const SearchResultCard = memo(function SearchResultCard({
   card: initialCard,
   highlightQuery,
   primaryLang,
+  volume = 28,
 }: Props) {
-  const { preferences } = useUser();
+  const { user, preferences } = useUser();
   const langs = useMemo(() => preferences.subtitle_languages || [], [preferences.subtitle_languages]);
   const ref = useRef<HTMLDivElement | null>(null);
   const [subsOverride, setSubsOverride] = useState<Record<string, string> | null>(null);
@@ -40,6 +45,14 @@ const SearchResultCard = memo(function SearchResultCard({
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
   const [expandedSubtitles, setExpandedSubtitles] = useState<Set<string>>(new Set());
+  const [isSaved, setIsSaved] = useState<boolean>(false);
+  const [srsState, setSrsState] = useState<SRSState>('none');
+  const [reviewCount, setReviewCount] = useState<number>(0);
+  const [srsDropdownOpen, setSrsDropdownOpen] = useState<boolean>(false);
+  const srsDropdownRef = useRef<HTMLDivElement | null>(null);
+  const hasIncrementedReview = useRef<boolean>(false);
+  const incrementReviewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingReviewIncrement = useRef<{ cardId: string; filmId?: string; episodeId?: string } | null>(null);
 
 
   // Resolve image URL with optional R2 base for leading slashes
@@ -60,6 +73,177 @@ const SearchResultCard = memo(function SearchResultCard({
     setOriginalCardIndex(-1);
   }, [initialCard.id, initialCard.image_url]);
 
+  // Load saved status, SRS state, and review count for card
+  useEffect(() => {
+    if (!user?.uid || !card.id) {
+      setIsSaved(false);
+      setSrsState('none');
+      setReviewCount(0);
+      return;
+    }
+    
+    let mounted = true;
+    (async () => {
+      try {
+        const status = await apiGetCardSaveStatus(
+          user.uid, 
+          card.id,
+          card.film_id,
+          card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
+        );
+        if (mounted) {
+          setIsSaved(status.saved);
+          setSrsState(status.srs_state as SRSState);
+          setReviewCount(status.review_count);
+        }
+      } catch (error) {
+        console.error('Failed to load card save status:', error);
+        if (mounted) {
+          setIsSaved(false);
+          setSrsState('none');
+          setReviewCount(0);
+        }
+      }
+    })();
+    
+    return () => { mounted = false; };
+  }, [user?.uid, card.id, card.film_id, card.episode_id, card.episode]);
+
+
+  // Close SRS dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (srsDropdownRef.current && !srsDropdownRef.current.contains(event.target as Node)) {
+        setSrsDropdownOpen(false);
+      }
+    };
+    if (srsDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [srsDropdownOpen]);
+
+  // Handle save/unsave card
+  const handleToggleSave = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user?.uid || !card.id) return;
+    
+    try {
+      const result = await apiToggleSaveCard(
+        user.uid,
+        card.id,
+        card.film_id,
+        card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
+      );
+      setIsSaved(result.saved);
+      if (result.saved) {
+        setSrsState('new'); // Default to 'new' when saving
+      } else {
+        setSrsState('none');
+        setSrsDropdownOpen(false);
+      }
+    } catch (error) {
+      console.error('Failed to toggle save card:', error);
+    }
+  };
+
+  // Handle SRS state change
+  const handleSRSStateChange = async (newState: SRSState) => {
+    if (!user?.uid || !card.id) return;
+    
+    try {
+      await apiUpdateCardSRSState(
+        user.uid, 
+        card.id, 
+        newState,
+        card.film_id,
+        card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
+      );
+      setSrsState(newState);
+      setSrsDropdownOpen(false);
+    } catch (error) {
+      console.error('Failed to update SRS state:', error);
+    }
+  };
+
+  // Helper function to increment review count with debounce
+  const incrementReviewCountForCard = useCallback(async (targetCard: CardDoc) => {
+    if (!user?.uid || !targetCard.id) return;
+    
+    // Clear any pending increment
+    if (incrementReviewTimeoutRef.current) {
+      clearTimeout(incrementReviewTimeoutRef.current);
+      incrementReviewTimeoutRef.current = null;
+    }
+    
+    // Store pending increment info
+    pendingReviewIncrement.current = {
+      cardId: targetCard.id,
+      filmId: targetCard.film_id,
+      episodeId: targetCard.episode_id || (typeof targetCard.episode === 'number' ? `e${targetCard.episode}` : String(targetCard.episode || ''))
+    };
+    
+    // Debounce: wait 300ms before actually calling API
+    // This batches rapid increments (e.g., quick A/D navigation)
+    incrementReviewTimeoutRef.current = setTimeout(async () => {
+      if (!pendingReviewIncrement.current) return;
+      
+      const { cardId, filmId, episodeId } = pendingReviewIncrement.current;
+      pendingReviewIncrement.current = null;
+      
+      try {
+        const result = await apiIncrementReviewCount(
+          user.uid,
+          cardId,
+          filmId,
+          episodeId
+        );
+        
+        // Only update if this is the current card
+        if (cardId === card.id) {
+          setReviewCount(result.review_count);
+        }
+      } catch (error) {
+        console.error('Failed to increment review count:', error);
+      }
+    }, 300);
+  }, [user?.uid, card.id]);
+
+  // Handle increment review count on hover
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+    // Increment review count (will be debounced)
+    incrementReviewCountForCard(card);
+  };
+
+  const handleMouseLeave = () => {
+    setIsHovered(false);
+    // Reset flag so we can increment again when hovering back
+    hasIncrementedReview.current = false;
+  };
+
+  // Reset review increment flag when card changes
+  useEffect(() => {
+    hasIncrementedReview.current = false;
+    // Clear any pending increment for previous card
+    if (incrementReviewTimeoutRef.current) {
+      clearTimeout(incrementReviewTimeoutRef.current);
+      incrementReviewTimeoutRef.current = null;
+    }
+    pendingReviewIncrement.current = null;
+  }, [card.id]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (incrementReviewTimeoutRef.current) {
+        clearTimeout(incrementReviewTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Register/unregister audio instance in global registry
   useEffect(() => {
     const audio = audioRef.current;
@@ -70,6 +254,15 @@ const SearchResultCard = memo(function SearchResultCard({
       };
     }
   }, []);
+
+  // Sync volume from props (0-100) to audio element (0-1)
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+    // Set volume directly - HTMLAudioElement.volume can be changed while playing
+    audio.volume = normalizedVolume;
+  }, [volume]);
 
   // Keyboard shortcuts when card is hovered
   useEffect(() => {
@@ -400,14 +593,14 @@ const SearchResultCard = memo(function SearchResultCard({
         const match = text.slice(startPos, endPosExclusive);
         const after = text.slice(endPosExclusive);
         
-        return `${escapeHtml(before)}<span class="text-[#f3a1d6]">${escapeHtml(match)}</span>${escapeHtml(after)}`;
+        return `${escapeHtml(before)}<span style="color: var(--hover-select)">${escapeHtml(match)}</span>${escapeHtml(after)}`;
       }
       
       // Non-Japanese: simple regex match
       const re = new RegExp(escapeRegExp(q), "gi");
       return escapeHtml(text).replace(
         re,
-        (match) => `<span class="text-[#f3a1d6]">${escapeHtml(match)}</span>`
+        (match) => `<span style="color: var(--hover-select)">${escapeHtml(match)}</span>`
       );
     } catch (err) {
       console.warn('Highlight error:', err);
@@ -437,7 +630,7 @@ const SearchResultCard = memo(function SearchResultCard({
           // If query matches the rt (reading), highlight both rb and rt
           if (rtNorm.includes(qNorm) || rbNorm.includes(qNorm)) {
             hasRubyHighlights = true;
-            return `<ruby><rb><span class="text-[#f3a1d6]">${rbContent}</span></rb><rt><span class="text-[#f3a1d6]">${rtContent}</span></rt></ruby>`;
+            return `<ruby><rb><span style="color: var(--hover-select)">${rbContent}</span></rb><rt><span style="color: var(--hover-select)">${rtContent}</span></rt></ruby>`;
           }
           return m;
         });
@@ -514,7 +707,7 @@ const SearchResultCard = memo(function SearchResultCard({
             continue;
           }
           const shouldHighlight = !inRtTag2 && charPositions.has(htmlIdx);
-          result += shouldHighlight ? `<span class="text-[#f3a1d6]">${c}</span>` : c;
+          result += shouldHighlight ? `<span style="color: var(--hover-select)">${c}</span>` : c;
           htmlIdx++;
         }
         return result;
@@ -522,7 +715,7 @@ const SearchResultCard = memo(function SearchResultCard({
       
       // Non-Japanese: simple regex on whole HTML
       const re = new RegExp(escapeRegExp(q), "gi");
-      return html.replace(re, (match) => `<span class="text-[#f3a1d6]">${match}</span>`);
+      return html.replace(re, (match) => `<span style="color: var(--hover-select)">${match}</span>`);
     } catch (err) {
       console.warn('Highlight error:', err);
       return html;
@@ -579,6 +772,10 @@ const SearchResultCard = memo(function SearchResultCard({
       audioRef.current.src = card.audio_url;
     }
     
+    // Always set volume before any play/pause operation
+    const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+    audioRef.current.volume = normalizedVolume;
+    
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
@@ -589,6 +786,8 @@ const SearchResultCard = memo(function SearchResultCard({
           otherAudio.pause();
         }
       });
+      // Set volume again right before playing to ensure it's applied
+      audioRef.current.volume = normalizedVolume;
       audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
       setIsPlaying(true);
     }
@@ -612,24 +811,35 @@ const SearchResultCard = memo(function SearchResultCard({
           ...cardToSet,
           levels: cardToSet.levels || card.levels
         });
+        
+        // Increment review count for the new card
+        incrementReviewCountForCard(cardToSet);
       } catch {
         // Preserve levels from current card if new card doesn't have them
         setCard({
           ...prevCard,
           levels: prevCard.levels || card.levels
         });
+        
+        // Increment review count for the new card
+        incrementReviewCountForCard(prevCard);
       }
       setCurrentCardIndex(currentCardIndex - 1);
       
       // Auto-play audio for the new card
       if (audioRef.current && prevCard.audio_url) {
         audioRef.current.src = prevCard.audio_url;
+        // Set volume after src change (browser may reset volume when src changes)
+        const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+        audioRef.current.volume = normalizedVolume;
         // Pause all other audio instances
         activeAudioInstances.forEach((otherAudio) => {
           if (otherAudio !== audioRef.current) {
             otherAudio.pause();
           }
         });
+        // Set volume again right before playing to ensure it's applied
+        audioRef.current.volume = normalizedVolume;
         audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
         setIsPlaying(true);
       } else {
@@ -659,24 +869,35 @@ const SearchResultCard = memo(function SearchResultCard({
           cardToSet.levels = card.levels;
         }
         setCard(cardToSet);
+        
+        // Increment review count for the new card
+        incrementReviewCountForCard(cardToSet);
       } catch {
         // Preserve levels from current card if new card doesn't have them
         setCard({
           ...nextCard,
           levels: nextCard.levels || card.levels
         });
+        
+        // Increment review count for the new card
+        incrementReviewCountForCard(nextCard);
       }
       setCurrentCardIndex(currentCardIndex + 1);
       
       // Auto-play audio for the new card
       if (audioRef.current && nextCard.audio_url) {
         audioRef.current.src = nextCard.audio_url;
+        // Set volume after src change (browser may reset volume when src changes)
+        const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+        audioRef.current.volume = normalizedVolume;
         // Pause all other audio instances
         activeAudioInstances.forEach((otherAudio) => {
           if (otherAudio !== audioRef.current) {
             otherAudio.pause();
           }
         });
+        // Set volume again right before playing to ensure it's applied
+        audioRef.current.volume = normalizedVolume;
         audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
         setIsPlaying(true);
       } else {
@@ -694,12 +915,16 @@ const SearchResultCard = memo(function SearchResultCard({
     if (!card.audio_url || !audioRef.current) return;
     
     audioRef.current.currentTime = 0;
+    const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+    audioRef.current.volume = normalizedVolume;
     // Pause all other audio instances before playing
     activeAudioInstances.forEach((otherAudio) => {
       if (otherAudio !== audioRef.current) {
         otherAudio.pause();
       }
     });
+    // Set volume again right before playing to ensure it's applied
+    audioRef.current.volume = normalizedVolume;
     audioRef.current.play().catch(err => console.warn('Audio replay failed:', err));
     setIsPlaying(true);
   };
@@ -728,24 +953,35 @@ const SearchResultCard = memo(function SearchResultCard({
           cardToSet.levels = card.levels;
         }
         setCard(cardToSet);
+        
+        // Increment review count for the original card
+        incrementReviewCountForCard(cardToSet);
       } catch {
         // Preserve levels from current card if new card doesn't have them
         setCard({
           ...originalCard,
           levels: originalCard.levels || card.levels
         });
+        
+        // Increment review count for the original card
+        incrementReviewCountForCard(originalCard);
       }
       setCurrentCardIndex(originalCardIndex);
       
       // Auto-play audio for the original card
       if (audioRef.current && originalCard.audio_url) {
         audioRef.current.src = originalCard.audio_url;
+        // Set volume after src change (browser may reset volume when src changes)
+        const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+        audioRef.current.volume = normalizedVolume;
         // Pause all other audio instances
         activeAudioInstances.forEach((otherAudio) => {
           if (otherAudio !== audioRef.current) {
             otherAudio.pause();
           }
         });
+        // Set volume again right before playing to ensure it's applied
+        audioRef.current.volume = normalizedVolume;
         audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
         setIsPlaying(true);
       } else {
@@ -831,8 +1067,8 @@ const SearchResultCard = memo(function SearchResultCard({
     <div 
       ref={ref} 
       className="pixel-result-card-new"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className="card-main-content">
         {/* Top: Metadata - Full width */}
@@ -881,6 +1117,46 @@ const SearchResultCard = memo(function SearchResultCard({
               {card.audio_url && (
                 <div className="card-image-play-overlay" onClick={handleImageClick} style={{ cursor: 'pointer', pointerEvents: 'all' }}>
                   <img src={buttonPlayIcon} alt="Play" className="play-icon" />
+                </div>
+              )}
+              
+              {/* SRS State Dropdown - Top Left */}
+              {isSaved && srsState !== 'none' && (
+                <div className="card-srs-dropdown-container" ref={srsDropdownRef}>
+                  <button
+                    className={`card-srs-dropdown-btn srs-${srsState}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSrsDropdownOpen(!srsDropdownOpen);
+                    }}
+                  >
+                    <span className="card-srs-dropdown-text">{SRS_STATE_LABELS[srsState]}</span>
+                    <img src={buttonPlayIcon} alt="Dropdown" className="card-srs-dropdown-icon" />
+                  </button>
+                  
+                  {srsDropdownOpen && (
+                    <div className="card-srs-dropdown-menu">
+                      {SELECTABLE_SRS_STATES.map((state) => (
+                        <button
+                          key={state}
+                          className={`card-srs-dropdown-item srs-${state} ${srsState === state ? 'active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSRSStateChange(state);
+                          }}
+                        >
+                          {SRS_STATE_LABELS[state]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Review Count - Bottom Right */}
+              {user?.uid && (
+                <div className="card-review-count">
+                  {reviewCount}
                 </div>
               )}
             </div>
@@ -998,8 +1274,18 @@ const SearchResultCard = memo(function SearchResultCard({
         </div>
         </div>
 
-          {/* Right: Menu */}
+          {/* Right: Save button and Menu */}
           <div className="card-right-section">
+          <div className="card-action-buttons">
+            {/* Save button */}
+            <button
+              className={`card-save-btn ${isSaved ? 'saved' : ''}`}
+              onClick={handleToggleSave}
+              title={isSaved ? "Unsave card" : "Save card"}
+            >
+              <img src={saveHeartIcon} alt={isSaved ? "Unsave" : "Save"} className="card-save-icon" />
+            </button>
+          </div>
           <div className="card-menu-container" ref={menuRef}>
             <button
               className="pixel-btn-menu"
@@ -1054,7 +1340,8 @@ const SearchResultCard = memo(function SearchResultCard({
     prevSubKeys === nextSubKeys &&
     prevProps.highlightQuery === nextProps.highlightQuery &&
     prevProps.primaryLang === nextProps.primaryLang &&
-    prevProps.filmTitle === nextProps.filmTitle
+    prevProps.filmTitle === nextProps.filmTitle &&
+    prevProps.volume === nextProps.volume
   );
 });
 

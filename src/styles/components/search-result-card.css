@@ -240,6 +240,133 @@
   margin: 0 auto;
 }
 
+/* SRS State Dropdown - Top Left */
+.card-srs-dropdown-container {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+}
+
+.card-srs-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.card-srs-dropdown-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.card-srs-dropdown-text {
+  line-height: 1;
+}
+
+.card-srs-dropdown-icon {
+  width: 12px;
+  height: 12px;
+  filter: brightness(0) invert(1);
+  transform: rotate(90deg);
+  transition: transform 0.2s ease;
+}
+
+.card-srs-dropdown-container:has(.card-srs-dropdown-menu) .card-srs-dropdown-icon {
+  transform: rotate(270deg);
+}
+
+.card-srs-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--background);
+  border: 2px solid var(--primary);
+  border-radius: 4px;
+  min-width: 100px;
+  z-index: 21;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.card-srs-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.card-srs-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.card-srs-dropdown-item:hover {
+  opacity: 0.9;
+}
+
+.card-srs-dropdown-item.active {
+  font-weight: 700;
+}
+
+/* SRS State Colors */
+.card-srs-dropdown-btn.srs-new,
+.card-srs-dropdown-item.srs-new {
+  background: #9E9E9E;
+}
+
+.card-srs-dropdown-btn.srs-again,
+.card-srs-dropdown-item.srs-again {
+  background: #FF6A7A;
+}
+
+.card-srs-dropdown-btn.srs-hard,
+.card-srs-dropdown-item.srs-hard {
+  background: #FFB664;
+}
+
+.card-srs-dropdown-btn.srs-good,
+.card-srs-dropdown-item.srs-good {
+  background: #55CDAA;
+}
+
+.card-srs-dropdown-btn.srs-easy,
+.card-srs-dropdown-item.srs-easy {
+  background: #5EBBFF;
+}
+
+/* Review Count - Bottom Right */
+.card-review-count {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 20;
+  color: white;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
 .card-image-wrapper {
   position: relative;
   width: 100%;
@@ -446,13 +573,54 @@
   display: none !important;
 }
 
-/* Right section: Favorite button and menu */
+/* Right section: Save button and menu */
 .card-right-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: center;
   justify-content: center;
+}
+
+.card-action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.card-save-btn {
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-save-btn:hover {
+  transform: scale(1.1);
+}
+
+.card-save-btn:active {
+  transform: scale(0.95);
+}
+
+.card-save-icon {
+  width: 20px;
+  height: 20px;
+  filter: var(--icon-neutral-filter);
+  transition: filter 0.2s ease;
+}
+
+.card-save-btn:hover .card-save-icon {
+  filter: var(--icon-hover-select-filter);
+}
+
+.card-save-btn.saved .card-save-icon {
+  filter: var(--icon-hover-select-filter);
 }
 
 .card-menu-container {
@@ -723,9 +891,15 @@
     flex-direction: column;
   }
 
+  .card-content-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
   .card-left-section {
     min-width: 100%;
     width: 100%;
+    max-width: 100%;
   }
 
   .card-image-container {
@@ -735,6 +909,18 @@
 
   .card-center-section {
     width: 100%;
+  }
+
+  .card-subtitles {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Ensure subtitle rows display in single column on mobile */
+  .card-subtitles .subtitle-row {
+    width: 100%;
+    max-width: 100%;
   }
 
   .card-action-buttons {
