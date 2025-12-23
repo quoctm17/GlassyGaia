@@ -9,7 +9,6 @@
 
 .filter-panel-wrapper {
   position: sticky;
-  top: 43px; /* Navbar height */
   align-self: flex-start;
   flex-shrink: 0;
   width: 20%;

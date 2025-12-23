@@ -537,8 +537,16 @@ body,
   flex: 1 0 auto;
   background: var(--background);
   width: 100%;
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-top: 45px;
+  position: relative;
+  min-height: calc(100vh - 45px);
+}
+
+.app-main::before,
+.app-main::after {
+  display: none;
 }
 
 /* Adjust padding-top for search page at 1024px breakpoint */

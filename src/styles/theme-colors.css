@@ -37,6 +37,10 @@
   --light-teal-text: #115E59;
   --light-success-text: #065F46;
   --light-description-text: #948979;
+  --light-comment-text: #948979;
+  --light-progress-bar-incomplete-bg: #D9D9D9;
+  --light-progress-bar-border: #9E9E9E;
+  --light-progress-bar-completed: #FDAAAA;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -74,6 +78,10 @@
   --dark-teal-text: #5EEAD4;
   --dark-success-text: #6EE7B7;
   --dark-description-text: #948979;
+  --dark-comment-text: #948979;
+  --dark-progress-bar-incomplete-bg: #2B2328;
+  --dark-progress-bar-border: #948979;
+  --dark-progress-bar-completed: #AA3F55;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -82,6 +90,7 @@
   --light-hover-select-filter: brightness(0) saturate(100%) invert(47%) sepia(17%) saturate(1517%) hue-rotate(298deg) brightness(91%) contrast(88%); /* #AA3F55 */
   --light-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
   --light-text-filter: brightness(0) saturate(100%) invert(0%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(0%) contrast(100%); /* #000000 */
+  --light-comment-text-filter: brightness(0) saturate(100%) invert(58%) sepia(8%) saturate(1000%) hue-rotate(18deg) brightness(95%) contrast(89%); /* #948979 */
 
   /* Dark Mode Filters */
   --dark-primary-filter: brightness(0) saturate(100%) invert(22%) sepia(44%) saturate(1481%) hue-rotate(318deg) brightness(92%) contrast(93%); /* #9E2741 */
@@ -89,6 +98,7 @@
   --dark-hover-select-filter: brightness(0) saturate(100%) invert(93%) sepia(22%) saturate(634%) hue-rotate(297deg) brightness(103%) contrast(98%); /* #FDAAAA */
   --dark-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
   --dark-text-filter: brightness(0) saturate(100%) invert(96%) sepia(5%) saturate(367%) hue-rotate(323deg) brightness(99%) contrast(92%); /* #F2EDE5 */
+  --dark-comment-text-filter: brightness(0) saturate(100%) invert(58%) sepia(8%) saturate(1000%) hue-rotate(18deg) brightness(95%) contrast(89%); /* #948979 */
 }
 
 /* Light Mode */
@@ -128,6 +138,10 @@
   --teal-text: var(--light-teal-text);
   --success-text: var(--light-success-text);
   --description-text: var(--light-description-text);
+  --comment-text: var(--light-comment-text);
+  --progress-bar-incomplete-bg: var(--light-progress-bar-incomplete-bg);
+  --progress-bar-border: var(--light-progress-bar-border);
+  --progress-bar-completed: var(--light-progress-bar-completed);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -135,6 +149,7 @@
   --icon-hover-select-filter: var(--light-hover-select-filter);
   --icon-neutral-filter: var(--light-neutral-filter);
   --icon-text-filter: var(--light-text-filter);
+  --icon-comment-text-filter: var(--light-comment-text-filter);
   
   /* Firefox scrollbar */
   scrollbar-color: var(--light-primary) var(--light-secondary);
@@ -177,6 +192,10 @@
   --teal-text: var(--dark-teal-text);
   --success-text: var(--dark-success-text);
   --description-text: var(--dark-description-text);
+  --comment-text: var(--dark-comment-text);
+  --progress-bar-incomplete-bg: var(--dark-progress-bar-incomplete-bg);
+  --progress-bar-border: var(--dark-progress-bar-border);
+  --progress-bar-completed: var(--dark-progress-bar-completed);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);
@@ -184,6 +203,7 @@
   --icon-hover-select-filter: var(--dark-hover-select-filter);
   --icon-neutral-filter: var(--dark-neutral-filter);
   --icon-text-filter: var(--dark-text-filter);
+  --icon-comment-text-filter: var(--dark-comment-text-filter);
   
   /* Firefox scrollbar */
   scrollbar-color: var(--dark-primary) var(--dark-secondary);

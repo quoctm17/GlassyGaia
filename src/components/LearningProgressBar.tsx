@@ -7,6 +7,8 @@ interface LearningProgressBarProps {
   currentIndex?: number; // Optional: highlight current card
   className?: string;
   onCardClick?: (index: number) => void; // Optional: callback when card is clicked
+  filterIcon?: string; // Optional: filter icon path
+  customIcon?: string; // Optional: custom icon path
 }
 
 export default function LearningProgressBar({
@@ -15,6 +17,8 @@ export default function LearningProgressBar({
   currentIndex,
   className = '',
   onCardClick,
+  filterIcon,
+  customIcon,
 }: LearningProgressBarProps) {
   // Calculate completion percentage
   const completionPercentage = useMemo(() => {
@@ -42,29 +46,58 @@ export default function LearningProgressBar({
 
   return (
     <div className={`learning-progress-container ${className}`}>
-      {/* Percentage display */}
-      <div className="learning-progress-percentage">
-        {completionPercentage}%
-      </div>
-
-      {/* Progress bar */}
-      <div className="learning-progress-bar">
-        {cardStates.map((card) => (
-          <div
-            key={card.index}
-            className={`learning-progress-card ${
-              card.completed ? 'completed' : 'incomplete'
-            } ${card.current ? 'current' : ''}`}
-            title={`Card ${card.index + 1}${card.completed ? ' - Completed' : ''}`}
-            onClick={() => onCardClick?.(card.index)}
-            style={{ cursor: onCardClick ? 'pointer' : 'default' }}
-          />
-        ))}
-      </div>
-
-      {/* Stats text */}
-      <div className="learning-progress-stats">
-        {completedIndices.size} / {totalCards} cards completed
+      {/* Progress bar with action buttons */}
+      <div className="learning-progress-bar-row-wrapper">
+        {/* Percentage and Stats on same row - positioned above progress bar */}
+        <div className="learning-progress-header">
+          <div className="learning-progress-percentage">
+            {completionPercentage}%
+          </div>
+          <div className="learning-progress-stats">
+            {completedIndices.size}/{totalCards} Cards
+          </div>
+        </div>
+        <div className="learning-progress-bar-row">
+          <div className="learning-progress-bar">
+          {cardStates.map((card) => (
+            <div
+              key={card.index}
+              className={`learning-progress-card ${
+                card.completed ? 'completed' : 'incomplete'
+              } ${card.current ? 'current' : ''}`}
+              title={`Card ${card.index + 1}${card.completed ? ' - Completed' : ''}`}
+              onClick={() => onCardClick?.(card.index)}
+              style={{ cursor: onCardClick ? 'pointer' : 'default' }}
+            />
+          ))}
+        </div>
+        {(filterIcon || customIcon) && (
+          <div className="learning-progress-bar-actions">
+            {filterIcon && (
+              <button
+                className="learning-progress-action-btn"
+                aria-label="Filter"
+              >
+                <img
+                  src={filterIcon}
+                  alt="Filter"
+                />
+              </button>
+            )}
+            {customIcon && (
+              <button
+                className="learning-progress-action-btn"
+                aria-label="Customize"
+              >
+                <img
+                  src={customIcon}
+                  alt="Customize"
+                />
+              </button>
+            )}
+          </div>
+        )}
+        </div>
       </div>
     </div>
   );

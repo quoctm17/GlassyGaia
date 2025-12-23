@@ -1,11 +1,25 @@
 /* Learning Progress Bar Styles */
 
 .learning-progress-container {
-  background-color: #1a0f26;
-  border: 2px solid #f3a1d6;
+  background-color: transparent;
+  border: none;
   border-radius: 0.5rem;
   padding: 1rem;
   margin-bottom: 1.5rem;
+}
+
+/* When inside watch page header - full width */
+.watch-header-progress-bar-wrapper .learning-progress-container {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 0;
+  width: 100%;
+}
+
+/* When progress bar is in watch header row */
+.watch-header-progress-bar .learning-progress-bar {
+  margin-bottom: 0;
 }
 
 /* When inside watch page media container - horizontal layout */
@@ -25,50 +39,153 @@
   }
 }
 
-/* Percentage display */
-.learning-progress-percentage {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #f3a1d6;
-  text-align: center;
-  margin-bottom: 0.75rem;
+/* Percentage and Stats header row */
+.learning-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-/* Hide percentage when inside watch page (shown separately) */
+/* When inside bar row, match width of progress bar (not including action buttons) */
+.learning-progress-bar-row ~ .learning-progress-header,
+.learning-progress-container:has(.learning-progress-bar-row) .learning-progress-header {
+  width: calc(100% - 60px); /* Subtract approximate width of action buttons + gap */
+}
+
+/* Percentage display */
+.learning-progress-percentage {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--hover-select);
+  text-align: left;
+}
+
+/* Stats display - align right relative to progress bar */
+.learning-progress-stats {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--hover-select);
+  text-align: right;
+}
+
+/* Show percentage when inside watch page header */
 .watch-progress-bar-wrapper .learning-progress-percentage {
-  display: none;
+  display: block;
 }
 
 /* Mobile: Smaller text */
 @media (max-width: 640px) {
   .learning-progress-percentage {
     font-size: 1.25rem;
+  }
+  
+  .learning-progress-header {
     margin-bottom: 0.5rem;
   }
+}
+
+/* Progress bar row wrapper - contains header and bar row */
+.learning-progress-bar-row-wrapper {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Progress bar row - contains bar and action buttons */
+.learning-progress-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Header inside bar row wrapper - match width of progress bar */
+.learning-progress-bar-row-wrapper .learning-progress-header {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+/* Stats align to right edge of progress bar (not including action buttons) */
+.learning-progress-bar-row-wrapper .learning-progress-header {
+  /* Use CSS variable to calculate width */
+  --progress-bar-width: calc(100% - 60px); /* Approximate: action buttons width + gap */
+}
+
+.learning-progress-bar-row-wrapper .learning-progress-stats {
+  grid-column: 2;
+  justify-self: end;
+  /* Position relative to progress bar width */
+  margin-right: calc(60px - 1.5rem); /* Offset by action buttons width + gap, reduced margin */
 }
 
 /* Progress bar container */
 .learning-progress-bar {
   display: flex;
-  gap: 2px;
-  width: 100%;
-  max-width: 100%;
+  flex: 1;
+  min-width: 0;
   box-sizing: border-box;
   height: 24px;
-  background-color: rgba(243, 161, 214, 0.15);
-  border-radius: 4px;
-  padding: 2px;
+  background-color: var(--progress-bar-incomplete-bg);
   overflow: hidden;
   margin-bottom: 0.5rem;
-  border: 1px solid rgba(243, 161, 214, 0.3);
+  border: 1px solid var(--progress-bar-border);
   box-sizing: border-box;
+}
+
+/* Action buttons container */
+.learning-progress-bar-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-bottom: 0.5rem;
+}
+
+.learning-progress-action-btn {
+  flex-shrink: 0;
+  padding: 5px;
+  border-radius: 8px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.learning-progress-action-btn:hover {
+  opacity: 1;
+}
+
+.learning-progress-action-btn:hover img {
+  filter: var(--icon-hover-select-filter);
+}
+
+.learning-progress-action-btn img {
+  width: 28px;
+  height: 28px;
+  filter: var(--icon-primary-filter);
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+
+/* When inside watch progress bar row, remove margin-bottom */
+.learning-progress-bar-row .learning-progress-bar {
+  margin-bottom: 0;
+}
+
+.learning-progress-bar-row .learning-progress-bar-actions {
+  margin-bottom: 0;
 }
 
 /* Mobile: Smaller height */
 @media (max-width: 640px) {
   .learning-progress-bar {
     height: 20px;
-    gap: 1px;
   }
 }
 
@@ -76,34 +193,27 @@
 .learning-progress-card {
   flex: 1;
   min-width: 0; /* Allow flex items to shrink below content size */
-  border-radius: 2px;
   transition: all 0.3s ease;
   position: relative;
   cursor: pointer;
 }
 
-/* Completed card - solid pink #c45484 */
+/* Completed card */
 .learning-progress-card.completed {
-  background-color: #c45484;
+  background-color: var(--progress-bar-completed);
+  border: 1px solid var(--hover-select);
 }
 
-/* Incomplete card - pink with 10% opacity (90% transparency) */
+/* Incomplete card */
 .learning-progress-card.incomplete {
-  background-color: rgba(196, 84, 132, 0.1);
+  background-color: var(--progress-bar-incomplete-bg);
+  border: 1px solid #9E9E9E;
 }
 
 /* Current card being viewed - add a glow effect */
 .learning-progress-card.current {
-  box-shadow: 0 0 8px 2px #f3a1d6;
   transform: scaleY(1.2);
   z-index: 1;
-}
-
-/* Mobile: Smaller glow */
-@media (max-width: 640px) {
-  .learning-progress-card.current {
-    box-shadow: 0 0 6px 1px #f3a1d6;
-  }
 }
 
 /* Hover effect for better interactivity */
@@ -119,13 +229,19 @@
 
 /* Stats text */
 .learning-progress-stats {
-  text-align: center;
-  color: #d1d5db;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  text-align: right;
+  color: var(--hover-select);
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 400;
 }
 
-/* Hide stats when inside watch page */
+/* Show stats when inside watch page header */
+.watch-header-progress-bar-wrapper .learning-progress-stats {
+  display: block;
+}
+
+/* Hide stats when inside watch page media container */
 .watch-progress-bar-wrapper .learning-progress-stats {
   display: none;
 }
