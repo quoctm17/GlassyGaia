@@ -1,7 +1,16 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Heart, Star } from 'lucide-react';
 import { listContentByType } from '../services/firestore';
-import { apiGetFilm, apiGetSRSDistribution, type SRSDistribution } from '../services/cfApi';
+import { 
+  apiGetFilm, 
+  apiGetSRSDistribution, 
+  apiGetSavedCardsCount,
+  apiGetLikeCount,
+  apiGetLikeStatus,
+  apiToggleLike,
+  type SRSDistribution 
+} from '../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../types';
 import { type ContentType } from '../types/content';
 import { useUser } from '../context/UserContext';
@@ -26,6 +35,9 @@ export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: Cont
   const [expandedFilmId, setExpandedFilmId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true); // loading state for API
   const [srsDistributions, setSrsDistributions] = useState<Record<string, SRSDistribution>>({});
+  const [savedCardsCounts, setSavedCardsCounts] = useState<Record<string, number>>({});
+  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+  const [likeStatuses, setLikeStatuses] = useState<Record<string, boolean>>({});
   const { user, preferences } = useUser();
   const selectedMain = preferences?.main_language || 'en';
   const navigate = useNavigate();
@@ -112,34 +124,92 @@ export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: Cont
     return maxLevel;
   };
 
-  // Load SRS distributions for all films when user is available
+  // Load SRS distributions, saved cards counts, like counts, and like statuses for all films
   useEffect(() => {
-    if (!user?.uid || allItems.length === 0) return;
+    if (allItems.length === 0) return;
     
     let mounted = true;
     (async () => {
       const distributions: Record<string, SRSDistribution> = {};
+      const savedCounts: Record<string, number> = {};
+      const likes: Record<string, number> = {};
+      const liked: Record<string, boolean> = {};
       
-      // Load SRS distributions for all films in parallel
+      // Load data for all films in parallel
       await Promise.all(
         allItems.map(async (film) => {
           try {
-            const dist = await apiGetSRSDistribution(user.uid, film.id);
-            if (mounted) {
-              distributions[film.id] = dist;
+            // Load SRS distribution (requires user)
+            if (user?.uid) {
+              try {
+                const dist = await apiGetSRSDistribution(user.uid, film.id);
+                if (mounted) {
+                  distributions[film.id] = dist;
+                }
+              } catch (error) {
+                console.error(`Failed to load SRS distribution for ${film.id}:`, error);
+                if (mounted) {
+                  distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+                }
+              }
+              
+              // Load saved cards count
+              try {
+                const count = await apiGetSavedCardsCount(user.uid, film.id);
+                if (mounted) {
+                  savedCounts[film.id] = count;
+                }
+              } catch (error) {
+                console.error(`Failed to load saved cards count for ${film.id}:`, error);
+                if (mounted) {
+                  savedCounts[film.id] = 0;
+                }
+              }
+              
+              // Load like status
+              try {
+                const status = await apiGetLikeStatus(user.uid, film.id);
+                if (mounted) {
+                  liked[film.id] = status;
+                }
+              } catch (error) {
+                console.error(`Failed to load like status for ${film.id}:`, error);
+                if (mounted) {
+                  liked[film.id] = false;
+                }
+              }
+            } else {
+              // No user, set defaults
+              if (mounted) {
+                distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+                savedCounts[film.id] = 0;
+                liked[film.id] = false;
+              }
+            }
+            
+            // Load like count (doesn't require user)
+            try {
+              const count = await apiGetLikeCount(film.id);
+              if (mounted) {
+                likes[film.id] = count;
+              }
+            } catch (error) {
+              console.error(`Failed to load like count for ${film.id}:`, error);
+              if (mounted) {
+                likes[film.id] = 0;
+              }
             }
           } catch (error) {
-            console.error(`Failed to load SRS distribution for ${film.id}:`, error);
-            // Default to all none on error
-            if (mounted) {
-              distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
-            }
+            console.error(`Failed to load data for ${film.id}:`, error);
           }
         })
       );
       
       if (mounted) {
         setSrsDistributions(distributions);
+        setSavedCardsCounts(savedCounts);
+        setLikeCounts(likes);
+        setLikeStatuses(liked);
       }
     })();
     
@@ -426,6 +496,60 @@ export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: Cont
                                   {levelKey}
                                 </div>
                               )}
+                              
+                              {/* Total cards count - top right */}
+                              {f.num_cards !== null && f.num_cards !== undefined && (
+                                <div className="film-card-total-count">
+                                  {f.num_cards}
+                                </div>
+                              )}
+                              
+                              {/* Saved cards and likes - bottom left */}
+                              <div className="film-card-stats-buttons">
+                                {/* Saved cards button */}
+                                <button
+                                  className={`film-card-stat-btn film-card-saved-btn ${(savedCardsCounts[f.id] || 0) > 0 ? 'has-saved' : ''}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Could navigate to saved cards view or show saved cards
+                                  }}
+                                  title={`${savedCardsCounts[f.id] || 0} cards saved`}
+                                >
+                                  <Heart 
+                                    size={16} 
+                                    fill={(savedCardsCounts[f.id] || 0) > 0 ? '#ef4444' : 'none'}
+                                    stroke="#ef4444"
+                                    strokeWidth={2}
+                                  />
+                                  <span className="film-card-stat-count">{savedCardsCounts[f.id] || 0}</span>
+                                </button>
+                                
+                                {/* Like button */}
+                                <button
+                                  className={`film-card-stat-btn film-card-like-btn ${likeStatuses[f.id] ? 'liked' : ''}`}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (!user?.uid) return;
+                                    
+                                    try {
+                                      const result = await apiToggleLike(user.uid, f.id);
+                                      setLikeStatuses(prev => ({ ...prev, [f.id]: result.liked }));
+                                      setLikeCounts(prev => ({ ...prev, [f.id]: result.like_count }));
+                                    } catch (error) {
+                                      console.error('Failed to toggle like:', error);
+                                    }
+                                  }}
+                                  title={`${likeCounts[f.id] || 0} likes`}
+                                >
+                                  <Star 
+                                    size={16} 
+                                    fill={likeStatuses[f.id] ? '#fbbf24' : 'none'}
+                                    stroke="#fbbf24"
+                                    strokeWidth={2}
+                                  />
+                                  <span className="film-card-stat-count">{likeCounts[f.id] || 0}</span>
+                                </button>
+                              </div>
                             </div>
                             
                             {/* Inline Detail Panel */}

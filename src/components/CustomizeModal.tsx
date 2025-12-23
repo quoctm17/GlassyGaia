@@ -14,7 +14,7 @@ interface CustomizeModalProps {
 export default function CustomizeModal({
   isOpen,
   onClose,
-  volume = 80,
+  volume = 28,
   onVolumeChange,
   resultLayout = 'default',
   onLayoutChange
@@ -114,7 +114,7 @@ export default function CustomizeModal({
           <button 
             className="modal-btn modal-btn-secondary"
             onClick={() => {
-              if (onVolumeChange) onVolumeChange(80);
+              if (onVolumeChange) onVolumeChange(28);
               if (onLayoutChange) onLayoutChange('default');
             }}
           >

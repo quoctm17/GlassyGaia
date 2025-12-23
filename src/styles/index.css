@@ -538,7 +538,21 @@ body,
   background: var(--background);
   width: 100%;
   overflow: visible;
-  padding-top: 64px;
+  padding-top: 45px;
+}
+
+/* Adjust padding-top for search page at 1024px breakpoint */
+@media (max-width: 1024px) {
+  .app-main {
+    padding-top: 65px;
+  }
+}
+
+/* Mobile: Ensure proper padding-top to account for fixed NavBar */
+@media (max-width: 768px) {
+  .app-main {
+    padding-top: 43px !important; /* Match NavBar min-height */
+  }
 }
 
 /* Hide spin buttons / number input arrows (Chrome, Edge, Safari) */

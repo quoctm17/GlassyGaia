@@ -89,14 +89,16 @@ export default function NavBar() {
         </div>
       </div>
       <div className="flex items-center gap-4">
-        {/* Language selectors (main + subtitles) */}
-        <div className="flex items-center gap-3">
+        {/* Language selectors (main + subtitles) - hidden on mobile */}
+        <div className="flex items-center gap-3 navbar-language-selectors">
           <MainLanguageSelector />
           <SubtitleLanguageSelector />
         </div>
         
-        {/* Theme toggle */}
-        <ThemeToggle />
+        {/* Theme toggle - hidden on mobile */}
+        <div className="navbar-theme-toggle">
+          <ThemeToggle />
+        </div>
         
         {user ? (
           <div className="relative" ref={menuRef}>
@@ -140,7 +142,15 @@ export default function NavBar() {
                   </Link>
                 )}
                 <Link
-                  to="/about"
+                  to="/saved"
+                  className="user-dropdown-item"
+                  onClick={() => setOpen(false)}
+                >
+                  <img src={watchlistIcon} alt="Saved Cards" className="dropdown-icon" />
+                  Saved Cards
+                </Link>
+                <Link
+                  to="/portfolio"
                   className="user-dropdown-item"
                   onClick={() => setOpen(false)}
                 >

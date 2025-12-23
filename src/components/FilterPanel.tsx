@@ -16,6 +16,8 @@ interface FilterPanelProps {
   filmFilter: string[];
   onSelectFilm: (filmIds: string[]) => void;
   mainLanguage: string;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 export default function FilterPanel({ 
@@ -29,7 +31,9 @@ export default function FilterPanel({
   allContentIds,
   filmFilter, 
   onSelectFilm, 
-  mainLanguage 
+  mainLanguage,
+  isOpen = true,
+  onClose
 }: FilterPanelProps) {
   const prevMainLanguageRef = useRef<string | null>(null);
 
@@ -42,20 +46,31 @@ export default function FilterPanel({
   }, [mainLanguage, onSelectFilm]);
 
   return (
-    <div className="filter-panel-wrapper">
-      <ContentSelector
-        value={filmFilter}
-        onChange={onSelectFilm}
-        allResults={allResults}
-        contentCounts={contentCounts}
-        totalCount={totalCount}
-        allContentIds={allContentIds}
-        filmTypeMapExternal={filmTypeMap}
-        filmTitleMapExternal={filmTitleMap}
-        filmLangMapExternal={filmLangMap}
-        filmStatsMapExternal={filmStatsMap}
-        mainLanguage={mainLanguage}
-      />
-    </div>
+    <>
+      <div className={`filter-panel-wrapper ${isOpen ? 'open' : ''}`}>
+        {onClose && (
+          <button
+            className="filter-panel-close-btn"
+            onClick={onClose}
+            aria-label="Close filter panel"
+          >
+            ✕
+          </button>
+        )}
+        <ContentSelector
+          value={filmFilter}
+          onChange={onSelectFilm}
+          allResults={allResults}
+          contentCounts={contentCounts}
+          totalCount={totalCount}
+          allContentIds={allContentIds}
+          filmTypeMapExternal={filmTypeMap}
+          filmTitleMapExternal={filmTitleMap}
+          filmLangMapExternal={filmLangMap}
+          filmStatsMapExternal={filmStatsMap}
+          mainLanguage={mainLanguage}
+        />
+      </div>
+    </>
   );
 }

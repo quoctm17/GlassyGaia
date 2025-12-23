@@ -40,7 +40,7 @@ function SearchPage() {
   const [maxDifficulty, setMaxDifficulty] = useState(100);
   const [minLevel, setMinLevel] = useState<string | null>(null);
   const [maxLevel, setMaxLevel] = useState<string | null>(null);
-  const [volume, setVolume] = useState(80);
+  const [volume, setVolume] = useState(28);
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
   const pageSize = 50;
   const isTextSearch = useMemo(() => query.trim().length >= 2, [query]);
@@ -297,8 +297,18 @@ function SearchPage() {
     return serverContentCounts;
   }, [serverContentCounts]);
 
-  // No client-side filtering needed - API handles contentFilter
-  const filteredCards = cards;
+  // Shuffle cards for random display order
+  const filteredCards = useMemo(() => {
+    if (cards.length === 0) return [];
+    // Create a shuffled copy of the cards array
+    const shuffled = [...cards];
+    // Fisher-Yates shuffle algorithm
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }, [cards]);
 
   // Infinite scroll: load next page when near bottom (with debounce)
   useEffect(() => {
@@ -328,23 +338,32 @@ function SearchPage() {
 
   return (
     <div className="search-page-container">
+      {/* Overlay for mobile - click outside to close */}
       {isFilterPanelOpen && (
-        <FilterPanel
-          filmTitleMap={filmTitleMap}
-          filmTypeMap={filmTypeMap}
-          filmLangMap={filmLangMap}
-          filmStatsMap={filmStatsMap}
-          allResults={cards}
-          contentCounts={contentCounts}
-          totalCount={total}
-          allContentIds={allContentIds}
-          filmFilter={contentFilter}
-          onSelectFilm={setContentFilter}
-          mainLanguage={preferences.main_language || "en"}
+        <div 
+          className="filter-panel-overlay"
+          onClick={() => setIsFilterPanelOpen(false)}
+          aria-hidden="true"
         />
       )}
+      
+      <FilterPanel
+        filmTitleMap={filmTitleMap}
+        filmTypeMap={filmTypeMap}
+        filmLangMap={filmLangMap}
+        filmStatsMap={filmStatsMap}
+        allResults={cards}
+        contentCounts={contentCounts}
+        totalCount={total}
+        allContentIds={allContentIds}
+        filmFilter={contentFilter}
+        onSelectFilm={setContentFilter}
+        mainLanguage={preferences.main_language || "en"}
+        isOpen={isFilterPanelOpen}
+        onClose={() => setIsFilterPanelOpen(false)}
+      />
 
-      <div className="search-layout-wrapper">
+      <div className={`search-layout-wrapper ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
         <main className="search-main">
           <div className="search-controls">
             <div className="search-bar-container">
@@ -423,6 +442,7 @@ function SearchPage() {
                       card={card}
                       highlightQuery={query}
                       primaryLang={preferences.main_language}
+                      volume={volume}
                     />
                   )})}
                   {isLoadingMore && (

@@ -335,6 +335,305 @@ export async function apiGetSRSDistribution(
   return res.json();
 }
 
+/**
+ * Get saved cards count for a user and film
+ */
+export async function apiGetSavedCardsCount(
+  userId: string,
+  filmId: string
+): Promise<number> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    user_id: userId,
+    film_id: filmId,
+  });
+
+  const res = await fetch(`${API_BASE}/api/content/saved-cards-count?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      return 0;
+    }
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get saved cards count: ${res.status} ${text}`);
+  }
+
+  const data = await res.json();
+  return data.count || 0;
+}
+
+/**
+ * Get like count for a film
+ */
+export async function apiGetLikeCount(filmId: string): Promise<number> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    film_id: filmId,
+  });
+
+  const res = await fetch(`${API_BASE}/api/content/like-count?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      return 0;
+    }
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get like count: ${res.status} ${text}`);
+  }
+
+  const data = await res.json();
+  return data.count || 0;
+}
+
+/**
+ * Check if user liked a film
+ */
+export async function apiGetLikeStatus(
+  userId: string,
+  filmId: string
+): Promise<boolean> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    user_id: userId,
+    film_id: filmId,
+  });
+
+  const res = await fetch(`${API_BASE}/api/content/like-status?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      return false;
+    }
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get like status: ${res.status} ${text}`);
+  }
+
+  const data = await res.json();
+  return data.liked || false;
+}
+
+/**
+ * Toggle like status for a film
+ */
+export async function apiToggleLike(
+  userId: string,
+  filmId: string
+): Promise<{ liked: boolean; like_count: number }> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/content/like`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      film_id: filmId,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to toggle like: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Save/unsave a card (toggle SRS state)
+ */
+export async function apiToggleSaveCard(
+  userId: string,
+  cardId: string,
+  filmId?: string,
+  episodeId?: string
+): Promise<{ saved: boolean }> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/card/save`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      card_id: cardId,
+      film_id: filmId,
+      episode_id: episodeId,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to toggle save card: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Check if a card is saved and get SRS state
+ */
+export async function apiGetCardSaveStatus(
+  userId: string,
+  cardId: string,
+  filmId?: string,
+  episodeId?: string
+): Promise<{ saved: boolean; srs_state: string; review_count: number }> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    user_id: userId,
+    card_id: cardId,
+  });
+  
+  if (filmId) params.append('film_id', filmId);
+  if (episodeId) params.append('episode_id', episodeId);
+
+  const res = await fetch(`${API_BASE}/api/card/save-status?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      return { saved: false, srs_state: 'none', review_count: 0 };
+    }
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get card save status: ${res.status} ${text}`);
+  }
+
+  const data = await res.json();
+  return { 
+    saved: data.saved || false, 
+    srs_state: data.srs_state || 'none',
+    review_count: data.review_count || 0
+  };
+}
+
+/**
+ * Increment review count for a card
+ */
+export async function apiIncrementReviewCount(
+  userId: string,
+  cardId: string,
+  filmId?: string,
+  episodeId?: string
+): Promise<{ review_count: number }> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/card/increment-review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      card_id: cardId,
+      film_id: filmId,
+      episode_id: episodeId,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to increment review count: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Update SRS state for a card
+ */
+export async function apiUpdateCardSRSState(
+  userId: string,
+  cardId: string,
+  srsState: string,
+  filmId?: string,
+  episodeId?: string
+): Promise<{ success: boolean; srs_state: string }> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/card/srs-state`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      card_id: cardId,
+      film_id: filmId,
+      episode_id: episodeId,
+      srs_state: srsState,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to update SRS state: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Get list of saved cards for a user
+ */
+export async function apiGetSavedCards(
+  userId: string,
+  page: number = 1,
+  limit: number = 50
+): Promise<{
+  cards: Array<CardDoc & { srs_state: string; film_title?: string }>;
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
+}> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    user_id: userId,
+    page: String(page),
+    limit: String(limit),
+  });
+
+  const res = await fetch(`${API_BASE}/api/user/saved-cards?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get saved cards: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
 export async function apiFetchCardsForFilm(
   filmId: string,
   episodeId?: string,

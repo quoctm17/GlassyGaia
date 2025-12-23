@@ -1,0 +1,379 @@
+.portfolio-page-container {
+  padding: 0;
+  max-width: 100%;
+  margin: 0;
+  background: var(--background);
+  min-height: 100vh;
+}
+
+/* Header Stats */
+.portfolio-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: var(--background);
+  border-bottom: 2px solid var(--primary);
+}
+
+.portfolio-back-btn,
+.portfolio-filter-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.portfolio-back-btn:hover,
+.portfolio-filter-btn:hover {
+  transform: scale(1.1);
+}
+
+.portfolio-back-icon {
+  width: 20px;
+  height: 20px;
+  filter: var(--icon-primary-filter);
+  transform: rotate(180deg);
+}
+
+.portfolio-filter-icon {
+  width: 20px;
+  height: 20px;
+  filter: var(--icon-primary-filter);
+}
+
+.portfolio-header-stats {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.portfolio-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.portfolio-stat-icon {
+  width: 20px;
+  height: 20px;
+  filter: var(--icon-primary-filter);
+}
+
+.portfolio-stat-value {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Game Scene Section */
+.portfolio-game-section {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+  padding: 24px;
+}
+
+.portfolio-game-scene {
+  background: var(--hover-bg);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  position: relative;
+}
+
+.portfolio-game-background {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1a0f26 0%, #2d1b3d 100%);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.portfolio-game-characters {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  width: 100%;
+  padding: 0 40px;
+  position: relative;
+  z-index: 1;
+}
+
+.portfolio-character-left,
+.portfolio-character-right {
+  width: 80px;
+  height: 120px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  position: relative;
+}
+
+.portfolio-character-left::before,
+.portfolio-character-right::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+}
+
+.portfolio-start-button {
+  background: #22c55e;
+  color: white;
+  padding: 16px 32px;
+  border-radius: 8px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.portfolio-start-button:hover {
+  transform: scale(1.05);
+}
+
+.portfolio-pk-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.portfolio-pk-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.portfolio-pk-btn {
+  background: rgba(236, 72, 153, 0.2);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  padding: 12px 20px;
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.portfolio-pk-btn:hover {
+  background: rgba(236, 72, 153, 0.3);
+  transform: scale(1.02);
+}
+
+.portfolio-grid-pattern {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  gap: 2px;
+  aspect-ratio: 10 / 8;
+  background: var(--hover-bg);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.portfolio-grid-square {
+  aspect-ratio: 1;
+  background: rgba(236, 72, 153, 0.1);
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.portfolio-grid-square.active {
+  background: rgba(236, 72, 153, 0.4);
+}
+
+/* Graphs Section */
+.portfolio-graphs-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 0 24px 24px;
+}
+
+.portfolio-graph-card {
+  background: var(--hover-bg);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.portfolio-graph-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.portfolio-graph-icon {
+  width: 20px;
+  height: 20px;
+  filter: var(--icon-primary-filter);
+}
+
+.portfolio-graph-title {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.portfolio-graph-container {
+  position: relative;
+}
+
+.portfolio-graph-placeholder {
+  height: 200px;
+  position: relative;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.portfolio-graph-line {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary);
+  opacity: 0.3;
+}
+
+.portfolio-graph-today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--primary);
+  left: 60%;
+  border-style: dashed;
+}
+
+.portfolio-graph-today-label {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.portfolio-graph-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.portfolio-graph-total {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  color: var(--neutral);
+}
+
+.portfolio-graph-total-value {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.portfolio-graph-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.portfolio-graph-nav-btn {
+  background: none;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.portfolio-graph-nav-btn:hover {
+  background: var(--hover-bg);
+}
+
+/* Stats Section (Bottom) */
+.portfolio-stats-section {
+  padding: 24px;
+  border-top: 2px solid var(--primary);
+}
+
+.portfolio-stats-title {
+  margin-bottom: 24px;
+  color: var(--text);
+}
+
+.portfolio-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+.portfolio-stat-card {
+  background: var(--hover-bg);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.portfolio-stat-label {
+  color: var(--neutral);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.portfolio-stat-value {
+  color: var(--text);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .portfolio-game-section {
+    grid-template-columns: 1fr;
+  }
+  
+  .portfolio-graphs-section {
+    grid-template-columns: 1fr;
+  }
+  
+  .portfolio-header-stats {
+    gap: 16px;
+  }
+}

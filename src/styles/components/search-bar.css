@@ -69,7 +69,7 @@
 /* Dynamic theming */
 .pixel-input {
   background: var(--sidenav-bg);
-  color: var(--neutral);
+  color: var(--text);
   border: 2px solid var(--neutral);
 }
 
