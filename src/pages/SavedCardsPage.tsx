@@ -96,14 +96,14 @@ export default function SavedCardsPage() {
               return {
                 ...c,
                 levels: levelMap[c.film_id],
-              } as CardDoc;
+              } as CardDoc & { srs_state: string; film_title?: string };
             }
             // If we already have levels cached from previous pages, use them
             if (c.film_id && filmLevelMap[c.film_id]) {
               return {
                 ...c,
                 levels: filmLevelMap[c.film_id],
-              } as CardDoc;
+              } as CardDoc & { srs_state: string; film_title?: string };
             }
             return c;
           });
