@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiGetSavedCards, apiGetFilm } from '../services/cfApi';
-import type { CardDoc } from '../types';
+import type { CardDoc, LevelFrameworkStats } from '../types';
 import SearchResultCard from '../components/SearchResultCard';
 import '../styles/pages/search-page.css';
 
@@ -13,6 +13,38 @@ export default function SavedCardsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
+  const [filmLevelMap, setFilmLevelMap] = useState<Record<string, { framework: string; level: string; language?: string }[]>>({});
+
+  // Helpers to parse level framework stats and get dominant level
+  const parseLevelStats = (raw: unknown): LevelFrameworkStats | null => {
+    if (!raw) return null;
+    if (Array.isArray(raw)) return raw as LevelFrameworkStats;
+    if (typeof raw === 'string') {
+      try {
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? (arr as LevelFrameworkStats) : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const getDominantLevel = (stats: LevelFrameworkStats | null): string | null => {
+    if (!stats || !Array.isArray(stats) || stats.length === 0) return null;
+    let maxLevel: string | null = null;
+    let maxPercent = 0;
+    for (const entry of stats as any[]) {
+      if (!entry || !entry.levels || typeof entry.levels !== 'object') continue;
+      for (const [level, percent] of Object.entries(entry.levels as Record<string, number>)) {
+        if (typeof percent === 'number' && percent > maxPercent) {
+          maxPercent = percent;
+          maxLevel = level.toUpperCase();
+        }
+      }
+    }
+    return maxLevel;
+  };
 
   useEffect(() => {
     if (!user?.uid) {
@@ -27,15 +59,28 @@ export default function SavedCardsPage() {
         const result = await apiGetSavedCards(user.uid, page, 50);
         if (!mounted) return;
         
-        // Load film languages for primaryLang
+        // Load film languages for primaryLang and level badges
         const uniqueFilmIds = [...new Set(result.cards.map(c => c.film_id).filter(Boolean))];
         const langMap: Record<string, string> = {};
+        const levelMap: Record<string, { framework: string; level: string; language?: string }[]> = {};
         await Promise.all(uniqueFilmIds.map(async (filmId) => {
           if (!filmId) return;
           try {
             const film = await apiGetFilm(filmId);
             if (film?.main_language) {
               langMap[filmId] = film.main_language;
+            }
+            if (film?.level_framework_stats) {
+              const stats = parseLevelStats(film.level_framework_stats);
+              const dominant = getDominantLevel(stats);
+              if (dominant) {
+                // Use first framework entry if available, otherwise generic
+                let framework = 'level';
+                if (stats && stats.length > 0 && (stats as any)[0]?.framework) {
+                  framework = (stats as any)[0].framework;
+                }
+                levelMap[filmId] = [{ framework, level: dominant }];
+              }
             }
           } catch (error) {
             console.error(`Failed to load film ${filmId}:`, error);
@@ -44,11 +89,29 @@ export default function SavedCardsPage() {
         
         if (mounted) {
           setFilmLangMap(prev => ({ ...prev, ...langMap }));
-          
+          setFilmLevelMap(prev => ({ ...prev, ...levelMap }));
+
+          const cardsWithLevels = result.cards.map((c) => {
+            if (c.film_id && levelMap[c.film_id]) {
+              return {
+                ...c,
+                levels: levelMap[c.film_id],
+              } as CardDoc;
+            }
+            // If we already have levels cached from previous pages, use them
+            if (c.film_id && filmLevelMap[c.film_id]) {
+              return {
+                ...c,
+                levels: filmLevelMap[c.film_id],
+              } as CardDoc;
+            }
+            return c;
+          });
+
           if (page === 1) {
-            setCards(result.cards);
+            setCards(cardsWithLevels);
           } else {
-            setCards(prev => [...prev, ...result.cards]);
+            setCards(prev => [...prev, ...cardsWithLevels]);
           }
           setTotal(result.total);
           setHasMore(result.has_more);
@@ -130,6 +193,7 @@ export default function SavedCardsPage() {
                       key={stableKey}
                       card={card}
                       primaryLang={card.film_id ? filmLangMap[card.film_id] || preferences?.main_language : preferences?.main_language}
+                      highlightQuery=""
                     />
                   );
                 })}

@@ -481,15 +481,31 @@ export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: Cont
                             onClick={(e) => toggleExpand(f.id, e)}
                           >
                             <div className="film-card-image">
-                              {cover && (
-                                <img
-                                  src={cover}
-                                  alt={String(f.title || f.id)}
-                                  className="film-cover"
-                                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                                  draggable={false}
-                                  onContextMenu={(e) => e.preventDefault()}
-                                />
+                              {cover ? (
+                                <>
+                                  <img
+                                    src={cover}
+                                    alt={String(f.title || f.id)}
+                                    className="film-cover"
+                                    onError={e => { 
+                                      const target = e.target as HTMLImageElement;
+                                      target.style.display = 'none';
+                                      const placeholder = target.nextElementSibling as HTMLElement;
+                                      if (placeholder && placeholder.classList.contains('film-cover-placeholder')) {
+                                        placeholder.style.display = 'flex';
+                                      }
+                                    }}
+                                    draggable={false}
+                                    onContextMenu={(e) => e.preventDefault()}
+                                  />
+                                  <div className="film-cover-placeholder" style={{ display: 'none' }}>
+                                    <span>{f.title || f.id}</span>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="film-cover-placeholder">
+                                  <span>{f.title || f.id}</span>
+                                </div>
                               )}
                               {levelKey && (
                                 <div className={`film-card-level-badge level-badge level-${levelKey.toLowerCase()}`}>

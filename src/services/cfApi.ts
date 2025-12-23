@@ -150,6 +150,7 @@ export async function apiListItems(): Promise<FilmDoc[]> {
     title: f.title,
     description: f.description,
     cover_url: f.cover_url,
+    cover_landscape_url: (f as Partial<FilmDoc> & { cover_landscape_url?: string }).cover_landscape_url,
     main_language:
       (f as unknown as { main_language?: string; language?: string })
         .main_language ||
@@ -451,6 +452,139 @@ export async function apiToggleLike(
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Failed to toggle like: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Episode Comments API
+ */
+
+export interface EpisodeComment {
+  id: string;
+  text: string;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  created_at: number;
+  updated_at: number;
+  user_id: string;
+  display_name?: string;
+  photo_url?: string;
+}
+
+export async function apiGetEpisodeComments(
+  episodeSlug: string,
+  filmSlug: string
+): Promise<EpisodeComment[]> {
+  assertApiBase();
+
+  const res = await fetch(
+    `${API_BASE}/api/episodes/comments?episode_slug=${encodeURIComponent(episodeSlug)}&film_slug=${encodeURIComponent(filmSlug)}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get comments: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+export async function apiCreateEpisodeComment(params: {
+  userId: string;
+  episodeSlug: string;
+  filmSlug: string;
+  text: string;
+}): Promise<EpisodeComment> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/episodes/comments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: params.userId,
+      episode_slug: params.episodeSlug,
+      film_slug: params.filmSlug,
+      text: params.text,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to create comment: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+export async function apiVoteEpisodeComment(params: {
+  userId: string;
+  commentId: string;
+  voteType: 1 | -1; // 1 = upvote, -1 = downvote
+}): Promise<{
+  success: boolean;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  user_vote: number | null;
+}> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/episodes/comments/vote`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: params.userId,
+      comment_id: params.commentId,
+      vote_type: params.voteType,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to vote on comment: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+export async function apiGetEpisodeCommentVotes(
+  userId: string,
+  commentIds: string[]
+): Promise<Record<string, number>> {
+  assertApiBase();
+
+  if (commentIds.length === 0) {
+    return {};
+  }
+
+  const res = await fetch(
+    `${API_BASE}/api/episodes/comments/votes?user_id=${encodeURIComponent(userId)}&comment_ids=${encodeURIComponent(commentIds.join(','))}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get comment votes: ${res.status} ${text}`);
   }
 
   return res.json();

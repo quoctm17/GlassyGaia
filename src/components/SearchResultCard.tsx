@@ -5,7 +5,7 @@ import { canonicalizeLangCode } from "../utils/lang";
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
 import { apiToggleSaveCard, apiGetCardSaveStatus, apiUpdateCardSRSState, apiIncrementReviewCount } from "../services/cfApi";
-import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from "../constants/srsStates";
+import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from "../types/srsStates";
 import "../styles/components/search-result-card.css";
 import threeDotsIcon from "../assets/icons/three-dots.svg";
 import buttonPlayIcon from "../assets/icons/button-play.svg";
@@ -48,6 +48,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const [isSaved, setIsSaved] = useState<boolean>(false);
   const [srsState, setSrsState] = useState<SRSState>('none');
   const [reviewCount, setReviewCount] = useState<number>(0);
+  const [imageError, setImageError] = useState<boolean>(false);
   const [srsDropdownOpen, setSrsDropdownOpen] = useState<boolean>(false);
   const srsDropdownRef = useRef<HTMLDivElement | null>(null);
   const hasIncrementedReview = useRef<boolean>(false);
@@ -57,6 +58,8 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Resolve image URL with optional R2 base for leading slashes
   const resolvedImageUrl = useMemo(() => {
+    if (imageError) return '';
+
     const base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
     let url = card.image_url || '';
     if (url && url.startsWith('/') && base) {
@@ -64,7 +67,7 @@ const SearchResultCard = memo(function SearchResultCard({
     }
     return url;
   // card.image_url intentionally in deps (not card object) to avoid loop
-  }, [card.image_url]);
+  }, [card.image_url, imageError]);
 
   // Update card when initialCard changes
   useEffect(() => {
@@ -1102,18 +1105,25 @@ const SearchResultCard = memo(function SearchResultCard({
           <div className="card-left-section">
             <div className="card-image-container">
             <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
-              <img
-                src={resolvedImageUrl}
-                alt={card.id}
-                decoding="async"
-                className="card-image"
-                onContextMenu={(e) => e.preventDefault()}
-                draggable={false}
-                onClick={handleImageClick}
-                style={{ 
-                  cursor: card.audio_url ? 'pointer' : 'default',
-                }}
-              />
+              {resolvedImageUrl && !imageError ? (
+                <img
+                  src={resolvedImageUrl}
+                  alt={card.id}
+                  decoding="async"
+                  className="card-image"
+                  onContextMenu={(e) => e.preventDefault()}
+                  draggable={false}
+                  onClick={handleImageClick}
+                  style={{ 
+                    cursor: card.audio_url ? 'pointer' : 'default',
+                  }}
+                  onError={() => setImageError(true)}
+                />
+              ) : (
+                <div className="card-image-placeholder">
+                  <span>{card.id}</span>
+                </div>
+              )}
               {card.audio_url && (
                 <div className="card-image-play-overlay" onClick={handleImageClick} style={{ cursor: 'pointer', pointerEvents: 'all' }}>
                   <img src={buttonPlayIcon} alt="Play" className="play-icon" />
@@ -1176,9 +1186,10 @@ const SearchResultCard = memo(function SearchResultCard({
               const map: Record<string, string> = {
                 en: "english",
                 vi: "vietnamese",
-                zh: "chinese",
-                zh_trad: "chinese",
-                yue: "chinese",
+                // CJK: split theo biến thể Noto Sans
+                zh: "chinese",          // Simplified Chinese → Noto Sans SC
+                zh_trad: "chinese-tc",  // Traditional Chinese → Noto Sans TC
+                yue: "cantonese",       // Cantonese → Noto Sans TC
                 ja: "japanese",
                 ko: "korean",
                 es: "spanish",
@@ -1251,9 +1262,6 @@ const SearchResultCard = memo(function SearchResultCard({
                   key={code}
                   className={`${roleClass} ${rubyClass} subtitle-row ${isExpanded ? 'expanded' : ''}`}
                   style={{
-                    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-                    fontSize: isPrimary ? "20px" : "16px",
-                    fontWeight: isPrimary ? 700 : 400,
                     lineHeight: 1.2,
                     position: "relative",
                     // Main language uses --text color, secondary uses CSS class colors

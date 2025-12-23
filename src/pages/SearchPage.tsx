@@ -409,7 +409,7 @@ function SearchPage() {
             </div>
 
             <div className="search-stats typography-inter-4">
-              {loading ? "Searching..." : `${total} Cards`}
+              {loading ? "Searching..." : `${total}`}
             </div>
           </div>
 
