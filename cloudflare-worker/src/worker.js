@@ -739,6 +739,14 @@ export default {
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
               WHERE (? IS NULL OR ci.main_language = ?)
+                AND c.is_available = 1
+                AND EXISTS (
+                  SELECT 1 FROM card_subtitles cs
+                  WHERE cs.card_id = c.id
+                    AND cs.language = ci.main_language
+                    AND cs.text IS NOT NULL
+                    AND TRIM(cs.text) != ''
+                )
                 ${subtitleLangsCount > 0 ? `
                 AND (
                   SELECT COUNT(DISTINCT cs.language)
@@ -786,6 +794,14 @@ export default {
             JOIN episodes e ON e.id = c.episode_id
             JOIN content_items ci ON ci.id = e.content_item_id
             WHERE (? IS NULL OR ci.main_language = ?)
+              AND c.is_available = 1
+              AND EXISTS (
+                SELECT 1 FROM card_subtitles cs
+                WHERE cs.card_id = c.id
+                  AND cs.language = ci.main_language
+                  AND cs.text IS NOT NULL
+                  AND TRIM(cs.text) != ''
+              )
               ${subtitleLangsCount > 0 ? `
               AND (
                 SELECT COUNT(DISTINCT cs.language)
@@ -1031,7 +1047,15 @@ export default {
                 JOIN cards c ON c.id = card_subtitles_fts.card_id
                 JOIN episodes e ON e.id = c.episode_id
                 JOIN content_items ci ON ci.id = e.content_item_id
-                WHERE card_subtitles_fts MATCH ?`;
+                WHERE card_subtitles_fts MATCH ?
+                  AND c.is_available = 1
+                  AND EXISTS (
+                    SELECT 1 FROM card_subtitles cs
+                    WHERE cs.card_id = c.id
+                      AND cs.language = ci.main_language
+                      AND cs.text IS NOT NULL
+                      AND TRIM(cs.text) != ''
+                  )`;
               const params = [ftsQuery];
 
               if (mainCanon) {
@@ -1086,7 +1110,15 @@ export default {
                 JOIN cards c ON c.id = cs.card_id
                 JOIN episodes e ON e.id = c.episode_id
                 JOIN content_items ci ON ci.id = e.content_item_id
-                WHERE cs.text LIKE ?`;
+                WHERE cs.text LIKE ?
+                  AND c.is_available = 1
+                  AND EXISTS (
+                    SELECT 1 FROM card_subtitles cs_main
+                    WHERE cs_main.card_id = c.id
+                      AND cs_main.language = ci.main_language
+                      AND cs_main.text IS NOT NULL
+                      AND TRIM(cs_main.text) != ''
+                  )`;
               const params = [likePattern];
               if (mainCanon) {
                 // Search only in main language subtitles and main_language content
@@ -1182,6 +1214,16 @@ export default {
             countsParams.push(framework);
             countsParams.push(...allowedLevels);
           }
+
+          // Add is_available and subtitle filter to counts
+          countsWhere.push('c.is_available = 1');
+          countsWhere.push(`EXISTS (
+            SELECT 1 FROM card_subtitles cs
+            WHERE cs.card_id = c.id
+              AND cs.language = ci.main_language
+              AND cs.text IS NOT NULL
+              AND TRIM(cs.text) != ''
+          )`);
 
           const countsStmt = `
             SELECT 
@@ -2181,7 +2223,18 @@ export default {
                                   c.is_available,
                                   c.id as internal_id
                            FROM cards c
-                           WHERE c.episode_id=? AND c.start_time >= ?
+                           JOIN episodes e ON e.id = c.episode_id
+                           JOIN content_items ci ON ci.id = e.content_item_id
+                           WHERE c.episode_id=? 
+                             AND c.start_time >= ?
+                             AND c.is_available = 1
+                             AND EXISTS (
+                               SELECT 1 FROM card_subtitles cs
+                               WHERE cs.card_id = c.id
+                                 AND cs.language = ci.main_language
+                                 AND cs.text IS NOT NULL
+                                 AND TRIM(cs.text) != ''
+                             )
                            ORDER BY c.start_time ASC, c.end_time ASC
                            LIMIT ?`;
               res = await env.DB.prepare(sql).bind(ep.id, Math.floor(startFrom), limit).all();
@@ -2199,7 +2252,17 @@ export default {
                                   c.is_available,
                                   c.id as internal_id
                            FROM cards c
+                           JOIN episodes e ON e.id = c.episode_id
+                           JOIN content_items ci ON ci.id = e.content_item_id
                            WHERE c.episode_id=?
+                             AND c.is_available = 1
+                             AND EXISTS (
+                               SELECT 1 FROM card_subtitles cs
+                               WHERE cs.card_id = c.id
+                                 AND cs.language = ci.main_language
+                                 AND cs.text IS NOT NULL
+                                 AND TRIM(cs.text) != ''
+                             )
                            ORDER BY c.start_time ASC, c.end_time ASC
                            LIMIT ?`;
               res = await env.DB.prepare(sql).bind(ep.id, limit).all();
@@ -2219,7 +2282,18 @@ export default {
                                         c.is_available,
                                         c.id as internal_id
                                  FROM cards c
-                                 WHERE c.episode_id=? AND c.start_time_ms >= ?
+                                 JOIN episodes e ON e.id = c.episode_id
+                                 JOIN content_items ci ON ci.id = e.content_item_id
+                                 WHERE c.episode_id=? 
+                                   AND c.start_time_ms >= ?
+                                   AND c.is_available = 1
+                                   AND EXISTS (
+                                     SELECT 1 FROM card_subtitles cs
+                                     WHERE cs.card_id = c.id
+                                       AND cs.language = ci.main_language
+                                       AND cs.text IS NOT NULL
+                                       AND TRIM(cs.text) != ''
+                                   )
                                  ORDER BY c.start_time_ms ASC
                                  LIMIT ?`;
               res = await env.DB.prepare(sqlLegacy).bind(ep.id, Math.floor(startFrom * 1000), limit).all();
@@ -2236,7 +2310,17 @@ export default {
                                         c.is_available,
                                         c.id as internal_id
                                  FROM cards c
+                                 JOIN episodes e ON e.id = c.episode_id
+                                 JOIN content_items ci ON ci.id = e.content_item_id
                                  WHERE c.episode_id=?
+                                   AND c.is_available = 1
+                                   AND EXISTS (
+                                     SELECT 1 FROM card_subtitles cs
+                                     WHERE cs.card_id = c.id
+                                       AND cs.language = ci.main_language
+                                       AND cs.text IS NOT NULL
+                                       AND TRIM(cs.text) != ''
+                                   )
                                  ORDER BY c.start_time_ms ASC
                                  LIMIT ?`;
               res = await env.DB.prepare(sqlLegacy).bind(ep.id, limit).all();
@@ -2305,23 +2389,53 @@ export default {
           let res;
           try {
             const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.episode_number,e.slug as episode_slug,c.id as internal_id
-                       FROM cards c JOIN episodes e ON c.episode_id=e.id
+                       FROM cards c 
+                       JOIN episodes e ON c.episode_id=e.id
+                       JOIN content_items ci ON ci.id = e.content_item_id
                        WHERE e.content_item_id=?
+                         AND c.is_available = 1
+                         AND EXISTS (
+                           SELECT 1 FROM card_subtitles cs
+                           WHERE cs.card_id = c.id
+                             AND cs.language = ci.main_language
+                             AND cs.text IS NOT NULL
+                             AND TRIM(cs.text) != ''
+                         )
                        ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
             res = await env.DB.prepare(sql).bind(filmRow.id, limit).all();
           } catch (e) {
             // Fallback older schema (episode_num)
             try {
               const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id
-                       FROM cards c JOIN episodes e ON c.episode_id=e.id
+                       FROM cards c 
+                       JOIN episodes e ON c.episode_id=e.id
+                       JOIN content_items ci ON ci.id = e.content_item_id
                        WHERE e.content_item_id=?
+                         AND c.is_available = 1
+                         AND EXISTS (
+                           SELECT 1 FROM card_subtitles cs
+                           WHERE cs.card_id = c.id
+                             AND cs.language = ci.main_language
+                             AND cs.text IS NOT NULL
+                             AND TRIM(cs.text) != ''
+                         )
                        ORDER BY e.episode_num ASC, c.card_number ASC LIMIT ?`;
               res = await env.DB.prepare(sql2).bind(filmRow.id, limit).all();
             } catch (e2) {
               // Final fallback: legacy ms columns
               const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.episode_number,e.slug as episode_slug,c.id as internal_id
-                       FROM cards c JOIN episodes e ON c.episode_id=e.id
+                       FROM cards c 
+                       JOIN episodes e ON c.episode_id=e.id
+                       JOIN content_items ci ON ci.id = e.content_item_id
                        WHERE e.content_item_id=?
+                         AND c.is_available = 1
+                         AND EXISTS (
+                           SELECT 1 FROM card_subtitles cs
+                           WHERE cs.card_id = c.id
+                             AND cs.language = ci.main_language
+                             AND cs.text IS NOT NULL
+                             AND TRIM(cs.text) != ''
+                         )
                        ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
               try {
                 res = await env.DB.prepare(sql3).bind(filmRow.id, limit).all();
@@ -2560,6 +2674,14 @@ export default {
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
               WHERE card_subtitles_fts MATCH ?
+                AND c.is_available = 1
+                AND EXISTS (
+                  SELECT 1 FROM card_subtitles cs
+                  WHERE cs.card_id = c.id
+                    AND cs.language = ci.main_language
+                    AND cs.text IS NOT NULL
+                    AND TRIM(cs.text) != ''
+                )
               ${mainCanon ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
               ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
               ${
@@ -2662,6 +2784,14 @@ export default {
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
               WHERE cs.text LIKE ?
+                AND c.is_available = 1
+                AND EXISTS (
+                  SELECT 1 FROM card_subtitles cs_main
+                  WHERE cs_main.card_id = c.id
+                    AND cs_main.language = ci.main_language
+                    AND cs_main.text IS NOT NULL
+                    AND TRIM(cs_main.text) != ''
+                )
               ${mainCanon ? 'AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
               ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
               ${

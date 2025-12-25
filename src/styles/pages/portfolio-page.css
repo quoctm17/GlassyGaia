@@ -13,7 +13,6 @@
   gap: 16px;
   padding: 16px 24px;
   background: var(--background);
-  border-bottom: 2px solid var(--primary);
 }
 
 .portfolio-back-btn,
@@ -52,6 +51,21 @@
   gap: 24px;
   flex: 1;
   flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.portfolio-stat-group {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.portfolio-stat-group-left {
+  margin-right: auto;
+}
+
+.portfolio-stat-group-right {
+  margin-left: auto;
 }
 
 .portfolio-stat-item {
@@ -61,43 +75,50 @@
 }
 
 .portfolio-stat-icon {
-  width: 20px;
-  height: 20px;
-  filter: var(--icon-primary-filter);
+  width: 40px;
+  height: 40px;
 }
 
 .portfolio-stat-value {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
-  font-weight: 600;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 15px;
+  font-weight: 400;
   color: var(--text);
 }
 
 /* Game Scene Section */
 .portfolio-game-section {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 24px;
+  grid-template-columns: 3fr 7fr;
+  gap: 18px;
   padding: 24px;
+  align-items: start;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .portfolio-game-scene {
   background: var(--hover-bg);
-  border: 2px solid var(--primary);
-  border-radius: 8px;
+  border: 5px solid #5745DD;
   overflow: hidden;
-  aspect-ratio: 16 / 9;
   position: relative;
-}
-
-.portfolio-game-background {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, #1a0f26 0%, #2d1b3d 100%);
-  position: relative;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  margin: 0;
+  padding: 0;
+  height: fit-content;
+  grid-row: 1;
+}
+
+.portfolio-game-scene img {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 0;
+  padding: 0;
+  object-fit: contain;
 }
 
 .portfolio-game-characters {
@@ -155,74 +176,92 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  grid-row: 1;
+  align-self: stretch;
+  height: 100%;
+  overflow: hidden;
 }
 
 .portfolio-pk-buttons {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 12px;
+  flex-shrink: 0;
+  flex-grow: 0;
+  justify-content: center;
 }
 
 .portfolio-pk-btn {
-  background: rgba(236, 72, 153, 0.2);
-  border: 2px solid var(--primary);
-  border-radius: 8px;
-  padding: 12px 20px;
-  color: var(--text);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
-  font-weight: 600;
+  background: var(--primary);
+  border: 3px solid var(--hover-select);
+  border-radius: 999px;
+  padding: 8px 70px;
+  color: var(--pk-button-text);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  font-weight: 400;
   cursor: pointer;
   transition: all 0.2s ease;
   text-align: center;
+  flex: 0 1 auto;
+  white-space: nowrap;
 }
 
 .portfolio-pk-btn:hover {
-  background: rgba(236, 72, 153, 0.3);
-  transform: scale(1.02);
+  color: var(--hover-select);
 }
 
 .portfolio-grid-pattern {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  grid-template-rows: repeat(8, 1fr);
   gap: 2px;
-  aspect-ratio: 10 / 8;
   background: var(--hover-bg);
-  border: 2px solid var(--primary);
-  border-radius: 8px;
-  padding: 8px;
+  border: 1px solid var(--neutral);
+  padding: 2px;
+  overflow: hidden;
+  align-content: start;
 }
 
 .portfolio-grid-square {
-  aspect-ratio: 1;
-  background: rgba(236, 72, 153, 0.1);
-  border-radius: 2px;
   transition: background 0.2s ease;
 }
 
-.portfolio-grid-square.active {
-  background: rgba(236, 72, 153, 0.4);
+.portfolio-grid-square-neutral {
+  background: var(--sidenav-bg);
+}
+
+.portfolio-grid-square-primary {
+  background: var(--primary);
+}
+
+.portfolio-grid-square-hover-select {
+  background: var(--hover-select);
 }
 
 /* Graphs Section */
 .portfolio-graphs-section {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 24px;
   padding: 0 24px 24px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .portfolio-graph-card {
-  background: var(--hover-bg);
-  border: 2px solid var(--primary);
-  border-radius: 8px;
   padding: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .portfolio-graph-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -230,14 +269,13 @@
 .portfolio-graph-icon {
   width: 20px;
   height: 20px;
-  filter: var(--icon-primary-filter);
 }
 
 .portfolio-graph-title {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--hover-select);
   margin: 0;
 }
 
@@ -246,11 +284,11 @@
 }
 
 .portfolio-graph-placeholder {
-  height: 200px;
+  height: 220px;
   position: relative;
-  background: rgba(0, 0, 0, 0.2);
   border-radius: 4px;
   margin-bottom: 16px;
+  overflow: hidden;
 }
 
 .portfolio-graph-line {
@@ -274,15 +312,17 @@
 }
 
 .portfolio-graph-today-label {
-  position: absolute;
-  top: -20px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  font-weight: 400;
+  fill: var(--hover-select);
+}
+
+.portfolio-graph-date-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  font-weight: 400;
+  fill: var(--text);
 }
 
 .portfolio-graph-footer {
@@ -295,13 +335,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 12px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 15px;
+  font-weight: 400;
   color: var(--neutral);
 }
 
 .portfolio-graph-total-value {
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text);
 }
 
@@ -316,8 +357,9 @@
   border-radius: 4px;
   padding: 4px 8px;
   color: var(--text);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 12px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 15px;
+  font-weight: 400;
   cursor: pointer;
   transition: all 0.2s ease;
 }

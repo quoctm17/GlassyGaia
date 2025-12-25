@@ -2,6 +2,8 @@
 
 /* Import level framework styles */
 @import '../level-framework-styles.css';
+/* Import language styles for font-family, font-size, font-weight */
+@import '../language-styles.css';
 
 /* Main container */
 .watch-page {
@@ -774,19 +776,13 @@
   background: var(--neutral);
 }
 
-.watch-subtitles-list > * + * {
-  margin-top: 0.75rem;
-}
 
 /* Mobile: Smaller padding and spacing */
 @media (max-width: 640px) {
   .watch-subtitles-list {
     padding: 0.75rem;
   }
-  
-  .watch-subtitles-list > * + * {
-    margin-top: 0.5rem;
-  }
+
 }
 
 /* Subtitle card */
@@ -838,9 +834,9 @@
 }
 
 .watch-subtitle-main-text {
-  font-weight: 500;
+  /* font-size and font-weight will be overridden by language-specific classes from language-styles.css */
   flex: 1 1 90%;
-  color: var(--text);
+  color: var(--text) !important; /* Keep color from watch-page, don't let language classes override */
   padding-right: 0.5rem;
   box-sizing: border-box;
 }
@@ -853,8 +849,8 @@
 }
 
 .watch-subtitle-secondary-text {
-  font-size: 0.875rem;
-  color: var(--description-text);
+  /* font-size and font-weight will be overridden by language-specific classes from language-styles.css */
+  color: var(--description-text) !important; /* Keep color from watch-page, don't let language classes override */
 }
 
 /* Mobile: Smaller text */

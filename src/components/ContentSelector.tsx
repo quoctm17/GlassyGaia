@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Search, Film, Book, Tv, Music, ChevronDown, ChevronUp } from 'lucide-react';
+import { Film, Book, Tv, Music, ChevronDown, ChevronUp } from 'lucide-react';
 import { listFilms } from '../services/firestore';
 import type { FilmDoc, CardDoc, LevelFrameworkStats } from '../types';
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS, type ContentType } from '../types/content';
@@ -138,7 +138,7 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     });
   }, [filmIds, search, filmTitleMap]);
 
-  // Grouping
+  // Grouping and sorting
   const grouped = useMemo(() => {
     const map: Record<string, string[]> = {};
     for (const t of CONTENT_TYPES) map[t] = [];
@@ -148,8 +148,103 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
       const t = (CONTENT_TYPES as string[]).includes(raw) ? raw : '';
       if (t) map[t].push(id); else other.push(id);
     }
-    return { map, other };
-  }, [visibleIds, filmTypeMap]);
+    
+    // Helper function to get level badge for sorting
+    const getLevelBadgeForSort = (filmId: string): string => {
+      const stats = filmStatsMap[filmId];
+      if (stats && stats.length > 0) {
+        let maxLevel: string | null = null;
+        let maxPercent = 0;
+        for (const entry of stats) {
+          const levels = entry.levels;
+          for (const [level, percent] of Object.entries(levels)) {
+            if (percent > maxPercent) {
+              maxPercent = percent;
+              maxLevel = level;
+            }
+          }
+        }
+        if (maxLevel) return maxLevel;
+      }
+      const type = (filmTypeMap[filmId] || '').toLowerCase();
+      switch(type) {
+        case 'movie': return 'M';
+        case 'series': return 'S';
+        case 'book': return 'B';
+        case 'audio': return 'A';
+        default: return '?';
+      }
+    };
+    
+    // Helper function to get sort order for a level
+    // Lower number = easier, higher number = harder
+    const getLevelSortOrder = (level: string): number => {
+      // Fallback badges go to the end
+      if (['M', 'S', 'B', 'A', '?'].includes(level)) {
+        return 1000 + level.charCodeAt(0);
+      }
+      
+      const levelUpper = level.toUpperCase();
+      
+      // Check CEFR levels
+      const CEFR_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+      const cefrIndex = CEFR_ORDER.indexOf(levelUpper);
+      if (cefrIndex !== -1) {
+        return cefrIndex;
+      }
+      
+      // Check JLPT levels
+      const JLPT_ORDER = ['N5', 'N4', 'N3', 'N2', 'N1'];
+      const jlptIndex = JLPT_ORDER.indexOf(levelUpper);
+      if (jlptIndex !== -1) {
+        return 100 + jlptIndex; // Offset by 100 to separate from CEFR
+      }
+      
+      // Check HSK levels
+      const hskMatch = levelUpper.match(/HSK\s*(\d+)|^(\d+)$/);
+      if (hskMatch) {
+        const hskNum = parseInt(hskMatch[1] || hskMatch[2]);
+        if (!isNaN(hskNum) && hskNum >= 1 && hskNum <= 9) {
+          return 200 + hskNum; // Offset by 200 to separate from JLPT
+        }
+      }
+      
+      // Check if it's a pure number
+      const num = parseFloat(level);
+      if (!isNaN(num)) {
+        return 300 + num; // Offset by 300 for numeric levels
+      }
+      
+      // Unknown level - put at end but before fallback badges
+      return 999;
+    };
+    
+    // Sort function for content IDs
+    const sortIds = (ids: string[]): string[] => {
+      return [...ids].sort((a, b) => {
+        const levelA = getLevelBadgeForSort(a);
+        const levelB = getLevelBadgeForSort(b);
+        const orderA = getLevelSortOrder(levelA);
+        const orderB = getLevelSortOrder(levelB);
+        
+        if (orderA === orderB) {
+          const titleA = (filmTitleMap[a] || a).toLowerCase();
+          const titleB = (filmTitleMap[b] || b).toLowerCase();
+          return titleA.localeCompare(titleB);
+        }
+        
+        return orderA - orderB;
+      });
+    };
+    
+    // Sort each group by level
+    for (const t of CONTENT_TYPES) {
+      map[t] = sortIds(map[t]);
+    }
+    const sortedOther = sortIds(other);
+    
+    return { map, other: sortedOther };
+  }, [visibleIds, filmTypeMap, filmTitleMap, filmStatsMap]);
 
   const toggleGroup = (key: string) => {
     setOpenGroups(prev => {
@@ -201,15 +296,15 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     }
   };
 
+
   return (
     <div className="content-selector-panel">
       <div className="content-search-row">
         <div className="content-search-wrapper">
-          <div className="content-search-icon"><Search className="w-4 h-4" /></div>
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="SEARCH NAME"
+            placeholder=""
             className="content-search-input"
           />
         </div>

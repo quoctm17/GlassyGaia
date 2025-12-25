@@ -55,7 +55,7 @@ export default function WatchPage() {
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
-  const [tagsDropdownOpen, setTagsDropdownOpen] = useState(false);
+  const [tagsDropdownOpen, setTagsDropdownOpen] = useState(true);
   const tagsDropdownRef = useRef<HTMLDivElement | null>(null);
   const episodesPanelRef = useRef<HTMLDivElement | null>(null);
   const [comments, setComments] = useState<EpisodeComment[]>([]);
@@ -832,6 +832,59 @@ export default function WatchPage() {
     return card.subtitle?.[lang] || '';
   };
 
+  // Map language code to CSS class name (same as SearchResultCard)
+  const codeToName = (code: string): string => {
+    const c = (canonicalizeLangCode(code) || code).toLowerCase();
+    const map: Record<string, string> = {
+      en: "english",
+      vi: "vietnamese",
+      zh: "chinese",
+      zh_trad: "chinese-tc",
+      yue: "cantonese",
+      ja: "japanese",
+      ko: "korean",
+      es: "spanish",
+      ar: "arabic",
+      th: "thai",
+      fr: "french",
+      de: "german",
+      el: "greek",
+      hi: "hindi",
+      id: "indonesian",
+      it: "italian",
+      ms: "malay",
+      nl: "dutch",
+      pl: "polish",
+      pt: "portuguese",
+      ru: "russian",
+      he: "hebrew",
+      fil: "filipino",
+      fi: "finnish",
+      hu: "hungarian",
+      is: "icelandic",
+      ml: "malayalam",
+      no: "norwegian",
+      ro: "romanian",
+      sv: "swedish",
+      tr: "turkish",
+      uk: "ukrainian",
+      eu: "basque",
+      bn: "bengali",
+      ca: "catalan",
+      hr: "croatian",
+      cs: "czech",
+      da: "danish",
+      gl: "galician",
+      "pt-br": "portuguese-br",
+      "pt-pt": "portuguese-pt",
+      "es-la": "spanish-la",
+      "es-es": "spanish-es",
+      ta: "tamil",
+      te: "telugu",
+    };
+    return map[c] || c;
+  };
+
   // ===== Ruby / CJK subtitle helpers (shared concept with SearchResultCard) =====
   const escapeHtml = (s: string): string =>
     s
@@ -1411,9 +1464,13 @@ export default function WatchPage() {
                                 const primaryCode = canonicalizeLangCode(mainLanguage) || mainLanguage;
                                 const { html, isRuby } = buildSubtitleHtml(card, primaryCode);
                                 const displayHtml = html || escapeHtml(mainText || '—');
+                                
+                                const name = codeToName(primaryCode);
+                                const roleClass = `${name}-main`;
+                                
                                 return (
                                   <p
-                                    className={`watch-subtitle-main-text ${isRuby ? 'hanzi-ruby' : ''}`}
+                                    className={`watch-subtitle-main-text ${roleClass} ${isRuby ? 'hanzi-ruby' : ''}`}
                                     dangerouslySetInnerHTML={{ __html: displayHtml }}
                                   />
                                 );
@@ -1426,10 +1483,14 @@ export default function WatchPage() {
                             if (!langText || langText === mainText) return null;
                             const { html, isRuby } = buildSubtitleHtml(card, lang);
                             const displayHtml = html || escapeHtml(langText);
+                            
+                            const name = codeToName(lang);
+                            const roleClass = `${name}-sub`;
+                            
                             return (
                               <p
                                 key={lang}
-                                className={`watch-subtitle-secondary-text ${isRuby ? 'hanzi-ruby' : ''}`}
+                                className={`watch-subtitle-secondary-text ${roleClass} ${isRuby ? 'hanzi-ruby' : ''}`}
                                 dangerouslySetInnerHTML={{ __html: displayHtml }}
                               />
                             );
