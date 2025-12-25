@@ -9,8 +9,6 @@ import reviewIcon from '../assets/icons/review.svg';
 import streakScoreIcon from '../assets/icons/streak-score.svg';
 import diamondScoreIcon from '../assets/icons/diamond-score.svg';
 import coinScoreIcon from '../assets/icons/coin-score.svg';
-import eyeIcon from '../assets/icons/eye.svg';
-import xpDiamondIcon from '../assets/icons/xp-dimond.svg';
 import filterIcon from '../assets/icons/filter.svg';
 import rightAngleIcon from '../assets/icons/right-angle.svg';
 import portfolioThemeImg from '../assets/imgs/portfolio-theme.png';
