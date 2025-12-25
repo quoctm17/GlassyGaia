@@ -17,6 +17,13 @@
   overflow: visible; /* Allow dropdown to overflow outside card bounds */
 }
 
+/* In 2-column layout, cards should fill grid cell height so border-bottom extends properly */
+.search-results.layout-2-column .pixel-result-card-new,
+.search-results.layout-default.filter-panel-closed .pixel-result-card-new {
+  height: 100%;
+  align-self: stretch;
+}
+
 .pixel-result-card-new:hover {
   transform: translateY(-2px);
   background: var(--hover-bg);

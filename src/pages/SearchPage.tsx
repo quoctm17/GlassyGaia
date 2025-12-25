@@ -297,9 +297,11 @@ function SearchPage() {
     return serverContentCounts;
   }, [serverContentCounts]);
 
-  // Shuffle cards for random display order
+  // Filter and shuffle cards for random display order
   const filteredCards = useMemo(() => {
     if (cards.length === 0) return [];
+    
+    // Cards are already filtered by API (is_available and subtitle checks)
     // Create a shuffled copy of the cards array
     const shuffled = [...cards];
     // Fisher-Yates shuffle algorithm
@@ -308,7 +310,7 @@ function SearchPage() {
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
-  }, [cards]);
+  }, [cards, filmLangMap]);
 
   // Infinite scroll: load next page when near bottom (with debounce)
   useEffect(() => {
@@ -383,7 +385,7 @@ function SearchPage() {
               <SearchBar
                 value={searchInput}
                 onChange={(v) => setSearchInput(v)}
-                placeholder="Search across all films..."
+                placeholder=""
                 loading={loading || firstLoading}
               />
               <button
@@ -409,7 +411,7 @@ function SearchPage() {
             </div>
 
             <div className="search-stats typography-inter-4">
-              {loading ? "Searching..." : `${total}`}
+              {loading ? "Searching..." : `${total} Cards`}
             </div>
           </div>
 

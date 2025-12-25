@@ -8,7 +8,9 @@
 }
 
 .filter-panel-wrapper {
-  position: sticky;
+  position: fixed;
+  top: 43px; /* Offset for navbar height */
+  left: 0;
   align-self: flex-start;
   flex-shrink: 0;
   width: 20%;
@@ -218,15 +220,18 @@
   align-items: start;
   align-content: start;
   grid-auto-rows: min-content;
-  margin-top: 85px;
+  margin-top: 90px;
+  margin-left: 14%; 
+  transition: margin-left 0.3s ease;
 }
 
 .search-results.layout-default.filter-panel-closed {
   grid-template-columns: repeat(2, 1fr);
   gap: 0;
-  align-items: start;
+  align-items: stretch;
   align-content: start;
   grid-auto-rows: min-content;
+  margin-left: 0 !important;
 }
 
 /* Layout: 1 Column (always 1 column) */
@@ -237,6 +242,9 @@
   align-items: start;
   align-content: start;
   grid-auto-rows: min-content;
+  margin-top: 90px;
+  margin-left: 14%; /* Match filter panel width */
+  transition: margin-left 0.3s ease;
 }
 
 /* Layout: 2 Columns (always 2 columns) */
@@ -244,9 +252,12 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0;
-  align-items: start;
+  align-items: stretch;
   align-content: start;
   grid-auto-rows: min-content;
+  margin-top: 90px;
+  margin-left: 14%; /* Match filter panel width */
+  transition: margin-left 0.3s ease;
 }
 
 /* Mobile: Force 1 column layout regardless of setting */
@@ -256,6 +267,12 @@
   .search-results.layout-1-column,
   .search-results.layout-2-column {
     grid-template-columns: 1fr !important;
+    margin-left: 0 !important;
+  }
+  
+  .filter-panel-wrapper {
+    width: 70vw;
+    max-width: 260px;
   }
 }
 
@@ -310,10 +327,6 @@
   font-style: italic;
 }
 
-/* ================= Responsive Design ================= */
-/* Breakpoints: xs=480px, sm=640px, md=768px, lg=1024px, xl=1280px, 2xl=1440px, 3xl=1920px */
-/* Sorted from largest to smallest */
-
 /* Large Desktop (1661px and below) */
 @media (max-width: 1661px) {
   .search-controls {
@@ -323,6 +336,12 @@
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
+  }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 16%;
   }
 }
 
@@ -336,6 +355,12 @@
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
   }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 17%;
+  }
 }
 
 /* Desktop (1475px and below) */
@@ -347,6 +372,12 @@
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
+  }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 18%;
   }
 }
 
@@ -360,6 +391,12 @@
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
   }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 19%;
+  }
 }
 
 /* Medium screens - adjust when filter panel hits min-width */
@@ -371,6 +408,12 @@
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
+  }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 24%;
   }
 }
 
@@ -385,6 +428,12 @@
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
   }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 23%;
+  }
 }
 
 /* Adjust for filter panel min-width on smaller screens */
@@ -396,6 +445,12 @@
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
+  }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 27%;
   }
 }
 
@@ -409,6 +464,12 @@
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
+  }
+  
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 26%;
   }
 
   /* Keep sidebar roughly 20–22% of viewport on tablet */
