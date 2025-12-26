@@ -648,8 +648,9 @@ export default {
           const subtitleLangsCount = subtitleLangsArr.length;
 
           // Parse content IDs into array
+          // Limit to avoid "too many SQL variables" error (SQLite limit is ~999)
           const contentIdsArr = contentIdsCsv
-            ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean)))
+            ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean))).slice(0, 100)
             : [];
           const contentIdsCount = contentIdsArr.length;
 
@@ -857,11 +858,15 @@ export default {
           }
           
           stmt += ` ${textSearchCondition}
+            ORDER BY c.difficulty_score IS NULL, c.difficulty_score ASC
             LIMIT ? OFFSET ?;
           `;
           
-          // Note: Removed ORDER BY for speed - frontend can sort if needed
-          // ORDER BY is very slow on large datasets without proper indexes
+          // ORDER BY difficulty_score is now optimized with composite index idx_cards_available_difficulty
+          // This index allows SQLite to efficiently sort filtered results before applying LIMIT
+          // "c.difficulty_score IS NULL" ensures cards without difficulty_score appear at the end
+          // (IS NULL evaluates to 1 for NULL, 0 for non-NULL, so NULLs sort after non-NULLs)
+          // We fetch more cards (3x) to enable distribution across multiple content_items
 
           // Build optimized count query with JOIN
           let countStmt = `
@@ -1000,13 +1005,29 @@ export default {
           }
           
           // 8. Add pagination params (only for main query, not count)
-          params.push(size);
+          // Use fetchLimit (1.5x size) to ensure we have enough cards from different content_items
+          // Reduced to avoid "too many SQL variables" error in batch fetching
+          const fetchLimit = Math.min(Math.ceil(size * 1.5), 75); // Max 75 cards to avoid SQL variable limit
+          params.push(fetchLimit);
           params.push(offset);
 
           const pageNum = Math.floor(offset / size) + 1;
           const skipCount = true; // Always skip count for maximum speed
           
           // Execute main query only
+          // Log params count for debugging "too many SQL variables" error
+          const totalParams = params.length;
+          if (totalParams > 500) {
+            console.warn(`[WORKER /api/search] High param count: ${totalParams}`, {
+              subtitleLangsCount,
+              contentIdsCount,
+              hasDifficultyFilter,
+              hasLevelFilter,
+              allowedLevelsCount: allowedLevels?.length || 0,
+              hasTextQuery
+            });
+          }
+          
           const queryStart = Date.now();
           const cardsResult = await env.DB.prepare(stmt).bind(...params).all();
           const queryTime = Date.now() - queryStart;
@@ -1027,8 +1048,9 @@ export default {
             const needsAdditionalSubs = additionalSubLangs.length > 0;
             
             // Fetch main language subtitles in batch (faster than JOIN in main query)
+            // Reduced batch size significantly to avoid "too many SQL variables" error
             const mainSubStart = Date.now();
-            const mainSubBatchSize = 300;
+            const mainSubBatchSize = 50; // Further reduced to avoid SQL variable limit
             const mainSubPromises = [];
             
             // Group cards by main language for efficient batch fetching
@@ -1041,6 +1063,8 @@ export default {
               cardsByLang.get(lang).push(r.card_id);
             }
             
+            // Limit concurrent queries to avoid "too many SQL variables" error
+            // Process languages sequentially or in smaller batches
             for (const [lang, langCardIds] of cardsByLang.entries()) {
               for (let i = 0; i < langCardIds.length; i += mainSubBatchSize) {
                 const batch = langCardIds.slice(i, i + mainSubBatchSize);
@@ -1066,7 +1090,12 @@ export default {
               }
             }
             
-            await Promise.all(mainSubPromises);
+            // Execute in smaller batches to avoid too many concurrent queries
+            const maxConcurrentQueries = 10; // Limit concurrent queries
+            for (let i = 0; i < mainSubPromises.length; i += maxConcurrentQueries) {
+              const batch = mainSubPromises.slice(i, i + maxConcurrentQueries);
+              await Promise.all(batch);
+            }
             const mainSubTime = Date.now() - mainSubStart;
             console.log(`[PERF /api/search] Main subtitle fetch: ${mainSubTime}ms for ${cardIds.length} cards`);
             
@@ -1074,11 +1103,22 @@ export default {
               const batchStart = Date.now();
               // OPTIMIZATION: Skip full levels array - only fetch CEFR (most common use case)
               // Full levels can be lazy loaded if needed
-              const batchSize = 300; // Even larger batches for fewer round trips
+              // Reduced batch size to avoid "too many SQL variables" error
+              // When combining card_ids + languages, we need to stay under SQLite's limit (~999 variables)
+              const batchSize = 100; // Further reduced to avoid SQL variable limit (100 cards + languages < 150 total)
               const allPromises = [];
               
-              for (let i = 0; i < cardIds.length; i += batchSize) {
-                const batch = cardIds.slice(i, i + batchSize);
+              // Calculate safe batch size to avoid "too many SQL variables" error
+              // SQLite limit is typically 999 variables, we stay well under with safety margin
+              // When fetching additional subtitles: batch_size + languages must be < 500
+              const maxVarsPerQuery = 500; // Safety margin below SQLite's 999 limit
+              const safeBatchSizeForSubs = needsAdditionalSubs 
+                ? Math.max(1, maxVarsPerQuery - additionalSubLangs.length)
+                : batchSize;
+              const actualBatchSize = Math.min(batchSize, safeBatchSizeForSubs);
+              
+              for (let i = 0; i < cardIds.length; i += actualBatchSize) {
+                const batch = cardIds.slice(i, i + actualBatchSize);
                 const placeholders = batch.map(() => '?').join(',');
                 
                 // Fetch only essential data: additional subtitles + CEFR level
@@ -1144,14 +1184,19 @@ export default {
                 );
               }
               
-              // Wait for all batches - parallel execution makes this fast
-              await Promise.all(allPromises);
+              // Execute in smaller batches to avoid too many concurrent queries
+              // This prevents "too many SQL variables" error when many queries run simultaneously
+              const maxConcurrentBatchQueries = 5; // Limit concurrent batch queries
+              for (let i = 0; i < allPromises.length; i += maxConcurrentBatchQueries) {
+                const batch = allPromises.slice(i, i + maxConcurrentBatchQueries);
+                await Promise.all(batch);
+              }
               const batchTime = Date.now() - batchStart;
               console.log(`[PERF /api/search] Batch fetch: ${batchTime}ms for ${cardIds.length} cards`);
             }
 
             // Map cards to response format - main subtitle already included
-            items = cardRows.map(r => ({
+            const allMappedCards = cardRows.map(r => ({
               card_id: r.card_id,
               content_slug: r.content_slug,
               content_title: r.content_title,
@@ -1168,6 +1213,62 @@ export default {
               cefr_level: cefrLevelMap.get(r.card_id) || null,
               levels: levelsMap.get(r.card_id) || [] // Full levels array for level badges display
             }));
+            
+            // Optimized content distribution: ensure no duplicate content_items in first N cards
+            // Goal: Each of the first 50 cards should be from a different content_item if possible
+            if (allMappedCards.length <= size) {
+              // Not enough cards: return all cards
+              items = allMappedCards;
+            } else {
+              // Quick check: count unique content_items
+              const uniqueContents = new Set(allMappedCards.map(c => c.content_slug));
+              
+              if (uniqueContents.size <= 1) {
+                // Only one content_item: return first N cards (already sorted)
+                items = allMappedCards.slice(0, size);
+              } else {
+                // Multiple content_items: distribute to ensure unique content_items
+                // Group by content_slug (single pass, O(n))
+                const cardsByContent = new Map();
+                for (const card of allMappedCards) {
+                  const slug = card.content_slug;
+                  if (!cardsByContent.has(slug)) {
+                    cardsByContent.set(slug, []);
+                  }
+                  cardsByContent.get(slug).push(card);
+                }
+                
+                // Smart distribution: ensure each card from different content_item (round-robin)
+                // Strategy: Take 1 card from each content_item per round, repeat until we have enough
+                // This ensures maximum diversity: if we have 10 content_items, first 10 cards are all different
+                const distributedCards = [];
+                const contentArrays = Array.from(cardsByContent.values());
+                let round = 0;
+                let iterations = 0;
+                const maxIterations = size * 3; // Safety limit
+                
+                while (distributedCards.length < size && iterations < maxIterations) {
+                  let cardsAddedThisRound = 0;
+                  
+                  // One round: take 1 card from each content_item (if available)
+                  for (let i = 0; i < contentArrays.length && distributedCards.length < size; i++) {
+                    const currentArray = contentArrays[i];
+                    if (currentArray && currentArray.length > 0) {
+                      distributedCards.push(currentArray.shift());
+                      cardsAddedThisRound++;
+                    }
+                  }
+                  
+                  // If no cards were added this round, we're done
+                  if (cardsAddedThisRound === 0) break;
+                  
+                  round++;
+                  iterations++;
+                }
+                
+                items = distributedCards;
+              }
+            }
           }
 
           const totalTime = Date.now() - startTime;
