@@ -95,9 +95,9 @@ function SearchPage() {
           // If we hit the current limit and haven't reached maxLimit, allow more loads
           setHasMore(items.length === effectiveLimit && effectiveLimit < maxLimit);
         } else {
-          // Browsing mode: use paginated /api/search
+          // Browsing mode: use paginated /api/search (supports text search too)
           const result = await apiSearch({
-            query: "",
+            query: trimmed, // Pass query for text search support
             page: pageNum,
             size: pageSize,
             mainLanguage: preferences.main_language || null,
@@ -116,9 +116,16 @@ function SearchPage() {
             setCards((prev) => [...prev, ...result.items]);
           }
 
+          // Handle case where total is -1 (not available, skipped for speed)
+          if (result.total === -1) {
+            // Estimate: if we got full page, assume there's more
+            setTotal(result.items.length);
+            setHasMore(result.items.length === pageSize);
+          } else {
           setTotal(result.total);
+            setHasMore(pageNum * pageSize < result.total);
+          }
           setPage(pageNum);
-          setHasMore(pageNum * pageSize < result.total);
         }
       } catch (error) {
         if ((error as Error).name === "AbortError") {
@@ -152,6 +159,7 @@ function SearchPage() {
   );
 
   // Fetch all content items on mount only (cached by apiListItems)
+  // Run in parallel with initial card fetch for faster loading
   useEffect(() => {
     let cancelled = false;
     apiListItems()
@@ -171,9 +179,25 @@ function SearchPage() {
     };
   }, []);
 
+  // Serialize subtitle_languages array for stable dependency comparison
+  const subtitleLangsKey = useMemo(() => 
+    JSON.stringify((preferences.subtitle_languages || []).sort()), 
+    [preferences.subtitle_languages]
+  );
+  
+  // Serialize contentFilter array for stable dependency comparison
+  const contentFilterKey = useMemo(() => 
+    JSON.stringify([...contentFilter].sort()), 
+    [contentFilter]
+  );
+
   // Fetch card counts per content from server (bao gồm filter + query)
+  // Lazy load counts: only fetch when filter panel is open or after cards have loaded
   useEffect(() => {
     let cancelled = false;
+    // Delay counts fetch significantly to prioritize card loading
+    // Only fetch if filter panel is open or after a longer delay
+    const timeoutId = setTimeout(() => {
     const run = async () => {
       try {
         const counts = await apiSearchCounts({
@@ -198,10 +222,12 @@ function SearchPage() {
       }
     };
     run();
+    }, isFilterPanelOpen ? 200 : 1000); // Faster if panel is open, otherwise wait longer
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
     };
-  }, [preferences.main_language, preferences.subtitle_languages, query, minDifficulty, maxDifficulty, minLevel, maxLevel]);
+  }, [preferences.main_language, subtitleLangsKey, query, minDifficulty, maxDifficulty, minLevel, maxLevel, isFilterPanelOpen]);
 
   // Debounce: chuyển searchInput -> query (giảm re-render & lag khi gõ)
   useEffect(() => {
@@ -216,9 +242,10 @@ function SearchPage() {
       return;
     }
 
+    // Reduced debounce from 400ms to 300ms for faster search
     searchTimeoutRef.current = setTimeout(() => {
       setQuery(trimmed);
-    }, 400);
+    }, 300);
 
     return () => {
       if (searchTimeoutRef.current) {
@@ -227,17 +254,37 @@ function SearchPage() {
     };
   }, [searchInput]);
 
+  // Debounce filter changes for better performance (except for first load)
+  const filterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
   // Khi query (đã debounce) hoặc filter / language đổi thì gọi API
   useEffect(() => {
-    setPage  (1);
-    setHasMore(true);
-    const trimmed = query.trim();
-    if (trimmed.length >= 2) {
-      fetchCards(trimmed, 1);
-    } else {
-      fetchCards("", 1);
+    // Cancel previous filter timeout
+    if (filterTimeoutRef.current) {
+      clearTimeout(filterTimeoutRef.current);
     }
-  }, [query, preferences.main_language, preferences.subtitle_languages, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel, fetchCards]);
+    
+    // Debounce filter changes (100ms) for smoother UX - faster than search
+    filterTimeoutRef.current = setTimeout(() => {
+      setPage(1);
+      setHasMore(true);
+      // Reset shuffle on new search/filter
+      setShouldShuffle(false);
+      shuffleSeedRef.current = Date.now();
+      const trimmed = query.trim();
+      if (trimmed.length >= 2) {
+        fetchCards(trimmed, 1);
+      } else {
+        fetchCards("", 1);
+      }
+    }, 100); // Short debounce for filter changes - prioritize responsiveness
+    
+    return () => {
+      if (filterTimeoutRef.current) {
+        clearTimeout(filterTimeoutRef.current);
+      }
+    };
+  }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, fetchCards]);
 
   // Filter items by mainLanguage
   const filteredItems = useMemo(() => {
@@ -293,24 +340,53 @@ function SearchPage() {
   // Content counts: 
   // - Khi không search: dùng tổng từ server (apiSearchCounts với main_language + subtitle_languages + contentIds)
   // - Khi search: dùng apiSearchCounts với q + mainLanguage + contentIds để lấy tổng số card match theo content
+  // Merge serverContentCounts with allContentIds to ensure all items have counts
+  // If a content item is in allContentIds but not in serverContentCounts, set count to 0
   const contentCounts = useMemo(() => {
-    return serverContentCounts;
-  }, [serverContentCounts]);
+    const merged: Record<string, number> = { ...serverContentCounts };
+    
+    // Ensure all content items from allContentIds have an entry (even if 0)
+    if (allContentIds && allContentIds.length > 0) {
+      for (const id of allContentIds) {
+        if (!(id in merged)) {
+          merged[id] = 0; // Initialize with 0 if not in server counts yet
+        }
+      }
+    }
+    
+    return merged;
+  }, [serverContentCounts, allContentIds]);
 
   // Filter and shuffle cards for random display order
+  // Skip shuffle for initial load to show cards faster - only shuffle on user interaction
+  const [shouldShuffle, setShouldShuffle] = useState(false);
+  const shuffleSeedRef = useRef<number>(Date.now());
   const filteredCards = useMemo(() => {
     if (cards.length === 0) return [];
     
+    // Skip shuffle on initial load for faster display
+    // Only shuffle if explicitly requested (e.g., user clicks shuffle button)
+    if (!shouldShuffle) {
+      return cards; // Return cards in original order for faster display
+    }
+    
     // Cards are already filtered by API (is_available and subtitle checks)
-    // Create a shuffled copy of the cards array
+    // Use seeded random for consistent shuffle per card set
     const shuffled = [...cards];
-    // Fisher-Yates shuffle algorithm
+    // Use seeded random for consistent shuffle
+    let seed = shuffleSeedRef.current;
+    const seededRandom = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+    
+    // Fisher-Yates shuffle with seeded random
     for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(seededRandom() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
-  }, [cards, filmLangMap]);
+  }, [cards, shouldShuffle]);
 
   // Infinite scroll: load next page when near bottom (with debounce)
   useEffect(() => {
@@ -445,6 +521,7 @@ function SearchPage() {
                       highlightQuery={query}
                       primaryLang={preferences.main_language}
                       volume={volume}
+                      subtitleLanguages={preferences.subtitle_languages}
                     />
                   )})}
                   {isLoadingMore && (
