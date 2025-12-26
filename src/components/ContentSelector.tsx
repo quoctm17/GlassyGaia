@@ -97,17 +97,36 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     return maxLevel;
   };
 
-  // Counts from allResults
+  // Counts: prioritize server-side counts, fallback to client-side counting
+  // Merge with allContentIds to ensure all items have counts
   const counts: Record<string, number> = useMemo(() => {
-    if (contentCounts) return contentCounts;
-    const m: Record<string, number> = {};
-    for (const c of allResults) {
-      const fid = String(c.film_id ?? '');
-      if (!fid) continue;
-      m[fid] = (m[fid] || 0) + 1;
+    const result: Record<string, number> = {};
+    
+    // Start with server-side counts if available
+    if (contentCounts) {
+      Object.assign(result, contentCounts);
     }
-    return m;
-  }, [contentCounts, allResults]);
+    
+    // Fallback: count from allResults if server counts not available
+    if (!contentCounts || Object.keys(contentCounts).length === 0) {
+      for (const c of allResults) {
+        const fid = String(c.film_id ?? '');
+        if (!fid) continue;
+        result[fid] = (result[fid] || 0) + 1;
+      }
+    }
+    
+    // Ensure all content items from allContentIds have an entry
+    if (allContentIds && allContentIds.length > 0) {
+      for (const id of allContentIds) {
+        if (!(id in result)) {
+          result[id] = 0; // Initialize with 0 if not found
+        }
+      }
+    }
+    
+    return result;
+  }, [contentCounts, allResults, allContentIds]);
 
   // Available film ids from either external or fetched films, filtered by main language
   const filmIds: string[] = useMemo(() => {

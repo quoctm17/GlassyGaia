@@ -16,12 +16,20 @@ import saveHeartIcon from "../assets/icons/save-heart.svg";
 // Global registry to ensure only one audio plays at a time across all cards
 const activeAudioInstances = new Set<HTMLAudioElement>();
 
+// Global cache for episode cards to prevent duplicate fetches
+const episodeCardsCache = new Map<string, { cards: CardDoc[]; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
+
+// Track pending requests to prevent duplicate fetches
+const pendingEpisodeRequests = new Map<string, Promise<CardDoc[]>>();
+
 interface Props {
   card: CardDoc;
   highlightQuery?: string; // optional search keyword to highlight in subtitles
   primaryLang?: string; // film's primary (audio) language to show first
   filmTitle?: string; // content title to display
   volume?: number; // audio volume (0-100)
+  subtitleLanguages?: string[]; // selected subtitle languages for memo comparison
 }
 
 // Memoized component to prevent unnecessary re-renders
@@ -30,9 +38,14 @@ const SearchResultCard = memo(function SearchResultCard({
   highlightQuery,
   primaryLang,
   volume = 28,
+  subtitleLanguages,
 }: Props) {
   const { user, preferences } = useUser();
-  const langs = useMemo(() => preferences.subtitle_languages || [], [preferences.subtitle_languages]);
+  // Use prop if provided, otherwise fallback to preferences
+  const langs = useMemo(() =>
+    subtitleLanguages || preferences.subtitle_languages || [],
+    [subtitleLanguages, preferences.subtitle_languages]
+  );
   const ref = useRef<HTMLDivElement | null>(null);
   const [subsOverride, setSubsOverride] = useState<Record<string, string> | null>(null);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
@@ -66,7 +79,7 @@ const SearchResultCard = memo(function SearchResultCard({
       url = `${base}${url}`;
     }
     return url;
-  // card.image_url intentionally in deps (not card object) to avoid loop
+    // card.image_url intentionally in deps (not card object) to avoid loop
   }, [card.image_url, imageError]);
 
   // Update card when initialCard changes
@@ -74,7 +87,9 @@ const SearchResultCard = memo(function SearchResultCard({
     setCard(initialCard);
     // Reset to original when initialCard changes (new search result)
     setOriginalCardIndex(-1);
-  }, [initialCard.id, initialCard.image_url]);
+    // Don't clear subtitle override immediately - let the subtitle fetch useEffect handle it
+    // This ensures smooth transition when subtitle languages change
+  }, [initialCard.id, initialCard.image_url, initialCard.subtitle]);
 
   // Load saved status, SRS state, and review count for card
   useEffect(() => {
@@ -84,12 +99,12 @@ const SearchResultCard = memo(function SearchResultCard({
       setReviewCount(0);
       return;
     }
-    
+
     let mounted = true;
     (async () => {
       try {
         const status = await apiGetCardSaveStatus(
-          user.uid, 
+          user.uid,
           card.id,
           card.film_id,
           card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
@@ -108,7 +123,7 @@ const SearchResultCard = memo(function SearchResultCard({
         }
       }
     })();
-    
+
     return () => { mounted = false; };
   }, [user?.uid, card.id, card.film_id, card.episode_id, card.episode]);
 
@@ -132,7 +147,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const handleToggleSave = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user?.uid || !card.id) return;
-    
+
     try {
       const result = await apiToggleSaveCard(
         user.uid,
@@ -155,11 +170,11 @@ const SearchResultCard = memo(function SearchResultCard({
   // Handle SRS state change
   const handleSRSStateChange = async (newState: SRSState) => {
     if (!user?.uid || !card.id) return;
-    
+
     try {
       await apiUpdateCardSRSState(
-        user.uid, 
-        card.id, 
+        user.uid,
+        card.id,
         newState,
         card.film_id,
         card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
@@ -174,28 +189,28 @@ const SearchResultCard = memo(function SearchResultCard({
   // Helper function to increment review count with debounce
   const incrementReviewCountForCard = useCallback(async (targetCard: CardDoc) => {
     if (!user?.uid || !targetCard.id) return;
-    
+
     // Clear any pending increment
     if (incrementReviewTimeoutRef.current) {
       clearTimeout(incrementReviewTimeoutRef.current);
       incrementReviewTimeoutRef.current = null;
     }
-    
+
     // Store pending increment info
     pendingReviewIncrement.current = {
       cardId: targetCard.id,
       filmId: targetCard.film_id,
       episodeId: targetCard.episode_id || (typeof targetCard.episode === 'number' ? `e${targetCard.episode}` : String(targetCard.episode || ''))
     };
-    
+
     // Debounce: wait 300ms before actually calling API
     // This batches rapid increments (e.g., quick A/D navigation)
     incrementReviewTimeoutRef.current = setTimeout(async () => {
       if (!pendingReviewIncrement.current) return;
-      
+
       const { cardId, filmId, episodeId } = pendingReviewIncrement.current;
       pendingReviewIncrement.current = null;
-      
+
       try {
         const result = await apiIncrementReviewCount(
           user.uid,
@@ -203,7 +218,7 @@ const SearchResultCard = memo(function SearchResultCard({
           filmId,
           episodeId
         );
-        
+
         // Only update if this is the current card
         if (cardId === card.id) {
           setReviewCount(result.review_count);
@@ -270,13 +285,13 @@ const SearchResultCard = memo(function SearchResultCard({
   // Keyboard shortcuts when card is hovered
   useEffect(() => {
     if (!isHovered) return;
-    
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input/textarea
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      
+
       if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handlePrevCard();
@@ -300,7 +315,7 @@ const SearchResultCard = memo(function SearchResultCard({
         handleMoveToNextCardHover();
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isHovered, currentCardIndex, originalCardIndex, episodeCards, card, isPlaying]);
@@ -365,23 +380,62 @@ const SearchResultCard = memo(function SearchResultCard({
     });
   }, [card.id, subtitleKeys, langs, primaryLang]);
 
-  // Lazy-fixup: if subtitles are missing in the list payload, fetch per-card detail once
+  // Fetch subtitle data when subtitle languages change or when subtitles are missing
+  // This ensures subtitles are always available when user selects new languages
   useEffect(() => {
-    const hasSubs = card.subtitle && Object.keys(card.subtitle).length > 0;
     const film = card.film_id;
     const epSlug = card.episode_id || (typeof card.episode === "number" ? `e${card.episode}` : String(card.episode || ""));
     const cid = String(card.id || "");
-    if (hasSubs || !film || !epSlug || !cid) {
+
+    if (!film || !epSlug || !cid) {
       setSubsOverride(null);
       return;
     }
+
+    const selectedLangs = langs || [];
+
+    // IMPORTANT: When no subtitle languages selected, clear override immediately
+    // This ensures cards show only primary language when all subtitles are deselected
+    if (selectedLangs.length === 0) {
+      setSubsOverride(null);
+      return;
+    }
+
+    // Always check if we need to fetch subtitles when langs change
+    // This ensures that when user selects new subtitle languages, we fetch them immediately
+    const hasSubs = card.subtitle && Object.keys(card.subtitle).length > 0;
+
+    // Check if ANY selected language is missing from card.subtitle
+    // This ensures we fetch ALL selected languages, not just one
+    const missingLangs = selectedLangs.filter(lang => {
+      const canonLang = canonicalizeLangCode(lang) || lang;
+      return !card.subtitle || !card.subtitle[canonLang];
+    });
+
+    // If card has no subtitles at all, or if ANY selected language is missing, fetch
+    // This ensures we always have ALL selected subtitle languages
+    const needsFetch = !hasSubs || missingLangs.length > 0;
+
+    if (!needsFetch) {
+      // All required subtitles are already present, clear override to use card.subtitle
+      setSubsOverride(null);
+      return;
+    }
+
+    // Fetch subtitle data to get ALL missing languages
+    // This ensures we have complete subtitle data for all selected languages
     let active = true;
     (async () => {
       try {
         const detail = await getCardByPath(film, epSlug, cid);
-        // removed debug logging
         if (active && detail?.subtitle && Object.keys(detail.subtitle).length) {
-          setSubsOverride(detail.subtitle);
+          // Merge with existing subtitle data to preserve any data we already have
+          // This ensures we have all subtitles including ALL newly selected languages
+          const merged = {
+            ...(card.subtitle || {}),
+            ...detail.subtitle
+          };
+          setSubsOverride(merged);
         }
       } catch {
         /* ignore */
@@ -390,7 +444,7 @@ const SearchResultCard = memo(function SearchResultCard({
     return () => {
       active = false;
     };
-  }, [card.film_id, card.episode_id, card.episode, card.id, card.subtitle]);
+  }, [card.film_id, card.episode_id, card.episode, card.id, card.subtitle, langs]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -445,7 +499,7 @@ const SearchResultCard = memo(function SearchResultCard({
           const kanjiPart = sp[2];
           const trailingKana = sp[3] || '';
           let readingCore = reading;
-            // If reading ends with trailing kana, trim it for annotation width
+          // If reading ends with trailing kana, trim it for annotation width
           if (trailingKana && readingCore.endsWith(trailingKana)) {
             readingCore = readingCore.slice(0, readingCore.length - trailingKana.length);
           }
@@ -505,12 +559,12 @@ const SearchResultCard = memo(function SearchResultCard({
       // NFKC normalization for width, remove all whitespace, remove furigana brackets
       const nfkc = withoutTags.normalize('NFKC').replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
       // Convert Katakana to Hiragana
-      return nfkc.replace(/[\u30A1-\u30F6]/g, (ch) => 
+      return nfkc.replace(/[\u30A1-\u30F6]/g, (ch) =>
         String.fromCharCode(ch.charCodeAt(0) - 0x60)
       );
     } catch {
       // Fallback: just Katakana → Hiragana, remove whitespace, tags and brackets
-      return text.replace(/<[^>]+>/g, '').replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '').replace(/[\u30A1-\u30F6]/g, (ch) => 
+      return text.replace(/<[^>]+>/g, '').replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '').replace(/[\u30A1-\u30F6]/g, (ch) =>
         String.fromCharCode(ch.charCodeAt(0) - 0x60)
       );
     }
@@ -526,11 +580,11 @@ const SearchResultCard = memo(function SearchResultCard({
     try {
       const nfkc = ch.normalize('NFKC');
       // Katakana → Hiragana conversion
-      return nfkc.replace(/[\u30A1-\u30F6]/g, (c) => 
+      return nfkc.replace(/[\u30A1-\u30F6]/g, (c) =>
         String.fromCharCode(c.charCodeAt(0) - 0x60)
       );
     } catch {
-      return ch.replace(/[\u30A1-\u30F6]/g, (c) => 
+      return ch.replace(/[\u30A1-\u30F6]/g, (c) =>
         String.fromCharCode(c.charCodeAt(0) - 0x60)
       );
     }
@@ -543,11 +597,11 @@ const SearchResultCard = memo(function SearchResultCard({
       // For Japanese text, use normalized comparison (ignore whitespace)
       if (hasJapanese(q) || hasJapanese(text)) {
         const qNorm = normalizeJapanese(q.trim());
-        
+
         // Build normalized version of text, tracking position mapping
         const posMap: number[] = []; // posMap[i] = original position for normalized position i
         let normalized = '';
-        
+
         for (let i = 0; i < text.length; i++) {
           const ch = text[i];
           // Skip whitespace and brackets
@@ -558,18 +612,18 @@ const SearchResultCard = memo(function SearchResultCard({
           if (i > 0 && text.lastIndexOf('[', i) > text.lastIndexOf(']', i)) {
             continue;
           }
-          
+
           const norm = normChar(ch);
           for (let j = 0; j < norm.length; j++) {
             normalized += norm[j];
             posMap.push(i);
           }
         }
-        
+
         // Find match in normalized text
         const matchIdx = normalized.indexOf(qNorm);
         if (matchIdx === -1) return escapeHtml(text);
-        
+
         // Map back to original positions
         const startPos = posMap[matchIdx];
         // Find the end position: we need the position AFTER the last matched character
@@ -577,7 +631,7 @@ const SearchResultCard = memo(function SearchResultCard({
         // We want to include the full original character at that position
         const lastNormIdx = matchIdx + qNorm.length - 1;
         const lastOrigPos = posMap[lastNormIdx];
-        
+
         // Find the next original position that's different (or end of text)
         let endPosExclusive = lastOrigPos + 1;
         // Check if there are more normalized chars pointing to the same original position
@@ -591,14 +645,14 @@ const SearchResultCard = memo(function SearchResultCard({
             break;
           }
         }
-        
+
         const before = text.slice(0, startPos);
         const match = text.slice(startPos, endPosExclusive);
         const after = text.slice(endPosExclusive);
-        
+
         return `${escapeHtml(before)}<span style="color: var(--hover-select)">${escapeHtml(match)}</span>${escapeHtml(after)}`;
       }
-      
+
       // Non-Japanese: simple regex match
       const re = new RegExp(escapeRegExp(q), "gi");
       return escapeHtml(text).replace(
@@ -715,7 +769,7 @@ const SearchResultCard = memo(function SearchResultCard({
         }
         return result;
       }
-      
+
       // Non-Japanese: simple regex on whole HTML
       const re = new RegExp(escapeRegExp(q), "gi");
       return html.replace(re, (match) => `<span style="color: var(--hover-select)">${match}</span>`);
@@ -728,45 +782,120 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Load episode cards for navigation (centered around current card)
   // Only load ONCE when initialCard changes, don't reload during A/D navigation
+  // Use global cache and pending requests to prevent duplicate fetches for same episode
   useEffect(() => {
     const filmId = initialCard.film_id;
     const episodeId = initialCard.episode_id || (typeof initialCard.episode === 'number' ? `e${initialCard.episode}` : String(initialCard.episode || ''));
-    
+
     if (!filmId || !episodeId) return;
-    
+
+    const cacheKey = `${filmId}/${episodeId}`;
+    const cached = episodeCardsCache.get(cacheKey);
+    const now = Date.now();
+
+    // Check if we have valid cached data
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+      setEpisodeCards(cached.cards);
+      const idx = cached.cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+      setCurrentCardIndex(idx);
+      setOriginalCardIndex(idx);
+      return;
+    }
+
+    // Check if there's already a pending request for this episode
+    const pendingRequest = pendingEpisodeRequests.get(cacheKey);
+    if (pendingRequest) {
+      pendingRequest.then(cards => {
+        setEpisodeCards(cards);
+        const idx = cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+        setCurrentCardIndex(idx);
+        setOriginalCardIndex(idx);
+      }).catch(() => {
+        setEpisodeCards([]);
+        setCurrentCardIndex(-1);
+        setOriginalCardIndex(-1);
+      });
+      return;
+    }
+
     // Load 500 cards centered around current position (250 before, 250 after)
     const startTime = Math.max(0, initialCard.start - 250 * 5); // Assume ~5s per card average
-    
-    fetchCardsForFilm(filmId, episodeId, 500, { startFrom: startTime }).then(cards => {
+
+    const fetchPromise = fetchCardsForFilm(filmId, episodeId, 500, { startFrom: startTime }).then(cards => {
+      // Cache the result
+      episodeCardsCache.set(cacheKey, { cards, timestamp: Date.now() });
+      // Remove from pending
+      pendingEpisodeRequests.delete(cacheKey);
+
       setEpisodeCards(cards);
       // Match by start time (API returns card_number as ID, not UUID)
       const idx = cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
       setCurrentCardIndex(idx);
       setOriginalCardIndex(idx); // Set original position on initial load
-      
+
       // Fallback: if not found, try loading from start (for early episode cards)
       if (idx === -1 && startTime > 0) {
-        fetchCardsForFilm(filmId, episodeId, 500).then(fallbackCards => {
-          setEpisodeCards(fallbackCards);
-          const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+        const fallbackCacheKey = `${filmId}/${episodeId}/start`;
+        const fallbackCached = episodeCardsCache.get(fallbackCacheKey);
+
+        if (fallbackCached && (now - fallbackCached.timestamp) < CACHE_TTL) {
+          setEpisodeCards(fallbackCached.cards);
+          const fallbackIdx = fallbackCached.cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
           setCurrentCardIndex(fallbackIdx);
-          setOriginalCardIndex(fallbackIdx); // Store original position
-        }).catch(() => {
-          setCurrentCardIndex(-1);
-          setOriginalCardIndex(-1);
-        });
+          setOriginalCardIndex(fallbackIdx);
+        } else {
+          const fallbackPending = pendingEpisodeRequests.get(fallbackCacheKey);
+          if (fallbackPending) {
+            fallbackPending.then(fallbackCards => {
+              setEpisodeCards(fallbackCards);
+              const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+              setCurrentCardIndex(fallbackIdx);
+              setOriginalCardIndex(fallbackIdx);
+            }).catch(() => {
+              setCurrentCardIndex(-1);
+              setOriginalCardIndex(-1);
+            });
+          } else {
+            const fallbackPromise = fetchCardsForFilm(filmId, episodeId, 500).then(fallbackCards => {
+              // Cache fallback result
+              episodeCardsCache.set(fallbackCacheKey, { cards: fallbackCards, timestamp: Date.now() });
+              // Remove from pending
+              pendingEpisodeRequests.delete(fallbackCacheKey);
+
+              setEpisodeCards(fallbackCards);
+              const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+              setCurrentCardIndex(fallbackIdx);
+              setOriginalCardIndex(fallbackIdx); // Store original position
+              return fallbackCards;
+            }).catch(() => {
+              pendingEpisodeRequests.delete(fallbackCacheKey);
+              setCurrentCardIndex(-1);
+              setOriginalCardIndex(-1);
+              throw new Error('Failed to fetch fallback cards');
+            });
+            pendingEpisodeRequests.set(fallbackCacheKey, fallbackPromise);
+          }
+        }
       }
+
+      return cards;
     }).catch(() => {
+      // Remove from pending on error
+      pendingEpisodeRequests.delete(cacheKey);
       setEpisodeCards([]);
       setCurrentCardIndex(-1);
       setOriginalCardIndex(-1);
+      throw new Error('Failed to fetch episode cards');
     });
+
+    // Store pending request
+    pendingEpisodeRequests.set(cacheKey, fetchPromise);
   }, [initialCard]);
 
   // Play audio on image click
   const handleImageClick = () => {
     if (!card.audio_url) return;
-    
+
     if (!audioRef.current) {
       audioRef.current = new Audio(card.audio_url);
       audioRef.current.addEventListener('ended', () => setIsPlaying(false));
@@ -774,11 +903,11 @@ const SearchResultCard = memo(function SearchResultCard({
     } else {
       audioRef.current.src = card.audio_url;
     }
-    
+
     // Always set volume before any play/pause operation
     const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
     audioRef.current.volume = normalizedVolume;
-    
+
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
@@ -814,7 +943,7 @@ const SearchResultCard = memo(function SearchResultCard({
           ...cardToSet,
           levels: cardToSet.levels || card.levels
         });
-        
+
         // Increment review count for the new card
         incrementReviewCountForCard(cardToSet);
       } catch {
@@ -823,12 +952,12 @@ const SearchResultCard = memo(function SearchResultCard({
           ...prevCard,
           levels: prevCard.levels || card.levels
         });
-        
+
         // Increment review count for the new card
         incrementReviewCountForCard(prevCard);
       }
       setCurrentCardIndex(currentCardIndex - 1);
-      
+
       // Auto-play audio for the new card
       if (audioRef.current && prevCard.audio_url) {
         audioRef.current.src = prevCard.audio_url;
@@ -872,7 +1001,7 @@ const SearchResultCard = memo(function SearchResultCard({
           cardToSet.levels = card.levels;
         }
         setCard(cardToSet);
-        
+
         // Increment review count for the new card
         incrementReviewCountForCard(cardToSet);
       } catch {
@@ -881,12 +1010,12 @@ const SearchResultCard = memo(function SearchResultCard({
           ...nextCard,
           levels: nextCard.levels || card.levels
         });
-        
+
         // Increment review count for the new card
         incrementReviewCountForCard(nextCard);
       }
       setCurrentCardIndex(currentCardIndex + 1);
-      
+
       // Auto-play audio for the new card
       if (audioRef.current && nextCard.audio_url) {
         audioRef.current.src = nextCard.audio_url;
@@ -916,7 +1045,7 @@ const SearchResultCard = memo(function SearchResultCard({
   // Replay audio from beginning
   const handleReplayAudio = () => {
     if (!card.audio_url || !audioRef.current) return;
-    
+
     audioRef.current.currentTime = 0;
     const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
     audioRef.current.volume = normalizedVolume;
@@ -940,9 +1069,9 @@ const SearchResultCard = memo(function SearchResultCard({
     if (currentCardIndex === originalCardIndex) {
       return; // Already at original
     }
-    
+
     const originalCard = episodeCards[originalCardIndex];
-    
+
     if (originalCard && card.film_id) {
       try {
         const fullCard = await getCardByPath(
@@ -956,7 +1085,7 @@ const SearchResultCard = memo(function SearchResultCard({
           cardToSet.levels = card.levels;
         }
         setCard(cardToSet);
-        
+
         // Increment review count for the original card
         incrementReviewCountForCard(cardToSet);
       } catch {
@@ -965,12 +1094,12 @@ const SearchResultCard = memo(function SearchResultCard({
           ...originalCard,
           levels: originalCard.levels || card.levels
         });
-        
+
         // Increment review count for the original card
         incrementReviewCountForCard(originalCard);
       }
       setCurrentCardIndex(originalCardIndex);
-      
+
       // Auto-play audio for the original card
       if (audioRef.current && originalCard.audio_url) {
         audioRef.current.src = originalCard.audio_url;
@@ -1001,21 +1130,21 @@ const SearchResultCard = memo(function SearchResultCard({
     // Find all card elements on the page
     const allCards = document.querySelectorAll('.pixel-result-card-new');
     const currentCard = ref.current;
-    
+
     if (!currentCard || allCards.length === 0) return;
-    
+
     // Find current card index in DOM
     let currentIdx = -1;
     allCards.forEach((el, idx) => {
       if (el === currentCard) currentIdx = idx;
     });
-    
+
     if (currentIdx > 0) {
       // Move to previous card
       const prevCard = allCards[currentIdx - 1] as HTMLElement;
       setIsHovered(false);
       prevCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      
+
       // Trigger hover on previous card after a brief delay
       setTimeout(() => {
         prevCard.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
@@ -1028,21 +1157,21 @@ const SearchResultCard = memo(function SearchResultCard({
     // Find all card elements on the page
     const allCards = document.querySelectorAll('.pixel-result-card-new');
     const currentCard = ref.current;
-    
+
     if (!currentCard || allCards.length === 0) return;
-    
+
     // Find current card index in DOM
     let currentIdx = -1;
     allCards.forEach((el, idx) => {
       if (el === currentCard) currentIdx = idx;
     });
-    
+
     if (currentIdx >= 0 && currentIdx < allCards.length - 1) {
       // Move to next card
       const nextCard = allCards[currentIdx + 1] as HTMLElement;
       setIsHovered(false);
       nextCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      
+
       // Trigger hover on next card after a brief delay
       setTimeout(() => {
         nextCard.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
@@ -1054,21 +1183,20 @@ const SearchResultCard = memo(function SearchResultCard({
 
   const detailPath =
     card.film_id &&
-    (card.episode_id ||
+      (card.episode_id ||
+        (typeof card.episode === "number"
+          ? `e${card.episode}`
+          : String(card.episode)))
+      ? `/card/${card.film_id}/${card.episode_id ||
       (typeof card.episode === "number"
         ? `e${card.episode}`
-        : String(card.episode)))
-      ? `/card/${card.film_id}/${
-          card.episode_id ||
-          (typeof card.episode === "number"
-            ? `e${card.episode}`
-            : String(card.episode))
-        }/${card.id}`
+        : String(card.episode))
+      }/${card.id}`
       : undefined;
 
   return (
-    <div 
-      ref={ref} 
+    <div
+      ref={ref}
       className="pixel-result-card-new"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -1104,235 +1232,235 @@ const SearchResultCard = memo(function SearchResultCard({
           {/* Left side: Image only */}
           <div className="card-left-section">
             <div className="card-image-container">
-            <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
-              {resolvedImageUrl && !imageError ? (
-                <img
-                  src={resolvedImageUrl}
-                  alt={card.id}
-                  decoding="async"
-                  className="card-image"
-                  onContextMenu={(e) => e.preventDefault()}
-                  draggable={false}
-                  onClick={handleImageClick}
-                  style={{ 
-                    cursor: card.audio_url ? 'pointer' : 'default',
-                  }}
-                  onError={() => setImageError(true)}
-                />
-              ) : (
-                <div className="card-image-placeholder">
-                  <span>{card.id}</span>
-                </div>
-              )}
-              {card.audio_url && (
-                <div className="card-image-play-overlay" onClick={handleImageClick} style={{ cursor: 'pointer', pointerEvents: 'all' }}>
-                  <img src={buttonPlayIcon} alt="Play" className="play-icon" />
-                </div>
-              )}
-              
-              {/* SRS State Dropdown - Top Left */}
-              {isSaved && srsState !== 'none' && (
-                <div className="card-srs-dropdown-container" ref={srsDropdownRef}>
-                  <button
-                    className={`card-srs-dropdown-btn srs-${srsState}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSrsDropdownOpen(!srsDropdownOpen);
+              <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
+                {resolvedImageUrl && !imageError ? (
+                  <img
+                    src={resolvedImageUrl}
+                    alt={card.id}
+                    decoding="async"
+                    className="card-image"
+                    onContextMenu={(e) => e.preventDefault()}
+                    draggable={false}
+                    onClick={handleImageClick}
+                    style={{
+                      cursor: card.audio_url ? 'pointer' : 'default',
+                    }}
+                    onError={() => setImageError(true)}
+                  />
+                ) : (
+                  <div className="card-image-placeholder">
+                    <span>{card.id}</span>
+                  </div>
+                )}
+                {card.audio_url && (
+                  <div className="card-image-play-overlay" onClick={handleImageClick} style={{ cursor: 'pointer', pointerEvents: 'all' }}>
+                    <img src={buttonPlayIcon} alt="Play" className="play-icon" />
+                  </div>
+                )}
+
+                {/* SRS State Dropdown - Top Left */}
+                {isSaved && srsState !== 'none' && (
+                  <div className="card-srs-dropdown-container" ref={srsDropdownRef}>
+                    <button
+                      className={`card-srs-dropdown-btn srs-${srsState}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSrsDropdownOpen(!srsDropdownOpen);
+                      }}
+                    >
+                      <span className="card-srs-dropdown-text">{SRS_STATE_LABELS[srsState]}</span>
+                      <img src={buttonPlayIcon} alt="Dropdown" className="card-srs-dropdown-icon" />
+                    </button>
+
+                    {srsDropdownOpen && (
+                      <div className="card-srs-dropdown-menu">
+                        {SELECTABLE_SRS_STATES.map((state) => (
+                          <button
+                            key={state}
+                            className={`card-srs-dropdown-item srs-${state} ${srsState === state ? 'active' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSRSStateChange(state);
+                            }}
+                          >
+                            {SRS_STATE_LABELS[state]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Review Count - Bottom Right */}
+                {user?.uid && (
+                  <div className="card-review-count">
+                    {reviewCount}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Center: Subtitles */}
+          <div className="card-center-section">
+            <div className="card-subtitles">
+              {(() => {
+                const primaryCode = primaryLang
+                  ? canonicalizeLangCode(primaryLang) || primaryLang
+                  : undefined;
+                // Primary should be shown even when no subtitle text is present (audio language)
+                const codeToName = (code: string): string => {
+                  const c = (canonicalizeLangCode(code) || code).toLowerCase();
+                  const map: Record<string, string> = {
+                    en: "english",
+                    vi: "vietnamese",
+                    // CJK: split theo biến thể Noto Sans
+                    zh: "chinese",          // Simplified Chinese → Noto Sans SC
+                    zh_trad: "chinese-tc",  // Traditional Chinese → Noto Sans TC
+                    yue: "cantonese",       // Cantonese → Noto Sans TC
+                    ja: "japanese",
+                    ko: "korean",
+                    es: "spanish",
+                    ar: "arabic",
+                    th: "thai",
+                    fr: "french",
+                    de: "german",
+                    el: "greek",
+                    hi: "hindi",
+                    id: "indonesian",
+                    it: "italian",
+                    ms: "malay",
+                    nl: "dutch",
+                    pl: "polish",
+                    pt: "portuguese",
+                    ru: "russian",
+                  };
+                  return map[c] || c;
+                };
+                const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
+                const items = shownLangs;
+                return items.map((code) => {
+                  let raw = subtitleText(effectiveCard, code) ?? "";
+                  const q = (highlightQuery ?? "").trim();
+                  const isPrimary = primaryCode === code;
+                  // If primary has no subtitle text, fallback to sentence so we can still show content
+                  if (isPrimary && !raw) {
+                    raw = effectiveCard.sentence ?? "";
+                  }
+                  const canon = (canonicalizeLangCode(code) || code).toLowerCase();
+                  const needsRuby = canon === "ja" || canon === "zh" || canon === "zh_trad" || canon === "yue";
+                  let html: string;
+                  if (needsRuby) {
+                    const normalized = normalizeCjkSpacing(raw);
+                    // Debug logging for Japanese / Chinese subtitle raw + normalized + parsed HTML
+                    // removed debug logging
+                    const rubyHtml = bracketToRubyHtml(normalized, canon);
+                    // removed debug logging
+                    html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q, canon) : rubyHtml;
+                  } else {
+                    html = q ? highlightHtml(raw, q) : escapeHtml(raw);
+                  }
+                  const name = codeToName(code);
+                  const roleClass = isPrimary ? `${name}-main` : `${name}-sub`;
+                  const rubyClass = needsRuby ? "hanzi-ruby" : "";
+                  const isExpanded = expandedSubtitles.has(code);
+                  const handleSubtitleMouseUp = () => {
+                    // Check if user is selecting text after mouse up
+                    // Use setTimeout to check after browser processes the selection
+                    setTimeout(() => {
+                      const selection = window.getSelection();
+                      if (selection && selection.toString().length > 0) {
+                        // User is selecting text, don't toggle expand
+                        return;
+                      }
+                      // No text selection, toggle expand
+                      setExpandedSubtitles(prev => {
+                        const next = new Set(prev);
+                        if (next.has(code)) {
+                          next.delete(code);
+                        } else {
+                          next.add(code);
+                        }
+                        return next;
+                      });
+                    }, 0);
+                  };
+                  return (
+                    <div
+                      key={code}
+                      className={`${roleClass} ${rubyClass} subtitle-row ${isExpanded ? 'expanded' : ''}`}
+                      style={{
+                        lineHeight: 1.2,
+                        position: "relative",
+                        // Main language uses --text color, secondary uses CSS class colors
+                        color: isPrimary ? "var(--text)" : undefined,
+                        cursor: "pointer",
+                      }}
+                      onMouseUp={handleSubtitleMouseUp}
+                      title={isExpanded ? "Click to collapse" : "Click to expand"}
+                    >
+                      <span
+                        className="subtitle-text"
+                        dangerouslySetInnerHTML={{ __html: html }}
+                      />
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          {/* Right: Save button and Menu */}
+          <div className="card-right-section">
+            <div className="card-action-buttons">
+              {/* Save button */}
+              <button
+                className={`card-save-btn ${isSaved ? 'saved' : ''}`}
+                onClick={handleToggleSave}
+                title={isSaved ? "Unsave card" : "Save card"}
+              >
+                <img src={saveHeartIcon} alt={isSaved ? "Unsave" : "Save"} className="card-save-icon" />
+              </button>
+            </div>
+            <div className="card-menu-container" ref={menuRef}>
+              <button
+                className="pixel-btn-menu"
+                onClick={() => setMenuOpen(!menuOpen)}
+                title="More options"
+              >
+                <img src={threeDotsIcon} alt="Menu" />
+              </button>
+
+              {menuOpen && (
+                <div className="card-menu-dropdown">
+                  <div
+                    className="card-menu-item"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      // Navigate to card detail view
+                      if (detailPath) {
+                        window.location.href = detailPath;
+                      }
                     }}
                   >
-                    <span className="card-srs-dropdown-text">{SRS_STATE_LABELS[srsState]}</span>
-                    <img src={buttonPlayIcon} alt="Dropdown" className="card-srs-dropdown-icon" />
-                  </button>
-                  
-                  {srsDropdownOpen && (
-                    <div className="card-srs-dropdown-menu">
-                      {SELECTABLE_SRS_STATES.map((state) => (
-                        <button
-                          key={state}
-                          className={`card-srs-dropdown-item srs-${state} ${srsState === state ? 'active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSRSStateChange(state);
-                          }}
-                        >
-                          {SRS_STATE_LABELS[state]}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* Review Count - Bottom Right */}
-              {user?.uid && (
-                <div className="card-review-count">
-                  {reviewCount}
+                    <img src={eyeIcon} alt="View" className="menu-item-icon" />
+                    View Card
+                  </div>
+                  <div
+                    className="card-menu-item"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      // TODO: Implement report issues functionality
+                      alert("Report Issues feature coming soon!");
+                    }}
+                  >
+                    <img src={warningIcon} alt="Report" className="menu-item-icon" />
+                    Report Issues
+                  </div>
                 </div>
               )}
             </div>
           </div>
-        </div>
-
-        {/* Center: Subtitles */}
-        <div className="card-center-section">
-          <div className="card-subtitles">
-          {(() => {
-            const primaryCode = primaryLang
-              ? canonicalizeLangCode(primaryLang) || primaryLang
-              : undefined;
-            // Primary should be shown even when no subtitle text is present (audio language)
-            const codeToName = (code: string): string => {
-              const c = (canonicalizeLangCode(code) || code).toLowerCase();
-              const map: Record<string, string> = {
-                en: "english",
-                vi: "vietnamese",
-                // CJK: split theo biến thể Noto Sans
-                zh: "chinese",          // Simplified Chinese → Noto Sans SC
-                zh_trad: "chinese-tc",  // Traditional Chinese → Noto Sans TC
-                yue: "cantonese",       // Cantonese → Noto Sans TC
-                ja: "japanese",
-                ko: "korean",
-                es: "spanish",
-                ar: "arabic",
-                th: "thai",
-                fr: "french",
-                de: "german",
-                el: "greek",
-                hi: "hindi",
-                id: "indonesian",
-                it: "italian",
-                ms: "malay",
-                nl: "dutch",
-                pl: "polish",
-                pt: "portuguese",
-                ru: "russian",
-              };
-              return map[c] || c;
-            };
-            const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
-            const items = shownLangs;
-            return items.map((code) => {
-              let raw = subtitleText(effectiveCard, code) ?? "";
-              const q = (highlightQuery ?? "").trim();
-              const isPrimary = primaryCode === code;
-              // If primary has no subtitle text, fallback to sentence so we can still show content
-              if (isPrimary && !raw) {
-                raw = effectiveCard.sentence ?? "";
-              }
-              const canon = (canonicalizeLangCode(code) || code).toLowerCase();
-              const needsRuby = canon === "ja" || canon === "zh" || canon === "zh_trad" || canon === "yue";
-              let html: string;
-              if (needsRuby) {
-                const normalized = normalizeCjkSpacing(raw);
-                // Debug logging for Japanese / Chinese subtitle raw + normalized + parsed HTML
-                // removed debug logging
-                const rubyHtml = bracketToRubyHtml(normalized, canon);
-                // removed debug logging
-                html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q, canon) : rubyHtml;
-              } else {
-                html = q ? highlightHtml(raw, q) : escapeHtml(raw);
-              }
-              const name = codeToName(code);
-              const roleClass = isPrimary ? `${name}-main` : `${name}-sub`;
-              const rubyClass = needsRuby ? "hanzi-ruby" : "";
-              const isExpanded = expandedSubtitles.has(code);
-              const handleSubtitleMouseUp = () => {
-                // Check if user is selecting text after mouse up
-                // Use setTimeout to check after browser processes the selection
-                setTimeout(() => {
-                  const selection = window.getSelection();
-                  if (selection && selection.toString().length > 0) {
-                    // User is selecting text, don't toggle expand
-                    return;
-                  }
-                  // No text selection, toggle expand
-                  setExpandedSubtitles(prev => {
-                    const next = new Set(prev);
-                    if (next.has(code)) {
-                      next.delete(code);
-                    } else {
-                      next.add(code);
-                    }
-                    return next;
-                  });
-                }, 0);
-              };
-              return (
-                <div
-                  key={code}
-                  className={`${roleClass} ${rubyClass} subtitle-row ${isExpanded ? 'expanded' : ''}`}
-                  style={{
-                    lineHeight: 1.2,
-                    position: "relative",
-                    // Main language uses --text color, secondary uses CSS class colors
-                    color: isPrimary ? "var(--text)" : undefined,
-                    cursor: "pointer",
-                  }}
-                  onMouseUp={handleSubtitleMouseUp}
-                  title={isExpanded ? "Click to collapse" : "Click to expand"}
-                >
-                  <span
-                    className="subtitle-text"
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
-                </div>
-              );
-            });
-          })()}
-        </div>
-        </div>
-
-          {/* Right: Save button and Menu */}
-          <div className="card-right-section">
-          <div className="card-action-buttons">
-            {/* Save button */}
-            <button
-              className={`card-save-btn ${isSaved ? 'saved' : ''}`}
-              onClick={handleToggleSave}
-              title={isSaved ? "Unsave card" : "Save card"}
-            >
-              <img src={saveHeartIcon} alt={isSaved ? "Unsave" : "Save"} className="card-save-icon" />
-            </button>
-          </div>
-          <div className="card-menu-container" ref={menuRef}>
-            <button
-              className="pixel-btn-menu"
-              onClick={() => setMenuOpen(!menuOpen)}
-              title="More options"
-            >
-              <img src={threeDotsIcon} alt="Menu" />
-            </button>
-            
-            {menuOpen && (
-              <div className="card-menu-dropdown">
-                <div 
-                  className="card-menu-item"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    // Navigate to card detail view
-                    if (detailPath) {
-                      window.location.href = detailPath;
-                    }
-                  }}
-                >
-                  <img src={eyeIcon} alt="View" className="menu-item-icon" />
-                  View Card
-                </div>
-                <div 
-                  className="card-menu-item"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    // TODO: Implement report issues functionality
-                    alert("Report Issues feature coming soon!");
-                  }}
-                >
-                  <img src={warningIcon} alt="Report" className="menu-item-icon" />
-                  Report Issues
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
         </div>
       </div>
     </div>
@@ -1342,10 +1470,15 @@ const SearchResultCard = memo(function SearchResultCard({
   // Need to compare subtitle keys to detect when subtitle data changes
   const prevSubKeys = prevProps.card.subtitle ? Object.keys(prevProps.card.subtitle).sort().join(',') : '';
   const nextSubKeys = nextProps.card.subtitle ? Object.keys(nextProps.card.subtitle).sort().join(',') : '';
-  
+
+  // Compare subtitle languages to ensure re-render when user selects new languages
+  const prevLangs = (prevProps.subtitleLanguages || []).sort().join(',');
+  const nextLangs = (nextProps.subtitleLanguages || []).sort().join(',');
+
   return (
     prevProps.card.id === nextProps.card.id &&
     prevSubKeys === nextSubKeys &&
+    prevLangs === nextLangs &&
     prevProps.highlightQuery === nextProps.highlightQuery &&
     prevProps.primaryLang === nextProps.primaryLang &&
     prevProps.filmTitle === nextProps.filmTitle &&
