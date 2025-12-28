@@ -260,6 +260,15 @@
   transition: margin-left 0.3s ease;
 }
 
+/* When filter panel is closed, remove left margin for 1-column and 2-column layouts */
+.search-results.layout-1-column.filter-panel-closed {
+  margin-left: 0 !important;
+}
+
+.search-results.layout-2-column.filter-panel-closed {
+  margin-left: 0 !important;
+}
+
 /* Mobile: Force 1 column layout regardless of setting */
 @media (max-width: 768px) {
   .search-results.layout-default,

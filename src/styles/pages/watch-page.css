@@ -1580,6 +1580,10 @@
   flex-shrink: 0;
 }
 
+.watch-overlay-autoplay-btn.active {
+  color: var(--hover-select);
+}
+
 .watch-overlay-autoplay-icon-wrapper {
   width: 20px;
   height: 20px;
@@ -1599,6 +1603,10 @@
 
 .watch-overlay-autoplay-btn:hover {
   transform: translateY(-2px);
+}
+
+.watch-overlay-autoplay-btn.active .watch-overlay-autoplay-icon-wrapper {
+  background-color: var(--hover-select);
 }
 
 .watch-overlay-card-number {

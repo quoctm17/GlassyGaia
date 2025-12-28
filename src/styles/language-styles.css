@@ -1,24 +1,33 @@
 /* Language-specific typography and color styles for main text and subtitles */
 
-/* ======================= vn Vietnamese ======================= */
-.vietnamese-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-  color: #FA812F;
-  /* Orange */
-}
-
-/* Vietnamese main/type for consistency */
-.vietnamese-main {
+/* ======================= GLOBAL RULES ======================= */
+/* Base styles for all -main classes */
+[class$="-main"] {
   font-size: 19px;
   font-weight: 500;
   font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   margin: 0;
   text-align: left;
+  line-height: 1.15;
 }
+
+/* Base styles for all -sub classes */
+[class$="-sub"] {
+  font-size: 16px;
+  font-weight: 400;
+  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+  text-align: left;
+  line-height: 1.15;
+}
+
+/* ======================= vn Vietnamese ======================= */
+.vietnamese-sub {
+  color: #FA812F;
+  /* Orange */
+}
+
+/* Vietnamese main/type for consistency */
 
 .vietnamese-type {
   font-size: 17px;
@@ -28,8 +37,8 @@
 }
 
 /* ======================= EN ENGLISH ======================= */
-.english-type,
-.english-main {
+
+.english-type {
   font-size: 19px;
   font-weight: 500;
   font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -38,31 +47,14 @@
 }
 
 .english-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #636CCB;
 }
 
 /* ======================= 🇪🇸 SPANISH ======================= */
 .spanish-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #FAA533;
 }
 
-.spanish-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .spanish-type {
   font-size: 17px;
@@ -73,10 +65,7 @@
 
 /* ======================= AR ARABIC ======================= */
 .arabic-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans Arabic", "Amiri", "Scheherazade New", sans-serif;
-  margin: 0;
   text-align: right;
   /* revert to right-align for better readability in RTL */
   direction: rtl;
@@ -84,10 +73,7 @@
 }
 
 .arabic-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans Arabic", "Amiri", "Scheherazade New", sans-serif;
-  margin: 0;
   text-align: right;
   /* revert to right-align for better readability in RTL */
   color: #138D75;
@@ -108,12 +94,8 @@
 
 /* ======================= 🈶 CHINESE ======================= */
 .chinese-main {
-  font-size: 19px;
-  font-weight: 500;
   /* Default to Simplified; Traditional-specific variants are below */
   font-family: "Noto Sans SC", "Noto Sans CJK SC", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   letter-spacing: 0;
   /* Reset any inherited letter-spacing for CJK */
   word-spacing: 0;
@@ -130,11 +112,7 @@
 }
 
 .chinese-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans SC", "Noto Sans CJK SC", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #9929EA;
   /* Purple */
   letter-spacing: 0;
@@ -143,11 +121,7 @@
 
 /* 🇨🇳 Chinese Traditional (zh_trad) – use Noto Sans TC */
 .chinese-tc-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans TC", "Noto Sans CJK TC", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   letter-spacing: 0;
   word-spacing: 0;
 }
@@ -162,11 +136,7 @@
 }
 
 .chinese-tc-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans TC", "Noto Sans CJK TC", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #9929EA;
   /* Purple (keep same accent) */
   letter-spacing: 0;
@@ -272,7 +242,6 @@ ruby rb {
 
 /* ======================= 🇰🇷 KOREAN ======================= */
 .korean-main {
-  font-size: 19px;
   font-family: "Noto Sans KR",
     "Malgun Gothic",
     "Apple SD Gothic Neo",
@@ -281,10 +250,6 @@ ruby rb {
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  margin: 0;
-  line-height: 1.6;
-  font-weight: 500;
-  text-align: left;
 }
 
 .korean-type {
@@ -304,8 +269,6 @@ ruby rb {
 }
 
 .korean-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans KR",
     "Malgun Gothic",
     "Apple SD Gothic Neo",
@@ -314,20 +277,13 @@ ruby rb {
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  margin: 0;
-  line-height: 1.6;
   color: #8AA624;
   /* Green */
-  text-align: left;
 }
 
 /* ======================= 🇯🇵 JAPANESE TEXT ======================= */
 .japanese-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans JP", "Noto Sans CJK JP", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   letter-spacing: 0;
   /* Reset any inherited letter-spacing for CJK */
   word-spacing: 0;
@@ -344,13 +300,9 @@ ruby rb {
 }
 
 .japanese-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans JP", "Noto Sans CJK JP", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
   color: #E45A92;
   /* Pink */
-  text-align: left;
   letter-spacing: 0;
   word-spacing: 0;
 }
@@ -359,26 +311,16 @@ ruby rb {
 
 /* ======================= 🇹🇭 THAI ======================= */
 .thai-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Leelawadee UI",
     "Noto Sans Thai",
     "Tahoma",
     sans-serif;
-  margin: 0;
-  line-height: 1.7;
   color: #B46ACD;
   /* Soft Purple */
-  text-align: left;
 }
 
 .thai-main {
-  font-size: 19px;
   font-family: "Leelawadee UI", "Noto Sans Thai", "Tahoma", sans-serif;
-  margin: 0;
-  line-height: 1.6;
-  font-weight: 500;
-  text-align: left;
 }
 
 .thai-type {
@@ -392,22 +334,10 @@ ruby rb {
 
 /* ======================= FR FRENCH ======================= */
 .french-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #2E86AB;
   /* Blue */
 }
 
-.french-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .french-type {
   font-size: 17px;
@@ -418,21 +348,8 @@ ruby rb {
 
 /* ======================= NL DUTCH ======================= */
 .dutch-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #E67E22;
   /* Orange */
-}
-
-.dutch-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
 }
 
 .dutch-type {
@@ -444,22 +361,10 @@ ruby rb {
 
 /* ======================= DE GERMAN ======================= */
 .german-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #C0392B;
   /* Red */
 }
 
-.german-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .german-type {
   font-size: 17px;
@@ -470,22 +375,10 @@ ruby rb {
 
 /* ======================= EL GREEK ======================= */
 .greek-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #2980B9;
   /* Deep Blue */
 }
 
-.greek-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .greek-type {
   font-size: 17px;
@@ -496,21 +389,13 @@ ruby rb {
 
 /* ======================= HI HINDI ======================= */
 .hindi-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans Devanagari", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #8E44AD;
   /* Purple */
 }
 
 .hindi-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans Devanagari", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
 }
 
 .hindi-type {
@@ -522,22 +407,10 @@ ruby rb {
 
 /* ======================= ID INDONESIAN ======================= */
 .indonesian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #16A085;
   /* Teal */
 }
 
-.indonesian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .indonesian-type {
   font-size: 17px;
@@ -548,22 +421,10 @@ ruby rb {
 
 /* ======================= IT ITALIAN ======================= */
 .italian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #27AE60;
   /* Green */
 }
 
-.italian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .italian-type {
   font-size: 17px;
@@ -574,22 +435,10 @@ ruby rb {
 
 /* ======================= MS MALAY ======================= */
 .malay-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #D35400;
   /* Warm Orange */
 }
 
-.malay-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .malay-type {
   font-size: 17px;
@@ -600,22 +449,10 @@ ruby rb {
 
 /* ======================= PL POLISH ======================= */
 .polish-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #B03A2E;
   /* Strong Red */
 }
 
-.polish-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .polish-type {
   font-size: 17px;
@@ -626,22 +463,10 @@ ruby rb {
 
 /* ======================= PT PORTUGUESE ======================= */
 .portuguese-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #117A65;
   /* Emerald */
 }
 
-.portuguese-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .portuguese-type {
   font-size: 17px;
@@ -652,22 +477,10 @@ ruby rb {
 
 /* ======================= RU RUSSIAN ======================= */
 .russian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #7D3C98;
   /* Violet */
 }
 
-.russian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .russian-type {
   font-size: 17px;
@@ -678,19 +491,13 @@ ruby rb {
 
 /* ======================= HE HEBREW (RTL) ======================= */
 .hebrew-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans Hebrew", "Rubik", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
   text-align: right;
   direction: rtl;
 }
 
 .hebrew-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans Hebrew", "Rubik", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
   text-align: right;
   color: #1F618D;
   /* Deep Blue */
@@ -708,11 +515,7 @@ ruby rb {
 /* ======================= YUE CANTONESE ======================= */
 .cantonese-main {
   /* reuse Traditional Chinese aesthetics */
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans TC", "Noto Sans CJK TC", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   letter-spacing: 0;
   word-spacing: 0;
 }
@@ -727,11 +530,7 @@ ruby rb {
 }
 
 .cantonese-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans TC", "Noto Sans CJK TC", "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #7E57C2;
   /* Purple */
   letter-spacing: 0;
@@ -739,13 +538,6 @@ ruby rb {
 }
 
 /* ======================= FIL FILIPINO ======================= */
-.filipino-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .filipino-type {
   font-size: 17px;
@@ -755,22 +547,10 @@ ruby rb {
 }
 
 .filipino-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #2E86C1;
 }
 
 /* ======================= FI FINNISH ======================= */
-.finnish-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .finnish-type {
   font-size: 17px;
@@ -780,22 +560,10 @@ ruby rb {
 }
 
 .finnish-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #1ABC9C;
 }
 
 /* ======================= HU HUNGARIAN ======================= */
-.hungarian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .hungarian-type {
   font-size: 17px;
@@ -805,22 +573,10 @@ ruby rb {
 }
 
 .hungarian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #AF7AC5;
 }
 
 /* ======================= IS ICELANDIC ======================= */
-.icelandic-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .icelandic-type {
   font-size: 17px;
@@ -830,21 +586,12 @@ ruby rb {
 }
 
 .icelandic-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #5DADE2;
 }
 
 /* ======================= ML MALAYALAM ======================= */
 .malayalam-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans Malayalam", sans-serif;
-  margin: 0;
-  text-align: left;
 }
 
 .malayalam-type {
@@ -855,22 +602,11 @@ ruby rb {
 }
 
 .malayalam-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans Malayalam", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #16A085;
 }
 
 /* ======================= NO NORWEGIAN ======================= */
-.norwegian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .norwegian-type {
   font-size: 17px;
@@ -880,22 +616,10 @@ ruby rb {
 }
 
 .norwegian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #2874A6;
 }
 
 /* ======================= RO ROMANIAN ======================= */
-.romanian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .romanian-type {
   font-size: 17px;
@@ -905,22 +629,10 @@ ruby rb {
 }
 
 .romanian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #D68910;
 }
 
 /* ======================= SV SWEDISH ======================= */
-.swedish-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .swedish-type {
   font-size: 17px;
@@ -930,22 +642,10 @@ ruby rb {
 }
 
 .swedish-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #2980B9;
 }
 
 /* ======================= TR TURKISH ======================= */
-.turkish-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .turkish-type {
   font-size: 17px;
@@ -955,22 +655,10 @@ ruby rb {
 }
 
 .turkish-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #C0392B;
 }
 
 /* ======================= UK UKRAINIAN ======================= */
-.ukrainian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .ukrainian-type {
   font-size: 17px;
@@ -980,22 +668,10 @@ ruby rb {
 }
 
 .ukrainian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #1F618D;
 }
 
 /* ======================= EU BASQUE ======================= */
-.basque-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .basque-type {
   font-size: 17px;
@@ -1005,21 +681,12 @@ ruby rb {
 }
 
 .basque-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #196F3D;
 }
 
 /* ======================= BN BENGALI ======================= */
 .bengali-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans Bengali", sans-serif;
-  margin: 0;
-  text-align: left;
 }
 
 .bengali-type {
@@ -1030,22 +697,11 @@ ruby rb {
 }
 
 .bengali-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans Bengali", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #8E44AD;
 }
 
 /* ======================= CA CATALAN ======================= */
-.catalan-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .catalan-type {
   font-size: 17px;
@@ -1055,22 +711,10 @@ ruby rb {
 }
 
 .catalan-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #D35400;
 }
 
 /* ======================= HR CROATIAN ======================= */
-.croatian-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .croatian-type {
   font-size: 17px;
@@ -1080,22 +724,10 @@ ruby rb {
 }
 
 .croatian-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #7D6608;
 }
 
 /* ======================= CS CZECH ======================= */
-.czech-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .czech-type {
   font-size: 17px;
@@ -1105,22 +737,10 @@ ruby rb {
 }
 
 .czech-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #2C3E50;
 }
 
 /* ======================= DA DANISH ======================= */
-.danish-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .danish-type {
   font-size: 17px;
@@ -1130,22 +750,10 @@ ruby rb {
 }
 
 .danish-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #1ABC9C;
 }
 
 /* ======================= GL GALICIAN ======================= */
-.galician-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .galician-type {
   font-size: 17px;
@@ -1155,22 +763,10 @@ ruby rb {
 }
 
 .galician-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #5D6D7E;
 }
 
 /* ======================= PT-BR PORTUGUESE (BRAZIL) ======================= */
-.portuguese-br-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .portuguese-br-type {
   font-size: 17px;
@@ -1180,22 +776,10 @@ ruby rb {
 }
 
 .portuguese-br-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #117A65;
 }
 
 /* ======================= PT-PT PORTUGUESE (PORTUGAL) ======================= */
-.portuguese-pt-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .portuguese-pt-type {
   font-size: 17px;
@@ -1205,22 +789,10 @@ ruby rb {
 }
 
 .portuguese-pt-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #1E8449;
 }
 
 /* ======================= ES-LA SPANISH (LATAM) ======================= */
-.spanish-la-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .spanish-la-type {
   font-size: 17px;
@@ -1230,22 +802,10 @@ ruby rb {
 }
 
 .spanish-la-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #D68910;
 }
 
 /* ======================= ES-ES SPANISH (SPAIN) ======================= */
-.spanish-es-main {
-  font-size: 19px;
-  font-weight: 500;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
-}
 
 .spanish-es-type {
   font-size: 17px;
@@ -1255,21 +815,12 @@ ruby rb {
 }
 
 .spanish-es-sub {
-  font-size: 16px;
-  font-weight: 400;
-  font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #FAA533;
 }
 
 /* ======================= TA TAMIL ======================= */
 .tamil-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans Tamil", sans-serif;
-  margin: 0;
-  text-align: left;
 }
 
 .tamil-type {
@@ -1280,21 +831,13 @@ ruby rb {
 }
 
 .tamil-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans Tamil", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #884EA0;
 }
 
 /* ======================= TE TELUGU ======================= */
 .telugu-main {
-  font-size: 19px;
-  font-weight: 500;
   font-family: "Noto Sans Telugu", sans-serif;
-  margin: 0;
-  text-align: left;
 }
 
 .telugu-type {
@@ -1305,11 +848,7 @@ ruby rb {
 }
 
 .telugu-sub {
-  font-size: 16px;
-  font-weight: 400;
   font-family: "Noto Sans Telugu", sans-serif;
-  margin: 0;
-  text-align: left;
   color: #6C3483;
 }
 
