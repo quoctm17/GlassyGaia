@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { Flame } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 import '../styles/components/difficulty-filter.css';
@@ -26,8 +26,8 @@ const FRAMEWORKS: Record<string, { name: string; levels: string[] }> = {
   }
 };
 
-export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel, onLevelChange }: LevelFrameworkFilterProps) {
-  const framework = FRAMEWORKS[mainLanguage] || FRAMEWORKS.en;
+function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel, onLevelChange }: LevelFrameworkFilterProps) {
+  const framework = useMemo(() => FRAMEWORKS[mainLanguage] || FRAMEWORKS.en, [mainLanguage]);
   const levels = framework.levels;
   
   const [localMin, setLocalMin] = useState<string | null>(minLevel || levels[0]);
@@ -35,54 +35,70 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<'min' | 'max' | null>(null);
+  const prevMainLanguageRef = useRef<string>(mainLanguage);
 
-  // Reset to framework defaults when language changes
+  // Reset to framework defaults when language changes (only if language actually changed)
   useEffect(() => {
-    setLocalMin(levels[0]);
-    setLocalMax(levels[levels.length - 1]);
-    onLevelChange(levels[0], levels[levels.length - 1]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainLanguage]);
+    if (prevMainLanguageRef.current !== mainLanguage) {
+      prevMainLanguageRef.current = mainLanguage;
+      const newMin = levels[0];
+      const newMax = levels[levels.length - 1];
+      setLocalMin(newMin);
+      setLocalMax(newMax);
+      // Only call onLevelChange if values actually changed to avoid unnecessary API calls
+      // Check for null values properly
+      const currentMin = minLevel ?? levels[0];
+      const currentMax = maxLevel ?? levels[levels.length - 1];
+      if (currentMin !== newMin || currentMax !== newMax) {
+        onLevelChange(newMin, newMax);
+      }
+    }
+  }, [mainLanguage, levels, minLevel, maxLevel, onLevelChange]);
 
-  // Sync with parent when parent changes externally
+  // Sync with parent when parent changes externally (only if different from local state)
   useEffect(() => {
-    if (minLevel !== null) setLocalMin(minLevel);
-    if (maxLevel !== null) setLocalMax(maxLevel);
-  }, [minLevel, maxLevel]);
+    if (minLevel !== null && minLevel !== localMin) {
+      setLocalMin(minLevel);
+    }
+    if (maxLevel !== null && maxLevel !== localMax) {
+      setLocalMax(maxLevel);
+    }
+  }, [minLevel, maxLevel, localMin, localMax]);
 
-  // Debounced update to parent (500ms)
-  const debouncedUpdate = (min: string, max: string) => {
+  // Debounced update to parent (reduced from 500ms to 300ms for faster response)
+  const debouncedUpdate = useCallback((min: string, max: string) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
       onLevelChange(min, max);
-    }, 500);
-  };
+    }, 300);
+  }, [onLevelChange]);
 
-  const getIndex = (level: string | null): number => {
+  // Memoize getIndex to avoid recalculation
+  const getIndex = useCallback((level: string | null): number => {
     if (!level) return 0;
     const idx = levels.indexOf(level);
     return idx >= 0 ? idx : 0;
-  };
+  }, [levels]);
 
-  const handleMinChange = (value: string) => {
+  const handleMinChange = useCallback((value: string) => {
     const minIdx = getIndex(value);
     const maxIdx = getIndex(localMax);
     if (minIdx > maxIdx) return; // Min must be <= Max
     setLocalMin(value);
     debouncedUpdate(value, localMax || levels[levels.length - 1]);
-  };
+  }, [localMax, levels, getIndex, debouncedUpdate]);
 
-  const handleMaxChange = (value: string) => {
+  const handleMaxChange = useCallback((value: string) => {
     const minIdx = getIndex(localMin);
     const maxIdx = getIndex(value);
     if (maxIdx < minIdx) return; // Max must be >= Min
     setLocalMax(value);
     debouncedUpdate(localMin || levels[0], value);
-  };
+  }, [localMin, levels, getIndex, debouncedUpdate]);
 
-  const handleSliderMove = (clientX: number, handle: 'min' | 'max') => {
+  const handleSliderMove = useCallback((clientX: number, handle: 'min' | 'max') => {
     if (!trackRef.current) return;
     const rect = trackRef.current.getBoundingClientRect();
     const percent = ((clientX - rect.left) / rect.width) * 100;
@@ -94,9 +110,9 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
     } else {
       handleMaxChange(value);
     }
-  };
+  }, [levels, handleMinChange, handleMaxChange]);
 
-  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleTrackClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!trackRef.current || dragging) return;
     const rect = trackRef.current.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
@@ -113,16 +129,17 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
     } else {
       handleSliderMove(e.clientX, 'max');
     }
-  };
+  }, [dragging, levels, localMin, localMax, getIndex, handleSliderMove]);
 
-  const minIdx = getIndex(localMin);
-  const maxIdx = getIndex(localMax);
-  const minPercent = (minIdx / (levels.length - 1)) * 100;
-  const maxPercent = (maxIdx / (levels.length - 1)) * 100;
+  // Memoize computed values to avoid recalculation on every render
+  const minIdx = useMemo(() => getIndex(localMin), [localMin, getIndex]);
+  const maxIdx = useMemo(() => getIndex(localMax), [localMax, getIndex]);
+  const minPercent = useMemo(() => (minIdx / (levels.length - 1)) * 100, [minIdx, levels.length]);
+  const maxPercent = useMemo(() => (maxIdx / (levels.length - 1)) * 100, [maxIdx, levels.length]);
 
-  // Get available options for dropdowns
-  const minOptions = levels.slice(0, maxIdx + 1);
-  const maxOptions = levels.slice(minIdx);
+  // Memoize dropdown options to prevent unnecessary re-renders
+  const minOptions = useMemo(() => levels.slice(0, maxIdx + 1).map(lvl => ({ value: lvl, label: lvl })), [levels, maxIdx]);
+  const maxOptions = useMemo(() => levels.slice(minIdx).map(lvl => ({ value: lvl, label: lvl })), [levels, minIdx]);
 
   return (
     <div className="difficulty-block">
@@ -133,7 +150,7 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
           <CustomSelect
             value={localMin || levels[0]}
             onChange={handleMinChange}
-            options={minOptions.map(lvl => ({ value: lvl, label: lvl }))}
+            options={minOptions}
             className="level-dropdown-trigger"
           />
         </div>
@@ -142,7 +159,7 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
           <CustomSelect
             value={localMax || levels[levels.length - 1]}
             onChange={handleMaxChange}
-            options={maxOptions.map(lvl => ({ value: lvl, label: lvl }))}
+            options={maxOptions}
             className="level-dropdown-trigger"
           />
         </div>
@@ -223,3 +240,5 @@ export default function LevelFrameworkFilter({ mainLanguage, minLevel, maxLevel,
     </div>
   );
 }
+
+export default memo(LevelFrameworkFilter);

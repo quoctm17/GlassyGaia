@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Flame } from 'lucide-react';
 import '../styles/components/difficulty-filter.css';
 
@@ -8,42 +8,46 @@ interface DifficultyFilterProps {
   onDifficultyChange: (min: number, max: number) => void;
 }
 
-export default function DifficultyFilter({ minDifficulty, maxDifficulty, onDifficultyChange }: DifficultyFilterProps) {
+function DifficultyFilter({ minDifficulty, maxDifficulty, onDifficultyChange }: DifficultyFilterProps) {
   const [localMin, setLocalMin] = useState(minDifficulty);
   const [localMax, setLocalMax] = useState(maxDifficulty);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<'min' | 'max' | null>(null);
 
-  // Sync with parent when parent changes externally
+  // Sync with parent when parent changes externally (only if different from local state)
   useEffect(() => {
-    setLocalMin(minDifficulty);
-    setLocalMax(maxDifficulty);
-  }, [minDifficulty, maxDifficulty]);
+    if (minDifficulty !== localMin) {
+      setLocalMin(minDifficulty);
+    }
+    if (maxDifficulty !== localMax) {
+      setLocalMax(maxDifficulty);
+    }
+  }, [minDifficulty, maxDifficulty, localMin, localMax]);
 
-  // Debounced update to parent (500ms)
-  const debouncedUpdate = (min: number, max: number) => {
+  // Debounced update to parent (reduced from 500ms to 300ms for faster response)
+  const debouncedUpdate = useCallback((min: number, max: number) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
       onDifficultyChange(min, max);
-    }, 500);
-  };
+    }, 300);
+  }, [onDifficultyChange]);
 
-  const handleMinChange = (value: number) => {
+  const handleMinChange = useCallback((value: number) => {
     const newMin = Math.max(0, Math.min(value, localMax));
     setLocalMin(newMin);
     debouncedUpdate(newMin, localMax);
-  };
+  }, [localMax, debouncedUpdate]);
 
-  const handleMaxChange = (value: number) => {
+  const handleMaxChange = useCallback((value: number) => {
     const newMax = Math.min(100, Math.max(value, localMin));
     setLocalMax(newMax);
     debouncedUpdate(localMin, newMax);
-  };
+  }, [localMin, debouncedUpdate]);
 
-  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleTrackClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!trackRef.current || dragging) return;
     const rect = trackRef.current.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
@@ -58,7 +62,7 @@ export default function DifficultyFilter({ minDifficulty, maxDifficulty, onDiffi
     } else {
       handleMaxChange(value);
     }
-  };
+  }, [dragging, localMin, localMax, handleMinChange, handleMaxChange]);
 
   return (
     <div className="difficulty-block">
@@ -166,3 +170,5 @@ export default function DifficultyFilter({ minDifficulty, maxDifficulty, onDiffi
     </div>
   );
 }
+
+export default memo(DifficultyFilter);
