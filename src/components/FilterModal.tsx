@@ -1,4 +1,4 @@
-import { useEffect, useMemo, memo, useCallback } from 'react';
+import { useEffect, memo, useCallback } from 'react';
 import DifficultyFilter from './DifficultyFilter';
 import LevelFrameworkFilter from './LevelFrameworkFilter';
 import filterIcon from '../assets/icons/filter.svg';
