@@ -14,6 +14,7 @@ export type CanonicalLang =
   | "tr" | "uk" | "vi" | "lv"
   | "fa" | "ku" | "ckb" | "kmr" | "sdh" | "sl" | "sr" | "bg"
   | "ur" | "sq" | "lt"
+  | "kk" | "sk" | "uz" | "be" | "bs" | "mr" | "mn" | "et" | "hy"
   | "rec" | "triage"; // pseudo labels if needed
 
 const aliasToCanonical: Record<string, CanonicalLang> = {
@@ -86,6 +87,15 @@ const aliasToCanonical: Record<string, CanonicalLang> = {
   ur: "ur", urdu: "ur",
   sq: "sq", albanian: "sq",
   lt: "lt", lithuanian: "lt",
+  kk: "kk", kazakh: "kk",
+  sk: "sk", slovak: "sk",
+  uz: "uz", uzbek: "uz",
+  be: "be", belarusian: "be",
+  bs: "bs", bosnian: "bs",
+  mr: "mr", marathi: "mr",
+  mn: "mn", mongolian: "mn",
+  et: "et", estonian: "et",
+  hy: "hy", armenian: "hy",
 
   // Pseudo labels
   rec: "rec", triage: "triage",
@@ -164,6 +174,15 @@ const canonicalToAliases: Record<CanonicalLang, string[]> = {
   ur: ["ur", "urdu"],
   sq: ["sq", "albanian"],
   lt: ["lt", "lithuanian"],
+  kk: ["kk", "kazakh"],
+  sk: ["sk", "slovak"],
+  uz: ["uz", "uzbek"],
+  be: ["be", "belarusian"],
+  bs: ["bs", "bosnian"],
+  mr: ["mr", "marathi"],
+  mn: ["mn", "mongolian"],
+  et: ["et", "estonian"],
+  hy: ["hy", "armenian"],
   rec: ["rec"],
   triage: ["triage"],
 };
@@ -236,6 +255,15 @@ export function langLabel(code: string): string {
     ur: "Urdu",
     sq: "Albanian",
     lt: "Lithuanian",
+    kk: "Kazakh",
+    sk: "Slovak",
+    uz: "Uzbek",
+    be: "Belarusian",
+    bs: "Bosnian",
+    mr: "Marathi",
+    mn: "Mongolian",
+    et: "Estonian",
+    hy: "Armenian",
     rec: "Rec",
     triage: "Triage",
   } as const;
@@ -306,6 +334,15 @@ export function langFlag(code: string): string {
     ur: "🇵🇰",
     sq: "🇦🇱",
     lt: "🇱🇹",
+    kk: "🇰🇿",
+    sk: "🇸🇰",
+    uz: "🇺🇿",
+    be: "🇧🇾",
+    bs: "🇧🇦",
+    mr: "🇮🇳",
+    mn: "🇲🇳",
+    et: "🇪🇪",
+    hy: "🇦🇲",
     rec: "🌐",
     triage: "🌐",
   } as const;
@@ -380,6 +417,15 @@ export function countryCodeForLang(code: string): string {
     ur: "pk",
     sq: "al",
     lt: "lt",
+    kk: "kz",
+    sk: "sk",
+    uz: "uz",
+    be: "by",
+    bs: "ba",
+    mr: "in",
+    mn: "mn",
+    et: "ee",
+    hy: "am",
     rec: "xx",
     triage: "xx",
   } as const;
@@ -454,6 +500,15 @@ export function languageCssBase(code: string): string {
     ur: 'urdu',
     sq: 'albanian',
     lt: 'lithuanian',
+    kk: 'kazakh',
+    sk: 'slovak',
+    uz: 'uzbek',
+    be: 'belarusian',
+    bs: 'bosnian',
+    mr: 'marathi',
+    mn: 'mongolian',
+    et: 'estonian',
+    hy: 'armenian',
     rec: 'rec',
     triage: 'triage',
   };
@@ -546,6 +601,14 @@ function getFlagFileName(countryCode: string): string {
     pk: "pakistan",
     al: "albania",
     lt: "lithuania",
+    kz: "kazakhstan",
+    sk: "slovakia",
+    uz: "uzbekistan",
+    by: "belarus",
+    ba: "bosnia_herzegovina",
+    mn: "mongolia",
+    ee: "estonia",
+    am: "armenia",
   };
   return map[countryCode] || countryCode;
 }

@@ -112,7 +112,7 @@ export default function AdminEpisodeUpdatePage() {
   // Reserved column confirmation state (for ambiguous columns like 'id' which could be Indonesian)
   const [confirmedAsLanguage, setConfirmedAsLanguage] = useState<Set<string>>(new Set());
   const csvRef = useRef<HTMLInputElement | null>(null);
-  const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","lv","fa","ku","ckb","kmr","sdh","sl","sr","bg"] as const, []);
+  const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","lv","fa","ku","ckb","kmr","sdh","sl","sr","bg","ur","sq","lt","kk","sk","uz","be","bs","mr","mn","et","hy"] as const, []);
 
   const validateCsv = useCallback((headers: string[], rows: Record<string,string>[]) => {
     const errors: string[] = [];

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, memo, useCallback } from 'react';
 import DifficultyFilter from './DifficultyFilter';
 import LevelFrameworkFilter from './LevelFrameworkFilter';
 import filterIcon from '../assets/icons/filter.svg';
@@ -16,7 +16,11 @@ interface FilterModalProps {
   mainLanguage: string;
 }
 
-export default function FilterModal({
+// Memoized filter components to prevent unnecessary re-renders
+const MemoizedDifficultyFilter = memo(DifficultyFilter);
+const MemoizedLevelFrameworkFilter = memo(LevelFrameworkFilter);
+
+function FilterModal({
   isOpen,
   onClose,
   minDifficulty,
@@ -28,16 +32,24 @@ export default function FilterModal({
   mainLanguage
 }: FilterModalProps) {
   
-  // Handle ESC key to close modal
+  // Optimize ESC key handler: only add listener when modal is open
   useEffect(() => {
+    if (!isOpen) return;
+    
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape') {
         onClose();
       }
     };
     document.addEventListener('keydown', handleEsc);
     return () => document.removeEventListener('keydown', handleEsc);
   }, [isOpen, onClose]);
+
+  // Memoize clear handler to prevent re-renders
+  const handleClear = useCallback(() => {
+    onDifficultyChange(0, 100);
+    onLevelChange(null, null);
+  }, [onDifficultyChange, onLevelChange]);
 
   if (!isOpen) return null;
 
@@ -60,7 +72,7 @@ export default function FilterModal({
               <span className="filter-section-icon">⭐</span>
               <span className="filter-section-title">LEVEL</span>
             </div>
-            <LevelFrameworkFilter
+            <MemoizedLevelFrameworkFilter
               mainLanguage={mainLanguage}
               minLevel={minLevel}
               maxLevel={maxLevel}
@@ -75,7 +87,7 @@ export default function FilterModal({
               <span className="filter-section-icon">🧠</span>
               <span className="filter-section-title">DIFFICULTY SCORE</span>
             </div>
-            <DifficultyFilter
+            <MemoizedDifficultyFilter
               minDifficulty={minDifficulty}
               maxDifficulty={maxDifficulty}
               onDifficultyChange={onDifficultyChange}
@@ -84,10 +96,7 @@ export default function FilterModal({
         </div>
 
         <div className="modal-footer">
-          <button className="modal-btn modal-btn-clear" onClick={() => {
-            onDifficultyChange(0, 100);
-            onLevelChange(null, null);
-          }}>
+          <button className="modal-btn modal-btn-clear" onClick={handleClear}>
             CLEAR
           </button>
           <button className="modal-btn modal-btn-apply" onClick={onClose}>
@@ -98,3 +107,5 @@ export default function FilterModal({
     </div>
   );
 }
+
+export default memo(FilterModal);
