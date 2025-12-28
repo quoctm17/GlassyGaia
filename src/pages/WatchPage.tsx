@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Globe } from 'lucide-react';
 import type { FilmDoc, EpisodeDetailDoc, CardDoc, GetProgressResponse, LevelFrameworkStats } from '../types';
@@ -179,50 +179,68 @@ export default function WatchPage() {
   }, [contentId]);
 
   // Load card save states when cards change
+  // Skip loading when searching to avoid resource conflicts
   useEffect(() => {
     if (!user?.uid || cards.length === 0 || !contentId || !currentEpisode) {
       setCardSaveStates({});
       return;
     }
 
+    // Skip loading save states when searching to improve performance
+    // Will load after search is cleared
+    if (searchQuery.trim()) {
+      return;
+    }
+
     const loadCardSaveStates = async () => {
       const states: Record<string, { saved: boolean; srsState: SRSState }> = {};
       
-      // Load save states for all cards in parallel
-      await Promise.all(
-        cards.map(async (card) => {
-          try {
-            // Ensure we have film_id and episode_id - use currentEpisode and contentId if card doesn't have them
-            const filmId = card.film_id || contentId || '';
-            const episodeId = card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || '')) || (currentEpisode?.slug || '');
-            
-            if (!filmId || !episodeId) {
+      // Batch requests to avoid ERR_INSUFFICIENT_RESOURCES
+      // Process 15 cards at a time
+      const batchSize = 15;
+      for (let i = 0; i < cards.length; i += batchSize) {
+        const batch = cards.slice(i, i + batchSize);
+        
+        await Promise.all(
+          batch.map(async (card) => {
+            try {
+              // Ensure we have film_id and episode_id - use currentEpisode and contentId if card doesn't have them
+              const filmId = card.film_id || contentId || '';
+              const episodeId = card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || '')) || (currentEpisode?.slug || '');
+              
+              if (!filmId || !episodeId) {
+                states[card.id] = { saved: false, srsState: 'none' };
+                return;
+              }
+              
+              const status = await apiGetCardSaveStatus(
+                user.uid,
+                card.id,
+                filmId,
+                episodeId
+              );
+              states[card.id] = {
+                saved: status.saved,
+                srsState: status.srs_state as SRSState,
+              };
+            } catch (error) {
+              console.error(`Failed to load save status for card ${card.id}:`, error);
               states[card.id] = { saved: false, srsState: 'none' };
-              return;
             }
-            
-            const status = await apiGetCardSaveStatus(
-              user.uid,
-              card.id,
-              filmId,
-              episodeId
-            );
-            states[card.id] = {
-              saved: status.saved,
-              srsState: status.srs_state as SRSState,
-            };
-          } catch (error) {
-            console.error(`Failed to load save status for card ${card.id}:`, error);
-            states[card.id] = { saved: false, srsState: 'none' };
-          }
-        })
-      );
+          })
+        );
+        
+        // Small delay between batches to avoid overwhelming the browser
+        if (i + batchSize < cards.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       
       setCardSaveStates(states);
     };
 
     loadCardSaveStates();
-  }, [user?.uid, cards, contentId, currentEpisode]);
+  }, [user?.uid, cards, contentId, currentEpisode, searchQuery]);
 
   // Close SRS dropdown when clicking outside
   useEffect(() => {
@@ -751,51 +769,62 @@ export default function WatchPage() {
   };
 
   const handleNextCard = () => {
-    if (currentCardIndex < cards.length - 1) {
-      handleCardClick(currentCardIndex + 1);
-    } else if (currentCardIndex === cards.length - 1 && !loadingMoreCards && !noMoreCards) {
-      // At the last card, try to load more cards first
-      const tryLoadMore = async () => {
-        if (!contentId || !currentEpisode) return;
-        
-        try {
-          setLoadingMoreCards(true);
-          const lastCard = cards[cards.length - 1];
-          const startFrom = Math.floor(lastCard.end);
+    // Use filtered cards when searching
+    const cardsToUse = searchQuery.trim() ? filteredCards : cards;
+    const currentIndexInCardsToUse = searchQuery.trim() ? currentFilteredCardIndex : currentCardIndex;
+    
+    if (currentIndexInCardsToUse < cardsToUse.length - 1) {
+      // Move to next card in filtered/all cards
+      const nextCard = cardsToUse[currentIndexInCardsToUse + 1];
+      const nextOriginalIndex = cards.findIndex(c => c.id === nextCard.id);
+      if (nextOriginalIndex >= 0) {
+        handleCardClick(nextOriginalIndex);
+      }
+    } else if (currentIndexInCardsToUse === cardsToUse.length - 1 && !loadingMoreCards && !noMoreCards) {
+      // At the last filtered card, if not searching, try to load more cards
+      if (!searchQuery.trim() && currentCardIndex === cards.length - 1) {
+        const tryLoadMore = async () => {
+          if (!contentId || !currentEpisode) return;
           
-          const moreCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
-          
-          if (moreCards && moreCards.length > 0) {
-            const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
-            const seen = new Set(cards.map(key));
-            const merged = [...cards];
+          try {
+            setLoadingMoreCards(true);
+            const lastCard = cards[cards.length - 1];
+            const startFrom = Math.floor(lastCard.end);
             
-            for (const card of moreCards) {
-              const k = key(card);
-              if (!seen.has(k)) {
-                merged.push(card);
-                seen.add(k);
+            const moreCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
+            
+            if (moreCards && moreCards.length > 0) {
+              const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+              const seen = new Set(cards.map(key));
+              const merged = [...cards];
+              
+              for (const card of moreCards) {
+                const k = key(card);
+                if (!seen.has(k)) {
+                  merged.push(card);
+                  seen.add(k);
+                }
               }
+              
+              merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+              setCards(merged);
+              
+              // Move to next card after loading
+              setTimeout(() => {
+                handleCardClick(currentCardIndex + 1);
+              }, 100);
+            } else {
+              setNoMoreCards(true);
             }
-            
-            merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-            setCards(merged);
-            
-            // Move to next card after loading
-            setTimeout(() => {
-              handleCardClick(currentCardIndex + 1);
-            }, 100);
-          } else {
-            setNoMoreCards(true);
+          } catch (error) {
+            console.error('Failed to load more cards:', error);
+          } finally {
+            setLoadingMoreCards(false);
           }
-        } catch (error) {
-          console.error('Failed to load more cards:', error);
-        } finally {
-          setLoadingMoreCards(false);
-        }
-      };
-      
-      tryLoadMore();
+        };
+        
+        tryLoadMore();
+      }
     }
   };
 
@@ -810,26 +839,88 @@ export default function WatchPage() {
     return cover;
   };
 
-  // Get current card's media URLs
+  // Get subtitle text for a card
+  const getSubtitleText = (card: CardDoc, lang: string): string => {
+    return card.subtitle?.[lang] || '';
+  };
+
+  // Get main language subtitle (from film main_language)
+  const mainLanguage = film?.main_language || 'en';
+  
+  // Subtitle languages selected from user preferences (for secondary subtitles)
+  const subtitleLanguages = preferences?.subtitle_languages || [];
+
+  // Filter cards based on search query
+  const filteredCards = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return cards;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return cards.filter((card) => {
+      const mainText = getSubtitleText(card, mainLanguage);
+      const selectedSubtitleLangs = subtitleLanguages.filter(
+        (lang) => lang && lang !== mainLanguage
+      );
+      
+      const subtitleTextsForSearch = [
+        mainText,
+        ...selectedSubtitleLangs.map((lang) => getSubtitleText(card, lang) || ''),
+      ];
+      
+      return subtitleTextsForSearch.some((text) =>
+        text.toLowerCase().includes(query)
+      );
+    });
+  }, [cards, searchQuery, mainLanguage, subtitleLanguages]);
+
+  // Get current card from filtered cards (for display and auto-play)
+  // Always use original card from cards array to preserve full data (including levels)
+  const currentCard = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return cards[currentCardIndex] || null;
+    }
+    // Find current card in filtered cards, but return original card from cards array
+    const originalCard = cards[currentCardIndex];
+    if (!originalCard) return null;
+    const filteredIdx = filteredCards.findIndex(c => c.id === originalCard.id);
+    if (filteredIdx >= 0 && filteredIdx < filteredCards.length) {
+      // Return original card to preserve all data (levels, etc.)
+      return originalCard;
+    }
+    // If current card not in filtered list, find first filtered card's original
+    if (filteredCards.length > 0) {
+      const firstFilteredCard = filteredCards[0];
+      const firstOriginalIndex = cards.findIndex(c => c.id === firstFilteredCard.id);
+      return firstOriginalIndex >= 0 ? cards[firstOriginalIndex] : null;
+    }
+    return null;
+  }, [cards, currentCardIndex, filteredCards, searchQuery]);
+
+  // Get current filtered card index
+  const currentFilteredCardIndex = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return currentCardIndex;
+    }
+    const originalCard = cards[currentCardIndex];
+    if (!originalCard) return 0;
+    const filteredIdx = filteredCards.findIndex(c => c.id === originalCard.id);
+    return filteredIdx >= 0 ? filteredIdx : 0;
+  }, [cards, currentCardIndex, filteredCards, searchQuery]);
+
+  // Get current card's media URLs (using currentCard from filtered cards)
   const getCurrentCardImageUrl = () => {
-    const card = cards[currentCardIndex];
-    if (!card) return '';
-    let imageUrl = card.image_url || '';
+    if (!currentCard) return '';
+    let imageUrl = currentCard.image_url || '';
     if (imageUrl.startsWith('/') && R2Base) imageUrl = R2Base + imageUrl;
     return imageUrl;
   };
 
   const getCurrentCardAudioUrl = () => {
-    const card = cards[currentCardIndex];
-    if (!card) return '';
-    let audioUrl = card.audio_url || '';
+    if (!currentCard) return '';
+    let audioUrl = currentCard.audio_url || '';
     if (audioUrl.startsWith('/') && R2Base) audioUrl = R2Base + audioUrl;
     return audioUrl;
-  };
-
-  // Get subtitle text for a card
-  const getSubtitleText = (card: CardDoc, lang: string): string => {
-    return card.subtitle?.[lang] || '';
   };
 
   // Map language code to CSS class name (same as SearchResultCard)
@@ -894,6 +985,193 @@ export default function WatchPage() {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
 
+  const escapeRegExp = (s: string): string => {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  };
+
+  // Normalize Japanese text for comparison: Katakana → Hiragana, remove whitespace, remove furigana brackets
+  const normalizeJapanese = (text: string): string => {
+    try {
+      const withoutTags = text.replace(/<[^>]+>/g, '');
+      const nfkc = withoutTags.normalize('NFKC').replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '');
+      return nfkc.replace(/[\u30A1-\u30F6]/g, (ch) => 
+        String.fromCharCode(ch.charCodeAt(0) - 0x60)
+      );
+    } catch {
+      return text.replace(/<[^>]+>/g, '').replace(/\s+/g, '').replace(/\[[^\]]+\]/g, '').replace(/[\u30A1-\u30F6]/g, (ch) => 
+        String.fromCharCode(ch.charCodeAt(0) - 0x60)
+      );
+    }
+  };
+
+  // Check if text contains Japanese characters
+  const hasJapanese = (text: string): boolean => {
+    return /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(text);
+  };
+
+  // Helper to normalize a single character (Katakana → Hiragana, NFKC)
+  const normChar = (ch: string): string => {
+    try {
+      const nfkc = ch.normalize('NFKC');
+      return nfkc.replace(/[\u30A1-\u30F6]/g, (c) => 
+        String.fromCharCode(c.charCodeAt(0) - 0x60)
+      );
+    } catch {
+      return ch.replace(/[\u30A1-\u30F6]/g, (c) => 
+        String.fromCharCode(c.charCodeAt(0) - 0x60)
+      );
+    }
+  };
+
+  // Highlight query occurrences with a styled span; case-insensitive
+  const highlightHtml = (text: string, q: string): string => {
+    if (!q) return escapeHtml(text);
+    try {
+      if (hasJapanese(q) || hasJapanese(text)) {
+        const qNorm = normalizeJapanese(q.trim());
+        const posMap: number[] = [];
+        let normalized = '';
+        
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (/\s/.test(ch) || ch === '[' || ch === ']') continue;
+          if (i > 0 && text.lastIndexOf('[', i) > text.lastIndexOf(']', i)) continue;
+          
+          const norm = normChar(ch);
+          for (let j = 0; j < norm.length; j++) {
+            normalized += norm[j];
+            posMap.push(i);
+          }
+        }
+        
+        const matchIdx = normalized.indexOf(qNorm);
+        if (matchIdx === -1) return escapeHtml(text);
+        
+        const startPos = posMap[matchIdx];
+        const lastNormIdx = matchIdx + qNorm.length - 1;
+        const lastOrigPos = posMap[lastNormIdx];
+        
+        let endPosExclusive = lastOrigPos + 1;
+        for (let i = lastNormIdx + 1; i < posMap.length; i++) {
+          if (posMap[i] === lastOrigPos) continue;
+          else {
+            endPosExclusive = posMap[i];
+            break;
+          }
+        }
+        
+        const before = text.slice(0, startPos);
+        const match = text.slice(startPos, endPosExclusive);
+        const after = text.slice(endPosExclusive);
+        
+        return `${escapeHtml(before)}<span style="color: var(--hover-select)">${escapeHtml(match)}</span>${escapeHtml(after)}`;
+      }
+      
+      const re = new RegExp(escapeRegExp(q), "gi");
+      return escapeHtml(text).replace(
+        re,
+        (match) => `<span style="color: var(--hover-select)">${escapeHtml(match)}</span>`
+      );
+    } catch (err) {
+      console.warn('Highlight error:', err);
+      return escapeHtml(text);
+    }
+  };
+
+  // Highlight occurrences inside already-safe HTML (e.g., ruby markup) without escaping tags
+  const highlightInsideHtmlPreserveTags = (html: string, q: string, lang?: string): string => {
+    if (!q) return html;
+    try {
+      if (lang === 'ja' || hasJapanese(q)) {
+        const qNorm = normalizeJapanese(q.trim());
+        if (!qNorm) return html;
+
+        const rubyRe = /<ruby>\s*<rb>([\s\S]*?)<\/rb>\s*<rt>([\s\S]*?)<\/rt>\s*<\/ruby>/gi;
+        let hasRubyHighlights = false;
+        const processed = html.replace(rubyRe, (m, rbContent, rtContent) => {
+          const rbNorm = normalizeJapanese(rbContent);
+          const rtNorm = normalizeJapanese(rtContent);
+          if (!rbNorm && !rtNorm) return m;
+          if (rtNorm.includes(qNorm) || rbNorm.includes(qNorm)) {
+            hasRubyHighlights = true;
+            return `<ruby><rb><span style="color: var(--hover-select)">${rbContent}</span></rb><rt><span style="color: var(--hover-select)">${rtContent}</span></rt></ruby>`;
+          }
+          return m;
+        });
+
+        if (hasRubyHighlights) return processed;
+
+        // Fallback: visible text approach
+        const visibleChars: { char: string; htmlPos: number }[] = [];
+        let i = 0;
+        let inRtTag = false;
+
+        while (i < html.length) {
+          const char = html[i];
+          if (char === '<') {
+            const rtMatch = html.substring(i).match(/^<rt>/);
+            const rtCloseMatch = html.substring(i).match(/^<\/rt>/);
+            if (rtMatch) { inRtTag = true; i += rtMatch[0].length; continue; }
+            if (rtCloseMatch) { inRtTag = false; i += rtCloseMatch[0].length; continue; }
+            while (i < html.length && html[i] !== '>') i++;
+            if (i < html.length && html[i] === '>') i++;
+            continue;
+          }
+          if (inRtTag) { i++; continue; }
+          if (/\s/.test(char)) { i++; continue; }
+          visibleChars.push({ char, htmlPos: i });
+          i++;
+        }
+
+        const posMap: number[] = [];
+        let normalized = '';
+        for (let vi = 0; vi < visibleChars.length; vi++) {
+          const norm = normChar(visibleChars[vi].char);
+          for (let j = 0; j < norm.length; j++) { normalized += norm[j]; posMap.push(vi); }
+        }
+
+        const matchIdx = normalized.indexOf(qNorm);
+        if (matchIdx === -1) return html;
+        const lastNormIdx = matchIdx + qNorm.length - 1;
+        const startVisIdx = posMap[matchIdx];
+        const lastVisIdx = posMap[lastNormIdx];
+        let endVisIdxExclusive = lastVisIdx + 1;
+        for (let k = lastNormIdx + 1; k < posMap.length; k++) {
+          if (posMap[k] !== lastVisIdx) { endVisIdxExclusive = posMap[k]; break; }
+        }
+
+        let result = '';
+        let htmlIdx = 0;
+        let inRtTag2 = false;
+        const charPositions = new Set(visibleChars.slice(startVisIdx, endVisIdxExclusive).map(v => v.htmlPos));
+        while (htmlIdx < html.length) {
+          const c = html[htmlIdx];
+          if (c === '<') {
+            const rtMatch = html.substring(htmlIdx).match(/^<rt>/);
+            const rtCloseMatch = html.substring(htmlIdx).match(/^<\/rt>/);
+            if (rtMatch) { result += rtMatch[0]; inRtTag2 = true; htmlIdx += rtMatch[0].length; continue; }
+            if (rtCloseMatch) { result += rtCloseMatch[0]; inRtTag2 = false; htmlIdx += rtCloseMatch[0].length; continue; }
+            const tagStart = htmlIdx; htmlIdx++;
+            while (htmlIdx < html.length && html[htmlIdx] !== '>') htmlIdx++;
+            if (htmlIdx < html.length && html[htmlIdx] === '>') htmlIdx++;
+            result += html.substring(tagStart, htmlIdx);
+            continue;
+          }
+          const shouldHighlight = !inRtTag2 && charPositions.has(htmlIdx);
+          result += shouldHighlight ? `<span style="color: var(--hover-select)">${c}</span>` : c;
+          htmlIdx++;
+        }
+        return result;
+      }
+      
+      const re = new RegExp(escapeRegExp(q), "gi");
+      return html.replace(re, (match) => `<span style="color: var(--hover-select)">${match}</span>`);
+    } catch (err) {
+      console.warn('Highlight error:', err);
+      return html;
+    }
+  };
+
   // Convert [reading] annotations to <ruby> for Japanese / Chinese subtitles
   const bracketToRubyHtml = (text: string, lang?: string): string => {
     if (!text) return '';
@@ -935,7 +1213,7 @@ export default function WatchPage() {
     return out;
   };
 
-  const buildSubtitleHtml = (card: CardDoc, langCode: string): { html: string; isRuby: boolean } => {
+  const buildSubtitleHtml = (card: CardDoc, langCode: string, highlightQuery?: string): { html: string; isRuby: boolean } => {
     const raw = getSubtitleText(card, langCode);
     if (!raw) {
       return { html: '', isRuby: false };
@@ -943,11 +1221,13 @@ export default function WatchPage() {
     const canon = (canonicalizeLangCode(langCode) || langCode).toLowerCase();
     const needsRuby = canon === 'ja' || canon === 'zh' || canon === 'zh_trad' || canon === 'yue';
     if (!needsRuby) {
-      return { html: escapeHtml(raw), isRuby: false };
+      const html = highlightQuery ? highlightHtml(raw, highlightQuery) : escapeHtml(raw);
+      return { html, isRuby: false };
     }
     const normalized = normalizeCjkSpacing(raw);
     const rubyHtml = bracketToRubyHtml(normalized, canon);
-    return { html: rubyHtml, isRuby: true };
+    const html = highlightQuery ? highlightInsideHtmlPreserveTags(rubyHtml, highlightQuery, canon) : rubyHtml;
+    return { html, isRuby: true };
   };
 
   // Toggle auto-play
@@ -983,18 +1263,22 @@ export default function WatchPage() {
     }
   };
 
-  // Handle auto-play audio end - auto advance to next card
+  // Handle auto-play audio end - auto advance to next filtered card
   const handleAutoPlayAudioEnd = async () => {
     if (!isAutoPlaying) return;
     
-    // Mark current card as completed
-    if (user?.uid && contentId && currentEpisode && cards[currentCardIndex]) {
+    // Use filtered cards when searching
+    const cardsToUse = searchQuery.trim() ? filteredCards : cards;
+    const currentIndexInCardsToUse = searchQuery.trim() ? currentFilteredCardIndex : currentCardIndex;
+    
+    // Mark current card as completed (skip if searching to speed up auto-play)
+    if (!searchQuery.trim() && user?.uid && contentId && currentEpisode && currentCard) {
       try {
         await markCardComplete({
           user_id: user.uid,
           film_id: contentId,
           episode_slug: currentEpisode.slug,
-          card_id: cards[currentCardIndex].id,
+          card_id: currentCard.id,
           card_index: currentCardIndex,
           total_cards: currentEpisode.num_cards || cards.length,
         });
@@ -1013,63 +1297,79 @@ export default function WatchPage() {
       }
     }
     
-    // Move to next card
-    const totalCardsCount = typeof currentEpisode?.num_cards === 'number' && currentEpisode.num_cards > 0
-      ? currentEpisode.num_cards
-      : cards.length;
-    
-    // Check if we need to load more cards
-    if (currentCardIndex >= cards.length - 1 && !loadingMoreCards && !noMoreCards && currentCardIndex < totalCardsCount - 1) {
-      // Need to load more cards first
-      try {
-        setLoadingMoreCards(true);
-        const lastCard = cards[cards.length - 1];
-        const startFrom = Math.floor(lastCard.end);
+    // Move to next card in filtered/all cards
+    if (currentIndexInCardsToUse < cardsToUse.length - 1) {
+      // Move to next filtered card
+      const nextCard = cardsToUse[currentIndexInCardsToUse + 1];
+      const nextOriginalIndex = cards.findIndex(c => c.id === nextCard.id);
+      if (nextOriginalIndex >= 0) {
+        setCurrentCardIndex(nextOriginalIndex);
+      } else {
+        setIsAutoPlaying(false);
+      }
+    } else {
+      // No more filtered cards, or at end of all cards
+      if (!searchQuery.trim() && currentCardIndex < cards.length - 1) {
+        // Not searching and not at end - should not happen, but handle gracefully
+        const nextIndex = currentCardIndex + 1;
+        setCurrentCardIndex(nextIndex);
+      } else if (!searchQuery.trim() && currentCardIndex >= cards.length - 1 && !loadingMoreCards && !noMoreCards) {
+        // At the last card and not searching, try to load more
+        const totalCardsCount = typeof currentEpisode?.num_cards === 'number' && currentEpisode.num_cards > 0
+          ? currentEpisode.num_cards
+          : cards.length;
         
-        const moreCards = await apiFetchCardsForFilm(contentId!, currentEpisode!.slug, 100, { startFrom });
-        
-        if (moreCards && moreCards.length > 0) {
-          const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
-          const seen = new Set(cards.map(key));
-          const merged = [...cards];
-          
-          for (const card of moreCards) {
-            const k = key(card);
-            if (!seen.has(k)) {
-              merged.push(card);
-              seen.add(k);
+        if (currentCardIndex < totalCardsCount - 1) {
+          try {
+            setLoadingMoreCards(true);
+            const lastCard = cards[cards.length - 1];
+            const startFrom = Math.floor(lastCard.end);
+            
+            const moreCards = await apiFetchCardsForFilm(contentId!, currentEpisode!.slug, 100, { startFrom });
+            
+            if (moreCards && moreCards.length > 0) {
+              const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+              const seen = new Set(cards.map(key));
+              const merged = [...cards];
+              
+              for (const card of moreCards) {
+                const k = key(card);
+                if (!seen.has(k)) {
+                  merged.push(card);
+                  seen.add(k);
+                }
+              }
+              
+              merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+              setCards(merged);
+              
+              // Move to next card after loading (useEffect will handle playing)
+              const nextIndex = currentCardIndex + 1;
+              setCurrentCardIndex(nextIndex);
+            } else {
+              setNoMoreCards(true);
+              setIsAutoPlaying(false);
             }
+          } catch (error) {
+            console.error('Failed to load more cards:', error);
+            setIsAutoPlaying(false);
+          } finally {
+            setLoadingMoreCards(false);
           }
-          
-          merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-          setCards(merged);
-          
-          // Move to next card after loading (useEffect will handle playing)
-          const nextIndex = currentCardIndex + 1;
-          setCurrentCardIndex(nextIndex);
         } else {
-          setNoMoreCards(true);
+          // No more cards, stop auto-play
           setIsAutoPlaying(false);
         }
-      } catch (error) {
-        console.error('Failed to load more cards:', error);
+      } else {
+        // No more filtered cards or at end, stop auto-play
         setIsAutoPlaying(false);
-      } finally {
-        setLoadingMoreCards(false);
       }
-    } else if (currentCardIndex < cards.length - 1) {
-      // Card already loaded, just move to next (useEffect will handle playing)
-      const nextIndex = currentCardIndex + 1;
-      setCurrentCardIndex(nextIndex);
-    } else {
-      // No more cards, stop auto-play
-      setIsAutoPlaying(false);
     }
   };
 
-  // Auto-play when card changes and auto-play is enabled
+  // Auto-play when card changes and auto-play is enabled (use currentCard from filtered cards)
   useEffect(() => {
-    if (isAutoPlaying && cards.length > 0 && cards[currentCardIndex] && audioRef.current) {
+    if (isAutoPlaying && currentCard && audioRef.current) {
       const audioUrl = getCurrentCardAudioUrl();
       if (audioUrl) {
         // Always update src when card changes
@@ -1092,7 +1392,7 @@ export default function WatchPage() {
         setIsAutoPlaying(false);
       }
     }
-  }, [currentCardIndex, isAutoPlaying, cards, preferences.volume]);
+  }, [currentCard, isAutoPlaying, preferences.volume]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1104,10 +1404,16 @@ export default function WatchPage() {
 
       switch (e.key.toLowerCase()) {
         case 'a':
-          // Previous card
+          // Previous card (use filtered cards when searching)
           e.preventDefault();
-          if (currentCardIndex > 0) {
-            handleCardClick(currentCardIndex - 1);
+          const cardsToUseForNav = searchQuery.trim() ? filteredCards : cards;
+          const cardIndexForNav = searchQuery.trim() ? currentFilteredCardIndex : currentCardIndex;
+          if (cardIndexForNav > 0) {
+            const prevCard = cardsToUseForNav[cardIndexForNav - 1];
+            const prevOriginalIndex = cards.findIndex(c => c.id === prevCard.id);
+            if (prevOriginalIndex >= 0) {
+              handleCardClick(prevOriginalIndex);
+            }
           }
           break;
         case 'd':
@@ -1147,12 +1453,6 @@ export default function WatchPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCardIndex, cards.length, progress]);
-
-  // Get main language subtitle (from film main_language)
-  const mainLanguage = film?.main_language || 'en';
-  
-  // Subtitle languages selected from user preferences (for secondary subtitles)
-  const subtitleLanguages = preferences?.subtitle_languages || [];
 
   // Close tags dropdown when clicking outside
   useEffect(() => {
@@ -1226,10 +1526,10 @@ export default function WatchPage() {
           {/* Left column - Media + Carousel */}
           <div className="watch-grid-col-2">
             {/* Level Badge Row */}
-            {cards.length > 0 && cards[currentCardIndex] && (
+            {currentCard && (
               <div className="watch-card-level-badge-row">
-                {cards[currentCardIndex].levels && cards[currentCardIndex].levels.length > 0 ? (
-                  cards[currentCardIndex].levels.map(
+                {currentCard.levels && currentCard.levels.length > 0 ? (
+                  currentCard.levels.map(
                     (lvl: { framework: string; level: string; language?: string }, idx: number) => (
                       <span
                         key={idx}
@@ -1246,13 +1546,12 @@ export default function WatchPage() {
             )}
             {/* Media Container */}
             <div className="watch-media-container">
-              {cards.length > 0 && cards[currentCardIndex] ? (
+              {currentCard ? (
                 <div className="watch-media-main">
                   {/* Card Image */}
                   <div className="watch-media-image-wrapper">
                     {/* SRS State Dropdown - Top Left */}
                     {(() => {
-                      const currentCard = cards[currentCardIndex];
                       const cardState = cardSaveStates[currentCard.id];
                       const isSaved = cardState?.saved || false;
                       const srsState = cardState?.srsState || 'none';
@@ -1292,12 +1591,12 @@ export default function WatchPage() {
                     {getCurrentCardImageUrl() ? (
                       <img
                         src={getCurrentCardImageUrl()}
-                        alt={`Card ${currentCardIndex + 1}`}
+                        alt={`Card ${searchQuery.trim() ? currentFilteredCardIndex + 1 : currentCardIndex + 1}`}
                         className="watch-media-image"
                       />
                     ) : (
                       <div className="watch-media-placeholder">
-                        <p className="watch-media-placeholder-title">Card {currentCardIndex + 1}</p>
+                        <p className="watch-media-placeholder-title">Card {searchQuery.trim() ? currentFilteredCardIndex + 1 : currentCardIndex + 1}</p>
                         <p className="watch-media-placeholder-subtitle">No image available</p>
                       </div>
                     )}
@@ -1306,7 +1605,7 @@ export default function WatchPage() {
                   {/* Auto-play row under image */}
                   <div className="watch-media-controls">
                     <button
-                      className="watch-overlay-autoplay-btn"
+                      className={`watch-overlay-autoplay-btn ${isAutoPlaying ? 'active' : ''}`}
                       onClick={handleAutoPlayToggle}
                       title={isAutoPlaying ? "Stop auto-play" : "Start auto-play"}
                     >
@@ -1316,7 +1615,7 @@ export default function WatchPage() {
                       <span>Auto-play</span>
                     </button>
                     <span className="watch-overlay-card-number">
-                      {currentCardIndex + 1}/{totalCards}
+                      {searchQuery.trim() ? currentFilteredCardIndex + 1 : currentCardIndex + 1}/{searchQuery.trim() ? filteredCards.length : totalCards}
                     </span>
 
                     {/* Hidden audio element for auto-play */}
@@ -1339,9 +1638,12 @@ export default function WatchPage() {
 
             {/* Card Carousel - Thumbnails */}
             <div className="watch-card-carousel" ref={carouselRef}>
-              {cards.map((card, index) => {
-                const isActive = index === currentCardIndex;
-                const isCompleted = progress?.completed_indices.has(index) || false;
+              {(searchQuery.trim() ? filteredCards : cards).map((card, index) => {
+                const originalIndex = cards.findIndex(c => c.id === card.id);
+                const isActive = searchQuery.trim() 
+                  ? index === currentFilteredCardIndex 
+                  : index === currentCardIndex;
+                const isCompleted = originalIndex >= 0 && progress?.completed_indices.has(originalIndex) || false;
                 const imageUrl = card.image_url ? 
                   (card.image_url.startsWith('/') && R2Base ? R2Base + card.image_url : card.image_url) : 
                   '';
@@ -1349,8 +1651,8 @@ export default function WatchPage() {
                 return (
                   <button
                     key={card.id}
-                    data-card-index={index}
-                    onClick={() => handleCardClick(index)}
+                    data-card-index={originalIndex >= 0 ? originalIndex : index}
+                    onClick={() => handleCardClick(originalIndex >= 0 ? originalIndex : index)}
                     className={`watch-card-thumbnail ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
                   >
                     <img
@@ -1412,39 +1714,25 @@ export default function WatchPage() {
 
               {/* Subtitle display area */}
               <div className="watch-subtitles-list">
-                {cards.length > 0 ? (
-                  cards.map((card, index) => {
+                {(searchQuery.trim() ? filteredCards : cards).length > 0 ? (
+                  (searchQuery.trim() ? filteredCards : cards).map((card, index) => {
+                    const originalIndex = cards.findIndex(c => c.id === card.id);
                     const mainText = getSubtitleText(card, mainLanguage);
-                    const isActive = index === currentCardIndex;
-                    const isCompleted = progress?.completed_indices.has(index) || false;
+                    const isActive = searchQuery.trim()
+                      ? index === currentFilteredCardIndex
+                      : index === currentCardIndex;
+                    const isCompleted = originalIndex >= 0 && progress?.completed_indices.has(originalIndex) || false;
 
                     // Languages user selected in SubtitleLanguageSelector (excluding main language)
                     const selectedSubtitleLangs = subtitleLanguages.filter(
                       (lang) => lang && lang !== mainLanguage
                     );
 
-                    // Collect texts for search: main + selected subtitles
-                    const subtitleTextsForSearch = [
-                      mainText,
-                      ...selectedSubtitleLangs.map((lang) => getSubtitleText(card, lang) || ''),
-                    ];
-                    
-                    // Search filter: match in any visible text
-                    if (searchQuery) {
-                      const query = searchQuery.toLowerCase();
-                      const hasMatch = subtitleTextsForSearch.some((text) =>
-                        text.toLowerCase().includes(query)
-                      );
-                      if (!hasMatch) {
-                        return null;
-                      }
-                    }
-
                     return (
                       <div
                         key={card.id}
-                        id={`card-${index}`}
-                        onClick={() => handleCardClick(index)}
+                        id={`card-${originalIndex >= 0 ? originalIndex : index}`}
+                        onClick={() => handleCardClick(originalIndex >= 0 ? originalIndex : index)}
                         className={`watch-subtitle-card ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
                         style={isActive ? { backgroundColor: 'var(--hover-bg)' } : undefined}
                         role="button"
@@ -1452,7 +1740,7 @@ export default function WatchPage() {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            handleCardClick(index);
+                            handleCardClick(originalIndex >= 0 ? originalIndex : index);
                           }
                         }}
                       >
@@ -1462,7 +1750,7 @@ export default function WatchPage() {
                             <div className="watch-subtitle-card-content">
                               {(() => {
                                 const primaryCode = canonicalizeLangCode(mainLanguage) || mainLanguage;
-                                const { html, isRuby } = buildSubtitleHtml(card, primaryCode);
+                                const { html, isRuby } = buildSubtitleHtml(card, primaryCode, searchQuery.trim() || undefined);
                                 const displayHtml = html || escapeHtml(mainText || '—');
                                 
                                 const name = codeToName(primaryCode);
@@ -1481,7 +1769,7 @@ export default function WatchPage() {
                           {selectedSubtitleLangs.map((lang) => {
                             const langText = getSubtitleText(card, lang);
                             if (!langText || langText === mainText) return null;
-                            const { html, isRuby } = buildSubtitleHtml(card, lang);
+                            const { html, isRuby } = buildSubtitleHtml(card, lang, searchQuery.trim() || undefined);
                             const displayHtml = html || escapeHtml(langText);
                             
                             const name = codeToName(lang);

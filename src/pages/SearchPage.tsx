@@ -44,7 +44,6 @@ function SearchPage() {
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
   const pageSize = 50;
   const isTextSearch = useMemo(() => query.trim().length >= 2, [query]);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isFetchingRef = useRef<boolean>(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -229,30 +228,11 @@ function SearchPage() {
     };
   }, [preferences.main_language, subtitleLangsKey, query, minDifficulty, maxDifficulty, minLevel, maxLevel, isFilterPanelOpen]);
 
-  // Debounce: chuyển searchInput -> query (giảm re-render & lag khi gõ)
-  useEffect(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    const trimmed = searchInput.trim();
-    // Nếu input rỗng thì reset query và load lại chế độ browse
-    if (!trimmed) {
-      setQuery("");
-      return;
-    }
-
-    // Reduced debounce from 400ms to 300ms for faster search
-    searchTimeoutRef.current = setTimeout(() => {
-      setQuery(trimmed);
-    }, 300);
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchInput]);
+  // Handle search trigger from SearchBar (click icon or Enter key)
+  const handleSearch = useCallback((searchValue: string) => {
+    const trimmed = searchValue.trim();
+    setQuery(trimmed);
+  }, []);
 
   // Debounce filter changes for better performance (except for first load)
   const filterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -461,6 +441,7 @@ function SearchPage() {
               <SearchBar
                 value={searchInput}
                 onChange={(v) => setSearchInput(v)}
+                onSearch={handleSearch}
                 placeholder=""
                 loading={loading || firstLoading}
               />

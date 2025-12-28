@@ -38,13 +38,15 @@ export default function SearchBar({
 
   const q = controlled ? (value as string) : internalQuery;
 
-  // Auto-trigger debounced search on input changes
+  // Auto-trigger debounced search on input changes (only if debounceMs > 0)
   useEffect(() => {
     const ms = Math.max(0, debounceMs || 0);
-    const handle = setTimeout(() => {
-      onSearch?.(q);
-    }, ms);
-    return () => clearTimeout(handle);
+    if (ms > 0) {
+      const handle = setTimeout(() => {
+        onSearch?.(q);
+      }, ms);
+      return () => clearTimeout(handle);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, debounceMs]);
 
@@ -75,7 +77,12 @@ export default function SearchBar({
   return (
     <div className="pixel-searchbar">
       <div className="pixel-input-wrapper">
-        <div className="absolute inset-y-0 left-[14px] w-5 flex items-center justify-center">
+        <button
+          type="button"
+          onClick={triggerSearch}
+          className="absolute inset-y-0 left-[14px] w-5 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
+          aria-label="Search"
+        >
           {loading ? (
             <Loader2
               className="w-5 h-5 animate-spin"
@@ -85,7 +92,7 @@ export default function SearchBar({
           ) : (
             <img src={searchIcon} alt="Search" className="search-icon" />
           )}
-        </div>
+        </button>
         <div className="search-bar-divider" />
         <input
           value={q}

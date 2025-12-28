@@ -1390,7 +1390,6 @@ const SearchResultCard = memo(function SearchResultCard({
                   key={code}
                   className={`${roleClass} ${rubyClass} subtitle-row ${isExpanded ? 'expanded' : ''}`}
                   style={{
-                    lineHeight: 1.2,
                     position: "relative",
                     // Main language uses --text color, secondary uses CSS class colors
                     color: isPrimary ? "var(--text)" : undefined,
