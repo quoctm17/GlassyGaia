@@ -239,6 +239,8 @@ export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {
         if (typeof raw === 'boolean') return raw;
         return undefined;
       })(),
+      imdb_score: (f as Partial<FilmDoc> & { imdb_score?: number | null }).imdb_score ?? null,
+      categories: (f as Partial<FilmDoc> & { categories?: Category[] }).categories || [],
     };
     return film;
   } catch {
@@ -1242,6 +1244,77 @@ export async function apiImport(payload: ImportPayload) {
   return await res.json().catch(() => ({}));
 }
 
+// Categories API
+export interface Category {
+  id: string;
+  name: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export async function apiListCategories(): Promise<Category[]> {
+  assertApiBase();
+  const res = await getJson<{ categories: Category[] }>('/categories');
+  return res.categories || [];
+}
+
+export async function apiCreateCategory(name: string): Promise<Category & { created: boolean }> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/categories`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Create category failed: ${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
+export async function apiUpdateCategory(id: string, name: string): Promise<Category> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/categories/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Update category failed: ${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
+export async function apiCheckCategoryUsage(id: string): Promise<{ category_id: string; usage_count: number }> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/categories/${encodeURIComponent(id)}/usage`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Check category usage failed: ${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
+export async function apiDeleteCategory(id: string): Promise<{ ok: boolean; deleted: string }> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/categories/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const errorData = await res.json().catch(() => ({ error: text }));
+    throw new Error(errorData.error || `Delete category failed: ${res.status} ${text}`);
+  }
+  return await res.json();
+}
+
+export async function apiGetContentCategories(filmSlug: string): Promise<Category[]> {
+  assertApiBase();
+  const res = await getJson<{ categories: Category[] }>(`/items/${encodeURIComponent(filmSlug)}/categories`);
+  return res.categories || [];
+}
+
 // Update film meta (title, description, cover)
 export async function apiUpdateFilmMeta(params: {
   filmSlug: string;
@@ -1254,6 +1327,8 @@ export async function apiUpdateFilmMeta(params: {
   is_original?: boolean | null;
   is_available?: boolean | number | null;
   video_has_images?: boolean | number | null;
+  imdb_score?: number | null;
+  category_ids?: string[] | null;
 }) {
   assertApiBase();
   const { filmSlug, ...body } = params;

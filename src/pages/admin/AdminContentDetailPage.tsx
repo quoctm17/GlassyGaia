@@ -241,7 +241,29 @@ export default function AdminContentDetailPage() {
                 <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Total Languages:</label>
                 <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>{totalLanguages}</span>
               </div>
+              <div className="flex items-center gap-2">
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>IMDB Score:</label>
+                <span className="typography-inter-2" style={{ fontSize: '14px', color: 'var(--text)' }}>
+                  {(item.imdb_score !== null && item.imdb_score !== undefined && typeof item.imdb_score === 'number') ? item.imdb_score.toFixed(1) : '-'}
+                </span>
+              </div>
             </div>
+            {item.categories && Array.isArray(item.categories) && item.categories.length > 0 && (
+              <div>
+                <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4 block mb-3" style={{ color: 'var(--sub-language-text)' }}>Categories:</label>
+                <div className="inline-flex flex-wrap gap-2">
+                  {item.categories.map(cat => (
+                    <span 
+                      key={cat.id} 
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border-2 typography-inter-4 hover:border-pink-400/60 transition-colors" 
+                      style={{ backgroundColor: 'var(--secondary)', borderColor: 'var(--primary)', color: 'var(--text)' }}
+                    >
+                      <span>{cat.name}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
               <label className="w-40 flex-shrink-0 whitespace-nowrap typography-inter-4 block mb-3" style={{ color: 'var(--sub-language-text)' }}>Available Subs:</label>
               {languages.length ? (

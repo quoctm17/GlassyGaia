@@ -546,6 +546,11 @@
   width: 100%;
 }
 
+/* Ensure subtitle classes (-sub) use 16px font-size, not 19px */
+.card-subtitles [class*="-sub"] {
+  font-size: 16px !important;
+}
+
 /* Allow selecting & copying subtitle text */
 .card-subtitles .subtitle-row,
 .card-subtitles .subtitle-row .subtitle-text {

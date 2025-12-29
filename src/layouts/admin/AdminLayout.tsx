@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import '../../styles/pages/admin/admin.css';
 import toast from 'react-hot-toast';
-import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music } from 'lucide-react';
+import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag } from 'lucide-react';
 
 export default function AdminLayout() {
   const { user, loading, signInGoogle, adminKey, setAdminKey, isAdmin, isSuperAdmin } = useUser();
@@ -71,6 +71,10 @@ export default function AdminLayout() {
           <NavLink to="/admin/audio-migration" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
             <Music className="w-4 h-4 mr-2" />
             <span>Audio Migration</span>
+          </NavLink>
+          <NavLink to="/admin/categories" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <Tag className="w-4 h-4 mr-2" />
+            <span>Categories</span>
           </NavLink>
           
           {isSuperAdmin() && (

@@ -42,6 +42,7 @@
   --light-progress-bar-border: #9E9E9E;
   --light-progress-bar-completed: #FDAAAA;
   --light-pk-button-text: #FFFFFF;
+  --light-season-button-text: #948979;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -84,6 +85,7 @@
   --dark-progress-bar-border: #948979;
   --dark-progress-bar-completed: #AA3F55;
   --dark-pk-button-text: #FFFFFF;
+  --dark-season-button-text: #FDAAAA;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -145,6 +147,7 @@
   --progress-bar-border: var(--light-progress-bar-border);
   --progress-bar-completed: var(--light-progress-bar-completed);
   --pk-button-text: var(--light-pk-button-text);
+  --season-button-text: var(--light-season-button-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -200,6 +203,7 @@
   --progress-bar-border: var(--dark-progress-bar-border);
   --progress-bar-completed: var(--dark-progress-bar-completed);
   --pk-button-text: var(--dark-pk-button-text);
+  --season-button-text: var(--dark-season-button-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);

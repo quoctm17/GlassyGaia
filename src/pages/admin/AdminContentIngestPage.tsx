@@ -9,7 +9,7 @@ import {
   uploadEpisodeCoverImage,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateEpisodeMeta, apiUpdateFilmMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, invalidateItemsCache } from "../../services/cfApi";
+import { apiUpdateEpisodeMeta, apiUpdateFilmMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, invalidateItemsCache, apiListCategories, apiCreateCategory, type Category } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
 import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Video, Loader2, RefreshCcw, ArrowLeft } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
@@ -63,6 +63,12 @@ export default function AdminContentIngestPage() {
   const [slugChecking, setSlugChecking] = useState(false);
   const [releaseYear, setReleaseYear] = useState<number | "">("");
   const [mainLanguage, setMainLanguage] = useState<string>("en");
+  const [imdbScore, setImdbScore] = useState<number | "">("");
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]); // Array of category IDs or names
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryQuery, setCategoryQuery] = useState("");
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+  const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Dropdown state
   const [langOpen, setLangOpen] = useState(false);
@@ -174,6 +180,10 @@ export default function AdminContentIngestPage() {
     if (lang.toLowerCase() === 'id') {
       const confirmedId = headers.find(h => (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(h.toLowerCase())) && h.trim().toLowerCase() === 'id');
       if (confirmedId) return confirmedId;
+    }
+    if (lang.toLowerCase() === 'no') {
+      const confirmedNo = headers.find(h => (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(h.toLowerCase())) && h.trim().toLowerCase() === 'no');
+      if (confirmedNo) return confirmedNo;
     }
     for (const v of variantAliases) {
       const found = headerNorms.find(h => h.norm === v);
@@ -350,6 +360,19 @@ export default function AdminContentIngestPage() {
     setMainLangHeaderOverride(matching || mainLangHeaderOptions[0]);
   }, [mainLangHeaderOptions, mainLanguage, mainLangHeaderOverride]);
 
+  // Load categories on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const cats = await apiListCategories();
+        setCategories(cats);
+      } catch (e) {
+        console.error('Failed to load categories:', e);
+      }
+    };
+    if (isAdmin) loadCategories();
+  }, [isAdmin]);
+
   // Effects
   useEffect(() => { if (csvHeaders.length && csvRows.length) validateCsv(csvHeaders, csvRows); }, [csvHeaders, csvRows, validateCsv]);
   useEffect(() => {
@@ -358,10 +381,11 @@ export default function AdminContentIngestPage() {
       if (langOpen && langDropdownRef.current && t && !langDropdownRef.current.contains(t)) setLangOpen(false);
       if (typeOpen && typeDropdownRef.current && t && !typeDropdownRef.current.contains(t)) setTypeOpen(false);
       if (yearOpen && yearDropdownRef.current && t && !yearDropdownRef.current.contains(t)) setYearOpen(false);
+      if (categoryDropdownOpen && categoryDropdownRef.current && t && !categoryDropdownRef.current.contains(t)) setCategoryDropdownOpen(false);
     }
     document.addEventListener("mousedown", outside);
     return () => document.removeEventListener("mousedown", outside);
-  }, [langOpen, typeOpen, yearOpen]);
+  }, [langOpen, typeOpen, yearOpen, categoryDropdownOpen]);
 
   // Reset file flags when toggles are turned off
   useEffect(() => { if (!addCover) setHasCoverFile(false); }, [addCover]);
@@ -545,21 +569,23 @@ export default function AdminContentIngestPage() {
       // 3. Import CSV to create episode 1 (must be before episode-level media upload)
       if (!csvText) { toast.error("Please select a CSV for cards"); setBusy(false); return; }
       setStage("import");
-      const filmMeta: ImportFilmMeta = {
-        title,
-        description,
-        cover_url: uploadedCoverUrl ?? coverUrl ?? "",
-        cover_landscape_url: uploadedCoverLandscapeUrl,
-        language: mainLanguage,
-        available_subs: [],
-        episodes: 1,
-        total_episodes: 1,
-        episode_title: episodeTitle || undefined,
-        episode_description: episodeDescription || undefined,
-        ...(contentType ? { type: contentType } : {}),
-        ...(releaseYear !== "" ? { release_year: releaseYear } : {}),
-        is_original: isOriginal,
-      };
+        const filmMeta: ImportFilmMeta = {
+          title,
+          description,
+          cover_url: uploadedCoverUrl ?? coverUrl ?? "",
+          cover_landscape_url: uploadedCoverLandscapeUrl,
+          language: mainLanguage,
+          available_subs: [],
+          episodes: 1,
+          total_episodes: 1,
+          episode_title: episodeTitle || undefined,
+          episode_description: episodeDescription || undefined,
+          ...(contentType ? { type: contentType } : {}),
+          ...(releaseYear !== "" ? { release_year: releaseYear } : {}),
+          is_original: isOriginal,
+          ...(imdbScore !== "" && imdbScore !== null ? { imdb_score: Number(imdbScore) } : {}),
+          ...(selectedCategories.length > 0 ? { category_ids: selectedCategories } : {}),
+        };
       // derive cardIds from filenames when infer enabled
       let cardIds: string[] | undefined = undefined;
       if (infer) {
@@ -621,11 +647,12 @@ export default function AdminContentIngestPage() {
       buildExtMap(audioFiles, false);
       
       try {
-        // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian)
+        // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian, 'no' → Norwegian)
         const confirmedMap: Record<string, string> = {};
         confirmedAsLanguage.forEach((hdr) => {
           const low = hdr.trim().toLowerCase();
           if (low === 'id' || low === 'in') confirmedMap['id'] = hdr;
+          if (low === 'no') confirmedMap['no'] = hdr;
         });
         await importFilmFromCsv({
           filmSlug: filmId,
@@ -1003,6 +1030,19 @@ export default function AdminContentIngestPage() {
               <label htmlFor="chk-original" className="text-xs cursor-pointer whitespace-nowrap" style={{ color: 'var(--text)' }}>This is the original version (source language).</label>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <label className="w-40 text-sm">IMDB Score</label>
+            <input 
+              type="number" 
+              step="0.1" 
+              min="0" 
+              max="10" 
+              className="admin-input w-full" 
+              value={imdbScore} 
+              onChange={e => setImdbScore(e.target.value === "" ? "" : Number(e.target.value))} 
+              placeholder="0.0 - 10.0 (optional)" 
+            />
+          </div>
         </div>
         {/* Video-specific: toggle for images - separate row to avoid overlap */}
         {contentType === 'video' && (
@@ -1025,6 +1065,121 @@ export default function AdminContentIngestPage() {
         <div className="flex items-start gap-2">
           <label className="w-40 text-sm pt-1">Description</label>
           <textarea className="admin-input" rows={3} value={description} onChange={e => setDescription(e.target.value)} />
+        </div>
+        
+        {/* Categories Section */}
+        <div className="flex items-start gap-2">
+          <label className="w-40 text-sm pt-1">Categories</label>
+          <div className="flex-1 space-y-2">
+            <div className="relative" ref={categoryDropdownRef}>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="admin-input flex-1"
+                  placeholder="Search or create category..."
+                  value={categoryQuery}
+                  onChange={(e) => {
+                    setCategoryQuery(e.target.value);
+                    setCategoryDropdownOpen(true);
+                  }}
+                  onFocus={() => setCategoryDropdownOpen(true)}
+                />
+                <button
+                  type="button"
+                  className="admin-btn secondary"
+                  onClick={async () => {
+                    const name = categoryQuery.trim();
+                    if (!name) return;
+                    try {
+                      const result = await apiCreateCategory(name);
+                      setCategories(prev => [...prev.filter(c => c.id !== result.id), { id: result.id, name: result.name }]);
+                      if (!selectedCategories.includes(result.id) && !selectedCategories.includes(result.name)) {
+                        setSelectedCategories(prev => [...prev, result.id]);
+                      }
+                      setCategoryQuery("");
+                      setCategoryDropdownOpen(false);
+                      toast.success(`Category "${name}" created`);
+                    } catch (e) {
+                      toast.error(`Failed to create category: ${(e as Error).message}`);
+                    }
+                  }}
+                  disabled={!categoryQuery.trim()}
+                >
+                  Create
+                </button>
+              </div>
+              {categoryDropdownOpen && (
+                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
+                  {categories
+                    .filter(cat => !categoryQuery || cat.name.toLowerCase().includes(categoryQuery.toLowerCase()))
+                    .map(cat => {
+                      const isSelected = selectedCategories.includes(cat.id) || selectedCategories.includes(cat.name);
+                      return (
+                        <div
+                          key={cat.id}
+                          className={`admin-dropdown-item ${isSelected ? 'bg-blue-500/20' : ''}`}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedCategories(prev => prev.filter(id => id !== cat.id && id !== cat.name));
+                            } else {
+                              setSelectedCategories(prev => [...prev, cat.id]);
+                            }
+                            setCategoryQuery("");
+                            setCategoryDropdownOpen(false);
+                          }}
+                        >
+                          <input type="checkbox" checked={isSelected} readOnly className="mr-2" />
+                          <span>{cat.name}</span>
+                        </div>
+                      );
+                    })}
+                  {categoryQuery && !categories.some(cat => cat.name.toLowerCase() === categoryQuery.toLowerCase()) && (
+                    <div className="admin-dropdown-item text-xs text-blue-400" onClick={async () => {
+                      try {
+                        const result = await apiCreateCategory(categoryQuery.trim());
+                        setCategories(prev => [...prev.filter(c => c.id !== result.id), { id: result.id, name: result.name }]);
+                        setSelectedCategories(prev => [...prev, result.id]);
+                        setCategoryQuery("");
+                        setCategoryDropdownOpen(false);
+                        toast.success(`Category "${result.name}" created and selected`);
+                      } catch (e) {
+                        toast.error(`Failed to create category: ${(e as Error).message}`);
+                      }
+                    }}>
+                      + Create "{categoryQuery}"
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {selectedCategories.length > 0 ? (
+                selectedCategories.map(catIdOrName => {
+                  const cat = categories.find(c => c.id === catIdOrName || c.name === catIdOrName);
+                  return (
+                    <span
+                      key={catIdOrName}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs"
+                      style={{ backgroundColor: 'var(--primary)', color: 'var(--background)' }}
+                    >
+                      {cat ? cat.name : catIdOrName}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategories(prev => prev.filter(id => id !== catIdOrName))}
+                        className="hover:opacity-70"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })
+              ) : (
+                <span className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
+                  No categories selected
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Existing Episodes panel removed for E1-only creation */}
@@ -1198,9 +1353,22 @@ export default function AdminContentIngestPage() {
           <div className="mt-3 p-3 rounded-lg border space-y-2" style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
             <div className="text-sm font-semibold" style={{ color: 'var(--warning)' }}>⚠️ Xác nhận cột có thể là ngôn ngữ hoặc cột hệ thống:</div>
             {ambiguousHeaders.map(col => {
-              const isId = col.toLowerCase() === 'id';
-              const isIn = col.toLowerCase() === 'in';
+              const colLower = col.toLowerCase();
+              const isId = colLower === 'id';
+              const isIn = colLower === 'in';
+              const isNo = colLower === 'no';
               const isConfirmed = confirmedAsLanguage.has(col);
+              const getLanguageName = () => {
+                if (isId || isIn) return 'Indonesian';
+                if (isNo) return 'Norwegian';
+                return '';
+              };
+              const getSystemColumnName = () => {
+                if (isId) return 'ID';
+                if (isIn) return 'hệ thống';
+                if (isNo) return 'number';
+                return 'hệ thống';
+              };
               return (
                 <div key={col} className="flex items-start gap-3 text-sm p-2 bg-black/20 rounded">
                   <input
@@ -1221,13 +1389,14 @@ export default function AdminContentIngestPage() {
                   <label htmlFor={`ambiguous-${col}`} className="cursor-pointer select-none flex-1">
                     <span className="font-semibold" style={{ color: 'var(--warning)' }}>"{col}"</span>
                     {isConfirmed ? (
-                      <span style={{ color: 'var(--success)' }}> ✓ Được dùng như ngôn ngữ Indonesian</span>
+                      <span style={{ color: 'var(--success)' }}> ✓ Được dùng như ngôn ngữ {getLanguageName()}</span>
                     ) : (
-                      <span style={{ color: 'var(--sub-language-text)' }}> → Sẽ bị bỏ qua (cột hệ thống)</span>
+                      <span style={{ color: 'var(--sub-language-text)' }}> → Sẽ bị bỏ qua (cột {getSystemColumnName()})</span>
                     )}
                     <div className="text-xs typography-inter-4 mt-0.5" style={{ color: 'var(--neutral)' }}>
                       {isId && "Tick để dùng như ngôn ngữ Indonesian (id), bỏ trống để ignore như cột ID."}
                       {isIn && "Tick để dùng như ngôn ngữ Indonesian (in), bỏ trống để ignore như cột hệ thống."}
+                      {isNo && "Tick để dùng như ngôn ngữ Norwegian (no), bỏ trống để ignore như cột number."}
                     </div>
                   </label>
                 </div>

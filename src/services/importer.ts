@@ -18,6 +18,8 @@ export type ImportFilmMeta = {
   episode_description?: string; // optional: description of current episode being ingested
   is_original?: boolean; // original version flag (true: source language, false: alternate/dub)
   type?: string; // content type: 'movie', 'series', 'book', 'audio', 'video'
+  imdb_score?: number; // IMDB score (0-10)
+  category_ids?: string[]; // Array of category IDs or names (will create if name doesn't exist)
 };
 
 export type ColumnMapping = {
@@ -424,7 +426,13 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
   });
 
   const payload: ImportPayload = {
-    film: { id: uuidv4(), slug: filmSlug, ...meta },
+    film: { 
+      id: uuidv4(), 
+      slug: filmSlug, 
+      ...meta,
+      imdb_score: filmMeta.imdb_score,
+      category_ids: filmMeta.category_ids || [],
+    },
     episodeNumber: episodeNum,
     cards,
     mode: opts.mode || 'append',

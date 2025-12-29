@@ -201,34 +201,34 @@ export default function WatchPage() {
       for (let i = 0; i < cards.length; i += batchSize) {
         const batch = cards.slice(i, i + batchSize);
         
-        await Promise.all(
+      await Promise.all(
           batch.map(async (card) => {
-            try {
-              // Ensure we have film_id and episode_id - use currentEpisode and contentId if card doesn't have them
-              const filmId = card.film_id || contentId || '';
-              const episodeId = card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || '')) || (currentEpisode?.slug || '');
-              
-              if (!filmId || !episodeId) {
-                states[card.id] = { saved: false, srsState: 'none' };
-                return;
-              }
-              
-              const status = await apiGetCardSaveStatus(
-                user.uid,
-                card.id,
-                filmId,
-                episodeId
-              );
-              states[card.id] = {
-                saved: status.saved,
-                srsState: status.srs_state as SRSState,
-              };
-            } catch (error) {
-              console.error(`Failed to load save status for card ${card.id}:`, error);
+          try {
+            // Ensure we have film_id and episode_id - use currentEpisode and contentId if card doesn't have them
+            const filmId = card.film_id || contentId || '';
+            const episodeId = card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || '')) || (currentEpisode?.slug || '');
+            
+            if (!filmId || !episodeId) {
               states[card.id] = { saved: false, srsState: 'none' };
+              return;
             }
-          })
-        );
+            
+            const status = await apiGetCardSaveStatus(
+              user.uid,
+              card.id,
+              filmId,
+              episodeId
+            );
+            states[card.id] = {
+              saved: status.saved,
+              srsState: status.srs_state as SRSState,
+            };
+          } catch (error) {
+            console.error(`Failed to load save status for card ${card.id}:`, error);
+            states[card.id] = { saved: false, srsState: 'none' };
+          }
+        })
+      );
         
         // Small delay between batches to avoid overwhelming the browser
         if (i + batchSize < cards.length) {
@@ -783,47 +783,47 @@ export default function WatchPage() {
     } else if (currentIndexInCardsToUse === cardsToUse.length - 1 && !loadingMoreCards && !noMoreCards) {
       // At the last filtered card, if not searching, try to load more cards
       if (!searchQuery.trim() && currentCardIndex === cards.length - 1) {
-        const tryLoadMore = async () => {
-          if (!contentId || !currentEpisode) return;
-          
-          try {
-            setLoadingMoreCards(true);
-            const lastCard = cards[cards.length - 1];
-            const startFrom = Math.floor(lastCard.end);
-            
-            const moreCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
-            
-            if (moreCards && moreCards.length > 0) {
-              const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
-              const seen = new Set(cards.map(key));
-              const merged = [...cards];
-              
-              for (const card of moreCards) {
-                const k = key(card);
-                if (!seen.has(k)) {
-                  merged.push(card);
-                  seen.add(k);
-                }
-              }
-              
-              merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-              setCards(merged);
-              
-              // Move to next card after loading
-              setTimeout(() => {
-                handleCardClick(currentCardIndex + 1);
-              }, 100);
-            } else {
-              setNoMoreCards(true);
-            }
-          } catch (error) {
-            console.error('Failed to load more cards:', error);
-          } finally {
-            setLoadingMoreCards(false);
-          }
-        };
+      const tryLoadMore = async () => {
+        if (!contentId || !currentEpisode) return;
         
-        tryLoadMore();
+        try {
+          setLoadingMoreCards(true);
+          const lastCard = cards[cards.length - 1];
+          const startFrom = Math.floor(lastCard.end);
+          
+          const moreCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
+          
+          if (moreCards && moreCards.length > 0) {
+            const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+            const seen = new Set(cards.map(key));
+            const merged = [...cards];
+            
+            for (const card of moreCards) {
+              const k = key(card);
+              if (!seen.has(k)) {
+                merged.push(card);
+                seen.add(k);
+              }
+            }
+            
+            merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+            setCards(merged);
+            
+            // Move to next card after loading
+            setTimeout(() => {
+              handleCardClick(currentCardIndex + 1);
+            }, 100);
+          } else {
+            setNoMoreCards(true);
+          }
+        } catch (error) {
+          console.error('Failed to load more cards:', error);
+        } finally {
+          setLoadingMoreCards(false);
+        }
+      };
+      
+      tryLoadMore();
       }
     }
   };
@@ -1315,50 +1315,50 @@ export default function WatchPage() {
         setCurrentCardIndex(nextIndex);
       } else if (!searchQuery.trim() && currentCardIndex >= cards.length - 1 && !loadingMoreCards && !noMoreCards) {
         // At the last card and not searching, try to load more
-        const totalCardsCount = typeof currentEpisode?.num_cards === 'number' && currentEpisode.num_cards > 0
-          ? currentEpisode.num_cards
-          : cards.length;
-        
+    const totalCardsCount = typeof currentEpisode?.num_cards === 'number' && currentEpisode.num_cards > 0
+      ? currentEpisode.num_cards
+      : cards.length;
+    
         if (currentCardIndex < totalCardsCount - 1) {
-          try {
-            setLoadingMoreCards(true);
-            const lastCard = cards[cards.length - 1];
-            const startFrom = Math.floor(lastCard.end);
-            
-            const moreCards = await apiFetchCardsForFilm(contentId!, currentEpisode!.slug, 100, { startFrom });
-            
-            if (moreCards && moreCards.length > 0) {
-              const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
-              const seen = new Set(cards.map(key));
-              const merged = [...cards];
-              
-              for (const card of moreCards) {
-                const k = key(card);
-                if (!seen.has(k)) {
-                  merged.push(card);
-                  seen.add(k);
-                }
-              }
-              
-              merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-              setCards(merged);
-              
-              // Move to next card after loading (useEffect will handle playing)
-              const nextIndex = currentCardIndex + 1;
-              setCurrentCardIndex(nextIndex);
-            } else {
-              setNoMoreCards(true);
-              setIsAutoPlaying(false);
+      try {
+        setLoadingMoreCards(true);
+        const lastCard = cards[cards.length - 1];
+        const startFrom = Math.floor(lastCard.end);
+        
+        const moreCards = await apiFetchCardsForFilm(contentId!, currentEpisode!.slug, 100, { startFrom });
+        
+        if (moreCards && moreCards.length > 0) {
+          const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
+          const seen = new Set(cards.map(key));
+          const merged = [...cards];
+          
+          for (const card of moreCards) {
+            const k = key(card);
+            if (!seen.has(k)) {
+              merged.push(card);
+              seen.add(k);
             }
-          } catch (error) {
-            console.error('Failed to load more cards:', error);
-            setIsAutoPlaying(false);
-          } finally {
-            setLoadingMoreCards(false);
           }
+          
+          merged.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+          setCards(merged);
+          
+          // Move to next card after loading (useEffect will handle playing)
+          const nextIndex = currentCardIndex + 1;
+          setCurrentCardIndex(nextIndex);
         } else {
-          // No more cards, stop auto-play
+          setNoMoreCards(true);
           setIsAutoPlaying(false);
+        }
+      } catch (error) {
+        console.error('Failed to load more cards:', error);
+        setIsAutoPlaying(false);
+      } finally {
+        setLoadingMoreCards(false);
+      }
+    } else {
+      // No more cards, stop auto-play
+      setIsAutoPlaying(false);
         }
       } else {
         // No more filtered cards or at end, stop auto-play
@@ -1492,9 +1492,9 @@ export default function WatchPage() {
         {/* Header Bar */}
         <div className="watch-header-bar">
           <div className="watch-header-left">
-            <div className="watch-header-title-wrapper">
-              <h1 
-                className="watch-header-title"
+            <div className="watch-header-top-row">
+              <button 
+                className="watch-header-back-btn"
                 onClick={() => navigate(-1)}
               >
                 <img 
@@ -1502,22 +1502,21 @@ export default function WatchPage() {
                   alt="" 
                   className="watch-header-title-icon"
                 />
-                {film?.title || 'Loading...'}
-              </h1>
+              </button>
+              {!loadingProgress && progress && (
+                <div className="watch-header-progress-bar-wrapper">
+                  <LearningProgressBar
+                    totalCards={totalCards}
+                    completedIndices={progress.completed_indices}
+                    currentIndex={currentCardIndex}
+                    onCardClick={handleCardClick}
+                    className="watch-header-progress-bar"
+                    filterIcon={filterIcon}
+                    customIcon={customIcon}
+                  />
+                </div>
+              )}
             </div>
-            {!loadingProgress && progress && (
-              <div className="watch-header-progress-bar-wrapper">
-                <LearningProgressBar
-                  totalCards={totalCards}
-                  completedIndices={progress.completed_indices}
-                  currentIndex={currentCardIndex}
-                  onCardClick={handleCardClick}
-                  className="watch-header-progress-bar"
-                  filterIcon={filterIcon}
-                  customIcon={customIcon}
-                />
-              </div>
-            )}
           </div>
         </div>
 
@@ -1826,13 +1825,23 @@ export default function WatchPage() {
           </div>
         </div>
 
+        {/* Title Section - positioned above tags section */}
+        <div className="watch-header-title-wrapper">
+          <h1 
+            className="watch-header-title"
+            onClick={() => navigate(-1)}
+          >
+            {film?.title || 'Loading...'}
+          </h1>
+        </div>
+
         {/* Tags Section */}
         <div className="watch-tags-section" ref={tagsDropdownRef}>
           <button 
             className="watch-tag-dropdown-btn"
             onClick={() => setTagsDropdownOpen(!tagsDropdownOpen)}
           >
-            <span>Episode</span>
+            <span>Season</span>
             <img 
               src={rightAngleIcon} 
               alt="Dropdown" 

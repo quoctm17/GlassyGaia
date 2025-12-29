@@ -231,12 +231,12 @@ function SearchPage() {
   // Handle search trigger from SearchBar (click icon or Enter key)
   const handleSearch = useCallback((searchValue: string) => {
     const trimmed = searchValue.trim();
-    setQuery(trimmed);
+      setQuery(trimmed);
   }, []);
 
   // Debounce filter changes for better performance (except for first load)
   const filterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
+
   // Khi query (đã debounce) hoặc filter / language đổi thì gọi API
   useEffect(() => {
     // Cancel previous filter timeout
@@ -247,16 +247,16 @@ function SearchPage() {
     // Debounce filter changes (100ms) for smoother UX - faster than search
     filterTimeoutRef.current = setTimeout(() => {
       setPage(1);
-      setHasMore(true);
+    setHasMore(true);
       // Reset shuffle on new search/filter
       setShouldShuffle(false);
       shuffleSeedRef.current = Date.now();
-      const trimmed = query.trim();
-      if (trimmed.length >= 2) {
-        fetchCards(trimmed, 1);
-      } else {
-        fetchCards("", 1);
-      }
+    const trimmed = query.trim();
+    if (trimmed.length >= 2) {
+      fetchCards(trimmed, 1);
+    } else {
+      fetchCards("", 1);
+    }
     }, 100); // Short debounce for filter changes - prioritize responsiveness
     
     return () => {
