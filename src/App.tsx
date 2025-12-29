@@ -32,6 +32,7 @@ const AdminContentListPage = lazy(() => import('./pages/admin/AdminContentListPa
 const AdminContentDetailPage = lazy(() => import('./pages/admin/AdminContentDetailPage'));
 const AdminContentCardDetailPage = lazy(() => import('./pages/admin/AdminContentCardDetailPage'));
 const AdminAddEpisodePage = lazy(() => import('./pages/admin/AdminAddEpisodePage'));
+const AdminCategoriesPage = lazy(() => import('./pages/admin/AdminCategoriesPage'));
 const AdminEpisodeDetailPage = lazy(() => import('./pages/admin/AdminEpisodeDetailPage'));
 const AdminEpisodeUpdatePage = lazy(() => import('./pages/admin/AdminEpisodeUpdatePage'));
 const AdminCardUpdatePage = lazy(() => import('./pages/admin/AdminCardUpdatePage'));
@@ -113,6 +114,8 @@ function App() {
                 <Route path="path-migration" element={<AdminPathMigrationPage />} />
                 {/* Admin Audio Migration */}
                 <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
+                {/* Admin Categories Management */}
+                <Route path="categories" element={<AdminCategoriesPage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />

@@ -36,6 +36,13 @@ export interface EpisodeDoc {
   index?: number; // 1-based index
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
 export interface FilmDoc {
   id: string; // film slug
   title?: string;
@@ -55,6 +62,8 @@ export interface FilmDoc {
   level_framework_stats?: string | LevelFrameworkStats[] | null;
   is_available?: boolean; // visibility flag (default: true)
   video_has_images?: boolean; // for video content: true = has individual card images, false = uses episode cover for all cards
+  imdb_score?: number | null; // IMDB rating (0-10)
+  categories?: Category[]; // Array of categories assigned to this content item
 }
 
 export interface UserPreferences {

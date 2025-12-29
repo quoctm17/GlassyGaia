@@ -2019,10 +2019,10 @@ export default {
         const filmSlug = decodeURIComponent(filmMatch[1]);
         try {
           // Case-insensitive slug matching for stability
-          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats,video_has_images FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
+          let film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats,video_has_images,imdb_score FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
           if (!film) {
             // Fallback: allow direct UUID id lookup in case caller still uses internal id
-            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats,video_has_images FROM content_items WHERE id=?').bind(filmSlug).first();
+            film = await env.DB.prepare('SELECT id,slug,title,main_language,type,release_year,description,cover_key,cover_landscape_key,total_episodes,is_original,is_available,num_cards,avg_difficulty_score,level_framework_stats,video_has_images,imdb_score FROM content_items WHERE id=?').bind(filmSlug).first();
           }
           if (!film) return new Response('Not found', { status: 404, headers: withCors() });
           // Languages and episodes are optional; if the table is missing, default gracefully
@@ -2093,7 +2093,20 @@ export default {
             } catch {}
           }
           
-          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: levelStats, is_available: film.is_available ?? 1, video_has_images: film.video_has_images === 1 || film.video_has_images === true });
+          // Get categories for this content item
+          let categories = [];
+          try {
+            const catRows = await env.DB.prepare(`
+              SELECT c.id, c.name 
+              FROM categories c
+              INNER JOIN content_item_categories cic ON c.id = cic.category_id
+              WHERE cic.content_item_id = ?
+              ORDER BY c.name ASC
+            `).bind(film.id).all();
+            categories = (catRows.results || []).map(c => ({ id: c.id, name: c.name }));
+          } catch {}
+          
+          return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: levelStats, is_available: film.is_available ?? 1, video_has_images: film.video_has_images === 1 || film.video_has_images === true, imdb_score: film.imdb_score ?? null, categories });
         } catch (e) {
           return new Response('Not found', { status: 404, headers: withCors() });
         }
@@ -2235,6 +2248,16 @@ export default {
             if (val !== null) { setClauses.push('is_available=?'); values.push(val); }
           }
 
+          // New: imdb_score (REAL, 0-10)
+          if (has('imdb_score')) {
+            let imdbScore = null;
+            if (body.imdb_score !== null && body.imdb_score !== '' && body.imdb_score !== undefined) {
+              const n = Number(body.imdb_score);
+              imdbScore = Number.isFinite(n) && n >= 0 && n <= 10 ? n : null;
+            }
+            setClauses.push('imdb_score=?'); values.push(imdbScore);
+          }
+
           if (!setClauses.length) {
             return json({ ok: true, note: 'No fields to update' });
           }
@@ -2246,6 +2269,66 @@ export default {
           const sql = `UPDATE content_items SET ${setClauses.join(', ')}, updated_at=strftime('%s','now') WHERE id=?`;
           values.push(existing.id);
           await env.DB.prepare(sql).bind(...values).run();
+
+          // Handle categories if provided
+          if (has('category_ids')) {
+            const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE LOWER(slug)=LOWER(?)').bind(filmSlug).first();
+            if (filmRow) {
+              // Remove all existing category associations
+              await env.DB.prepare('DELETE FROM content_item_categories WHERE content_item_id=?').bind(filmRow.id).run();
+              
+              // Add new category associations if provided
+              if (Array.isArray(body.category_ids) && body.category_ids.length) {
+                try {
+                  // First, ensure all categories exist (create if needed)
+                  const categoryStmts = [];
+                  for (const catNameOrId of body.category_ids) {
+                    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(catNameOrId);
+                    if (isUUID) {
+                      const existing = await env.DB.prepare('SELECT id FROM categories WHERE id=?').bind(catNameOrId).first();
+                      if (!existing) continue;
+                    } else {
+                      // It's a name, check if exists, create if not
+                      const existing = await env.DB.prepare('SELECT id FROM categories WHERE name=?').bind(catNameOrId).first();
+                      if (!existing) {
+                        const catUuid = crypto.randomUUID();
+                        await env.DB.prepare('INSERT INTO categories (id, name) VALUES (?, ?)').bind(catUuid, catNameOrId).run();
+                        categoryStmts.push(env.DB.prepare('INSERT INTO content_item_categories (content_item_id, category_id) VALUES (?, ?)').bind(filmRow.id, catUuid));
+                      } else {
+                        categoryStmts.push(env.DB.prepare('INSERT INTO content_item_categories (content_item_id, category_id) VALUES (?, ?)').bind(filmRow.id, existing.id));
+                      }
+                    }
+                  }
+                  // Now assign categories
+                  const assignStmts = [];
+                  for (const catNameOrId of body.category_ids) {
+                    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(catNameOrId);
+                    let catId;
+                    if (isUUID) {
+                      catId = catNameOrId;
+                    } else {
+                      const existing = await env.DB.prepare('SELECT id FROM categories WHERE name=?').bind(catNameOrId).first();
+                      if (existing) {
+                        catId = existing.id;
+                      } else {
+                        // Should have been created above, but handle edge case
+                        const catUuid = crypto.randomUUID();
+                        await env.DB.prepare('INSERT INTO categories (id, name) VALUES (?, ?)').bind(catUuid, catNameOrId).run();
+                        catId = catUuid;
+                      }
+                    }
+                    if (catId) {
+                      assignStmts.push(env.DB.prepare('INSERT OR IGNORE INTO content_item_categories (content_item_id, category_id) VALUES (?,?)').bind(filmRow.id, catId));
+                    }
+                  }
+                  if (assignStmts.length) await env.DB.batch(assignStmts);
+                } catch (e) {
+                  console.error('Failed to handle categories:', e);
+                }
+              }
+            }
+          }
+
           return json({ ok: true, updated_fields: setClauses.length });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -2323,6 +2406,8 @@ export default {
             try { await env.DB.prepare('DELETE FROM episodes WHERE content_item_id=?').bind(filmRow.id).run(); } catch {}
             // Delete language rows
             try { await env.DB.prepare('DELETE FROM content_item_languages WHERE content_item_id=?').bind(filmRow.id).run(); } catch {}
+            // Delete category associations
+            try { await env.DB.prepare('DELETE FROM content_item_categories WHERE content_item_id=?').bind(filmRow.id).run(); } catch {}
             // Finally delete the content item
             await env.DB.prepare('DELETE FROM content_items WHERE id=?').bind(filmRow.id).run();
             try { await env.DB.prepare('COMMIT').run(); } catch {}
@@ -2856,7 +2941,7 @@ export default {
                     console.error('[WORKER] Error fetching difficulty levels batch:', e);
                   })
               );
-            }
+              }
             
             // Execute all batches in parallel (but limit concurrency)
             try {
@@ -3763,6 +3848,113 @@ export default {
         }
       }
 
+      // 8.5) Categories API endpoints
+      // List all categories
+      if (path === '/categories' && request.method === 'GET') {
+        try {
+          const categories = await env.DB.prepare('SELECT id, name, created_at, updated_at FROM categories ORDER BY name ASC').all();
+          return json({ categories: categories.results || [] });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Create a new category
+      if (path === '/categories' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { name } = body;
+          if (!name || !String(name).trim()) {
+            return json({ error: 'Category name is required' }, { status: 400 });
+          }
+          const catName = String(name).trim();
+          // Check if category already exists
+          const existing = await env.DB.prepare('SELECT id, name FROM categories WHERE name=?').bind(catName).first();
+          if (existing) {
+            return json({ id: existing.id, name: existing.name, created: false });
+          }
+          // Create new category
+          const catUuid = crypto.randomUUID();
+          await env.DB.prepare('INSERT INTO categories (id, name) VALUES (?, ?)').bind(catUuid, catName).run();
+          return json({ id: catUuid, name: catName, created: true });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Update a category
+      if (path.startsWith('/categories/') && request.method === 'PATCH') {
+        try {
+          const categoryId = path.replace('/categories/', '').split('?')[0];
+          const body = await request.json();
+          const { name } = body;
+          if (!name || !String(name).trim()) {
+            return json({ error: 'Category name is required' }, { status: 400 });
+          }
+          const catName = String(name).trim();
+          // Check if another category with same name exists
+          const existing = await env.DB.prepare('SELECT id FROM categories WHERE name=? AND id!=?').bind(catName, categoryId).first();
+          if (existing) {
+            return json({ error: 'Category with this name already exists' }, { status: 400 });
+          }
+          await env.DB.prepare('UPDATE categories SET name=?, updated_at=strftime(\'%s\',\'now\') WHERE id=?').bind(catName, categoryId).run();
+          return json({ id: categoryId, name: catName });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Check category usage (how many content items use this category)
+      if (path.startsWith('/categories/') && path.endsWith('/usage') && request.method === 'GET') {
+        try {
+          const categoryId = path.replace('/categories/', '').replace('/usage', '').split('?')[0];
+          const usageResult = await env.DB.prepare('SELECT COUNT(*) as count FROM content_item_categories WHERE category_id=?').bind(categoryId).first();
+          const count = usageResult ? (usageResult.count || 0) : 0;
+          return json({ category_id: categoryId, usage_count: count });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Delete a category
+      if (path.startsWith('/categories/') && request.method === 'DELETE') {
+        try {
+          const categoryId = path.replace('/categories/', '').split('?')[0];
+          // Check if category is being used
+          const usageResult = await env.DB.prepare('SELECT COUNT(*) as count FROM content_item_categories WHERE category_id=?').bind(categoryId).first();
+          const usageCount = usageResult ? (usageResult.count || 0) : 0;
+          if (usageCount > 0) {
+            return json({ error: `Cannot delete category: it is currently assigned to ${usageCount} content item(s). Please remove the category from all content items first.` }, { status: 400 });
+          }
+          // Category is not in use, safe to delete
+          await env.DB.prepare('DELETE FROM categories WHERE id=?').bind(categoryId).run();
+          return json({ ok: true, deleted: categoryId });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // Get categories for a specific content item
+      if (path.startsWith('/items/') && path.endsWith('/categories') && request.method === 'GET') {
+        try {
+          const filmSlug = path.replace('/items/', '').replace('/categories', '');
+          const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(filmSlug).first();
+          if (!filmRow) {
+            return json({ error: 'Content item not found' }, { status: 404 });
+          }
+          const categories = await env.DB.prepare(`
+            SELECT c.id, c.name, c.created_at, c.updated_at 
+            FROM categories c
+            INNER JOIN content_item_categories cic ON c.id = cic.category_id
+            WHERE cic.content_item_id = ?
+            ORDER BY c.name ASC
+          `).bind(filmRow.id).all();
+          return json({ categories: categories.results || [] });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
       // 9) Import bulk (server generates UUIDs; client provides slug and numbers)
       if (path === '/import' && request.method === 'POST') {
         const body = await request.json();
@@ -3781,7 +3973,8 @@ export default {
             const coverKey = (film.cover_key || film.cover_url) ? String((film.cover_key || film.cover_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
             const coverLandscapeKey = (film.cover_landscape_key || film.cover_landscape_url) ? String((film.cover_landscape_key || film.cover_landscape_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
             const totalEpisodesIns = (film.total_episodes && Number(film.total_episodes) > 0) ? Math.floor(Number(film.total_episodes)) : 1;
-            await env.DB.prepare('INSERT INTO content_items (id,slug,title,main_language,type,description,cover_key,cover_landscape_key,release_year,total_episodes,is_original) VALUES (?,?,?,?,?,?,?,?,?,?,?)').bind(
+            const imdbScore = (film.imdb_score != null && film.imdb_score !== '') ? Number(film.imdb_score) : null;
+            await env.DB.prepare('INSERT INTO content_items (id,slug,title,main_language,type,description,cover_key,cover_landscape_key,release_year,total_episodes,is_original,imdb_score) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(
               uuid,
               filmSlug,
               film.title || filmSlug,
@@ -3792,7 +3985,8 @@ export default {
               coverLandscapeKey,
               film.release_year || null,
               totalEpisodesIns,
-              (film.is_original === false ? 0 : 1)
+              (film.is_original === false ? 0 : 1),
+              imdbScore
             ).run();
             filmRow = { id: uuid };
           } else {
@@ -3800,7 +3994,8 @@ export default {
             const coverKey = (film.cover_key || film.cover_url) ? String((film.cover_key || film.cover_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
             const coverLandscapeKey = (film.cover_landscape_key || film.cover_landscape_url) ? String((film.cover_landscape_key || film.cover_landscape_url)).replace(/^https?:\/\/[^/]+\//, '') : null;
             const totalEpisodes = (film.total_episodes && Number(film.total_episodes) > 0) ? Math.floor(Number(film.total_episodes)) : null;
-            await env.DB.prepare('UPDATE content_items SET title=COALESCE(?,title), main_language=COALESCE(?,main_language), type=COALESCE(?,type), description=COALESCE(?,description), cover_key=COALESCE(?,cover_key), cover_landscape_key=COALESCE(?,cover_landscape_key), release_year=COALESCE(?,release_year), total_episodes=COALESCE(?,total_episodes), is_original=COALESCE(?,is_original) WHERE id=?').bind(
+            const imdbScore = (film.imdb_score != null && film.imdb_score !== '') ? Number(film.imdb_score) : null;
+            await env.DB.prepare('UPDATE content_items SET title=COALESCE(?,title), main_language=COALESCE(?,main_language), type=COALESCE(?,type), description=COALESCE(?,description), cover_key=COALESCE(?,cover_key), cover_landscape_key=COALESCE(?,cover_landscape_key), release_year=COALESCE(?,release_year), total_episodes=COALESCE(?,total_episodes), is_original=COALESCE(?,is_original), imdb_score=COALESCE(?,imdb_score) WHERE id=?').bind(
               film.title || null,
               film.language || film.main_language || null,
               film.type || null,
@@ -3810,12 +4005,57 @@ export default {
               film.release_year || null,
               totalEpisodes,
               (typeof film.is_original === 'boolean' ? (film.is_original ? 1 : 0) : null),
+              imdbScore,
               filmRow.id
             ).run();
           }
           if (Array.isArray(film.available_subs) && film.available_subs.length) {
             const subLangStmts = film.available_subs.map((lang) => env.DB.prepare('INSERT OR IGNORE INTO content_item_languages (content_item_id,language) VALUES (?,?)').bind(filmRow.id, lang));
             try { await env.DB.batch(subLangStmts); } catch {}
+          }
+          // Handle categories: create if needed and assign to content_item
+          if (Array.isArray(film.category_ids) && film.category_ids.length) {
+            try {
+              // First, ensure all categories exist (create if needed)
+              const categoryStmts = [];
+              for (const catNameOrId of film.category_ids) {
+                // Check if it's an ID (UUID format) or a name
+                const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(catNameOrId);
+                if (isUUID) {
+                  // It's an ID, verify it exists
+                  const existing = await env.DB.prepare('SELECT id FROM categories WHERE id=?').bind(catNameOrId).first();
+                  if (!existing) continue; // Skip if category doesn't exist
+                } else {
+                  // It's a name, create if doesn't exist
+                  const existing = await env.DB.prepare('SELECT id FROM categories WHERE name=?').bind(catNameOrId).first();
+                  if (!existing) {
+                    const catUuid = crypto.randomUUID();
+                    categoryStmts.push(env.DB.prepare('INSERT INTO categories (id,name) VALUES (?,?)').bind(catUuid, catNameOrId));
+                  }
+                }
+              }
+              if (categoryStmts.length) await env.DB.batch(categoryStmts);
+              
+              // Now assign categories to content_item
+              const assignStmts = [];
+              for (const catNameOrId of film.category_ids) {
+                const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(catNameOrId);
+                let catId;
+                if (isUUID) {
+                  catId = catNameOrId;
+                } else {
+                  const catRow = await env.DB.prepare('SELECT id FROM categories WHERE name=?').bind(catNameOrId).first();
+                  if (catRow) catId = catRow.id;
+                }
+                if (catId) {
+                  assignStmts.push(env.DB.prepare('INSERT OR IGNORE INTO content_item_categories (content_item_id,category_id) VALUES (?,?)').bind(filmRow.id, catId));
+                }
+              }
+              if (assignStmts.length) await env.DB.batch(assignStmts);
+            } catch (e) {
+              console.error('Failed to handle categories:', e);
+              // Non-blocking error, continue
+            }
           }
           // Ensure episode exists, else create
           let episode;

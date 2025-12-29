@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useUser } from '../../context/UserContext';
 import { uploadCoverImage } from '../../services/storageUpload';
-import { apiUpdateFilmMeta, apiGetFilm } from '../../services/cfApi';
+import { apiUpdateFilmMeta, apiGetFilm, apiListCategories, apiCreateCategory, type Category } from '../../services/cfApi';
 import { Film, Clapperboard, Book as BookIcon, AudioLines, Video, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { CONTENT_TYPE_LABELS } from '../../types/content';
 import type { ContentType } from '../../types/content';
@@ -26,6 +26,12 @@ export default function AdminContentUpdatePage() {
 	// New optional fields (tri-state): undefined = unchanged, string/number = set, null = clear
 	const [releaseYear, setReleaseYear] = useState<number | null | undefined>(undefined);
 	const [isAvailable, setIsAvailable] = useState<boolean | number | null | undefined>(undefined);
+	const [imdbScore, setImdbScore] = useState<number | null | undefined>(undefined);
+	const [selectedCategories, setSelectedCategories] = useState<string[]>([]); // Array of category IDs
+	const [categories, setCategories] = useState<Category[]>([]);
+	const [categoryQuery, setCategoryQuery] = useState('');
+	const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+	const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
 
 	// Dropdown state and refs for outside-click close
 	const [yearOpen, setYearOpen] = useState(false);
@@ -42,6 +48,10 @@ export default function AdminContentUpdatePage() {
 	const [currentContentType, setCurrentContentType] = useState<ContentType | ''>('');
 	// Current availability status (read-only, for display)
 	const [currentIsAvailable, setCurrentIsAvailable] = useState<boolean | undefined>(undefined);
+	// Current IMDB score (read-only, for display)
+	const [currentImdbScore, setCurrentImdbScore] = useState<number | null | undefined>(undefined);
+	// Current categories (read-only, for display)
+	const [currentCategories, setCurrentCategories] = useState<Category[]>([]);
 
 	// Prefill contentSlug from query when present and lock the input
 	useEffect(() => {
@@ -49,6 +59,19 @@ export default function AdminContentUpdatePage() {
 			setContentSlug(slugFromQuery);
 		}
 	}, [slugFromQuery]);
+
+	// Load categories on mount
+	useEffect(() => {
+		const loadCategories = async () => {
+			try {
+				const cats = await apiListCategories();
+				setCategories(cats);
+			} catch (e) {
+				console.error('Failed to load categories:', e);
+			}
+		};
+		if (isAdmin) loadCategories();
+	}, [isAdmin]);
 
 	// Load current content type from API
 	useEffect(() => {
@@ -67,6 +90,20 @@ export default function AdminContentUpdatePage() {
 					// Prefill isAvailable if not set yet
 					if (isAvailable === undefined) {
 						setIsAvailable(film.is_available ? 1 : 0);
+					}
+				}
+				// Load current IMDB score
+				if (film?.imdb_score !== undefined && film.imdb_score !== null) {
+					setCurrentImdbScore(film.imdb_score);
+					if (imdbScore === undefined) {
+						setImdbScore(film.imdb_score);
+					}
+				}
+				// Load current categories
+				if (film?.categories && Array.isArray(film.categories)) {
+					setCurrentCategories(film.categories);
+					if (selectedCategories.length === 0) {
+						setSelectedCategories(film.categories.map(c => c.id));
 					}
 				}
 			} catch {
@@ -127,6 +164,8 @@ export default function AdminContentUpdatePage() {
 				type?: string | null;
 				release_year?: number | null;
 				is_available?: boolean | number | null;
+				imdb_score?: number | null;
+				category_ids?: string[] | null;
 			} = {
 				filmSlug: contentSlug,
 				title: title || undefined,
@@ -137,6 +176,10 @@ export default function AdminContentUpdatePage() {
 			// Type is read-only, don't include in payload
 			if (releaseYear !== undefined) payload.release_year = releaseYear;
 			if (isAvailable !== undefined) payload.is_available = isAvailable;
+			if (imdbScore !== undefined) payload.imdb_score = imdbScore;
+			if (selectedCategories.length > 0 || (selectedCategories.length === 0 && currentCategories.length > 0)) {
+				payload.category_ids = selectedCategories.length > 0 ? selectedCategories : null;
+			}
 			await apiUpdateFilmMeta(payload);
 			setStage('done');
 			toast.success(`Updated meta for ${contentSlug}`);
@@ -152,6 +195,7 @@ export default function AdminContentUpdatePage() {
 		function onDocMouseDown(e: MouseEvent) {
 			const t = e.target as Node;
 			if (yearRef.current && !yearRef.current.contains(t)) setYearOpen(false);
+			if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(t)) setCategoryDropdownOpen(false);
 		}
 		document.addEventListener('mousedown', onDocMouseDown);
 		return () => document.removeEventListener('mousedown', onDocMouseDown);
@@ -275,6 +319,46 @@ export default function AdminContentUpdatePage() {
 						</div>
 
 						<div className="flex items-center gap-2">
+							<label className="w-40 text-sm">IMDB Score</label>
+							<div className="flex items-center gap-2 flex-1">
+								<input
+									type="number"
+									step="0.1"
+									min="0"
+									max="10"
+									className="admin-input flex-1"
+									value={imdbScore === undefined ? '' : (imdbScore === null ? '' : imdbScore)}
+									onChange={e => {
+										const val = e.target.value;
+										if (val === '') {
+											setImdbScore(null);
+										} else {
+											const num = Number(val);
+											if (!Number.isNaN(num) && num >= 0 && num <= 10) {
+												setImdbScore(num);
+											}
+										}
+									}}
+									placeholder={currentImdbScore !== undefined && currentImdbScore !== null ? `Current: ${currentImdbScore.toFixed(1)}` : "0.0 - 10.0 (optional)"}
+								/>
+								<button
+									type="button"
+									className="admin-btn secondary !py-1 !px-2 text-xs"
+									onClick={() => {
+										if (imdbScore === null) {
+											setImdbScore(undefined);
+										} else {
+											setImdbScore(null);
+										}
+									}}
+									title={imdbScore === null ? 'Restore original' : 'Clear IMDB Score'}
+								>
+									{imdbScore === null ? 'Restore' : 'Clear'}
+								</button>
+							</div>
+						</div>
+
+						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Cover Portrait (jpg)</label>
 							<input id="update-cover-file" type="file" accept="image/jpeg,image/webp" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
 						</div>
@@ -293,6 +377,122 @@ export default function AdminContentUpdatePage() {
 							onChange={e => setDescription(e.target.value)}
 							placeholder="Content description (optional)"
 						/>
+					</div>
+
+					{/* Categories Section */}
+					<div className="flex items-start gap-2 md:col-span-2">
+						<label className="w-40 text-sm pt-1">Categories</label>
+						<div className="flex-1 space-y-2">
+							<div className="relative" ref={categoryDropdownRef}>
+								<div className="flex gap-2">
+									<input
+										type="text"
+										className="admin-input flex-1"
+										placeholder="Search or create category..."
+										value={categoryQuery}
+										onChange={(e) => {
+											setCategoryQuery(e.target.value);
+											setCategoryDropdownOpen(true);
+										}}
+										onFocus={() => setCategoryDropdownOpen(true)}
+									/>
+									<button
+										type="button"
+										className="admin-btn secondary"
+										onClick={async () => {
+											const name = categoryQuery.trim();
+											if (!name) return;
+											try {
+												const result = await apiCreateCategory(name);
+												setCategories(prev => [...prev.filter(c => c.id !== result.id), { id: result.id, name: result.name }]);
+												if (!selectedCategories.includes(result.id)) {
+													setSelectedCategories(prev => [...prev, result.id]);
+												}
+												setCategoryQuery("");
+												setCategoryDropdownOpen(false);
+												toast.success(`Category "${name}" created`);
+											} catch (e) {
+												toast.error(`Failed to create category: ${(e as Error).message}`);
+											}
+										}}
+										disabled={!categoryQuery.trim()}
+									>
+										Create
+									</button>
+								</div>
+								{categoryDropdownOpen && (
+									<div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
+										{categories
+											.filter(cat => !categoryQuery || cat.name.toLowerCase().includes(categoryQuery.toLowerCase()))
+											.map(cat => {
+												const isSelected = selectedCategories.includes(cat.id);
+												return (
+													<div
+														key={cat.id}
+														className={`admin-dropdown-item ${isSelected ? 'bg-blue-500/20' : ''}`}
+														onClick={() => {
+															if (isSelected) {
+																setSelectedCategories(prev => prev.filter(id => id !== cat.id));
+															} else {
+																setSelectedCategories(prev => [...prev, cat.id]);
+															}
+															setCategoryQuery("");
+															setCategoryDropdownOpen(false);
+														}}
+													>
+														<input type="checkbox" checked={isSelected} readOnly className="mr-2" />
+														<span>{cat.name}</span>
+													</div>
+												);
+											})}
+										{categoryQuery && !categories.some(cat => cat.name.toLowerCase() === categoryQuery.toLowerCase()) && (
+											<div className="admin-dropdown-item text-xs text-blue-400" onClick={async () => {
+												try {
+													const result = await apiCreateCategory(categoryQuery.trim());
+													setCategories(prev => [...prev.filter(c => c.id !== result.id), { id: result.id, name: result.name }]);
+													setSelectedCategories(prev => [...prev, result.id]);
+													setCategoryQuery("");
+													setCategoryDropdownOpen(false);
+													toast.success(`Category "${result.name}" created and selected`);
+												} catch (e) {
+													toast.error(`Failed to create category: ${(e as Error).message}`);
+												}
+											}}>
+												+ Create "{categoryQuery}"
+											</div>
+										)}
+									</div>
+								)}
+							</div>
+							{selectedCategories.length > 0 && (
+								<div className="flex flex-wrap gap-2">
+									{selectedCategories.map(catId => {
+										const cat = categories.find(c => c.id === catId);
+										return (
+											<span
+												key={catId}
+												className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs"
+												style={{ backgroundColor: 'var(--primary)', color: 'var(--background)' }}
+											>
+												{cat ? cat.name : catId}
+												<button
+													type="button"
+													onClick={() => setSelectedCategories(prev => prev.filter(id => id !== catId))}
+													className="hover:opacity-70"
+												>
+													×
+												</button>
+											</span>
+										);
+									})}
+								</div>
+							)}
+							{currentCategories.length > 0 && selectedCategories.length === 0 && (
+								<div className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
+									Current: {currentCategories.map(c => c.name).join(', ')}
+								</div>
+							)}
+						</div>
 					</div>
 
 					<div className="pt-2 md:col-span-2" style={{ borderTop: '2px solid var(--border)' }}>

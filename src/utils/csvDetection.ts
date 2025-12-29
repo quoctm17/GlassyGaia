@@ -22,7 +22,7 @@ export const RESERVED_COLUMNS = new Set([
   "hiragana", "katakana", "romaji"
 ]);
 
-export const AMBIGUOUS_COLS = new Set(["id", "in"]); // Could be Indonesian OR reserved columns
+export const AMBIGUOUS_COLS = new Set(["id", "in", "no"]); // Could be Indonesian/Norwegian OR reserved columns
 
 export const SUPPORTED_CANON = [
   "ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi",
@@ -221,6 +221,11 @@ export function findHeaderForLang(
   // Special case: if looking for 'id' (Indonesian) and user confirmed it
   if (lang.toLowerCase() === 'id' && confirmedAsLanguage) {
     const confirmed = headers.find(h => confirmedAsLanguage.has(h) && h.toLowerCase() === 'id');
+    if (confirmed) return confirmed;
+  }
+  // Special case: if looking for 'no' (Norwegian) and user confirmed it
+  if (lang.toLowerCase() === 'no' && confirmedAsLanguage) {
+    const confirmed = headers.find(h => confirmedAsLanguage.has(h) && h.toLowerCase() === 'no');
     if (confirmed) return confirmed;
   }
   
