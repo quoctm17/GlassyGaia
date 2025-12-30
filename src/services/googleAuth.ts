@@ -164,6 +164,10 @@ export async function signInWithGoogle(): Promise<{
 
       // Initialize and render button
       try {
+        if (!window.google?.accounts?.id) {
+          throw new Error('Google Identity Services not available');
+        }
+
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID!,
           callback: async (response: { credential: string }) => {
@@ -345,6 +349,8 @@ declare global {
           initialize: (config: {
             client_id: string;
             callback: (response: { credential: string }) => void;
+            auto_select?: boolean;
+            cancel_on_tap_outside?: boolean;
           }) => void;
           renderButton: (element: HTMLElement, config?: {
             type?: string;
