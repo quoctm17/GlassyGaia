@@ -191,37 +191,41 @@ function SearchPage() {
   );
 
   // Fetch card counts per content from server (bao gồm filter + query)
-  // Lazy load counts: only fetch when filter panel is open or after cards have loaded
+  // OPTIMIZED: Only fetch when filter panel is open to prioritize card loading
   useEffect(() => {
+    // Skip counts fetch if filter panel is closed - significantly improve initial load time
+    if (!isFilterPanelOpen) {
+      return;
+    }
+    
     let cancelled = false;
-    // Delay counts fetch significantly to prioritize card loading
-    // Only fetch if filter panel is open or after a longer delay
+    // Delay counts fetch to prioritize card loading - wait for cards to load first
     const timeoutId = setTimeout(() => {
-    const run = async () => {
-      try {
-        const counts = await apiSearchCounts({
-          mainLanguage: preferences.main_language || null,
-          subtitleLanguages: preferences.subtitle_languages || [],
-          // Use query + languages only so counts stay stable even when content filter changes
-          query: query.trim().length >= 2 ? query : "",
-          contentIds: undefined,
-          minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
-          maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
-          minLevel: minLevel || undefined,
-          maxLevel: maxLevel || undefined,
-        });
-        if (!cancelled) {
-          setServerContentCounts(counts);
+      const run = async () => {
+        try {
+          const counts = await apiSearchCounts({
+            mainLanguage: preferences.main_language || null,
+            subtitleLanguages: preferences.subtitle_languages || [],
+            // Use query + languages only so counts stay stable even when content filter changes
+            query: query.trim().length >= 2 ? query : "",
+            contentIds: undefined,
+            minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
+            maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
+            minLevel: minLevel || undefined,
+            maxLevel: maxLevel || undefined,
+          });
+          if (!cancelled) {
+            setServerContentCounts(counts);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            console.error("Failed to load content counts:", error);
+            setServerContentCounts({});
+          }
         }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load content counts:", error);
-          setServerContentCounts({});
-        }
-      }
-    };
-    run();
-    }, isFilterPanelOpen ? 200 : 1000); // Faster if panel is open, otherwise wait longer
+      };
+      run();
+    }, 500); // Increased delay to 500ms to ensure cards load first
     return () => {
       cancelled = true;
       clearTimeout(timeoutId);

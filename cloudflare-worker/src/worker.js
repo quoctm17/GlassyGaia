@@ -144,6 +144,328 @@ function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) });
 }
 
+// ==================== MEILISEARCH CLIENT ====================
+
+/**
+ * Simple Meilisearch client for Cloudflare Workers
+ * Meilisearch API: https://www.meilisearch.com/docs/reference/api
+ */
+class MeilisearchClient {
+  constructor(host, apiKey) {
+    this.host = host.replace(/\/$/, ''); // Remove trailing slash
+    this.apiKey = apiKey;
+  }
+
+  async request(method, path, body = null) {
+    const url = `${this.host}${path}`;
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+
+    const options = {
+      method,
+      headers,
+    };
+    if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Meilisearch error: ${response.status} ${errorText}`);
+    }
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    return await response.json();
+  }
+
+  // Index operations
+  async getIndex(uid) {
+    return this.request('GET', `/indexes/${uid}`);
+  }
+
+  async createIndex(uid, options = {}) {
+    return this.request('POST', '/indexes', { uid, ...options });
+  }
+
+  async updateIndex(uid, options) {
+    return this.request('PATCH', `/indexes/${uid}`, options);
+  }
+
+  async deleteIndex(uid) {
+    return this.request('DELETE', `/indexes/${uid}`);
+  }
+
+  // Document operations
+  async addDocuments(uid, documents, options = {}) {
+    const params = new URLSearchParams();
+    if (options.primaryKey) params.set('primaryKey', options.primaryKey);
+    const queryString = params.toString();
+    const path = `/indexes/${uid}/documents${queryString ? '?' + queryString : ''}`;
+    return this.request('POST', path, documents);
+  }
+
+  async updateDocuments(uid, documents, options = {}) {
+    return this.request('PUT', `/indexes/${uid}/documents`, documents, options);
+  }
+
+  async deleteDocuments(uid, documentIds) {
+    return this.request('POST', `/indexes/${uid}/documents/delete-batch`, documentIds);
+  }
+
+  async deleteAllDocuments(uid) {
+    return this.request('DELETE', `/indexes/${uid}/documents`);
+  }
+
+  // Search operations
+  async search(uid, query, options = {}) {
+    return this.request('POST', `/indexes/${uid}/search`, { q: query, ...options });
+  }
+
+  // Settings operations
+  async updateSettings(uid, settings) {
+    return this.request('PATCH', `/indexes/${uid}/settings`, settings);
+  }
+
+  async getSettings(uid) {
+    return this.request('GET', `/indexes/${uid}/settings`);
+  }
+
+  // Task operations (for checking sync status)
+  async getTask(uid, taskUid) {
+    return this.request('GET', `/tasks/${taskUid}`);
+  }
+}
+
+// Helper to get or create Meilisearch client
+function getMeilisearchClient(env) {
+  const host = env.MEILISEARCH_HOST;
+  const apiKey = env.MEILISEARCH_API_KEY;
+  
+  if (!host) {
+    return null; // Meilisearch not configured
+  }
+  
+  return new MeilisearchClient(host, apiKey);
+}
+
+// Meilisearch index configuration
+const MEILISEARCH_INDEX_UID = 'cards';
+const MEILISEARCH_INDEX_SETTINGS = {
+  searchableAttributes: [
+    'text', // Main subtitle text (most important)
+    'content_title', // Content title for context
+  ],
+  filterableAttributes: [
+    'content_slug', // Filter by content
+    'content_main_language', // Filter by main language
+    'subtitle_languages', // Filter by available subtitle languages (array)
+    'difficulty_score', // Numeric range filter
+    'levels_framework', // Filter by framework (CEFR, JLPT, HSK)
+    'levels_level', // Filter by level (A1, N5, etc.)
+    'episode_slug', // Filter by episode
+    'is_available', // Filter by availability
+  ],
+  sortableAttributes: [
+    'difficulty_score', // Sort by difficulty
+    'episode_number', // Sort by episode
+    'card_number', // Sort by card number
+  ],
+  rankingRules: [
+    'words',
+    'typo',
+    'proximity',
+    'attribute',
+    'sort',
+    'exactness',
+  ],
+  // Store all fields for enrichment later
+  displayedAttributes: [
+    'card_id',
+    'content_slug',
+    'content_title',
+    'episode_slug',
+    'episode_number',
+    'card_number',
+    'text',
+    'content_main_language',
+    'subtitle_languages',
+    'difficulty_score',
+    'levels',
+    'is_available',
+  ],
+};
+
+// Setup Meilisearch index (create or update settings)
+async function setupMeilisearchIndex(client) {
+  if (!client) return null;
+  
+  try {
+    // Try to get existing index
+    try {
+      await client.getIndex(MEILISEARCH_INDEX_UID);
+      // Index exists, update settings
+      await client.updateSettings(MEILISEARCH_INDEX_UID, MEILISEARCH_INDEX_SETTINGS);
+      return { action: 'updated', index: MEILISEARCH_INDEX_UID };
+    } catch (e) {
+      // Index doesn't exist, create it
+      await client.createIndex(MEILISEARCH_INDEX_UID, {
+        primaryKey: 'card_id',
+      });
+      await client.updateSettings(MEILISEARCH_INDEX_UID, MEILISEARCH_INDEX_SETTINGS);
+      return { action: 'created', index: MEILISEARCH_INDEX_UID };
+    }
+  } catch (error) {
+    console.error('[MEILISEARCH] Setup error:', error);
+    throw error;
+  }
+}
+
+// Transform card data from D1 to Meilisearch document format
+async function transformCardToMeilisearchDoc(env, cardRow, cardSubtitleText, cardSubtitleLangs, cardLevels) {
+  // cardRow contains: card_id, content_slug, content_title, episode_slug, episode_number, card_number, difficulty_score, content_main_language
+  // cardSubtitleText: main subtitle text (from content_main_language)
+  // cardSubtitleLangs: array of available subtitle language codes
+  // cardLevels: array of {framework, level, language}
+  
+  const levelsFramework = cardLevels.map(l => l.framework);
+  const levelsLevel = cardLevels.map(l => l.level);
+  
+  return {
+    card_id: cardRow.card_id,
+    content_slug: cardRow.content_slug,
+    content_title: cardRow.content_title || '',
+    episode_slug: cardRow.episode_slug,
+    episode_number: cardRow.episode_number || 0,
+    card_number: cardRow.card_number || 0,
+    text: cardSubtitleText || '', // Main subtitle text for search
+    content_main_language: cardRow.content_main_language || '',
+    subtitle_languages: cardSubtitleLangs || [], // Array of available subtitle languages
+    difficulty_score: cardRow.difficulty_score ?? null,
+    levels: cardLevels, // Full levels array for display
+    levels_framework: levelsFramework, // For filtering
+    levels_level: levelsLevel, // For filtering
+    is_available: cardRow.is_available !== 0 ? true : false,
+  };
+}
+
+// Fetch cards from D1 and transform to Meilisearch documents (batch processing)
+// OPTIMIZED: Split subtitle/level fetching into smaller batches to avoid "too many SQL variables" error
+async function fetchCardsForMeilisearch(env, batchSize = 500, offset = 0) {
+  // Fetch cards with all necessary data
+  const cardsResult = await env.DB.prepare(`
+    SELECT 
+      c.id AS card_id,
+      c.card_number,
+      c.difficulty_score,
+      c.is_available,
+      e.slug AS episode_slug,
+      e.episode_number,
+      ci.slug AS content_slug,
+      ci.title AS content_title,
+      ci.main_language AS content_main_language
+    FROM cards c
+    JOIN episodes e ON e.id = c.episode_id
+    JOIN content_items ci ON ci.id = e.content_item_id
+    WHERE c.is_available = 1
+    ORDER BY c.id
+    LIMIT ? OFFSET ?
+  `).bind(batchSize, offset).all();
+  
+  const cardRows = cardsResult.results || [];
+  if (cardRows.length === 0) return [];
+  
+  const cardIds = cardRows.map(r => r.card_id);
+  
+  // Build maps for efficient lookup
+  const subtitlesMap = new Map(); // card_id -> {language: text}
+  const subtitleLangsMap = new Map(); // card_id -> [languages]
+  const levelsMap = new Map(); // card_id -> [{framework, level, language}]
+  
+  // OPTIMIZED: Fetch subtitles and levels in smaller batches to avoid SQL variable limit
+  // SQLite limit is ~999 variables, so we use 100 cards per batch (safe margin)
+  const subBatchSize = 100;
+  
+  // Fetch subtitles in batches
+  for (let i = 0; i < cardIds.length; i += subBatchSize) {
+    const subBatch = cardIds.slice(i, i + subBatchSize);
+    const placeholders = subBatch.map(() => '?').join(',');
+    
+    try {
+      const subtitlesResult = await env.DB.prepare(`
+        SELECT card_id, language, text
+        FROM card_subtitles
+        WHERE card_id IN (${placeholders})
+          AND text IS NOT NULL
+          AND LENGTH(TRIM(text)) > 0
+      `).bind(...subBatch).all();
+      
+      (subtitlesResult.results || []).forEach(row => {
+        if (!subtitlesMap.has(row.card_id)) {
+          subtitlesMap.set(row.card_id, {});
+          subtitleLangsMap.set(row.card_id, []);
+        }
+        subtitlesMap.get(row.card_id)[row.language] = row.text;
+        subtitleLangsMap.get(row.card_id).push(row.language);
+      });
+    } catch (e) {
+      console.error(`[MEILISEARCH SYNC] Error fetching subtitles batch ${i}-${i + subBatch.length}:`, e);
+      // Continue with other batches even if one fails
+    }
+  }
+  
+  // Fetch levels in batches
+  for (let i = 0; i < cardIds.length; i += subBatchSize) {
+    const subBatch = cardIds.slice(i, i + subBatchSize);
+    const placeholders = subBatch.map(() => '?').join(',');
+    
+    try {
+      const levelsResult = await env.DB.prepare(`
+        SELECT card_id, framework, level, language
+        FROM card_difficulty_levels
+        WHERE card_id IN (${placeholders})
+      `).bind(...subBatch).all();
+      
+      (levelsResult.results || []).forEach(row => {
+        if (!levelsMap.has(row.card_id)) {
+          levelsMap.set(row.card_id, []);
+        }
+        levelsMap.get(row.card_id).push({
+          framework: row.framework,
+          level: row.level,
+          language: row.language || null
+        });
+      });
+    } catch (e) {
+      console.error(`[MEILISEARCH SYNC] Error fetching levels batch ${i}-${i + subBatch.length}:`, e);
+      // Continue with other batches even if one fails
+    }
+  }
+  
+  // Transform to Meilisearch documents
+  const documents = [];
+  for (const cardRow of cardRows) {
+    const cardSubtitleMap = subtitlesMap.get(cardRow.card_id) || {};
+    const mainLang = cardRow.content_main_language || '';
+    const mainSubtitleText = cardSubtitleMap[mainLang] || '';
+    const subtitleLangs = subtitleLangsMap.get(cardRow.card_id) || [];
+    const levels = levelsMap.get(cardRow.card_id) || [];
+    
+    const doc = await transformCardToMeilisearchDoc(env, cardRow, mainSubtitleText, subtitleLangs, levels);
+    documents.push(doc);
+  }
+  
+  return documents;
+}
+
 // Normalize Chinese text by removing pinyin brackets [pinyin] for search
 // Example: "请[qǐng]问[wèn]" -> "请问"
 function normalizeChineseTextForSearch(text) {
@@ -619,14 +941,179 @@ export default {
         }
       }
 
+      // ==================== MEILISEARCH SYNC ENDPOINT ====================
+      // POST /api/meilisearch/sync - Sync cards from D1 to Meilisearch
+      // Optional query params: ?batch_size=500&offset=0&full=false
+      if (path === '/api/meilisearch/sync' && request.method === 'POST') {
+        try {
+          const meilisearchClient = getMeilisearchClient(env);
+          if (!meilisearchClient) {
+            return json({ error: 'Meilisearch not configured' }, { status: 500 });
+          }
+          
+          // Setup index first
+          await setupMeilisearchIndex(meilisearchClient);
+          
+          const batchSize = Math.min(parseInt(url.searchParams.get('batch_size') || '500', 10), 1000);
+          const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+          const fullSync = url.searchParams.get('full') === 'true';
+          
+          if (fullSync) {
+            // Full sync: delete all documents first
+            await meilisearchClient.deleteAllDocuments(MEILISEARCH_INDEX_UID);
+          }
+          
+          // Fetch cards and transform
+          const documents = await fetchCardsForMeilisearch(env, batchSize, offset);
+          
+          if (documents.length === 0) {
+            return json({ 
+              success: true, 
+              synced: 0, 
+              offset, 
+              message: 'No more cards to sync' 
+            });
+          }
+          
+          // Upload to Meilisearch
+          await meilisearchClient.addDocuments(MEILISEARCH_INDEX_UID, documents, {
+            primaryKey: 'card_id'
+          });
+          
+          return json({
+            success: true,
+            synced: documents.length,
+            offset: offset + documents.length,
+            total_in_batch: documents.length,
+            message: `Synced ${documents.length} cards`
+          });
+        } catch (e) {
+          console.error('[MEILISEARCH SYNC] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // GET /api/meilisearch/setup - Setup Meilisearch index (create/update settings)
+      if (path === '/api/meilisearch/setup' && request.method === 'GET') {
+        try {
+          const meilisearchClient = getMeilisearchClient(env);
+          if (!meilisearchClient) {
+            return json({ error: 'Meilisearch not configured' }, { status: 500 });
+          }
+          
+          const result = await setupMeilisearchIndex(meilisearchClient);
+          return json({
+            success: true,
+            ...result,
+            message: `Index ${result.action} successfully`
+          });
+        } catch (e) {
+          console.error('[MEILISEARCH SETUP] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // GET /api/meilisearch/stats - Get total cards count and sync statistics
+      if (path === '/api/meilisearch/stats' && request.method === 'GET') {
+        try {
+          // Get total count of available cards
+          const totalResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total
+            FROM cards
+            WHERE is_available = 1
+          `).first();
+          
+          const totalCards = totalResult?.total || 0;
+          
+          // Get saved progress from KV
+          let progress = null;
+          if (env.SEARCH_CACHE) {
+            try {
+              const saved = await env.SEARCH_CACHE.get('meilisearch_sync_progress', { type: 'json' });
+              if (saved && saved.currentOffset !== undefined) {
+                progress = saved;
+              }
+            } catch (e) {
+              console.error('[MEILISEARCH STATS] Failed to load progress:', e);
+            }
+          }
+          
+          return json({
+            success: true,
+            totalCards: Number(totalCards),
+            progress: progress, // { totalSynced, currentOffset, batchesProcessed, totalCards }
+          });
+        } catch (e) {
+          console.error('[MEILISEARCH STATS] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // POST /api/meilisearch/progress - Save sync progress to KV
+      if (path === '/api/meilisearch/progress' && request.method === 'POST') {
+        try {
+          if (!env.SEARCH_CACHE) {
+            return json({ error: 'KV not configured' }, { status: 500 });
+          }
+          
+          const body = await request.json();
+          const { totalSynced, currentOffset, batchesProcessed, totalCards } = body;
+          
+          // Save to KV
+          await env.SEARCH_CACHE.put('meilisearch_sync_progress', JSON.stringify({
+            totalSynced: Number(totalSynced) || 0,
+            currentOffset: Number(currentOffset) || 0,
+            batchesProcessed: Number(batchesProcessed) || 0,
+            totalCards: Number(totalCards) || 0,
+            updatedAt: Date.now(),
+          }));
+          
+          return json({ success: true });
+        } catch (e) {
+          console.error('[MEILISEARCH PROGRESS] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+      
+      // DELETE /api/meilisearch/progress - Clear sync progress
+      if (path === '/api/meilisearch/progress' && request.method === 'DELETE') {
+        try {
+          if (env.SEARCH_CACHE) {
+            await env.SEARCH_CACHE.delete('meilisearch_sync_progress');
+          }
+          return json({ success: true });
+        } catch (e) {
+          console.error('[MEILISEARCH PROGRESS] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
       // Search API: FTS-backed card subtitles with caching + main_language filtering + fallback listing
+      // Now supports both Meilisearch (preferred) and SQL fallback
       if (path === '/api/search' && request.method === 'GET') {
         const startTime = Date.now();
         
         // Build cache key from query params
         const cacheKey = `search:${url.searchParams.toString()}`;
+        const CACHE_TTL = 30; // 30 seconds cache
         
         try {
+          // Check KV cache first
+          if (env.SEARCH_CACHE) {
+            const cached = await env.SEARCH_CACHE.get(cacheKey, { type: 'json' });
+            if (cached && cached.data && cached.timestamp) {
+              const age = (Date.now() - cached.timestamp) / 1000;
+              if (age < CACHE_TTL) {
+                console.log(`[CACHE HIT /api/search] Age: ${age.toFixed(1)}s`);
+                return json(cached.data, {
+                  headers: {
+                    'X-Cache': 'HIT',
+                    'X-Cache-Age': Math.round(age).toString(),
+                  }
+                });
+              }
+            }
+          }
           const q = url.searchParams.get('q') || '';
           const mainLanguage = url.searchParams.get('main_language');
           const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
@@ -712,6 +1199,190 @@ export default {
 
           let items = [];
           let total = 0;
+
+          // Try Meilisearch first (if configured)
+          const meilisearchClient = getMeilisearchClient(env);
+          if (meilisearchClient) {
+            try {
+              // Build Meilisearch filters
+              const filters = [];
+              
+              // Main language filter
+              if (mainLanguage) {
+                filters.push(`content_main_language = "${mainLanguage}"`);
+              }
+              
+              // Content IDs filter (array of slugs)
+              if (contentIdsCount > 0) {
+                if (contentIdsCount === 1) {
+                  filters.push(`content_slug = "${contentIdsArr[0]}"`);
+                } else {
+                  const contentIdsFilter = contentIdsArr.map(id => `content_slug = "${id}"`).join(' OR ');
+                  filters.push(`(${contentIdsFilter})`);
+                }
+              }
+              
+              // Subtitle languages filter (card must have all selected languages)
+              // Note: In Meilisearch, for array fields, we need to check each language separately with AND
+              if (subtitleLangsCount > 0) {
+                // For each required language, check if it exists in the array
+                subtitleLangsArr.forEach(lang => {
+                  filters.push(`subtitle_languages = "${lang}"`);
+                });
+              }
+              
+              // Difficulty filter
+              if (hasDifficultyFilter) {
+                const minVal = difficultyMin !== null ? difficultyMin : 0;
+                const maxVal = difficultyMax !== null ? difficultyMax : 100;
+                filters.push(`difficulty_score >= ${minVal} AND difficulty_score <= ${maxVal}`);
+              }
+              
+              // Level filter
+              if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
+                // Filter by framework first
+                filters.push(`levels_framework = "${framework}"`);
+                // Then filter by level (at least one level must match)
+                if (allowedLevels.length === 1) {
+                  filters.push(`levels_level = "${allowedLevels[0]}"`);
+                } else {
+                  const levelFilters = allowedLevels.map(level => `levels_level = "${level}"`).join(' OR ');
+                  filters.push(`(${levelFilters})`);
+                }
+              }
+              
+              // Availability filter (always filter by available cards)
+              filters.push('is_available = true');
+              
+              // Build Meilisearch search options
+              const searchOptions = {
+                limit: size,
+                offset: offset,
+                filter: filters.length > 0 ? filters.join(' AND ') : undefined,
+                sort: ['difficulty_score:asc'], // Default sort by difficulty
+              };
+              
+              // Perform Meilisearch query (empty string for browsing mode)
+              const searchQuery = hasTextQuery ? q.trim() : '';
+              const meilisearchResult = await meilisearchClient.search(MEILISEARCH_INDEX_UID, searchQuery || '', searchOptions);
+              
+              const meilisearchHits = meilisearchResult.hits || [];
+              total = meilisearchResult.estimatedTotalHits || 0;
+              
+              if (meilisearchHits.length > 0) {
+                // Enrich with full metadata from D1 (fetch additional subtitles and other data)
+                const cardIds = meilisearchHits.map(hit => hit.card_id);
+                const placeholders = cardIds.map(() => '?').join(',');
+                
+                // Fetch full card data from D1 for enrichment
+                const enrichmentResult = await env.DB.prepare(`
+                  SELECT 
+                    c.id AS card_id,
+                    c.card_number,
+                    c.start_time,
+                    c.end_time,
+                    c.image_key,
+                    c.audio_key,
+                    c.difficulty_score,
+                    e.slug AS episode_slug,
+                    e.episode_number,
+                    ci.slug AS content_slug,
+                    ci.main_language AS content_main_language,
+                    ci.title AS content_title
+                  FROM cards c
+                  JOIN episodes e ON e.id = c.episode_id
+                  JOIN content_items ci ON ci.id = e.content_item_id
+                  WHERE c.id IN (${placeholders})
+                `).bind(...cardIds).all();
+                
+                const enrichmentMap = new Map();
+                (enrichmentResult.results || []).forEach(row => {
+                  enrichmentMap.set(row.card_id, row);
+                });
+                
+                // Fetch additional subtitles for cards
+                const additionalSubLangs = subtitleLangsArr.filter(lang => lang !== mainLanguage);
+                const subsMap = new Map();
+                
+                if (cardIds.length > 0 && (additionalSubLangs.length > 0 || !mainLanguage)) {
+                  // Fetch all subtitles for these cards
+                  const allSubsResult = await env.DB.prepare(`
+                    SELECT card_id, language, text
+                    FROM card_subtitles
+                    WHERE card_id IN (${placeholders})
+                      AND text IS NOT NULL
+                      AND LENGTH(text) > 0
+                  `).bind(...cardIds).all();
+                  
+                  (allSubsResult.results || []).forEach(row => {
+                    if (!subsMap.has(row.card_id)) {
+                      subsMap.set(row.card_id, {});
+                    }
+                    subsMap.get(row.card_id)[row.language] = row.text;
+                  });
+                }
+                
+                // Map Meilisearch results to CardDoc format
+                items = meilisearchHits.map(hit => {
+                  const enriched = enrichmentMap.get(hit.card_id);
+                  const subtitleMap = subsMap.get(hit.card_id) || {};
+                  
+                  // Add main subtitle from hit if available
+                  if (hit.text && mainLanguage) {
+                    subtitleMap[mainLanguage] = hit.text;
+                  }
+                  
+                  return {
+                    card_id: hit.card_id,
+                    content_slug: hit.content_slug,
+                    content_title: hit.content_title,
+                    episode_slug: hit.episode_slug,
+                    episode_number: hit.episode_number || 0,
+                    card_number: hit.card_number || 0,
+                    start_time: enriched?.start_time || 0,
+                    end_time: enriched?.end_time || 0,
+                    image_url: makeMediaUrl(enriched?.image_key),
+                    audio_url: makeMediaUrl(enriched?.audio_key),
+                    difficulty_score: hit.difficulty_score,
+                    text: hit.text || '',
+                    subtitle: subtitleMap,
+                    cefr_level: hit.levels?.find(l => l.framework === 'CEFR')?.level || null,
+                    levels: hit.levels || [],
+                  };
+                });
+                
+                const totalTime = Date.now() - startTime;
+                console.log(`[PERF /api/search] Meilisearch: ${totalTime}ms | Cards: ${items.length} | Total: ${total} | Page: ${page}`);
+                
+                const responseData = { items, total, page, size };
+                
+                // Save to KV cache
+                if (env.SEARCH_CACHE) {
+                  env.SEARCH_CACHE.put(cacheKey, JSON.stringify({
+                    data: responseData,
+                    timestamp: Date.now()
+                  }), { expirationTtl: CACHE_TTL }).catch(err => {
+                    console.error('[CACHE ERROR /api/search] Failed to save cache:', err);
+                  });
+                }
+                
+                return json(responseData, {
+                  headers: {
+                    'X-Cache': 'MISS',
+                    'X-Search-Engine': 'Meilisearch',
+                  }
+                });
+              }
+              
+              // If Meilisearch returns empty results but we have filters, might be valid empty result
+              // Fall through to SQL fallback only if there's an error
+            } catch (meilisearchError) {
+              console.warn('[MEILISEARCH] Search error, falling back to SQL:', meilisearchError);
+              // Fall through to SQL fallback
+            }
+          }
+          
+          // SQL Fallback (original implementation)
 
           // Build WHERE clause with content_ids filter and text search
           // Use positional placeholders (?) and bind in order
@@ -1047,13 +1718,12 @@ export default {
             const additionalSubLangs = subtitleLangsArr.filter(lang => lang !== mainLanguage);
             const needsAdditionalSubs = additionalSubLangs.length > 0;
             
-            // Fetch main language subtitles in batch (faster than JOIN in main query)
-            // Reduced batch size significantly to avoid "too many SQL variables" error
-            const mainSubStart = Date.now();
-            const mainSubBatchSize = 50; // Further reduced to avoid SQL variable limit
-            const mainSubPromises = [];
+            // OPTIMIZED: Combine all data fetching into fewer, larger batches
+            // Fetch main subtitles, additional subtitles, and levels together per batch
+            const batchStart = Date.now();
+            const batchSize = 150; // Increased batch size for better performance
             
-            // Group cards by main language for efficient batch fetching
+            // Group cards by main language for efficient fetching
             const cardsByLang = new Map();
             for (const r of cardRows) {
               const lang = r.content_main_language;
@@ -1063,14 +1733,20 @@ export default {
               cardsByLang.get(lang).push(r.card_id);
             }
             
-            // Limit concurrent queries to avoid "too many SQL variables" error
-            // Process languages sequentially or in smaller batches
-            for (const [lang, langCardIds] of cardsByLang.entries()) {
-              for (let i = 0; i < langCardIds.length; i += mainSubBatchSize) {
-                const batch = langCardIds.slice(i, i + mainSubBatchSize);
+            const allPromises = [];
+            
+            // Process each language group
+            for (const [mainLang, langCardIds] of cardsByLang.entries()) {
+              // Process cards in batches
+              for (let i = 0; i < langCardIds.length; i += batchSize) {
+                const batch = langCardIds.slice(i, i + batchSize);
                 const placeholders = batch.map(() => '?').join(',');
                 
-                mainSubPromises.push(
+                // Build queries for this batch: main subtitle + additional subtitles + levels
+                const batchQueries = [];
+                
+                // 1. Main language subtitle (always needed)
+                batchQueries.push(
                   env.DB.prepare(`
                     SELECT card_id, text
                     FROM card_subtitles
@@ -1078,102 +1754,80 @@ export default {
                       AND language = ?
                       AND text IS NOT NULL
                       AND LENGTH(text) > 0
-                  `).bind(...batch, lang).all().then((result) => {
-                    for (const row of (result.results || [])) {
-              if (!subsMap.has(row.card_id)) {
-                subsMap.set(row.card_id, {});
-              }
-                      subsMap.get(row.card_id)[lang] = row.text;
-                    }
-                  })
+                  `).bind(...batch, mainLang).all()
                 );
-              }
-            }
-            
-            // Execute in smaller batches to avoid too many concurrent queries
-            const maxConcurrentQueries = 10; // Limit concurrent queries
-            for (let i = 0; i < mainSubPromises.length; i += maxConcurrentQueries) {
-              const batch = mainSubPromises.slice(i, i + maxConcurrentQueries);
-              await Promise.all(batch);
-            }
-            const mainSubTime = Date.now() - mainSubStart;
-            console.log(`[PERF /api/search] Main subtitle fetch: ${mainSubTime}ms for ${cardIds.length} cards`);
-            
-            if (cardIds.length > 0) {
-              const batchStart = Date.now();
-              // OPTIMIZATION: Skip full levels array - only fetch CEFR (most common use case)
-              // Full levels can be lazy loaded if needed
-              // Reduced batch size to avoid "too many SQL variables" error
-              // When combining card_ids + languages, we need to stay under SQLite's limit (~999 variables)
-              const batchSize = 100; // Further reduced to avoid SQL variable limit (100 cards + languages < 150 total)
-              const allPromises = [];
-              
-              // Calculate safe batch size to avoid "too many SQL variables" error
-              // SQLite limit is typically 999 variables, we stay well under with safety margin
-              // When fetching additional subtitles: batch_size + languages must be < 500
-              const maxVarsPerQuery = 500; // Safety margin below SQLite's 999 limit
-              const safeBatchSizeForSubs = needsAdditionalSubs 
-                ? Math.max(1, maxVarsPerQuery - additionalSubLangs.length)
-                : batchSize;
-              const actualBatchSize = Math.min(batchSize, safeBatchSizeForSubs);
-              
-              for (let i = 0; i < cardIds.length; i += actualBatchSize) {
-                const batch = cardIds.slice(i, i + actualBatchSize);
-                const placeholders = batch.map(() => '?').join(',');
                 
-                // Fetch only essential data: additional subtitles + CEFR level
-                // Skip full levels array for speed (can be lazy loaded)
-                const batchQueries = [];
-                
-                // 1. Additional subtitle languages (if needed)
+                // 2. Additional subtitle languages (if needed)
                 if (needsAdditionalSubs) {
-                  batchQueries.push(
-                    env.DB.prepare(`
-                      SELECT card_id, language, text
-                      FROM card_subtitles
-                      WHERE card_id IN (${placeholders})
-                        AND language IN (${additionalSubLangs.map(() => '?').join(',')})
-                    `).bind(...batch, ...additionalSubLangs).all()
-                  );
-                } else {
-                  batchQueries.push(Promise.resolve({ results: [] }));
+                  const maxVarsForSubs = 800; // Safety margin
+                  const safeBatchSizeForSubs = Math.max(1, maxVarsForSubs - additionalSubLangs.length);
+                  const actualSubBatchSize = Math.min(batchSize, safeBatchSizeForSubs);
+                  
+                  // Split batch if needed for additional subs to stay under SQL variable limit
+                  for (let j = 0; j < batch.length; j += actualSubBatchSize) {
+                    const subBatch = batch.slice(j, j + actualSubBatchSize);
+                    const subPlaceholders = subBatch.map(() => '?').join(',');
+                    batchQueries.push(
+                      env.DB.prepare(`
+                        SELECT card_id, language, text
+                        FROM card_subtitles
+                        WHERE card_id IN (${subPlaceholders})
+                          AND language IN (${additionalSubLangs.map(() => '?').join(',')})
+                      `).bind(...subBatch, ...additionalSubLangs).all()
+                    );
+                  }
                 }
                 
-                // 2. Full levels array (all frameworks) - needed for level badges display
+                // 3. Full levels array (all frameworks)
                 batchQueries.push(
                   env.DB.prepare(`
-              SELECT card_id, framework, level, language
-              FROM card_difficulty_levels
-              WHERE card_id IN (${placeholders})
+                    SELECT card_id, framework, level, language
+                    FROM card_difficulty_levels
+                    WHERE card_id IN (${placeholders})
                   `).bind(...batch).all()
                 );
                 
+                // Execute all queries for this batch and process results
                 allPromises.push(
                   Promise.all(batchQueries).then((results) => {
-                    const subsResult = results[0];
-                    const levelsResult = results[1];
-                    
-                    // Process additional subtitles
-                    if (subsResult && subsResult.results) {
-                      for (const row of subsResult.results) {
+                    // Process main subtitle (first result)
+                    const mainSubResult = results[0];
+                    if (mainSubResult && mainSubResult.results) {
+                      for (const row of mainSubResult.results) {
                         if (!subsMap.has(row.card_id)) {
                           subsMap.set(row.card_id, {});
                         }
-                        subsMap.get(row.card_id)[row.language] = row.text;
+                        subsMap.get(row.card_id)[mainLang] = row.text;
                       }
                     }
                     
-                    // Process full levels array (all frameworks)
+                    // Process additional subtitles (results 1 to N-1, excluding last which is levels)
+                    const additionalSubsStart = 1;
+                    const levelsResultIndex = results.length - 1;
+                    for (let idx = additionalSubsStart; idx < levelsResultIndex; idx++) {
+                      const subsResult = results[idx];
+                      if (subsResult && subsResult.results) {
+                        for (const row of subsResult.results) {
+                          if (!subsMap.has(row.card_id)) {
+                            subsMap.set(row.card_id, {});
+                          }
+                          subsMap.get(row.card_id)[row.language] = row.text;
+                        }
+                      }
+                    }
+                    
+                    // Process levels (last result)
+                    const levelsResult = results[levelsResultIndex];
                     if (levelsResult && levelsResult.results) {
                       for (const row of levelsResult.results) {
-              if (!levelsMap.has(row.card_id)) {
-                levelsMap.set(row.card_id, []);
-              }
-              levelsMap.get(row.card_id).push({
-                framework: row.framework,
-                level: row.level,
-                language: row.language || null
-              });
+                        if (!levelsMap.has(row.card_id)) {
+                          levelsMap.set(row.card_id, []);
+                        }
+                        levelsMap.get(row.card_id).push({
+                          framework: row.framework,
+                          level: row.level,
+                          language: row.language || null
+                        });
                         // Also set CEFR level for backward compatibility
                         if (row.framework === 'CEFR') {
                           cefrLevelMap.set(row.card_id, row.level);
@@ -1183,17 +1837,16 @@ export default {
                   })
                 );
               }
-              
-              // Execute in smaller batches to avoid too many concurrent queries
-              // This prevents "too many SQL variables" error when many queries run simultaneously
-              const maxConcurrentBatchQueries = 5; // Limit concurrent batch queries
-              for (let i = 0; i < allPromises.length; i += maxConcurrentBatchQueries) {
-                const batch = allPromises.slice(i, i + maxConcurrentBatchQueries);
-                await Promise.all(batch);
-              }
-              const batchTime = Date.now() - batchStart;
-              console.log(`[PERF /api/search] Batch fetch: ${batchTime}ms for ${cardIds.length} cards`);
             }
+            
+            // Execute batches with increased concurrency for better performance
+            const maxConcurrentBatchQueries = 15; // Increased from 5 to 15
+            for (let i = 0; i < allPromises.length; i += maxConcurrentBatchQueries) {
+              const batch = allPromises.slice(i, i + maxConcurrentBatchQueries);
+              await Promise.all(batch);
+            }
+            const batchTime = Date.now() - batchStart;
+            console.log(`[PERF /api/search] Combined batch fetch: ${batchTime}ms for ${cardIds.length} cards`);
 
             // Map cards to response format - main subtitle already included
             const allMappedCards = cardRows.map(r => ({
@@ -1274,10 +1927,23 @@ export default {
           const totalTime = Date.now() - startTime;
           console.log(`[PERF /api/search] Total: ${totalTime}ms | Query: ${queryTime}ms | Cards: ${items.length} | Page: ${page}`);
 
+          const responseData = { items, total, page, size };
+          
+          // Save to KV cache (async, don't wait)
+          if (env.SEARCH_CACHE) {
+            env.SEARCH_CACHE.put(cacheKey, JSON.stringify({
+              data: responseData,
+              timestamp: Date.now()
+            }), { expirationTtl: CACHE_TTL }).catch(err => {
+              console.error('[CACHE ERROR /api/search] Failed to save cache:', err);
+            });
+          }
+
           // Add cache headers for faster subsequent requests
-          const response = json({ items, total, page, size }, {
+          const response = json(responseData, {
             headers: {
               'Cache-Control': 'public, max-age=60, s-maxage=60', // Cache for 1 minute
+              'X-Cache': 'MISS',
             }
           });
           return response;
@@ -1299,7 +1965,28 @@ export default {
 
       // Get card counts per content item (for ContentSelector)
       if (path === '/api/search/counts' && request.method === 'GET') {
+        // Build cache key from query params
+        const countsCacheKey = `search_counts:${url.searchParams.toString()}`;
+        const COUNTS_CACHE_TTL = 60; // 60 seconds cache for counts (less frequently updated)
+        
         try {
+          // Check KV cache first
+          if (env.SEARCH_CACHE) {
+            const cached = await env.SEARCH_CACHE.get(countsCacheKey, { type: 'json' });
+            if (cached && cached.data && cached.timestamp) {
+              const age = (Date.now() - cached.timestamp) / 1000;
+              if (age < COUNTS_CACHE_TTL) {
+                console.log(`[CACHE HIT /api/search/counts] Age: ${age.toFixed(1)}s`);
+                return json(cached.data, {
+                  headers: {
+                    'X-Cache': 'HIT',
+                    'X-Cache-Age': Math.round(age).toString(),
+                  }
+                });
+              }
+            }
+          }
+          
           const mainLanguage = url.searchParams.get('main_language');
           const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
           const contentIdsCsv = url.searchParams.get('content_ids') || '';
@@ -1697,7 +2384,24 @@ export default {
             totalParams: countsParams.length,
             hasSubtitleLangs: subtitleLangsCount > 0
           });
-          return json({ counts: countsMap });
+          
+          const responseData = { counts: countsMap };
+          
+          // Save to KV cache (async, don't wait)
+          if (env.SEARCH_CACHE) {
+            env.SEARCH_CACHE.put(countsCacheKey, JSON.stringify({
+              data: responseData,
+              timestamp: Date.now()
+            }), { expirationTtl: COUNTS_CACHE_TTL }).catch(err => {
+              console.error('[CACHE ERROR /api/search/counts] Failed to save cache:', err);
+            });
+          }
+          
+          return json(responseData, {
+            headers: {
+              'X-Cache': 'MISS',
+            }
+          });
 
         } catch (e) {
           console.error('[WORKER /api/search/counts] Error:', e);

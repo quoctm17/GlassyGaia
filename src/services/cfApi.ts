@@ -1920,3 +1920,108 @@ export async function apiGetUserRoles(userId: string): Promise<string[]> {
   const data = await res.json();
   return data.roles || [];
 }
+
+// ==================== MEILISEARCH SYNC ====================
+
+export interface MeilisearchSyncResult {
+  success: boolean;
+  synced: number;
+  offset: number;
+  total_in_batch: number;
+  message: string;
+}
+
+export async function apiMeilisearchSetup(): Promise<{ success: boolean; action: string; index: string; message: string }> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/api/meilisearch/setup`, {
+    headers: { Accept: 'application/json' },
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Meilisearch setup failed: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiMeilisearchSync(params: {
+  batch_size?: number;
+  offset?: number;
+  full?: boolean;
+}): Promise<MeilisearchSyncResult> {
+  assertApiBase();
+  const urlParams = new URLSearchParams();
+  if (params.batch_size) urlParams.set('batch_size', String(params.batch_size));
+  if (params.offset) urlParams.set('offset', String(params.offset));
+  if (params.full) urlParams.set('full', 'true');
+  
+  const res = await fetch(`${API_BASE}/api/meilisearch/sync?${urlParams.toString()}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Meilisearch sync failed: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export interface MeilisearchProgress {
+  totalSynced: number;
+  currentOffset: number;
+  batchesProcessed: number;
+  totalCards: number;
+  updatedAt?: number;
+}
+
+export async function apiMeilisearchStats(): Promise<{ 
+  success: boolean; 
+  totalCards: number;
+  progress: MeilisearchProgress | null;
+}> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/api/meilisearch/stats`, {
+    headers: { Accept: 'application/json' },
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Meilisearch stats failed: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiMeilisearchSaveProgress(progress: MeilisearchProgress): Promise<{ success: boolean }> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/api/meilisearch/progress`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(progress),
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Meilisearch save progress failed: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}
+
+export async function apiMeilisearchClearProgress(): Promise<{ success: boolean }> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/api/meilisearch/progress`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Meilisearch clear progress failed: ${res.status} ${text}`);
+  }
+  
+  return await res.json();
+}

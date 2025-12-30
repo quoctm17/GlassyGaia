@@ -5,6 +5,7 @@ import { registerUser, getUserProfile, updateUserPreferences, getUserRoles } fro
 import { loginWithEmailPassword } from "../services/authentication";
 // Google OAuth2 (replaces Firebase) – used for Google sign-in
 import { signInWithGoogle } from "../services/googleAuth";
+import toast from "react-hot-toast";
 
 interface CtxValue {
   user: AppUser | null;
@@ -216,7 +217,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   const signInGoogle = async () => {
     if (!hasGoogleConfig) {
-      console.error('Google OAuth not configured. Please set VITE_GOOGLE_CLIENT_ID');
+      const errorMsg = 'Google OAuth not configured. Please set VITE_GOOGLE_CLIENT_ID';
+      console.error(errorMsg);
+      toast.error(errorMsg);
       return;
     }
     
@@ -260,14 +263,21 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             roles: result.user.roles || [],
           });
           
+          toast.success('Signed in successfully!');
         } catch (error) {
           console.error('Failed to register user in database:', error);
+          toast.error('Failed to register user. Please try again.');
         }
       } else {
-        throw new Error(result.error || 'Google sign-in failed');
+        const errorMsg = result.error || 'Google sign-in failed';
+        console.error('Google sign-in failed:', errorMsg);
+        toast.error(errorMsg);
+        throw new Error(errorMsg);
       }
     } catch (error) {
+      const errorMsg = (error as Error).message || 'Google sign-in error';
       console.error('Google sign-in error:', error);
+      toast.error(errorMsg);
       throw error;
     }
   };
