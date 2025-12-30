@@ -32,6 +32,17 @@ function assertGoogleConfig() {
 /**
  * Initialize Google OAuth2
  * Loads the Google Identity Services library
+ * 
+ * IMPORTANT: To fix "origin not allowed" errors:
+ * 1. Go to Google Cloud Console: https://console.cloud.google.com/
+ * 2. Select your project
+ * 3. Go to APIs & Services > Credentials
+ * 4. Click on your OAuth 2.0 Client ID
+ * 5. Add your origin to "Authorized JavaScript origins":
+ *    - For local dev: http://localhost:5173, http://localhost:3000, etc.
+ *    - For production: https://yourdomain.com
+ * 6. Add redirect URIs to "Authorized redirect URIs" if needed
+ * 7. Save changes and wait a few minutes for propagation
  */
 export function initGoogleAuth(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -45,14 +56,20 @@ export function initGoogleAuth(): Promise<void> {
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
+    script.onerror = () => {
+      const currentOrigin = window.location.origin;
+      reject(new Error(
+        `Failed to load Google Identity Services. ` +
+        `Please check your internet connection and ensure ${currentOrigin} is authorized in Google Cloud Console.`
+      ));
+    };
     document.head.appendChild(script);
   });
 }
 
 /**
  * Sign in with Google using OAuth2
- * Uses Google Identity Services to get ID token via popup-like flow
+ * Uses Google Identity Services One Tap or prompt for faster sign-in
  */
 export async function signInWithGoogle(): Promise<{
   success: boolean;
@@ -73,78 +90,167 @@ export async function signInWithGoogle(): Promise<{
     // Initialize Google Auth if not already loaded
     await initGoogleAuth();
 
-    // Use Google Sign-In with popup-like experience
+    if (!window.google?.accounts) {
+      return { success: false, error: 'Google Identity Services not loaded. Please check your internet connection and try again.' };
+    }
+
+    // Use button-based flow (simpler and more reliable)
     return new Promise((resolve) => {
-      // Create a hidden container for the button
-      const container = document.createElement('div');
-      container.style.position = 'fixed';
-      container.style.top = '50%';
-      container.style.left = '50%';
-      container.style.transform = 'translate(-50%, -50%)';
-      container.style.zIndex = '10000';
-      container.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-      container.style.width = '100%';
-      container.style.height = '100%';
-      container.style.display = 'flex';
-      container.style.alignItems = 'center';
-      container.style.justifyContent = 'center';
-      
+      let resolved = false;
+
+      // Create overlay with button
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      `;
+
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        max-width: 400px;
+        width: 90%;
+        text-align: center;
+        position: relative;
+      `;
+
+      const title = document.createElement('h2');
+      title.textContent = 'Sign in with Google';
+      title.style.cssText = 'margin: 0 0 1rem 0; font-size: 1.25rem; color: #333;';
+      modal.appendChild(title);
+
       const buttonContainer = document.createElement('div');
-      buttonContainer.style.backgroundColor = 'white';
-      buttonContainer.style.padding = '20px';
-      buttonContainer.style.borderRadius = '8px';
-      container.appendChild(buttonContainer);
-      
-      document.body.appendChild(container);
+      buttonContainer.id = 'google-signin-button-container-' + Date.now();
+      modal.appendChild(buttonContainer);
 
-      if (!window.google) {
-        document.body.removeChild(container);
-        resolve({ success: false, error: 'Google Identity Services not loaded' });
-        return;
-      }
-
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID!,
-        callback: async (response: { credential: string }) => {
-          document.body.removeChild(container);
-          
-          if (!response.credential) {
-            resolve({ success: false, error: 'No credential received' });
-            return;
-          }
-
-          // Verify token with backend
-          const result = await signInWithGoogleIdToken(response.credential);
-          resolve(result);
-        },
-      });
-
-      // Render button in the popup
-      window.google.accounts.id.renderButton(buttonContainer, {
-        type: 'standard',
-        theme: 'outline',
-        size: 'large',
-        text: 'signin_with',
-      });
-
-      // Close button
       const closeBtn = document.createElement('button');
       closeBtn.textContent = '✕';
-      closeBtn.style.position = 'absolute';
-      closeBtn.style.top = '10px';
-      closeBtn.style.right = '10px';
-      closeBtn.style.background = 'none';
-      closeBtn.style.border = 'none';
-      closeBtn.style.fontSize = '24px';
-      closeBtn.style.cursor = 'pointer';
+      closeBtn.style.cssText = `
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        padding: 0;
+        width: 30px;
+        height: 30px;
+        color: #666;
+      `;
       closeBtn.onclick = () => {
-        document.body.removeChild(container);
-        resolve({ success: false, error: 'Sign-in cancelled' });
+        if (overlay.parentNode) {
+          document.body.removeChild(overlay);
+        }
+        if (!resolved) {
+          resolved = true;
+          resolve({ success: false, error: 'Sign-in cancelled' });
+        }
       };
-      container.appendChild(closeBtn);
+      modal.appendChild(closeBtn);
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      // Initialize and render button
+      try {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID!,
+          callback: async (response: { credential: string }) => {
+            if (overlay.parentNode) {
+              document.body.removeChild(overlay);
+            }
+            
+            if (!response.credential) {
+              if (!resolved) {
+                resolved = true;
+                resolve({ success: false, error: 'No credential received' });
+              }
+              return;
+            }
+
+            // Verify token with backend
+            try {
+              const result = await signInWithGoogleIdToken(response.credential);
+              if (!resolved) {
+                resolved = true;
+                resolve(result);
+              }
+            } catch (error) {
+              if (!resolved) {
+                resolved = true;
+                resolve({ success: false, error: (error as Error).message });
+              }
+            }
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+
+        // Render button
+        window.google.accounts.id.renderButton(buttonContainer, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+          width: 300,
+        });
+      } catch (error) {
+        if (overlay.parentNode) {
+          document.body.removeChild(overlay);
+        }
+        if (!resolved) {
+          resolved = true;
+          const errorMsg = (error as Error).message;
+          const currentOrigin = window.location.origin;
+          let helpfulMsg = errorMsg;
+          
+          if (errorMsg.includes('origin') || errorMsg.includes('403') || errorMsg.includes('not allowed') || errorMsg.includes('GSI_LOGGER')) {
+            helpfulMsg = `Origin "${currentOrigin}" is not authorized.\n\n` +
+              `Please add it to Google Cloud Console:\n` +
+              `1. Go to: https://console.cloud.google.com/apis/credentials\n` +
+              `2. Click your OAuth 2.0 Client ID\n` +
+              `3. Add "${currentOrigin}" to "Authorized JavaScript origins"\n` +
+              `4. Save and wait a few minutes`;
+          } else {
+            helpfulMsg = `Failed to initialize Google Sign-In: ${errorMsg}. Please check that your origin (${currentOrigin}) is authorized in Google Cloud Console.`;
+          }
+          
+          resolve({ 
+            success: false, 
+            error: helpfulMsg
+          });
+        }
+      }
     });
   } catch (error) {
-    return { success: false, error: (error as Error).message };
+    const errorMsg = (error as Error).message;
+    const currentOrigin = window.location.origin;
+    
+    // Provide helpful error message for common issues
+    let helpfulMsg = errorMsg;
+    if (errorMsg.includes('origin') || errorMsg.includes('403') || errorMsg.includes('not allowed')) {
+      helpfulMsg = `Origin not authorized. Please add "${currentOrigin}" to Authorized JavaScript origins in Google Cloud Console:\n\n` +
+        `1. Go to: https://console.cloud.google.com/apis/credentials\n` +
+        `2. Click your OAuth 2.0 Client ID\n` +
+        `3. Add "${currentOrigin}" to "Authorized JavaScript origins"\n` +
+        `4. Save and wait a few minutes for changes to propagate`;
+    }
+    
+    return { 
+      success: false, 
+      error: helpfulMsg
+    };
   }
 }
 

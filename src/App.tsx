@@ -42,6 +42,7 @@ const AdminDatabasePage = lazy(() => import('./pages/admin/AdminDatabasePage'));
 const AdminImageMigrationPage = lazy(() => import('./pages/admin/AdminImageMigrationPage'));
 const AdminPathMigrationPage = lazy(() => import('./pages/admin/AdminPathMigrationPage'));
 const AdminAudioMigrationPage = lazy(() => import('./pages/admin/AdminAudioMigrationPage'));
+const AdminMeilisearchPage = lazy(() => import('./pages/admin/AdminMeilisearchPage'));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -116,6 +117,8 @@ function App() {
                 <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
                 {/* Admin Categories Management */}
                 <Route path="categories" element={<AdminCategoriesPage />} />
+                {/* Admin Meilisearch Sync */}
+                <Route path="meilisearch" element={<AdminMeilisearchPage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />
