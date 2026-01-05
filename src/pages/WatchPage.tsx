@@ -20,7 +20,7 @@ import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from '../types
 import { getEpisodeProgress, markCardComplete, markCardIncomplete } from '../services/userProgress';
 import { useUser } from '../context/UserContext';
 import LearningProgressBar from '../components/LearningProgressBar';
-import { canonicalizeLangCode, langLabel } from '../utils/lang';
+import { canonicalizeLangCode } from '../utils/lang';
 import { normalizeCjkSpacing } from '../utils/subtitles';
 import rightAngleIcon from '../assets/icons/right-angle.svg';
 import filterIcon from '../assets/icons/filter.svg';

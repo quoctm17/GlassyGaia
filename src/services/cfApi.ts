@@ -1248,13 +1248,6 @@ export async function apiImport(payload: ImportPayload) {
 }
 
 // Categories API
-export interface Category {
-  id: string;
-  name: string;
-  created_at?: number;
-  updated_at?: number;
-}
-
 export async function apiListCategories(): Promise<Category[]> {
   assertApiBase();
   const res = await getJson<{ categories: Category[] }>('/categories');
