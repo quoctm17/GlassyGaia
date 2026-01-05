@@ -1,5 +1,5 @@
 // Cloudflare API client and helpers for D1 + R2
-import type { CardDoc, FilmDoc, EpisodeDetailDoc, LevelFrameworkStats } from "../types";
+import type { CardDoc, FilmDoc, EpisodeDetailDoc, LevelFrameworkStats, Category } from "../types";
 
 function normalizeBase(input: string | undefined): string {
   if (!input) return "";
@@ -177,6 +177,9 @@ export async function apiListItems(): Promise<FilmDoc[]> {
       return undefined;
     })(),
     level_framework_stats: (f as Partial<FilmDoc> & { level_framework_stats?: string | LevelFrameworkStats[] | null }).level_framework_stats ?? null,
+    categories: Array.isArray((f as Partial<FilmDoc> & { categories?: Category[] }).categories) 
+      ? (f as Partial<FilmDoc> & { categories?: Category[] }).categories 
+      : [],
   }));
   
   // Save to localStorage cache
@@ -1921,107 +1924,125 @@ export async function apiGetUserRoles(userId: string): Promise<string[]> {
   return data.roles || [];
 }
 
-// ==================== MEILISEARCH SYNC ====================
+// ==================== Level Assessment APIs ====================
 
-export interface MeilisearchSyncResult {
-  success: boolean;
-  synced: number;
-  offset: number;
-  total_in_batch: number;
-  message: string;
+export interface ReferenceImportProgress {
+  processed: number;
+  total: number;
+  errors: string[];
 }
 
-export async function apiMeilisearchSetup(): Promise<{ success: boolean; action: string; index: string; message: string }> {
+export async function apiImportReferenceData(
+  type: 'cefr' | 'reference' | 'frequency',
+  data: Array<Record<string, unknown>>,
+  framework?: string
+): Promise<{ success: boolean; errors?: string[] }> {
   assertApiBase();
-  const res = await fetch(`${API_BASE}/api/meilisearch/setup`, {
-    headers: { Accept: 'application/json' },
-  });
+  const fullUrl = `${API_BASE}/admin/import-reference`;
   
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Meilisearch setup failed: ${res.status} ${text}`);
-  }
-  
-  return await res.json();
-}
-
-export async function apiMeilisearchSync(params: {
-  batch_size?: number;
-  offset?: number;
-  full?: boolean;
-}): Promise<MeilisearchSyncResult> {
-  assertApiBase();
-  const urlParams = new URLSearchParams();
-  if (params.batch_size) urlParams.set('batch_size', String(params.batch_size));
-  if (params.offset) urlParams.set('offset', String(params.offset));
-  if (params.full) urlParams.set('full', 'true');
-  
-  const res = await fetch(`${API_BASE}/api/meilisearch/sync?${urlParams.toString()}`, {
+  const res = await fetch(fullUrl, {
     method: 'POST',
-    headers: { Accept: 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({ type: type === 'reference' ? 'cefr' : type, data, framework }),
   });
   
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Meilisearch sync failed: ${res.status} ${text}`);
+    throw new Error(`Failed to import reference data: ${res.status} ${text}`);
   }
   
   return await res.json();
 }
 
-export interface MeilisearchProgress {
-  totalSynced: number;
-  currentOffset: number;
-  batchesProcessed: number;
-  totalCards: number;
-  updatedAt?: number;
-}
-
-export async function apiMeilisearchStats(): Promise<{ 
-  success: boolean; 
-  totalCards: number;
-  progress: MeilisearchProgress | null;
-}> {
+export async function apiAssessContentLevel(
+  contentSlug: string,
+  _onProgress?: (progress: { cardsProcessed: number; totalCards: number }) => void
+): Promise<{ success: boolean }> {
   assertApiBase();
-  const res = await fetch(`${API_BASE}/api/meilisearch/stats`, {
-    headers: { Accept: 'application/json' },
-  });
+  const fullUrl = `${API_BASE}/admin/assess-content-level`;
   
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Meilisearch stats failed: ${res.status} ${text}`);
-  }
-  
-  return await res.json();
-}
-
-export async function apiMeilisearchSaveProgress(progress: MeilisearchProgress): Promise<{ success: boolean }> {
-  assertApiBase();
-  const res = await fetch(`${API_BASE}/api/meilisearch/progress`, {
+  // Use fetch with streaming or polling for progress
+  const res = await fetch(fullUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(progress),
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({ contentSlug }),
   });
   
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Meilisearch save progress failed: ${res.status} ${text}`);
+    throw new Error(`Failed to assess content level: ${res.status} ${text}`);
+  }
+  
+  // For now, return immediately. Progress tracking would need server-sent events or polling
+  return await res.json();
+}
+
+export async function apiGetSystemConfig(key: string): Promise<string | null> {
+  assertApiBase();
+  const fullUrl = `${API_BASE}/admin/system-config/${key}`;
+  
+  const res = await fetch(fullUrl, {
+    headers: { 
+      'Accept': 'application/json',
+    },
+    cache: 'no-store',
+  });
+  
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to get system config: ${res.status} ${text}`);
+  }
+  
+  const data = await res.json();
+  return data.value || null;
+}
+
+export async function apiUpdateSystemConfig(key: string, value: string): Promise<{ success: boolean }> {
+  assertApiBase();
+  const fullUrl = `${API_BASE}/admin/system-config/${key}`;
+  
+  const res = await fetch(fullUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({ value }),
+  });
+  
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to update system config: ${res.status} ${text}`);
   }
   
   return await res.json();
 }
 
-export async function apiMeilisearchClearProgress(): Promise<{ success: boolean }> {
+// Check if reference data exists for a framework
+export async function apiCheckReferenceData(framework: string): Promise<{ exists: boolean; hasReferenceList: boolean; hasFrequencyData: boolean }> {
   assertApiBase();
-  const res = await fetch(`${API_BASE}/api/meilisearch/progress`, {
-    method: 'DELETE',
-    headers: { Accept: 'application/json' },
+  const fullUrl = `${API_BASE}/admin/check-reference-data?framework=${encodeURIComponent(framework)}`;
+  
+  const res = await fetch(fullUrl, {
+    headers: { 
+      'Accept': 'application/json',
+    },
+    cache: 'no-store',
   });
   
   if (!res.ok) {
+    if (res.status === 404) return { exists: false, hasReferenceList: false, hasFrequencyData: false };
     const text = await res.text().catch(() => '');
-    throw new Error(`Meilisearch clear progress failed: ${res.status} ${text}`);
+    throw new Error(`Failed to check reference data: ${res.status} ${text}`);
   }
   
   return await res.json();
 }
+

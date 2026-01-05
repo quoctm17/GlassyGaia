@@ -7,7 +7,6 @@ import SubtitleLanguageSelector from "./SubtitleLanguageSelector";
 import ThemeToggle from "./ThemeToggle";
 import searchIcon from "../assets/icons/search.svg";
 import mediaIcon from "../assets/icons/media.svg";
-import bookIcon from "../assets/icons/book.svg";
 import contentIcon from "../assets/icons/content.svg";
 import watchlistIcon from "../assets/icons/watchlist.svg";
 import loginIcon from "../assets/icons/log-in.svg";
@@ -51,40 +50,22 @@ export default function NavBar() {
             Search
           </NavLink>
           <NavLink
-            to="/content"
+            to="/content?type=movie"
             className={({ isActive }) =>
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
-            <img src={mediaIcon} alt="Movie" className="navbar-icon" />
-            Movie
+            <img src={mediaIcon} alt="Library" className="navbar-icon" />
+            Library
           </NavLink>
           <NavLink
-            to="/series"
+            to="/portfolio"
             className={({ isActive }) =>
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
-            <img src={mediaIcon} alt="Series" className="navbar-icon" />
-            Series
-          </NavLink>
-          <NavLink
-            to="/book"
-            className={({ isActive }) =>
-              `pixel-tab ${isActive ? "active" : ""}`
-            }
-          >
-            <img src={bookIcon} alt="Book" className="navbar-icon" />
-            Book
-          </NavLink>
-          <NavLink
-            to="/video"
-            className={({ isActive }) =>
-              `pixel-tab ${isActive ? "active" : ""}`
-            }
-          >
-            <img src={watchlistIcon} alt="Video" className="navbar-icon" />
-            Video
+            <img src={contentIcon} alt="Portfolio" className="navbar-icon" />
+            Portfolio
           </NavLink>
         </div>
       </div>
@@ -148,14 +129,6 @@ export default function NavBar() {
                 >
                   <img src={watchlistIcon} alt="Saved Cards" className="dropdown-icon" />
                   Saved Cards
-                </Link>
-                <Link
-                  to="/portfolio"
-                  className="user-dropdown-item"
-                  onClick={() => setOpen(false)}
-                >
-                  <img src={contentIcon} alt="Portfolio" className="dropdown-icon" />
-                  Portfolio
                 </Link>
                 <button
                   onClick={() => {

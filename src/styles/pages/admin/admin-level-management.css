@@ -1,0 +1,343 @@
+.admin-level-management {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.admin-page-header {
+  margin-bottom: 32px;
+}
+
+.admin-page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.admin-page-subtitle {
+  color: var(--neutral);
+  font-size: 14px;
+}
+
+.admin-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cutoff-ranks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.cutoff-rank-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cutoff-rank-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.import-section {
+  padding: 20px;
+  background: var(--background);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+}
+
+.import-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.import-section-description {
+  font-size: 12px;
+  color: var(--neutral);
+  margin-bottom: 16px;
+}
+
+.import-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  background: var(--background);
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.file-input::file-selector-button {
+  padding: 6px 12px;
+  margin-right: 12px;
+  background: var(--primary);
+  color: var(--background);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.file-input::file-selector-button:hover {
+  opacity: 0.9;
+}
+
+.import-progress {
+  margin-top: 16px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 24px;
+  background: var(--primary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--hover-select);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: var(--neutral);
+  text-align: center;
+}
+
+.import-errors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 4px;
+  color: #ef4444;
+  font-size: 12px;
+}
+
+.assessment-description {
+  font-size: 14px;
+  color: var(--neutral);
+  margin-bottom: 16px;
+}
+
+.assessment-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.assessment-controls .admin-input {
+  flex: 1;
+  min-width: 300px;
+}
+
+/* Quick Guide Styles */
+.quick-guide {
+  margin-bottom: 24px;
+}
+
+.quick-guide-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.guide-section {
+  padding: 16px;
+  background: var(--hover-bg);
+  border-radius: 8px;
+  border: 1px solid var(--primary);
+}
+
+.guide-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.guide-section p {
+  font-size: 14px;
+  color: var(--neutral);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.guide-list {
+  margin: 12px 0;
+  padding-left: 24px;
+  color: var(--neutral);
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.guide-list li {
+  margin-bottom: 8px;
+}
+
+.guide-list code {
+  background: var(--primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--hover-select);
+}
+
+.guide-note {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 3px solid #3b82f6;
+  border-radius: 4px;
+}
+
+.guide-note strong {
+  color: var(--text);
+}
+
+/* Framework Selector */
+.framework-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--hover-bg);
+  border-radius: 8px;
+  border: 1px solid var(--primary);
+}
+
+.framework-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  min-width: 80px;
+}
+
+.framework-selector .admin-input {
+  flex: 1;
+  max-width: 200px;
+}
+
+.import-section-format {
+  font-size: 12px;
+  color: var(--neutral);
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--hover-bg);
+  border-radius: 4px;
+}
+
+/* CSV Preview Section */
+.csv-preview-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--hover-bg);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+}
+
+.csv-status-valid,
+.csv-status-invalid {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.csv-status-valid {
+  color: #10b981;
+}
+
+.csv-status-invalid {
+  color: #ef4444;
+}
+
+.csv-error-list {
+  list-style: disc;
+  padding-left: 20px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.csv-table-container {
+  overflow: auto;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  max-height: 400px;
+  margin-top: 12px;
+}
+
+.csv-table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+
+.csv-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--background);
+  z-index: 10;
+}
+
+.csv-table th {
+  border: 1px solid var(--primary);
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.csv-table td {
+  border: 1px solid var(--primary);
+  padding: 6px 8px;
+  color: var(--neutral);
+}
+
+.csv-cell-index {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.csv-cell-normal {
+  color: var(--text);
+}
+
+.csv-table tbody tr:hover {
+  background: var(--hover-bg);
+}
+
+.csv-preview-note {
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  background: var(--hover-bg);
+  border-top: 1px solid var(--primary);
+}
+

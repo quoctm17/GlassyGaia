@@ -144,327 +144,6 @@ function json(data, init = {}) {
   return new Response(JSON.stringify(data), { ...init, headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) });
 }
 
-// ==================== MEILISEARCH CLIENT ====================
-
-/**
- * Simple Meilisearch client for Cloudflare Workers
- * Meilisearch API: https://www.meilisearch.com/docs/reference/api
- */
-class MeilisearchClient {
-  constructor(host, apiKey) {
-    this.host = host.replace(/\/$/, ''); // Remove trailing slash
-    this.apiKey = apiKey;
-  }
-
-  async request(method, path, body = null) {
-    const url = `${this.host}${path}`;
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
-    }
-
-    const options = {
-      method,
-      headers,
-    };
-    if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-      options.body = JSON.stringify(body);
-    }
-
-    const response = await fetch(url, options);
-    
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(`Meilisearch error: ${response.status} ${errorText}`);
-    }
-
-    if (response.status === 204) {
-      return null;
-    }
-
-    return await response.json();
-  }
-
-  // Index operations
-  async getIndex(uid) {
-    return this.request('GET', `/indexes/${uid}`);
-  }
-
-  async createIndex(uid, options = {}) {
-    return this.request('POST', '/indexes', { uid, ...options });
-  }
-
-  async updateIndex(uid, options) {
-    return this.request('PATCH', `/indexes/${uid}`, options);
-  }
-
-  async deleteIndex(uid) {
-    return this.request('DELETE', `/indexes/${uid}`);
-  }
-
-  // Document operations
-  async addDocuments(uid, documents, options = {}) {
-    const params = new URLSearchParams();
-    if (options.primaryKey) params.set('primaryKey', options.primaryKey);
-    const queryString = params.toString();
-    const path = `/indexes/${uid}/documents${queryString ? '?' + queryString : ''}`;
-    return this.request('POST', path, documents);
-  }
-
-  async updateDocuments(uid, documents, options = {}) {
-    return this.request('PUT', `/indexes/${uid}/documents`, documents, options);
-  }
-
-  async deleteDocuments(uid, documentIds) {
-    return this.request('POST', `/indexes/${uid}/documents/delete-batch`, documentIds);
-  }
-
-  async deleteAllDocuments(uid) {
-    return this.request('DELETE', `/indexes/${uid}/documents`);
-  }
-
-  // Search operations
-  async search(uid, query, options = {}) {
-    return this.request('POST', `/indexes/${uid}/search`, { q: query, ...options });
-  }
-
-  // Settings operations
-  async updateSettings(uid, settings) {
-    return this.request('PATCH', `/indexes/${uid}/settings`, settings);
-  }
-
-  async getSettings(uid) {
-    return this.request('GET', `/indexes/${uid}/settings`);
-  }
-
-  // Task operations (for checking sync status)
-  async getTask(uid, taskUid) {
-    return this.request('GET', `/tasks/${taskUid}`);
-  }
-}
-
-// Helper to get or create Meilisearch client
-function getMeilisearchClient(env) {
-  const host = env.MEILISEARCH_HOST;
-  const apiKey = env.MEILISEARCH_API_KEY;
-  
-  if (!host) {
-    return null; // Meilisearch not configured
-  }
-  
-  return new MeilisearchClient(host, apiKey);
-}
-
-// Meilisearch index configuration
-const MEILISEARCH_INDEX_UID = 'cards';
-const MEILISEARCH_INDEX_SETTINGS = {
-  searchableAttributes: [
-    'text', // Main subtitle text (most important)
-    'content_title', // Content title for context
-  ],
-  filterableAttributes: [
-    'content_slug', // Filter by content
-    'content_main_language', // Filter by main language
-    'subtitle_languages', // Filter by available subtitle languages (array)
-    'difficulty_score', // Numeric range filter
-    'levels_framework', // Filter by framework (CEFR, JLPT, HSK)
-    'levels_level', // Filter by level (A1, N5, etc.)
-    'episode_slug', // Filter by episode
-    'is_available', // Filter by availability
-  ],
-  sortableAttributes: [
-    'difficulty_score', // Sort by difficulty
-    'episode_number', // Sort by episode
-    'card_number', // Sort by card number
-  ],
-  rankingRules: [
-    'words',
-    'typo',
-    'proximity',
-    'attribute',
-    'sort',
-    'exactness',
-  ],
-  // Store all fields for enrichment later
-  displayedAttributes: [
-    'card_id',
-    'content_slug',
-    'content_title',
-    'episode_slug',
-    'episode_number',
-    'card_number',
-    'text',
-    'content_main_language',
-    'subtitle_languages',
-    'difficulty_score',
-    'levels',
-    'is_available',
-  ],
-};
-
-// Setup Meilisearch index (create or update settings)
-async function setupMeilisearchIndex(client) {
-  if (!client) return null;
-  
-  try {
-    // Try to get existing index
-    try {
-      await client.getIndex(MEILISEARCH_INDEX_UID);
-      // Index exists, update settings
-      await client.updateSettings(MEILISEARCH_INDEX_UID, MEILISEARCH_INDEX_SETTINGS);
-      return { action: 'updated', index: MEILISEARCH_INDEX_UID };
-    } catch (e) {
-      // Index doesn't exist, create it
-      await client.createIndex(MEILISEARCH_INDEX_UID, {
-        primaryKey: 'card_id',
-      });
-      await client.updateSettings(MEILISEARCH_INDEX_UID, MEILISEARCH_INDEX_SETTINGS);
-      return { action: 'created', index: MEILISEARCH_INDEX_UID };
-    }
-  } catch (error) {
-    console.error('[MEILISEARCH] Setup error:', error);
-    throw error;
-  }
-}
-
-// Transform card data from D1 to Meilisearch document format
-async function transformCardToMeilisearchDoc(env, cardRow, cardSubtitleText, cardSubtitleLangs, cardLevels) {
-  // cardRow contains: card_id, content_slug, content_title, episode_slug, episode_number, card_number, difficulty_score, content_main_language
-  // cardSubtitleText: main subtitle text (from content_main_language)
-  // cardSubtitleLangs: array of available subtitle language codes
-  // cardLevels: array of {framework, level, language}
-  
-  const levelsFramework = cardLevels.map(l => l.framework);
-  const levelsLevel = cardLevels.map(l => l.level);
-  
-  return {
-    card_id: cardRow.card_id,
-    content_slug: cardRow.content_slug,
-    content_title: cardRow.content_title || '',
-    episode_slug: cardRow.episode_slug,
-    episode_number: cardRow.episode_number || 0,
-    card_number: cardRow.card_number || 0,
-    text: cardSubtitleText || '', // Main subtitle text for search
-    content_main_language: cardRow.content_main_language || '',
-    subtitle_languages: cardSubtitleLangs || [], // Array of available subtitle languages
-    difficulty_score: cardRow.difficulty_score ?? null,
-    levels: cardLevels, // Full levels array for display
-    levels_framework: levelsFramework, // For filtering
-    levels_level: levelsLevel, // For filtering
-    is_available: cardRow.is_available !== 0 ? true : false,
-  };
-}
-
-// Fetch cards from D1 and transform to Meilisearch documents (batch processing)
-// OPTIMIZED: Split subtitle/level fetching into smaller batches to avoid "too many SQL variables" error
-async function fetchCardsForMeilisearch(env, batchSize = 500, offset = 0) {
-  // Fetch cards with all necessary data
-  const cardsResult = await env.DB.prepare(`
-    SELECT 
-      c.id AS card_id,
-      c.card_number,
-      c.difficulty_score,
-      c.is_available,
-      e.slug AS episode_slug,
-      e.episode_number,
-      ci.slug AS content_slug,
-      ci.title AS content_title,
-      ci.main_language AS content_main_language
-    FROM cards c
-    JOIN episodes e ON e.id = c.episode_id
-    JOIN content_items ci ON ci.id = e.content_item_id
-    WHERE c.is_available = 1
-    ORDER BY c.id
-    LIMIT ? OFFSET ?
-  `).bind(batchSize, offset).all();
-  
-  const cardRows = cardsResult.results || [];
-  if (cardRows.length === 0) return [];
-  
-  const cardIds = cardRows.map(r => r.card_id);
-  
-  // Build maps for efficient lookup
-  const subtitlesMap = new Map(); // card_id -> {language: text}
-  const subtitleLangsMap = new Map(); // card_id -> [languages]
-  const levelsMap = new Map(); // card_id -> [{framework, level, language}]
-  
-  // OPTIMIZED: Fetch subtitles and levels in smaller batches to avoid SQL variable limit
-  // SQLite limit is ~999 variables, so we use 100 cards per batch (safe margin)
-  const subBatchSize = 100;
-  
-  // Fetch subtitles in batches
-  for (let i = 0; i < cardIds.length; i += subBatchSize) {
-    const subBatch = cardIds.slice(i, i + subBatchSize);
-    const placeholders = subBatch.map(() => '?').join(',');
-    
-    try {
-      const subtitlesResult = await env.DB.prepare(`
-        SELECT card_id, language, text
-        FROM card_subtitles
-        WHERE card_id IN (${placeholders})
-          AND text IS NOT NULL
-          AND LENGTH(TRIM(text)) > 0
-      `).bind(...subBatch).all();
-      
-      (subtitlesResult.results || []).forEach(row => {
-        if (!subtitlesMap.has(row.card_id)) {
-          subtitlesMap.set(row.card_id, {});
-          subtitleLangsMap.set(row.card_id, []);
-        }
-        subtitlesMap.get(row.card_id)[row.language] = row.text;
-        subtitleLangsMap.get(row.card_id).push(row.language);
-      });
-    } catch (e) {
-      console.error(`[MEILISEARCH SYNC] Error fetching subtitles batch ${i}-${i + subBatch.length}:`, e);
-      // Continue with other batches even if one fails
-    }
-  }
-  
-  // Fetch levels in batches
-  for (let i = 0; i < cardIds.length; i += subBatchSize) {
-    const subBatch = cardIds.slice(i, i + subBatchSize);
-    const placeholders = subBatch.map(() => '?').join(',');
-    
-    try {
-      const levelsResult = await env.DB.prepare(`
-        SELECT card_id, framework, level, language
-        FROM card_difficulty_levels
-        WHERE card_id IN (${placeholders})
-      `).bind(...subBatch).all();
-      
-      (levelsResult.results || []).forEach(row => {
-        if (!levelsMap.has(row.card_id)) {
-          levelsMap.set(row.card_id, []);
-        }
-        levelsMap.get(row.card_id).push({
-          framework: row.framework,
-          level: row.level,
-          language: row.language || null
-        });
-      });
-    } catch (e) {
-      console.error(`[MEILISEARCH SYNC] Error fetching levels batch ${i}-${i + subBatch.length}:`, e);
-      // Continue with other batches even if one fails
-    }
-  }
-  
-  // Transform to Meilisearch documents
-  const documents = [];
-  for (const cardRow of cardRows) {
-    const cardSubtitleMap = subtitlesMap.get(cardRow.card_id) || {};
-    const mainLang = cardRow.content_main_language || '';
-    const mainSubtitleText = cardSubtitleMap[mainLang] || '';
-    const subtitleLangs = subtitleLangsMap.get(cardRow.card_id) || [];
-    const levels = levelsMap.get(cardRow.card_id) || [];
-    
-    const doc = await transformCardToMeilisearchDoc(env, cardRow, mainSubtitleText, subtitleLangs, levels);
-    documents.push(doc);
-  }
-  
-  return documents;
-}
 
 // Normalize Chinese text by removing pinyin brackets [pinyin] for search
 // Example: "请[qǐng]问[wèn]" -> "请问"
@@ -941,155 +620,7 @@ export default {
         }
       }
 
-      // ==================== MEILISEARCH SYNC ENDPOINT ====================
-      // POST /api/meilisearch/sync - Sync cards from D1 to Meilisearch
-      // Optional query params: ?batch_size=500&offset=0&full=false
-      if (path === '/api/meilisearch/sync' && request.method === 'POST') {
-        try {
-          const meilisearchClient = getMeilisearchClient(env);
-          if (!meilisearchClient) {
-            return json({ error: 'Meilisearch not configured' }, { status: 500 });
-          }
-          
-          // Setup index first
-          await setupMeilisearchIndex(meilisearchClient);
-          
-          const batchSize = Math.min(parseInt(url.searchParams.get('batch_size') || '500', 10), 1000);
-          const offset = parseInt(url.searchParams.get('offset') || '0', 10);
-          const fullSync = url.searchParams.get('full') === 'true';
-          
-          if (fullSync) {
-            // Full sync: delete all documents first
-            await meilisearchClient.deleteAllDocuments(MEILISEARCH_INDEX_UID);
-          }
-          
-          // Fetch cards and transform
-          const documents = await fetchCardsForMeilisearch(env, batchSize, offset);
-          
-          if (documents.length === 0) {
-            return json({ 
-              success: true, 
-              synced: 0, 
-              offset, 
-              message: 'No more cards to sync' 
-            });
-          }
-          
-          // Upload to Meilisearch
-          await meilisearchClient.addDocuments(MEILISEARCH_INDEX_UID, documents, {
-            primaryKey: 'card_id'
-          });
-          
-          return json({
-            success: true,
-            synced: documents.length,
-            offset: offset + documents.length,
-            total_in_batch: documents.length,
-            message: `Synced ${documents.length} cards`
-          });
-        } catch (e) {
-          console.error('[MEILISEARCH SYNC] Error:', e);
-          return json({ error: e.message }, { status: 500 });
-        }
-      }
-      
-      // GET /api/meilisearch/setup - Setup Meilisearch index (create/update settings)
-      if (path === '/api/meilisearch/setup' && request.method === 'GET') {
-        try {
-          const meilisearchClient = getMeilisearchClient(env);
-          if (!meilisearchClient) {
-            return json({ error: 'Meilisearch not configured' }, { status: 500 });
-          }
-          
-          const result = await setupMeilisearchIndex(meilisearchClient);
-          return json({
-            success: true,
-            ...result,
-            message: `Index ${result.action} successfully`
-          });
-        } catch (e) {
-          console.error('[MEILISEARCH SETUP] Error:', e);
-          return json({ error: e.message }, { status: 500 });
-        }
-      }
-      
-      // GET /api/meilisearch/stats - Get total cards count and sync statistics
-      if (path === '/api/meilisearch/stats' && request.method === 'GET') {
-        try {
-          // Get total count of available cards
-          const totalResult = await env.DB.prepare(`
-            SELECT COUNT(*) as total
-            FROM cards
-            WHERE is_available = 1
-          `).first();
-          
-          const totalCards = totalResult?.total || 0;
-          
-          // Get saved progress from KV
-          let progress = null;
-          if (env.SEARCH_CACHE) {
-            try {
-              const saved = await env.SEARCH_CACHE.get('meilisearch_sync_progress', { type: 'json' });
-              if (saved && saved.currentOffset !== undefined) {
-                progress = saved;
-              }
-            } catch (e) {
-              console.error('[MEILISEARCH STATS] Failed to load progress:', e);
-            }
-          }
-          
-          return json({
-            success: true,
-            totalCards: Number(totalCards),
-            progress: progress, // { totalSynced, currentOffset, batchesProcessed, totalCards }
-          });
-        } catch (e) {
-          console.error('[MEILISEARCH STATS] Error:', e);
-          return json({ error: e.message }, { status: 500 });
-        }
-      }
-      
-      // POST /api/meilisearch/progress - Save sync progress to KV
-      if (path === '/api/meilisearch/progress' && request.method === 'POST') {
-        try {
-          if (!env.SEARCH_CACHE) {
-            return json({ error: 'KV not configured' }, { status: 500 });
-          }
-          
-          const body = await request.json();
-          const { totalSynced, currentOffset, batchesProcessed, totalCards } = body;
-          
-          // Save to KV
-          await env.SEARCH_CACHE.put('meilisearch_sync_progress', JSON.stringify({
-            totalSynced: Number(totalSynced) || 0,
-            currentOffset: Number(currentOffset) || 0,
-            batchesProcessed: Number(batchesProcessed) || 0,
-            totalCards: Number(totalCards) || 0,
-            updatedAt: Date.now(),
-          }));
-          
-          return json({ success: true });
-        } catch (e) {
-          console.error('[MEILISEARCH PROGRESS] Error:', e);
-          return json({ error: e.message }, { status: 500 });
-        }
-      }
-      
-      // DELETE /api/meilisearch/progress - Clear sync progress
-      if (path === '/api/meilisearch/progress' && request.method === 'DELETE') {
-        try {
-          if (env.SEARCH_CACHE) {
-            await env.SEARCH_CACHE.delete('meilisearch_sync_progress');
-          }
-          return json({ success: true });
-        } catch (e) {
-          console.error('[MEILISEARCH PROGRESS] Error:', e);
-          return json({ error: e.message }, { status: 500 });
-        }
-      }
-
       // Search API: FTS-backed card subtitles with caching + main_language filtering + fallback listing
-      // Now supports both Meilisearch (preferred) and SQL fallback
       if (path === '/api/search' && request.method === 'GET') {
         const startTime = Date.now();
         
@@ -1200,189 +731,7 @@ export default {
           let items = [];
           let total = 0;
 
-          // Try Meilisearch first (if configured)
-          const meilisearchClient = getMeilisearchClient(env);
-          if (meilisearchClient) {
-            try {
-              // Build Meilisearch filters
-              const filters = [];
-              
-              // Main language filter
-              if (mainLanguage) {
-                filters.push(`content_main_language = "${mainLanguage}"`);
-              }
-              
-              // Content IDs filter (array of slugs)
-              if (contentIdsCount > 0) {
-                if (contentIdsCount === 1) {
-                  filters.push(`content_slug = "${contentIdsArr[0]}"`);
-                } else {
-                  const contentIdsFilter = contentIdsArr.map(id => `content_slug = "${id}"`).join(' OR ');
-                  filters.push(`(${contentIdsFilter})`);
-                }
-              }
-              
-              // Subtitle languages filter (card must have all selected languages)
-              // Note: In Meilisearch, for array fields, we need to check each language separately with AND
-              if (subtitleLangsCount > 0) {
-                // For each required language, check if it exists in the array
-                subtitleLangsArr.forEach(lang => {
-                  filters.push(`subtitle_languages = "${lang}"`);
-                });
-              }
-              
-              // Difficulty filter
-              if (hasDifficultyFilter) {
-                const minVal = difficultyMin !== null ? difficultyMin : 0;
-                const maxVal = difficultyMax !== null ? difficultyMax : 100;
-                filters.push(`difficulty_score >= ${minVal} AND difficulty_score <= ${maxVal}`);
-              }
-              
-              // Level filter
-              if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
-                // Filter by framework first
-                filters.push(`levels_framework = "${framework}"`);
-                // Then filter by level (at least one level must match)
-                if (allowedLevels.length === 1) {
-                  filters.push(`levels_level = "${allowedLevels[0]}"`);
-                } else {
-                  const levelFilters = allowedLevels.map(level => `levels_level = "${level}"`).join(' OR ');
-                  filters.push(`(${levelFilters})`);
-                }
-              }
-              
-              // Availability filter (always filter by available cards)
-              filters.push('is_available = true');
-              
-              // Build Meilisearch search options
-              const searchOptions = {
-                limit: size,
-                offset: offset,
-                filter: filters.length > 0 ? filters.join(' AND ') : undefined,
-                sort: ['difficulty_score:asc'], // Default sort by difficulty
-              };
-              
-              // Perform Meilisearch query (empty string for browsing mode)
-              const searchQuery = hasTextQuery ? q.trim() : '';
-              const meilisearchResult = await meilisearchClient.search(MEILISEARCH_INDEX_UID, searchQuery || '', searchOptions);
-              
-              const meilisearchHits = meilisearchResult.hits || [];
-              total = meilisearchResult.estimatedTotalHits || 0;
-              
-              if (meilisearchHits.length > 0) {
-                // Enrich with full metadata from D1 (fetch additional subtitles and other data)
-                const cardIds = meilisearchHits.map(hit => hit.card_id);
-                const placeholders = cardIds.map(() => '?').join(',');
-                
-                // Fetch full card data from D1 for enrichment
-                const enrichmentResult = await env.DB.prepare(`
-                  SELECT 
-                    c.id AS card_id,
-                    c.card_number,
-                    c.start_time,
-                    c.end_time,
-                    c.image_key,
-                    c.audio_key,
-                    c.difficulty_score,
-                    e.slug AS episode_slug,
-                    e.episode_number,
-                    ci.slug AS content_slug,
-                    ci.main_language AS content_main_language,
-                    ci.title AS content_title
-                  FROM cards c
-                  JOIN episodes e ON e.id = c.episode_id
-                  JOIN content_items ci ON ci.id = e.content_item_id
-                  WHERE c.id IN (${placeholders})
-                `).bind(...cardIds).all();
-                
-                const enrichmentMap = new Map();
-                (enrichmentResult.results || []).forEach(row => {
-                  enrichmentMap.set(row.card_id, row);
-                });
-                
-                // Fetch additional subtitles for cards
-                const additionalSubLangs = subtitleLangsArr.filter(lang => lang !== mainLanguage);
-                const subsMap = new Map();
-                
-                if (cardIds.length > 0 && (additionalSubLangs.length > 0 || !mainLanguage)) {
-                  // Fetch all subtitles for these cards
-                  const allSubsResult = await env.DB.prepare(`
-                    SELECT card_id, language, text
-                    FROM card_subtitles
-                    WHERE card_id IN (${placeholders})
-                      AND text IS NOT NULL
-                      AND LENGTH(text) > 0
-                  `).bind(...cardIds).all();
-                  
-                  (allSubsResult.results || []).forEach(row => {
-                    if (!subsMap.has(row.card_id)) {
-                      subsMap.set(row.card_id, {});
-                    }
-                    subsMap.get(row.card_id)[row.language] = row.text;
-                  });
-                }
-                
-                // Map Meilisearch results to CardDoc format
-                items = meilisearchHits.map(hit => {
-                  const enriched = enrichmentMap.get(hit.card_id);
-                  const subtitleMap = subsMap.get(hit.card_id) || {};
-                  
-                  // Add main subtitle from hit if available
-                  if (hit.text && mainLanguage) {
-                    subtitleMap[mainLanguage] = hit.text;
-                  }
-                  
-                  return {
-                    card_id: hit.card_id,
-                    content_slug: hit.content_slug,
-                    content_title: hit.content_title,
-                    episode_slug: hit.episode_slug,
-                    episode_number: hit.episode_number || 0,
-                    card_number: hit.card_number || 0,
-                    start_time: enriched?.start_time || 0,
-                    end_time: enriched?.end_time || 0,
-                    image_url: makeMediaUrl(enriched?.image_key),
-                    audio_url: makeMediaUrl(enriched?.audio_key),
-                    difficulty_score: hit.difficulty_score,
-                    text: hit.text || '',
-                    subtitle: subtitleMap,
-                    cefr_level: hit.levels?.find(l => l.framework === 'CEFR')?.level || null,
-                    levels: hit.levels || [],
-                  };
-                });
-                
-                const totalTime = Date.now() - startTime;
-                console.log(`[PERF /api/search] Meilisearch: ${totalTime}ms | Cards: ${items.length} | Total: ${total} | Page: ${page}`);
-                
-                const responseData = { items, total, page, size };
-                
-                // Save to KV cache
-                if (env.SEARCH_CACHE) {
-                  env.SEARCH_CACHE.put(cacheKey, JSON.stringify({
-                    data: responseData,
-                    timestamp: Date.now()
-                  }), { expirationTtl: CACHE_TTL }).catch(err => {
-                    console.error('[CACHE ERROR /api/search] Failed to save cache:', err);
-                  });
-                }
-                
-                return json(responseData, {
-                  headers: {
-                    'X-Cache': 'MISS',
-                    'X-Search-Engine': 'Meilisearch',
-                  }
-                });
-              }
-              
-              // If Meilisearch returns empty results but we have filters, might be valid empty result
-              // Fall through to SQL fallback only if there's an error
-            } catch (meilisearchError) {
-              console.warn('[MEILISEARCH] Search error, falling back to SQL:', meilisearchError);
-              // Fall through to SQL fallback
-            }
-          }
-          
-          // SQL Fallback (original implementation)
+          // SQL Implementation
 
           // Build WHERE clause with content_ids filter and text search
           // Use positional placeholders (?) and bind in order
@@ -2637,8 +1986,8 @@ export default {
       // 3) Content items list (generic across films, music, books)
       if (path === '/items' && request.method === 'GET') {
         try {
-          // Optimize: Fetch items and languages in parallel, then aggregate
-          const [itemsResult, langsResult] = await Promise.all([
+          // Optimize: Fetch items, languages, and categories in parallel, then aggregate
+          const [itemsResult, langsResult, categoriesResult] = await Promise.all([
             env.DB.prepare(`
               SELECT ci.id as internal_id, ci.slug as id, ci.title, ci.main_language, ci.type, ci.release_year, ci.description, ci.total_episodes as episodes, ci.is_original, ci.level_framework_stats, ci.cover_key, ci.cover_landscape_key, ci.is_available
             FROM content_items ci
@@ -2647,6 +1996,12 @@ export default {
             env.DB.prepare(`
               SELECT content_item_id, language
               FROM content_item_languages
+            `).all(),
+            env.DB.prepare(`
+              SELECT cic.content_item_id, c.id, c.name
+              FROM content_item_categories cic
+              INNER JOIN categories c ON c.id = cic.category_id
+              ORDER BY c.name ASC
             `).all()
           ]);
           
@@ -2662,6 +2017,15 @@ export default {
             if (r.language && !langMap.get(r.content_item_id).includes(r.language)) {
               langMap.get(r.content_item_id).push(r.language);
             }
+          }
+          
+          // Build categories map
+          const categoriesMap = new Map();
+          for (const r of (categoriesResult.results || [])) {
+            if (!categoriesMap.has(r.content_item_id)) {
+              categoriesMap.set(r.content_item_id, []);
+            }
+            categoriesMap.get(r.content_item_id).push({ id: r.id, name: r.name });
           }
           
           // Process items
@@ -2700,6 +2064,7 @@ export default {
                 cover_url,
                 cover_landscape_url,
                 is_available: r.is_available ?? 1,
+                categories: categoriesMap.get(r.internal_id) || [],
               };
             map.set(r.id, it);
             }
@@ -7254,6 +6619,422 @@ export default {
             success: true,
             message: `Updated roles for user ${userId}`,
             roles: roles
+          });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // ==================== Level Assessment Endpoints ====================
+
+      // Import reference data (CEFR list or word frequency) - SuperAdmin only
+      if (path === '/admin/import-reference' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { type, data, framework } = body;
+
+          if (!type || (type !== 'cefr' && type !== 'frequency')) {
+            return json({ error: 'Invalid type. Must be "cefr" or "frequency"' }, { status: 400 });
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) {
+            return json({ error: 'data array is required and must not be empty' }, { status: 400 });
+          }
+
+          // Check authentication - require superadmin (check via user_roles)
+          // For now, allow if request has proper auth - in production, add proper auth check
+          
+          const errors = [];
+          const batchSize = 500; // D1 batch limit is ~1000, use 500 for safety
+
+          // Clear old data before importing (optional - could be made configurable)
+          // Only clear data for the specific framework if framework is provided
+          if (type === 'cefr') {
+            try {
+              if (framework) {
+                await env.DB.prepare('DELETE FROM reference_cefr_list WHERE framework = ?').bind(framework).run();
+              } else {
+                await env.DB.prepare('DELETE FROM reference_cefr_list').run();
+              }
+            } catch (e) {
+              console.error('Failed to clear reference data:', e);
+            }
+          } else if (type === 'frequency') {
+            try {
+              await env.DB.prepare('DELETE FROM reference_word_frequency').run();
+            } catch (e) {
+              console.error('Failed to clear frequency data:', e);
+            }
+          }
+
+          // Process in batches
+          for (let i = 0; i < data.length; i += batchSize) {
+            const batch = data.slice(i, i + batchSize);
+            const stmts = [];
+
+            for (const row of batch) {
+              try {
+                if (type === 'cefr') {
+                  const headword = String(row.headword || '').trim();
+                  const pos = row.pos ? String(row.pos).trim() : null;
+                  // Support both 'level' and 'cefr_level' for backward compatibility
+                  const level = String(row.level || row.cefr_level || '').trim().toUpperCase();
+                  const fw = framework || 'CEFR';
+
+                  if (!headword || !level) {
+                    errors.push(`Row ${i + batch.indexOf(row) + 1}: Missing headword or level`);
+                    continue;
+                  }
+
+                  // Check if framework column exists (for migration 026+)
+                  try {
+                    stmts.push(env.DB.prepare(`
+                      INSERT OR REPLACE INTO reference_cefr_list (headword, pos, cefr_level, framework)
+                      VALUES (?, ?, ?, ?)
+                    `).bind(headword, pos, level, fw));
+                  } catch (e) {
+                    // Fallback for older schema without framework column
+                    stmts.push(env.DB.prepare(`
+                      INSERT OR REPLACE INTO reference_cefr_list (headword, pos, cefr_level)
+                      VALUES (?, ?, ?)
+                    `).bind(headword, pos, level));
+                  }
+                } else if (type === 'frequency') {
+                  const word = String(row.word || '').trim();
+                  const rank = parseInt(row.rank, 10);
+                  const stem = row.stem ? String(row.stem).trim() : null;
+
+                  if (!word || isNaN(rank) || rank < 0) {
+                    errors.push(`Row ${i + batch.indexOf(row) + 1}: Invalid word or rank`);
+                    continue;
+                  }
+
+                  // Support framework column if provided (optional for backward compatibility)
+                  const fw = framework || null;
+                  try {
+                    stmts.push(env.DB.prepare(`
+                      INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem, framework)
+                      VALUES (?, ?, ?, ?)
+                    `).bind(word, rank, stem, fw));
+                  } catch (e) {
+                    // Fallback for older schema without framework column
+                    stmts.push(env.DB.prepare(`
+                      INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem)
+                      VALUES (?, ?, ?)
+                    `).bind(word, rank, stem));
+                  }
+                }
+              } catch (e) {
+                errors.push(`Row ${i + batch.indexOf(row) + 1}: ${e.message}`);
+              }
+            }
+
+            if (stmts.length > 0) {
+              try {
+                await env.DB.batch(stmts);
+              } catch (e) {
+                errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${e.message}`);
+              }
+            }
+          }
+
+          return json({ success: true, errors: errors.length > 0 ? errors : undefined });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get system config
+      if (path.match(/^\/admin\/system-config\/[^\/]+$/) && request.method === 'GET') {
+        try {
+          const key = path.split('/')[3];
+          const row = await env.DB.prepare('SELECT value FROM system_configs WHERE key = ?').bind(key).first();
+          
+          if (!row) {
+            return json({ error: 'Not found' }, { status: 404 });
+          }
+
+          return json({ key, value: row.value });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Update system config
+      if (path.match(/^\/admin\/system-config\/[^\/]+$/) && request.method === 'POST') {
+        try {
+          const key = path.split('/')[3];
+          const body = await request.json();
+          const { value } = body;
+
+          if (value === undefined) {
+            return json({ error: 'value is required' }, { status: 400 });
+          }
+
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO system_configs (key, value, updated_at)
+            VALUES (?, ?, strftime('%s','now'))
+          `).bind(key, String(value)).run();
+
+          return json({ success: true });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Assess content level - SuperAdmin only
+      if (path === '/admin/assess-content-level' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { contentSlug } = body;
+
+          if (!contentSlug) {
+            return json({ error: 'contentSlug is required' }, { status: 400 });
+          }
+
+          // Get content item
+          const contentItem = await env.DB.prepare('SELECT id, main_language FROM content_items WHERE slug = ?').bind(contentSlug).first();
+          if (!contentItem) {
+            return json({ error: 'Content item not found' }, { status: 404 });
+          }
+
+          // Get all cards for this content
+          const cardsRows = await env.DB.prepare(`
+            SELECT c.id, c.sentence, c.difficulty_score
+            FROM cards c
+            JOIN episodes e ON c.episode_id = e.id
+            WHERE e.content_item_id = ? AND c.sentence IS NOT NULL AND c.sentence != ''
+          `).bind(contentItem.id).all();
+
+          const cards = cardsRows.results || [];
+          if (cards.length === 0) {
+            return json({ success: true, message: 'No cards to assess' });
+          }
+
+          // Determine framework from content language
+          const framework = getFrameworkFromLanguage(contentItem.main_language);
+          
+          // Get cutoff ranks from config (supports multi-framework structure)
+          const configRow = await env.DB.prepare('SELECT value FROM system_configs WHERE key = ?').bind('CUTOFF_RANKS').first();
+          let allCutoffs = configRow ? JSON.parse(configRow.value) : {};
+          // Backward compatibility: if old format (flat object), convert to new format
+          if (allCutoffs && !allCutoffs.CEFR && (allCutoffs.A1 !== undefined || allCutoffs.N5 !== undefined || allCutoffs['1'] !== undefined)) {
+            // Detect which framework this is
+            if (allCutoffs.A1 !== undefined) {
+              allCutoffs = { CEFR: allCutoffs };
+            } else if (allCutoffs.N5 !== undefined) {
+              allCutoffs = { JLPT: allCutoffs };
+            } else if (allCutoffs['1'] !== undefined) {
+              allCutoffs = { HSK: allCutoffs };
+            }
+          }
+          const frameworkCutoffs = allCutoffs[framework] || {};
+          
+          // Define level orders and difficulty maps for each framework
+          const levelOrders = {
+            CEFR: { 'A1': 1, 'A2': 2, 'B1': 3, 'B2': 4, 'C1': 5, 'C2': 6 },
+            JLPT: { 'N5': 1, 'N4': 2, 'N3': 3, 'N2': 4, 'N1': 5 },
+            HSK: { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9 }
+          };
+          const difficultyMaps = {
+            CEFR: { 'A1': 10, 'A2': 25, 'B1': 45, 'B2': 65, 'C1': 80, 'C2': 95 },
+            JLPT: { 'N5': 10, 'N4': 25, 'N3': 45, 'N2': 70, 'N1': 90 },
+            HSK: { '1': 5, '2': 15, '3': 30, '4': 50, '5': 70, '6': 85, '7': 92, '8': 96, '9': 98 }
+          };
+          
+          const levelOrder = levelOrders[framework] || levelOrders.CEFR;
+          const difficultyMap = difficultyMaps[framework] || difficultyMaps.CEFR;
+
+          // Helper: Simple tokenization (split by whitespace, lowercase, remove punctuation)
+          function tokenize(text) {
+            return String(text || '')
+              .toLowerCase()
+              .replace(/[^\w\s]/g, ' ')
+              .split(/\s+/)
+              .filter(t => t.length > 0);
+          }
+
+          // Helper: Get level for a word based on framework
+          async function getWordLevel(word) {
+            // Try reference list first (with framework filter if column exists)
+            let refRow;
+            try {
+              // Try with framework column (migration 026+)
+              refRow = await env.DB.prepare('SELECT cefr_level FROM reference_cefr_list WHERE headword = ? AND framework = ? LIMIT 1').bind(word, framework).first();
+            } catch (e) {
+              // Fallback: try without framework column (backward compatibility)
+              refRow = await env.DB.prepare('SELECT cefr_level FROM reference_cefr_list WHERE headword = ? LIMIT 1').bind(word).first();
+            }
+            if (refRow) {
+              return refRow.cefr_level;
+            }
+
+            // Fallback to frequency with framework-specific cutoffs
+            const freqRow = await env.DB.prepare('SELECT rank FROM reference_word_frequency WHERE word = ? OR stem = ? LIMIT 1').bind(word, word).first();
+            if (freqRow && Object.keys(frameworkCutoffs).length > 0) {
+              const rank = freqRow.rank;
+              // Map rank to level using framework-specific cutoffs
+              const levels = Object.keys(frameworkCutoffs).sort((a, b) => (frameworkCutoffs[a] || 0) - (frameworkCutoffs[b] || 0));
+              for (const level of levels) {
+                if (rank <= (frameworkCutoffs[level] || Infinity)) {
+                  return level;
+                }
+              }
+              // If rank exceeds highest cutoff, return highest level
+              return levels[levels.length - 1] || null;
+            }
+
+            return null;
+          }
+
+          // Assess each card
+          const updates = [];
+          let cardsProcessed = 0;
+
+          for (const card of cards) {
+            const tokens = tokenize(card.sentence);
+            let maxLevel = null;
+            let maxLevelNum = 0;
+
+            // Get level for each token (use Promise.all for parallel lookups)
+            const levelPromises = tokens.map(token => getWordLevel(token));
+            const levels = await Promise.all(levelPromises);
+
+            // Find highest difficulty level
+            for (const level of levels) {
+              if (level && levelOrder[level] && levelOrder[level] > maxLevelNum) {
+                maxLevelNum = levelOrder[level];
+                maxLevel = level;
+              }
+            }
+
+            if (maxLevel) {
+              // Update card_difficulty_levels with correct framework
+              updates.push(env.DB.prepare(`
+                INSERT OR REPLACE INTO card_difficulty_levels (card_id, framework, level, language)
+                VALUES (?, ?, ?, ?)
+              `).bind(card.id, framework, maxLevel, contentItem.main_language));
+
+              // Update difficulty_score based on level using framework-specific map
+              const difficulty = difficultyMap[maxLevel] || card.difficulty_score || 50;
+              updates.push(env.DB.prepare('UPDATE cards SET difficulty_score = ?, updated_at = strftime(\'%s\',\'now\') WHERE id = ?').bind(difficulty, card.id));
+            }
+
+            cardsProcessed++;
+
+            // Execute updates in batches
+            if (updates.length >= 200) {
+              await env.DB.batch(updates);
+              updates.length = 0;
+            }
+          }
+
+          // Execute remaining updates
+          if (updates.length > 0) {
+            await env.DB.batch(updates);
+          }
+
+          // Recalculate stats for all episodes and content item (reuse buildLevelStats from calculate-stats endpoint)
+          // Get all episodes for this content
+          const episodes = await env.DB.prepare('SELECT id, episode_number FROM episodes WHERE content_item_id = ?').bind(contentItem.id).all();
+
+          function buildLevelStats(rows) {
+            const groups = new Map();
+            for (const r of rows) {
+              const framework = r.framework || null;
+              const language = r.language || null;
+              const level = r.level || null;
+              if (!framework || !level) continue;
+              const key = `${framework}|${language || ''}`;
+              let g = groups.get(key);
+              if (!g) { g = { framework, language, counts: new Map(), total: 0 }; groups.set(key, g); }
+              g.total += 1;
+              g.counts.set(level, (g.counts.get(level) || 0) + 1);
+            }
+            const out = [];
+            for (const g of groups.values()) {
+              const levels = {};
+              for (const [level, count] of g.counts.entries()) {
+                const pct = g.total ? Math.round((count / g.total) * 1000) / 10 : 0;
+                levels[level] = pct;
+              }
+              out.push({ framework: g.framework, language: g.language, levels });
+            }
+            return out;
+          }
+
+          // Update episode stats
+          for (const ep of (episodes.results || [])) {
+            const epCountAvg = await env.DB.prepare('SELECT COUNT(*) AS c, AVG(difficulty_score) AS avg FROM cards WHERE episode_id=? AND difficulty_score IS NOT NULL').bind(ep.id).first();
+            const epLevelRows = await env.DB.prepare(`
+              SELECT cdl.framework, cdl.level, cdl.language
+              FROM card_difficulty_levels cdl
+              JOIN cards c ON cdl.card_id = c.id
+              WHERE c.episode_id = ?
+            `).bind(ep.id).all();
+            const epStatsJson = JSON.stringify(buildLevelStats(epLevelRows.results || []));
+            const epNumCards = Number(epCountAvg?.c || 0);
+            const epAvg = epCountAvg && epCountAvg.avg != null ? Number(epCountAvg.avg) : null;
+
+            await env.DB.prepare(`
+              UPDATE episodes
+              SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, updated_at=strftime('%s','now')
+              WHERE id=?
+            `).bind(epNumCards, epAvg, epStatsJson, ep.id).run();
+          }
+
+          // Update content item stats
+          const itemCountAvg = await env.DB.prepare(`
+            SELECT COUNT(c.id) AS c, AVG(c.difficulty_score) AS avg
+            FROM cards c
+            JOIN episodes e ON c.episode_id = e.id
+            WHERE e.content_item_id = ? AND c.difficulty_score IS NOT NULL
+          `).bind(contentItem.id).first();
+          const itemLevelRows = await env.DB.prepare(`
+            SELECT cdl.framework, cdl.level, cdl.language
+            FROM card_difficulty_levels cdl
+            JOIN cards c ON cdl.card_id = c.id
+            JOIN episodes e ON c.episode_id = e.id
+            WHERE e.content_item_id = ?
+          `).bind(contentItem.id).all();
+          const itemStatsJson = JSON.stringify(buildLevelStats(itemLevelRows.results || []));
+          const itemNumCards = Number(itemCountAvg?.c || 0);
+          const itemAvg = itemCountAvg && itemCountAvg.avg != null ? Number(itemCountAvg.avg) : null;
+
+          await env.DB.prepare(`
+            UPDATE content_items
+            SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, updated_at=strftime('%s','now')
+            WHERE id=?
+          `).bind(itemNumCards, itemAvg, itemStatsJson, contentItem.id).run();
+
+          return json({ success: true, cardsProcessed, totalCards: cards.length });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Check reference data availability for a framework
+      if (path === '/admin/check-reference-data' && request.method === 'GET') {
+        try {
+          const url = new URL(request.url);
+          const framework = url.searchParams.get('framework');
+          
+          if (!framework) {
+            return json({ error: 'framework parameter is required' }, { status: 400 });
+          }
+
+          // Check if reference list exists for this framework
+          const refListCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM reference_cefr_list WHERE framework = ?').bind(framework).first();
+          const hasReferenceList = (refListCount?.count || 0) > 0;
+
+          // Check if frequency data exists for this framework (or null for language-agnostic)
+          const freqCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM reference_word_frequency WHERE framework = ? OR framework IS NULL').bind(framework).first();
+          const hasFrequencyData = (freqCount?.count || 0) > 0;
+
+          return json({
+            exists: hasReferenceList || hasFrequencyData,
+            hasReferenceList,
+            hasFrequencyData
           });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });

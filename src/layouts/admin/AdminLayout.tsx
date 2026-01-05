@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import '../../styles/pages/admin/admin.css';
 import toast from 'react-hot-toast';
-import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag, Search } from 'lucide-react';
+import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag, BarChart3 } from 'lucide-react';
 
 export default function AdminLayout() {
   const { user, loading, signInGoogle, adminKey, setAdminKey, isAdmin, isSuperAdmin } = useUser();
@@ -76,16 +76,17 @@ export default function AdminLayout() {
             <Tag className="w-4 h-4 mr-2" />
             <span>Categories</span>
           </NavLink>
-          <NavLink to="/admin/meilisearch" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-            <Search className="w-4 h-4 mr-2" />
-            <span>Meilisearch</span>
-          </NavLink>
-          
           {isSuperAdmin() && (
-            <NavLink to="/admin/database" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-              <Database className="w-4 h-4 mr-2" />
-              <span>Database</span>
-            </NavLink>
+            <>
+              <NavLink to="/admin/level-management" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+                <BarChart3 className="w-4 h-4 mr-2" />
+                <span>Level Management</span>
+              </NavLink>
+              <NavLink to="/admin/database" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+                <Database className="w-4 h-4 mr-2" />
+                <span>Database</span>
+              </NavLink>
+            </>
           )}  
         </nav>
         {!user && (

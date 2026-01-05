@@ -8,6 +8,7 @@ interface CsvPreviewPanelProps {
   csvErrors: string[];
   csvWarnings: string[];
   csvSubtitleWarnings?: string[];
+  csvFrameworkLevelIgnored?: string[];
   confirmedAsLanguage: Set<string>;
   requiredOriginals: string[];
   mainLangHeader: string | null;
@@ -21,6 +22,7 @@ export default function CsvPreviewPanel({
   csvErrors,
   csvWarnings,
   csvSubtitleWarnings = [],
+  csvFrameworkLevelIgnored = [],
   confirmedAsLanguage,
   requiredOriginals,
   mainLangHeader,
@@ -104,6 +106,17 @@ export default function CsvPreviewPanel({
         <div className="csv-info-reserved">
           <span className="mt-0.5">◆</span>
           <div>Các cột hệ thống (chủ động bỏ qua): {effectiveReservedHeaders.join(', ')}</div>
+        </div>
+      )}
+
+      {/* Framework Level Columns Ignored */}
+      {csvFrameworkLevelIgnored.length > 0 && (
+        <div className="csv-warning-framework">
+          <AlertTriangle className="w-4 h-4 mt-0.5" />
+          <div className="csv-warning-content">
+            <div className="font-semibold mb-1">Framework level columns will be ignored (auto assessment will override):</div>
+            <div>{csvFrameworkLevelIgnored.join(', ')}</div>
+          </div>
         </div>
       )}
 

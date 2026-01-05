@@ -16,6 +16,7 @@ import { type ContentType } from '../types/content';
 import { useUser } from '../context/UserContext';
 import { canonicalizeLangCode } from '../utils/lang';
 import SearchBar from './SearchBar';
+import ContentTypeSelector from './ContentTypeSelector';
 import rightAngleIcon from '../assets/icons/right-angle.svg';
 import saveHeartIcon from '../assets/icons/save-heart.svg';
 import LanguageTag from './LanguageTag';
@@ -28,9 +29,16 @@ interface ContentTypeGridProps {
   headingOverride?: string; // optional custom heading
   limit?: number; // future: limit number of items
   onlySelectedMainLanguage?: boolean; // filter by user's selected main language
+  showContentTypeSelector?: boolean; // show content type selector instead of framework label
+  onContentTypeChange?: (type: ContentType) => void; // callback when content type changes
 }
 
-export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: ContentTypeGridProps) {
+export default function ContentTypeGrid({ 
+  type, 
+  onlySelectedMainLanguage,
+  showContentTypeSelector = false,
+  onContentTypeChange
+}: ContentTypeGridProps) {
   const [allItems, setAllItems] = useState<FilmDoc[]>([]); // all items from API
   const [expandedFilmId, setExpandedFilmId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true); // loading state for API
@@ -401,9 +409,16 @@ export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: Cont
       <div className="content-type-grid-search">
         <div className="content-type-grid-search-row">
           <div className="framework-dropdown-container">
-            <div className="framework-dropdown-btn">
-              <span>{getFrameworkLabel(currentFramework)}</span>
-            </div>
+            {showContentTypeSelector && onContentTypeChange ? (
+              <ContentTypeSelector
+                value={type}
+                onChange={onContentTypeChange}
+              />
+            ) : (
+              <div className="framework-dropdown-btn">
+                <span>{getFrameworkLabel(currentFramework)}</span>
+              </div>
+            )}
           </div>
           <SearchBar
             value={searchQuery}
@@ -679,10 +694,13 @@ export default function ContentTypeGrid({ type, onlySelectedMainLanguage }: Cont
                                     </button>
                                     
                                     <div className="film-detail-categories">
-                                      <span className="film-detail-category-item">Cate 1</span>
-                                      <span className="film-detail-category-item">Cate 2</span>
-                                      <span className="film-detail-category-item">Cate 3</span>
-                                      <span className="film-detail-category-item">Cate 4</span>
+                                      {f.categories && f.categories.length > 0 ? (
+                                        f.categories.map((category) => (
+                                          <span key={category.id} className="film-detail-category-item">
+                                            {category.name}
+                                          </span>
+                                        ))
+                                      ) : null}
                                     </div>
                                     
                                     <button 
