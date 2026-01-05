@@ -8,7 +8,7 @@ import { Toaster } from 'react-hot-toast';
 
 // Critical pages - eager load
 import ContentCardsPage from './pages/ContentCardsPage';
-import ContentMoviePage from './pages/ContentMoviePage';
+import LibraryPage from './pages/LibraryPage';
 import WatchPage from './pages/WatchPage';
 
 // Non-critical pages - lazy load
@@ -33,6 +33,7 @@ const AdminContentDetailPage = lazy(() => import('./pages/admin/AdminContentDeta
 const AdminContentCardDetailPage = lazy(() => import('./pages/admin/AdminContentCardDetailPage'));
 const AdminAddEpisodePage = lazy(() => import('./pages/admin/AdminAddEpisodePage'));
 const AdminCategoriesPage = lazy(() => import('./pages/admin/AdminCategoriesPage'));
+const AdminLevelManagementPage = lazy(() => import('./pages/admin/AdminLevelManagementPage'));
 const AdminEpisodeDetailPage = lazy(() => import('./pages/admin/AdminEpisodeDetailPage'));
 const AdminEpisodeUpdatePage = lazy(() => import('./pages/admin/AdminEpisodeUpdatePage'));
 const AdminCardUpdatePage = lazy(() => import('./pages/admin/AdminCardUpdatePage'));
@@ -42,7 +43,6 @@ const AdminDatabasePage = lazy(() => import('./pages/admin/AdminDatabasePage'));
 const AdminImageMigrationPage = lazy(() => import('./pages/admin/AdminImageMigrationPage'));
 const AdminPathMigrationPage = lazy(() => import('./pages/admin/AdminPathMigrationPage'));
 const AdminAudioMigrationPage = lazy(() => import('./pages/admin/AdminAudioMigrationPage'));
-const AdminMeilisearchPage = lazy(() => import('./pages/admin/AdminMeilisearchPage'));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -76,7 +76,7 @@ function App() {
                 <Route path="/" element={<Navigate to="/search" replace />} />
                 <Route path="/search" element={<SearchPage />} />
                 {/* New canonical content routes */}
-                <Route path="/content" element={<ContentMoviePage />} />
+                <Route path="/content" element={<LibraryPage />} />
                 <Route path="/content/:contentId" element={<ContentCardsPage />} />
                 <Route path="/watch/:contentId" element={<WatchPage />} />
                 {/* Backward compat redirects */}
@@ -117,8 +117,8 @@ function App() {
                 <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
                 {/* Admin Categories Management */}
                 <Route path="categories" element={<AdminCategoriesPage />} />
-                {/* Admin Meilisearch Sync */}
-                <Route path="meilisearch" element={<AdminMeilisearchPage />} />
+                {/* Admin Level Management */}
+                <Route path="level-management" element={<AdminLevelManagementPage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />

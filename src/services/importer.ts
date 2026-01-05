@@ -78,10 +78,16 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
   const type = headerOf("type");
   // Note: 'sentence' column is no longer used by the system (2025-11)
   const length = headerOf("length");
-  // Framework level columns (support both 'cefr_level', 'cefr', and 'CEFR Level' with space)
+  // Framework level columns are now IGNORED (auto assessment will override them)
+  // These are detected but not used - they will be filtered out during processing
   const cefr = headerOf("cefr level", "cefr_level", "cefr", "level_cefr");
   const jlpt = headerOf("jlpt level", "jlpt_level", "jlpt", "level_jlpt");
   const hsk = headerOf("hsk level", "hsk_level", "hsk", "level_hsk");
+  const topik = headerOf("topik level", "topik_level", "topik", "level_topik");
+  const delf = headerOf("delf level", "delf_level", "delf", "level_delf");
+  const dele = headerOf("dele level", "dele_level", "dele", "level_dele");
+  const goethe = headerOf("goethe level", "goethe_level", "goethe", "level_goethe");
+  const testdaf = headerOf("testdaf level", "testdaf_level", "testdaf", "level_testdaf");
   // Unified difficulty score (0-100). Match specific score column names to avoid confusion with framework columns.
   const difficultyScoreRaw = headerOf("difficulty score", "difficulty_score", "difficultyscore", "score", "difficulty_percent", "card_difficulty");
 
@@ -181,6 +187,11 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     "cefr", "cefr_level", "cefr level",
     "jlpt", "jlpt_level", "jlpt level",
     "hsk", "hsk_level", "hsk level",
+    "topik", "topik_level", "topik level",
+    "delf", "delf_level", "delf level",
+    "dele", "dele_level", "dele level",
+    "goethe", "goethe_level", "goethe level",
+    "testdaf", "testdaf_level", "testdaf level",
     "notes", "tags", "metadata",
     "hiragana", "katakana", "romaji"
   ]);
@@ -214,7 +225,8 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     const key = raw.toLowerCase();
     if (!raw) continue;
     // Skip columns we already mapped (start/end/type/length/known frameworks/difficulty score)
-    if ([start, end, type, length, cefr, jlpt, hsk, difficultyScoreRaw].filter(Boolean).includes(raw)) continue;
+    // Note: framework level columns (cefr, jlpt, hsk, etc.) are detected but will be ignored during processing
+    if ([start, end, type, length, cefr, jlpt, hsk, topik, delf, dele, goethe, testdaf, difficultyScoreRaw].filter(Boolean).includes(raw)) continue;
     const lowerStripped = key.replace(/\s*[([].*?[)\]]\s*/g, "");
     // Skip subtitle columns by matching original header against mapped subtitle headers
     if (Object.values(subtitles).includes(original)) continue;
@@ -252,7 +264,9 @@ function detectMappingFromHeaders(headers: string[]): { mapping: ColumnMapping; 
     frameworkCols.push({ framework: fwUpper, header: original, language: fwLang });
   }
 
-  return { mapping: { start, end, type, length, cefr, jlpt, hsk, difficultyScore: difficultyScoreRaw, frameworkCols, subtitles }, detectedLangs: detected, primary };
+  // Framework level columns are detected but will be ignored (auto assessment will override)
+  // We still include them in mapping for reference, but they won't be processed
+  return { mapping: { start, end, type, length, cefr: undefined, jlpt: undefined, hsk: undefined, difficultyScore: difficultyScoreRaw, frameworkCols: [], subtitles }, detectedLangs: detected, primary };
 }
 
 export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done: number, total: number) => void) {
@@ -361,13 +375,11 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
     // If Main Language cell is empty -> Unavailable; missing other subtitles do NOT affect availability.
     const isAvailable = !!mainText;
 
+    // Framework level columns are now IGNORED - auto assessment will override them
+    // We do not read cefr, jlpt, hsk, or any framework level columns from CSV
     const difficulty_levels: Array<{ framework: string; level: string; language?: string }> = [];
-    const cefrLevel = mapping.cefr ? (row[mapping.cefr] || "").toString().trim() : "";
-    if (cefrLevel) difficulty_levels.push({ framework: "CEFR", level: cefrLevel, language: "en" });
-    const jlptLevel = mapping.jlpt ? (row[mapping.jlpt] || "").toString().trim() : "";
-    if (jlptLevel) difficulty_levels.push({ framework: "JLPT", level: jlptLevel, language: "ja" });
-    const hskLevel = mapping.hsk ? (row[mapping.hsk] || "").toString().trim() : "";
-    if (hskLevel) difficulty_levels.push({ framework: "HSK", level: hskLevel, language: "zh" });
+    
+    // Only process difficulty_score if provided (auto assessment will set framework levels)
     const difficultyScoreVal = mapping.difficultyScore ? (row[mapping.difficultyScore] || "").toString().trim() : "";
     let difficultyScoreNum = difficultyScoreVal ? Number(difficultyScoreVal) : undefined;
     if (Number.isFinite(difficultyScoreNum) && difficultyScoreNum != null) {
@@ -375,13 +387,8 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
         difficultyScoreNum = (difficultyScoreNum / 5) * 100;
       }
     }
-    if (Array.isArray(mapping.frameworkCols)) {
-      for (const col of mapping.frameworkCols) {
-        const v = (row[col.header] || "").toString().trim();
-        if (!v) continue;
-        difficulty_levels.push({ framework: col.framework, level: v, language: col.language });
-      }
-    }
+    
+    // Note: frameworkCols are also ignored - auto assessment will handle all framework levels
 
     const sanitizedType = normalizeType(typeVal, subtitle, mainLang);
 
@@ -416,7 +423,7 @@ export async function importFilmFromCsv(opts: ImportOptions, onProgress?: (done:
         }
         return 0;
       })(),
-      CEFR_Level: cefrLevel || undefined,
+      // CEFR_Level removed - auto assessment will handle all framework levels
       difficulty_levels: difficulty_levels.length ? difficulty_levels : undefined,
       difficulty_score: Number.isFinite(difficultyScoreNum) ? difficultyScoreNum : undefined,
       image_url,

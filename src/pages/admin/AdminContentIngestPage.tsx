@@ -9,13 +9,14 @@ import {
   uploadEpisodeCoverImage,
 } from "../../services/storageUpload";
 import type { MediaType } from "../../services/storageUpload";
-import { apiUpdateEpisodeMeta, apiUpdateFilmMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, invalidateItemsCache, apiListCategories, apiCreateCategory, type Category } from "../../services/cfApi";
+import { apiUpdateEpisodeMeta, apiUpdateFilmMeta, apiGetFilm, apiCalculateStats, apiDeleteItem, invalidateItemsCache, apiListCategories, apiCreateCategory, apiAssessContentLevel, apiCheckReferenceData } from "../../services/cfApi";
 import { getAvailableMainLanguages, invalidateGlobalCardsCache } from "../../services/firestore";
 import { XCircle, CheckCircle, HelpCircle, Film, Clapperboard, Book as BookIcon, AudioLines, Video, Loader2, RefreshCcw, ArrowLeft } from "lucide-react";
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS } from "../../types/content";
 import type { ContentType } from "../../types/content";
 import { langLabel, canonicalizeLangCode, expandCanonicalToAliases, getFlagImageForLang } from "../../utils/lang";
 import { detectSubtitleHeaders, categorizeHeaders } from "../../utils/csvDetection";
+import { getFrameworkFromLanguage, getFrameworkDisplayName } from "../../utils/frameworkMapping";
 import ProgressBar from "../../components/ProgressBar";
 import CsvPreviewPanel from "../../components/admin/CsvPreviewPanel";
 import CardMediaFiles from "../../components/admin/CardMediaFiles";
@@ -64,11 +65,9 @@ export default function AdminContentIngestPage() {
   const [releaseYear, setReleaseYear] = useState<number | "">("");
   const [mainLanguage, setMainLanguage] = useState<string>("en");
   const [imdbScore, setImdbScore] = useState<number | "">("");
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]); // Array of category IDs or names
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [categoryQuery, setCategoryQuery] = useState("");
-  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
-  const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [categoryInput, setCategoryInput] = useState(""); // Comma-separated category names
+  const [categoryStatus, setCategoryStatus] = useState<Record<string, { exists: boolean; id?: string; name: string }>>({});
+  const [checkedCategories, setCheckedCategories] = useState(false);
 
   // Dropdown state
   const [langOpen, setLangOpen] = useState(false);
@@ -78,16 +77,17 @@ export default function AdminContentIngestPage() {
   const typeDropdownRef = useRef<HTMLDivElement | null>(null);
   const yearDropdownRef = useRef<HTMLDivElement | null>(null);
   const [langQuery, setLangQuery] = useState("");
+  // Show all languages, with framework badge for supported ones
   const ALL_LANG_OPTIONS: string[] = [
-    "en","vi","ja","ko","zh","zh_trad","id","th","ms","yue",
-    "ar","eu","bn","ca","hr","cs","da","nl","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","it","ml","no","nb","pl","pt","pt_br","pt_pt","ro","ru","es","es_la","es_es","sv","se","ta","te","tr","uk","lv",
-    "fa","ku","ckb","kmr","sdh","sl","sr","bg","ur","sq","lt",
-    "kk","sk","uz","be","bs","mr","mn","et","hy"
+    "en", "vi", "ja", "ko", "zh", "zh_trad", "id", "th", "ms", "yue",
+    "ar", "eu", "bn", "ca", "hr", "cs", "da", "nl", "fil", "fi", "fr", "fr_ca", "gl", "de", "el", "he", "hi", "hu", "is", "it", "ml", "no", "nb", "pl", "pt", "pt_br", "pt_pt", "ro", "ru", "es", "es_la", "es_es", "sv", "se", "ta", "te", "tr", "uk", "lv",
+    "fa", "ku", "ckb", "kmr", "sdh", "sl", "sr", "bg", "ur", "sq", "lt",
+    "kk", "sk", "uz", "be", "bs", "mr", "mn", "et", "hy"
   ];
   const SORTED_LANG_OPTIONS = useMemo(() => {
     // Sort by human-friendly label A->Z
     return [...ALL_LANG_OPTIONS].sort((a, b) => langLabel(a).localeCompare(langLabel(b)));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const FILTERED_LANG_OPTIONS = useMemo(() => {
     const q = langQuery.trim().toLowerCase();
@@ -105,10 +105,12 @@ export default function AdminContentIngestPage() {
   const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
-    const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
+  const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [csvFileName, setCsvFileName] = useState<string>("");
   // Separate subtitle warnings for teal display
   const [csvSubtitleWarnings, setCsvSubtitleWarnings] = useState<string[]>([]);
+  // Framework level columns that will be ignored (auto assessment)
+  const [csvFrameworkLevelIgnored, setCsvFrameworkLevelIgnored] = useState<string[]>([]);
   // Allow selecting which CSV header to treat as Main Language subtitle
   const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string>("");
   // Reserved column confirmation state (for ambiguous columns like 'id' which could be Indonesian)
@@ -121,6 +123,15 @@ export default function AdminContentIngestPage() {
   const [padDigits, setPadDigits] = useState(4);
   const [startIndex, setStartIndex] = useState(0);
   const [replaceMode, setReplaceMode] = useState(true);
+
+  // Reference data check state
+  const [referenceDataStatus, setReferenceDataStatus] = useState<{
+    framework: string | null;
+    exists: boolean;
+    hasReferenceList: boolean;
+    hasFrequencyData: boolean;
+  } | null>(null);
+  const [checkingReferenceData, setCheckingReferenceData] = useState(false);
 
   // Optional media toggles (film-level full media removed per new schema)
   const [addCover, setAddCover] = useState(false);
@@ -150,7 +161,7 @@ export default function AdminContentIngestPage() {
   const importSucceededRef = useRef<boolean>(false);
   // Stop / rollback modal state (similar to AdminEpisodeUpdatePage)
   const [confirmStop, setConfirmStop] = useState(false);
-  const [deletionProgress, setDeletionProgress] = useState<{stage: string; details: string} | null>(null);
+  const [deletionProgress, setDeletionProgress] = useState<{ stage: string; details: string } | null>(null);
   const [deletionPercent, setDeletionPercent] = useState(0);
   // File presence flags for optional uploads (to drive validation reliably)
   const [hasCoverFile, setHasCoverFile] = useState(false);
@@ -173,9 +184,9 @@ export default function AdminContentIngestPage() {
     const normalizedAliases = rawAliases.map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
     const variantAliases = rawAliases.filter(a => /\(.+\)/.test(a)).map(a => a.toLowerCase().replace(/[_\s-]/g, ""));
     // Strip brackets/parentheses from headers (like [CC], (CC)) before normalizing
-    const headerNorms = headers.map(h => ({ 
-      orig: h, 
-      norm: h.toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "").replace(/[_\s-]/g, "") 
+    const headerNorms = headers.map(h => ({
+      orig: h,
+      norm: h.toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "").replace(/[_\s-]/g, "")
     }));
     if (lang.toLowerCase() === 'id') {
       const confirmedId = headers.find(h => (confirmedAsLanguage.has(h) || confirmedAsLanguage.has(h.toLowerCase())) && h.trim().toLowerCase() === 'id');
@@ -202,6 +213,7 @@ export default function AdminContentIngestPage() {
     headers.forEach(h => { const l = (h || "").toLowerCase(); if (!headerMap[l]) headerMap[l] = h; });
     // Reserved columns: these are CSV metadata/structural columns, NOT language codes
     // Prevents false positives like "id" (Indonesian), "no" (Norwegian), "type", "end" (English partial), etc.
+    // Also includes framework level columns that will be ignored (auto assessment will override them)
     const RESERVED_COLUMNS = new Set([
       "id", "card_id", "cardid", "card id",
       "no", "number", "card_number", "cardnumber", "card number",
@@ -213,9 +225,15 @@ export default function AdminContentIngestPage() {
       "image", "image_url", "imageurl", "image url", "image_key",
       "audio", "audio_url", "audiourl", "audio url", "audio_key",
       "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
-      "cefr", "cefr_level", "cefr level",
-      "jlpt", "jlpt_level", "jlpt level",
-      "hsk", "hsk_level", "hsk level",
+      // Framework level columns (will be ignored - auto assessment will override)
+      "cefr", "cefr_level", "cefr level", "cefr level",
+      "jlpt", "jlpt_level", "jlpt level", "jlpt level",
+      "hsk", "hsk_level", "hsk level", "hsk level",
+      "topik", "topik_level", "topik level", "topik level",
+      "delf", "delf_level", "delf level", "delf level",
+      "dele", "dele_level", "dele level", "dele level",
+      "goethe", "goethe_level", "goethe level", "goethe level",
+      "testdaf", "testdaf_level", "testdaf level", "testdaf level",
       "notes", "tags", "metadata",
       // Script helper columns (ignore silently)
       "hiragana", "katakana", "romaji"
@@ -238,17 +256,35 @@ export default function AdminContentIngestPage() {
       errors.push(`CSV thiếu cột phụ đề cho Main Language: ${mainCanon}`);
     }
     // Warn for ignored/unused columns (not required, not known frameworks/difficulty, not subtitles)
-    const knownSingles = new Set(["start","end","type","length","cefr","cefr level","cefr_level","jlpt","jlpt level","jlpt_level","hsk","hsk level","hsk_level","difficulty score","difficulty_score","difficultyscore","score","difficulty_percent","card_difficulty"]);
+    const knownSingles = new Set(["start", "end", "type", "length", "difficulty score", "difficulty_score", "difficultyscore", "score", "difficulty_percent", "card_difficulty"]);
+    // Framework level columns that will be ignored (auto assessment will override)
+    const frameworkLevelColumns = new Set([
+      "cefr", "cefr level", "cefr_level", "cefr level",
+      "jlpt", "jlpt level", "jlpt_level", "jlpt level",
+      "hsk", "hsk level", "hsk_level", "hsk level",
+      "topik", "topik level", "topik_level", "topik level",
+      "delf", "delf level", "delf_level", "delf level",
+      "dele", "dele level", "dele_level", "dele level",
+      "goethe", "goethe level", "goethe_level", "goethe level",
+      "testdaf", "testdaf level", "testdaf_level", "testdaf level"
+    ]);
     const isFrameworkDynamic = (raw: string) => {
       const key = raw.trim().toLowerCase().replace(/\s*[([].*?[)\]]\s*/g, "");
       return /^(?:difficulty|diff)[_:\-/ ]?[a-z0-9]+(?:[_:\-/ ][a-z_]{2,8})?$/i.test(key);
     };
     const ignored: string[] = [];
+    const frameworkLevelIgnored: string[] = []; // Framework level columns that will be ignored
     for (const h of headers) {
       const raw = (h || '').trim();
       if (!raw) continue;
       const low = raw.toLowerCase();
-      if (RESERVED_COLUMNS.has(low)) continue; // Skip reserved metadata columns
+      if (RESERVED_COLUMNS.has(low)) {
+        // Check if it's a framework level column (for special warning)
+        if (frameworkLevelColumns.has(low)) {
+          frameworkLevelIgnored.push(raw);
+        }
+        continue; // Skip reserved metadata columns
+      }
       if (knownSingles.has(low)) continue;
       if (recognizedSubtitleHeaders.has(raw)) continue;
       if (isFrameworkDynamic(raw)) continue;
@@ -294,9 +330,9 @@ export default function AdminContentIngestPage() {
       }
       if (ec >= maxErr) return;
     });
-    
-      // Build warnings separately (non-blocking issues)
-      const warnings: string[] = [];
+
+    // Build warnings separately (non-blocking issues)
+    const warnings: string[] = [];
     if (emptyMainLangRows.length > 0) {
       const rowList = emptyMainLangRows.slice(0, 10).join(', ') + (emptyMainLangRows.length > 10 ? '...' : '');
       warnings.push(`${emptyMainLangRows.length} cards thiếu Main Language (hàng: ${rowList}). Những cards này sẽ bị đánh dấu unavailable.`);
@@ -306,10 +342,11 @@ export default function AdminContentIngestPage() {
       const rowList = emptySubtitleRows.slice(0, 10).join(', ') + (emptySubtitleRows.length > 10 ? '...' : '');
       subtitleWarnings.push(`${emptySubtitleRows.length} cards thiếu subtitle (hàng: ${rowList}). Thiếu này sẽ được bỏ qua khi upload, không làm card unavailable.`);
     }
-    
-      setCsvErrors(errors);
-      setCsvWarnings(warnings);
+
+    setCsvErrors(errors);
+    setCsvWarnings(warnings);
     setCsvSubtitleWarnings(subtitleWarnings);
+    setCsvFrameworkLevelIgnored(frameworkLevelIgnored);
     setCsvValid(errors.length === 0);
   }, [mainLanguage, confirmedAsLanguage, mainLangHeaderOverride, findHeaderForLang]);
 
@@ -324,9 +361,9 @@ export default function AdminContentIngestPage() {
   const mainLangHeader = useMemo(() => findHeaderForLang(csvHeaders, mainLanguage), [csvHeaders, mainLanguage, findHeaderForLang]);
   const mainLangHeaderOptions = useMemo(() => {
     const canon = canonicalizeLangCode(mainLanguage) || mainLanguage;
-    const variantGroups: Record<string,string[]> = {
-      es_es: ["es_es","es_la"], es_la: ["es_es","es_la"],
-      pt_pt: ["pt_pt","pt_br"], pt_br: ["pt_pt","pt_br"],
+    const variantGroups: Record<string, string[]> = {
+      es_es: ["es_es", "es_la"], es_la: ["es_es", "es_la"],
+      pt_pt: ["pt_pt", "pt_br"], pt_br: ["pt_pt", "pt_br"],
     };
     const targetCanonList = variantGroups[canon] || [canon];
     const candidateSet = new Set<string>();
@@ -360,18 +397,85 @@ export default function AdminContentIngestPage() {
     setMainLangHeaderOverride(matching || mainLangHeaderOptions[0]);
   }, [mainLangHeaderOptions, mainLanguage, mainLangHeaderOverride]);
 
-  // Load categories on mount
+  // Check categories function
+  const checkCategories = async () => {
+    const input = categoryInput.trim();
+    if (!input) {
+      toast.error('Please enter category names');
+      return;
+    }
+
+    // Parse comma-separated categories
+    const categoryNames = input
+      .split(',')
+      .map(name => name.trim())
+      .filter(name => name.length > 0);
+
+    if (categoryNames.length === 0) {
+      toast.error('No valid category names found');
+      return;
+    }
+
+    try {
+      const allCategories = await apiListCategories();
+
+      const status: Record<string, { exists: boolean; id?: string; name: string }> = {};
+      categoryNames.forEach(name => {
+        const existing = allCategories.find(c => c.name.toLowerCase() === name.toLowerCase());
+        status[name] = {
+          exists: !!existing,
+          id: existing?.id,
+          name: name
+        };
+      });
+
+      setCategoryStatus(status);
+      setCheckedCategories(true);
+
+      const existingCount = Object.values(status).filter(s => s.exists).length;
+      const newCount = Object.values(status).filter(s => !s.exists).length;
+      toast.success(`Found ${existingCount} existing, ${newCount} new categories`);
+    } catch (e) {
+      toast.error(`Failed to check categories: ${(e as Error).message}`);
+    }
+  };
+
+  // Check reference data when main language changes
   useEffect(() => {
-    const loadCategories = async () => {
+    const checkReferenceData = async () => {
+      if (!mainLanguage) {
+        setReferenceDataStatus(null);
+        return;
+      }
+      
+      const framework = getFrameworkFromLanguage(mainLanguage);
+      if (!framework) {
+        setReferenceDataStatus(null);
+        return;
+      }
+      
       try {
-        const cats = await apiListCategories();
-        setCategories(cats);
-      } catch (e) {
-        console.error('Failed to load categories:', e);
+        setCheckingReferenceData(true);
+        const status = await apiCheckReferenceData(framework);
+        setReferenceDataStatus({
+          framework,
+          ...status
+        });
+        
+        // Only show toast if data exists (success) - don't show error for missing data
+        if (status.exists) {
+          toast.success(`Reference data available for ${getFrameworkDisplayName(framework)}`, { duration: 3000 });
+        }
+      } catch (error) {
+        console.error('Failed to check reference data:', error);
+        setReferenceDataStatus(null);
+      } finally {
+        setCheckingReferenceData(false);
       }
     };
-    if (isAdmin) loadCategories();
-  }, [isAdmin]);
+    
+    checkReferenceData();
+  }, [mainLanguage]);
 
   // Effects
   useEffect(() => { if (csvHeaders.length && csvRows.length) validateCsv(csvHeaders, csvRows); }, [csvHeaders, csvRows, validateCsv]);
@@ -381,24 +485,23 @@ export default function AdminContentIngestPage() {
       if (langOpen && langDropdownRef.current && t && !langDropdownRef.current.contains(t)) setLangOpen(false);
       if (typeOpen && typeDropdownRef.current && t && !typeDropdownRef.current.contains(t)) setTypeOpen(false);
       if (yearOpen && yearDropdownRef.current && t && !yearDropdownRef.current.contains(t)) setYearOpen(false);
-      if (categoryDropdownOpen && categoryDropdownRef.current && t && !categoryDropdownRef.current.contains(t)) setCategoryDropdownOpen(false);
     }
     document.addEventListener("mousedown", outside);
     return () => document.removeEventListener("mousedown", outside);
-  }, [langOpen, typeOpen, yearOpen, categoryDropdownOpen]);
+  }, [langOpen, typeOpen, yearOpen]);
 
   // Reset file flags when toggles are turned off
   useEffect(() => { if (!addCover) setHasCoverFile(false); }, [addCover]);
   useEffect(() => { if (!addCoverLandscape) setHasCoverLandscapeFile(false); }, [addCoverLandscape]);
   useEffect(() => { if (!addEpCover) setHasEpCoverFile(false); }, [addEpCover]);
-  
+
   // Auto-enable episode cover for video content without images
   useEffect(() => {
     if (contentType === 'video' && !videoHasImages && !addEpCover) {
       setAddEpCover(true);
     }
   }, [contentType, videoHasImages, addEpCover]);
-  
+
   // Reset videoHasImages when contentType changes away from video
   useEffect(() => {
     if (contentType !== 'video') {
@@ -433,9 +536,9 @@ export default function AdminContentIngestPage() {
     // For video without images: only require audio files, episode cover is required
     // For other types: require both image and audio files
     const cardMediaOk = isVideo
-      ? (videoHasImages 
-          ? (imageFiles.length > 0 && audioFiles.length > 0)
-          : audioFiles.length > 0)
+      ? (videoHasImages
+        ? (imageFiles.length > 0 && audioFiles.length > 0)
+        : audioFiles.length > 0)
       : imageFiles.length > 0 && audioFiles.length > 0;
     // Optional toggles: if checked, require a file chosen for that input (use reactive flags)
     const coverOk = !addCover || hasCoverFile;
@@ -561,31 +664,31 @@ export default function AdminContentIngestPage() {
       const uploadPromises = (contentType === 'video' && !videoHasImages)
         ? [doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)]
         : [
-            doUploadMedia("image", imageFiles, uploadAbortRef.current!.signal),
-            doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)
-          ];
+          doUploadMedia("image", imageFiles, uploadAbortRef.current!.signal),
+          doUploadMedia("audio", audioFiles, uploadAbortRef.current!.signal)
+        ];
       await Promise.all(uploadPromises);
       if (cancelRequestedRef.current || uploadAbortRef.current?.signal.aborted) throw new Error("User cancelled");
       // 3. Import CSV to create episode 1 (must be before episode-level media upload)
       if (!csvText) { toast.error("Please select a CSV for cards"); setBusy(false); return; }
       setStage("import");
-        const filmMeta: ImportFilmMeta = {
-          title,
-          description,
-          cover_url: uploadedCoverUrl ?? coverUrl ?? "",
-          cover_landscape_url: uploadedCoverLandscapeUrl,
-          language: mainLanguage,
-          available_subs: [],
-          episodes: 1,
-          total_episodes: 1,
-          episode_title: episodeTitle || undefined,
-          episode_description: episodeDescription || undefined,
-          ...(contentType ? { type: contentType } : {}),
-          ...(releaseYear !== "" ? { release_year: releaseYear } : {}),
-          is_original: isOriginal,
-          ...(imdbScore !== "" && imdbScore !== null ? { imdb_score: Number(imdbScore) } : {}),
-          ...(selectedCategories.length > 0 ? { category_ids: selectedCategories } : {}),
-        };
+      const filmMeta: ImportFilmMeta = {
+        title,
+        description,
+        cover_url: uploadedCoverUrl ?? coverUrl ?? "",
+        cover_landscape_url: uploadedCoverLandscapeUrl,
+        language: mainLanguage,
+        available_subs: [],
+        episodes: 1,
+        total_episodes: 1,
+        episode_title: episodeTitle || undefined,
+        episode_description: episodeDescription || undefined,
+        ...(contentType ? { type: contentType } : {}),
+        ...(releaseYear !== "" ? { release_year: releaseYear } : {}),
+        is_original: isOriginal,
+        ...(imdbScore !== "" && imdbScore !== null ? { imdb_score: Number(imdbScore) } : {}),
+        // Categories will be handled after content creation
+      };
       // derive cardIds from filenames when infer enabled
       let cardIds: string[] | undefined = undefined;
       if (infer) {
@@ -594,13 +697,13 @@ export default function AdminContentIngestPage() {
         const all = (contentType === 'video' && !videoHasImages) ? audioFiles : [...imageFiles, ...audioFiles];
         const set = new Set<string>();
         all.forEach(f => { const m = f.name.match(/(\d+)(?=\.[^.]+$)/); if (m) { const raw = m[1]; const id = raw.length >= padDigits ? raw : raw.padStart(padDigits, "0"); set.add(id); } });
-        if (set.size) { cardIds = Array.from(set).sort((a,b)=>parseInt(a,10)-parseInt(b,10)); }
+        if (set.size) { cardIds = Array.from(set).sort((a, b) => parseInt(a, 10) - parseInt(b, 10)); }
       }
-      
+
       // Build extension maps from uploaded files to ensure DB paths match R2 files
       const imageExtensions: Record<string, string> = {};
       const audioExtensions: Record<string, string> = {};
-      
+
       const buildExtMap = (files: File[], isImage: boolean) => {
         let seq = startIndex;
         const used = new Set<string>();
@@ -626,12 +729,12 @@ export default function AdminContentIngestPage() {
             }
           }
           used.add(cardId);
-          
+
           const ext = isImage
             ? (f.type === "image/webp" ? "webp" : "jpg")
-            : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav" 
+            : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav"
               : (f.type === "audio/opus" || f.type === "audio/ogg" ? "opus" : "mp3"));
-          
+
           if (isImage) {
             imageExtensions[cardId] = ext;
           } else {
@@ -639,13 +742,13 @@ export default function AdminContentIngestPage() {
           }
         });
       };
-      
+
       // Only build image extension map if video has images or not video type
       if (contentType !== 'video' || videoHasImages) {
         buildExtMap(imageFiles, true);
       }
       buildExtMap(audioFiles, false);
-      
+
       try {
         // Build confirmed ambiguous language header map (e.g., 'id'/'in' → Indonesian, 'no' → Norwegian)
         const confirmedMap: Record<string, string> = {};
@@ -668,20 +771,60 @@ export default function AdminContentIngestPage() {
           overrideMainSubtitleHeader: mainLangHeaderOverride || undefined,
           confirmedLanguageHeaders: Object.keys(confirmedMap).length ? confirmedMap : undefined,
           videoHasImages: contentType === 'video' ? videoHasImages : undefined,
-        }, () => {});
+        }, () => { });
         // Mark as created for rollback tracking
         createdFilmRef.current = filmId;
         createdEpisodeNumRef.current = episodeNum;
         importSucceededRef.current = true;
         setImportDone(true);
         toast.success("Import completed");
+
+        // Create categories if specified (only after content creation succeeds)
+        if (checkedCategories && Object.keys(categoryStatus).length > 0) {
+          try {
+            const categoryIds: string[] = [];
+            for (const status of Object.values(categoryStatus)) {
+              if (status.exists && status.id) {
+                // Use existing category
+                categoryIds.push(status.id);
+              } else {
+                // Create new category
+                try {
+                  const result = await apiCreateCategory(status.name);
+                  categoryIds.push(result.id);
+                  toast.success(`Category "${status.name}" created`);
+                } catch (e) {
+                  console.error(`Failed to create category "${status.name}":`, e);
+                  toast.error(`Failed to create category "${status.name}": ${(e as Error).message}`);
+                }
+              }
+            }
+
+            // Assign categories to content
+            if (categoryIds.length > 0) {
+              try {
+                await apiUpdateFilmMeta({
+                  filmSlug: filmId,
+                  category_ids: categoryIds,
+                });
+                toast.success(`Assigned ${categoryIds.length} categories to content`);
+              } catch (e) {
+                console.error('Failed to assign categories:', e);
+                toast.error(`Failed to assign categories: ${(e as Error).message}`);
+              }
+            }
+          } catch (e) {
+            console.error('Category creation/assignment failed:', e);
+            // Non-blocking - don't fail the whole import
+          }
+        }
       } catch (importErr) {
         console.error("❌ Import failed:", importErr);
         toast.error("Import failed: " + (importErr as Error).message);
         throw importErr; // Re-throw to stop the process
       }
       // 4. Upload episode-level media (cover) AFTER episode row exists
-      await doUploadEpisodeCover().catch(() => {});
+      await doUploadEpisodeCover().catch(() => { });
       if (cancelRequestedRef.current) throw new Error("User cancelled");
       // 5. Calculate stats immediately after import
       setStage("calculating_stats");
@@ -708,6 +851,19 @@ export default function AdminContentIngestPage() {
           console.warn('Failed to save video_has_images:', err);
           // Non-blocking error
         }
+      }
+      // Auto level assessment (always enabled)
+      try {
+        setStage("assessing_levels");
+        toast.loading("Running auto level assessment...", { id: "auto-assessment" });
+        await apiAssessContentLevel(filmId, (_progress) => {
+          // Progress callback for assessment (currently not used in UI)
+        });
+        toast.success("Auto level assessment completed", { id: "auto-assessment" });
+      } catch (err) {
+        console.warn('Auto level assessment failed:', err);
+        toast.error("Auto level assessment failed: " + (err as Error).message, { id: "auto-assessment" });
+        // Non-blocking error - don't fail the whole import
       }
       // Post-success: refresh global main-language options and notify Search to refresh
       try {
@@ -853,7 +1009,7 @@ export default function AdminContentIngestPage() {
       {isAdmin && (
         <div className="admin-panel space-y-3">
           <div className="typography-inter-1 admin-panel-title">Quick Guide</div>
-            <div className="admin-subpanel text-xs space-y-3">
+          <div className="admin-subpanel text-xs space-y-3">
             <div style={{ color: 'var(--text)' }} className="font-semibold">A) Các trường nhập</div>
             <ul className="list-disc pl-5 space-y-1 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
               <li><span style={{ color: 'var(--text)' }}>Content Slug</span>: slug không dấu (vd. <code>cinderella</code>). Dùng nút Check để xác thực không trùng.</li>
@@ -864,7 +1020,7 @@ export default function AdminContentIngestPage() {
               <li><span style={{ color: 'var(--text)' }}>Type</span>: Loại nội dung: <code>movie</code>, <code>series</code>, <code>book</code>, <code>audio</code>, <code>video</code>.</li>
               <li><span style={{ color: 'var(--text)' }}>Release Year</span> (tuỳ chọn) helps categorize.</li>
               <li><span style={{ color: 'var(--text)' }}>Media tuỳ chọn</span>: Cover (content + episode), Full Audio/Video cho Episode.</li>
-              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>: 
+              <li><span style={{ color: 'var(--text)' }}>Card Media Files</span>:
                 <ul className="list-disc pl-5 mt-1 space-y-1">
                   <li><strong>Với Type = Video</strong>: Có 2 trường hợp:
                     <ul className="list-disc pl-5 mt-1 space-y-1">
@@ -882,7 +1038,8 @@ export default function AdminContentIngestPage() {
               <li>Phải có cột phụ đề cho Main Language ({mainLanguage}).</li>
               <li><code>type</code> tùy chọn; <code>sentence</code> tự động lấy từ phụ đề của Main Language.</li>
               <li>Hỗ trợ đa ngôn ngữ: en, vi, zh, zh_trad, yue, ja, ko, id, th, ms.</li>
-              <li><code>difficulty_score</code> (0-100) + alias; framework <code>cefr</code>/<code>jlpt</code>/<code>hsk</code> tuỳ chọn.</li>
+              <li><code>difficulty_score</code> (0-100) + alias.</li>
+              <li><strong>Framework level columns (CEFR, JLPT, HSK, etc.) sẽ bị bỏ qua</strong>: Các cột framework level trong CSV sẽ được chủ động bỏ qua. Auto Level Assessment sẽ tự động đánh giá level cho cards dựa trên reference data.</li>
               <li>Infer IDs: lấy số cuối tên file làm card id; nếu tắt dùng Pad + Start Index.</li>
             </ul>
             <div className="admin-instructions-note">
@@ -897,8 +1054,8 @@ export default function AdminContentIngestPage() {
       <div className="admin-panel space-y-4">
         <div className="typography-inter-1 admin-panel-title">Content Meta</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Content Slug</label>
+          <div className="grid grid-cols-[160px_1fr] gap-x-2 gap-y-2">
+            <label className="text-sm">Content Slug</label>
             <div className="relative w-full">
               <input
                 className="admin-input pr-9"
@@ -932,49 +1089,102 @@ export default function AdminContentIngestPage() {
                 </div>
               )}
             </div>
+            <div></div>
+            <div className="admin-form-help typography-inter-4">
+              💡 Slug tự động chuẩn hóa: bỏ dấu tiếng Việt/Unicode, chỉ giữ a-z, 0-9, _ (ví dụ: "vẽ chuyện" → "ve_chuyen")
+            </div>
           </div>
-          <div className="admin-form-help typography-inter-4">
-            💡 Slug tự động chuẩn hóa: bỏ dấu tiếng Việt/Unicode, chỉ giữ a-z, 0-9, _ (ví dụ: "vẽ chuyện" → "ve_chuyen")
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="w-40 text-sm">Main Language</label>
+          <div className="grid grid-cols-[160px_1fr] gap-x-2 gap-y-2">
+            <label className="text-sm">Main Language</label>
             <div className="relative w-full" ref={langDropdownRef}>
-              <button type="button" className="admin-input admin-dropdown-button flex items-center justify-between" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
-                <span className="admin-dropdown-button-content flex items-center gap-2">
-                  <img src={getFlagImageForLang(mainLanguage)} alt={`${mainLanguage} flag`} className="admin-flag-icon" />
-                  <span>{langLabel(mainLanguage)} ({mainLanguage})</span>
-                </span>
-                <span className="admin-dropdown-arrow">▼</span>
-              </button>
-              {langOpen && (
-                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
-                  <div className="admin-dropdown-search-header">
-                    <input
-                      autoFocus
-                      value={langQuery}
-                      onChange={(e) => setLangQuery(e.target.value)}
-                      placeholder="Search language..."
-                      className="admin-input text-xs py-1 px-2"
-                    />
-                  </div>
-                  {FILTERED_LANG_OPTIONS.map(l => (
-                    <div key={l} className="admin-dropdown-item" onClick={() => { setMainLanguage(l); setLangOpen(false); setLangQuery(""); }}>
-                      <img src={getFlagImageForLang(l)} alt={`${l} flag`} className="admin-flag-icon" />
-                      <span className="text-sm">{langLabel(l)} ({l})</span>
+                <button type="button" className="admin-input admin-dropdown-button flex items-center justify-between" onClick={e => { e.preventDefault(); setLangOpen(v => !v); }}>
+                  <span className="admin-dropdown-button-content flex items-center gap-2">
+                    <img src={getFlagImageForLang(mainLanguage)} alt={`${mainLanguage} flag`} className="admin-flag-icon" />
+                    <span>{langLabel(mainLanguage)} ({mainLanguage})</span>
+                  </span>
+                  <span className="admin-dropdown-arrow">▼</span>
+                </button>
+                {langOpen && (
+                  <div className="absolute z-10 mt-1 w-full admin-dropdown-panel">
+                    <div className="admin-dropdown-search-header">
+                      <input
+                        autoFocus
+                        value={langQuery}
+                        onChange={(e) => setLangQuery(e.target.value)}
+                        placeholder="Search language..."
+                        className="admin-input text-xs py-1 px-2"
+                      />
                     </div>
-                  ))}
-                  {FILTERED_LANG_OPTIONS.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-pink-200/70">No languages match "{langQuery}".</div>
-                  )}
-                </div>
-              )}
+                    {FILTERED_LANG_OPTIONS.map(l => {
+                      const framework = getFrameworkFromLanguage(l);
+                      return (
+                        <div key={l} className="admin-dropdown-item" onClick={() => { setMainLanguage(l); setLangOpen(false); setLangQuery(""); }}>
+                          <img src={getFlagImageForLang(l)} alt={`${l} flag`} className="admin-flag-icon" />
+                          <span className="text-sm flex-1">{langLabel(l)} ({l})</span>
+                          {framework ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--success)', color: 'var(--background)', fontSize: '10px' }}>
+                              {framework}
+                            </span>
+                          ) : (
+                            <span className="text-xs px-1.5 py-0.5 rounded opacity-50" style={{ backgroundColor: 'var(--warning)', color: 'var(--background)', fontSize: '10px' }}>
+                              No framework
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {FILTERED_LANG_OPTIONS.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-pink-200/70">No languages match "{langQuery}".</div>
+                    )}
+                  </div>
+                )}
+            </div>
+            {/* Framework Support Badge - below Main Language selector */}
+            <div></div>
+            <div>
+              {mainLanguage && (() => {
+                const framework = getFrameworkFromLanguage(mainLanguage);
+                if (!framework) {
+                  return (
+                    <div className="text-xs px-2 py-1 rounded inline-block" style={{ backgroundColor: 'var(--warning)', color: 'var(--background)', opacity: 0.7 }}>
+                      No framework support
+                    </div>
+                  );
+                }
+                // Only show badge if reference data exists in DB
+                if (referenceDataStatus && referenceDataStatus.framework === framework && referenceDataStatus.exists) {
+                  return (
+                    <div className="text-xs px-2 py-1 rounded inline-block" style={{ backgroundColor: 'var(--success)', color: 'var(--background)' }}>
+                      Auto Assessment: {getFrameworkDisplayName(framework)}
+                    </div>
+                  );
+                }
+                // Show framework name but indicate data not available
+                if (referenceDataStatus && referenceDataStatus.framework === framework && !referenceDataStatus.exists) {
+                  return (
+                    <div className="text-xs px-2 py-1 rounded inline-block" style={{ backgroundColor: 'var(--warning)', color: 'var(--background)' }}>
+                      {getFrameworkDisplayName(framework)} (no data in DB)
+                    </div>
+                  );
+                }
+                // Still checking or no status yet - only show if we have a framework
+                if (checkingReferenceData) {
+                  return (
+                    <div className="text-xs px-2 py-1 rounded inline-block opacity-50" style={{ backgroundColor: 'var(--neutral)', color: 'var(--background)' }}>
+                      {getFrameworkDisplayName(framework)} (checking...)
+                    </div>
+                  );
+                }
+                // No status yet - don't show checking if we haven't started checking
+                return null;
+              })()}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Title <span className="text-red-500">*</span></label>
             <input className="admin-input w-full" value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" />
           </div>
-                    <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Release Year</label>
             <div className="relative w-full" ref={yearDropdownRef}>
               <button type="button" className="admin-input flex items-center justify-between" onClick={e => { e.preventDefault(); setYearOpen(v => !v); }}>
@@ -1032,15 +1242,15 @@ export default function AdminContentIngestPage() {
           </div>
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">IMDB Score</label>
-            <input 
-              type="number" 
-              step="0.1" 
-              min="0" 
-              max="10" 
-              className="admin-input w-full" 
-              value={imdbScore} 
-              onChange={e => setImdbScore(e.target.value === "" ? "" : Number(e.target.value))} 
-              placeholder="0.0 - 10.0 (optional)" 
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="10"
+              className="admin-input w-full"
+              value={imdbScore}
+              onChange={e => setImdbScore(e.target.value === "" ? "" : Number(e.target.value))}
+              placeholder="0.0 - 10.0 (optional)"
             />
           </div>
         </div>
@@ -1066,118 +1276,53 @@ export default function AdminContentIngestPage() {
           <label className="w-40 text-sm pt-1">Description</label>
           <textarea className="admin-input" rows={3} value={description} onChange={e => setDescription(e.target.value)} />
         </div>
-        
+
         {/* Categories Section */}
         <div className="flex items-start gap-2">
           <label className="w-40 text-sm pt-1">Categories</label>
           <div className="flex-1 space-y-2">
-            <div className="relative" ref={categoryDropdownRef}>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  className="admin-input flex-1"
-                  placeholder="Search or create category..."
-                  value={categoryQuery}
-                  onChange={(e) => {
-                    setCategoryQuery(e.target.value);
-                    setCategoryDropdownOpen(true);
-                  }}
-                  onFocus={() => setCategoryDropdownOpen(true)}
-                />
-                <button
-                  type="button"
-                  className="admin-btn secondary"
-                  onClick={async () => {
-                    const name = categoryQuery.trim();
-                    if (!name) return;
-                    try {
-                      const result = await apiCreateCategory(name);
-                      setCategories(prev => [...prev.filter(c => c.id !== result.id), { id: result.id, name: result.name }]);
-                      if (!selectedCategories.includes(result.id) && !selectedCategories.includes(result.name)) {
-                        setSelectedCategories(prev => [...prev, result.id]);
-                      }
-                      setCategoryQuery("");
-                      setCategoryDropdownOpen(false);
-                      toast.success(`Category "${name}" created`);
-                    } catch (e) {
-                      toast.error(`Failed to create category: ${(e as Error).message}`);
-                    }
-                  }}
-                  disabled={!categoryQuery.trim()}
-                >
-                  Create
-                </button>
-              </div>
-              {categoryDropdownOpen && (
-                <div className="absolute z-10 mt-1 w-full admin-dropdown-panel max-h-64 overflow-auto">
-                  {categories
-                    .filter(cat => !categoryQuery || cat.name.toLowerCase().includes(categoryQuery.toLowerCase()))
-                    .map(cat => {
-                      const isSelected = selectedCategories.includes(cat.id) || selectedCategories.includes(cat.name);
-                      return (
-                        <div
-                          key={cat.id}
-                          className={`admin-dropdown-item ${isSelected ? 'bg-blue-500/20' : ''}`}
-                          onClick={() => {
-                            if (isSelected) {
-                              setSelectedCategories(prev => prev.filter(id => id !== cat.id && id !== cat.name));
-                            } else {
-                              setSelectedCategories(prev => [...prev, cat.id]);
-                            }
-                            setCategoryQuery("");
-                            setCategoryDropdownOpen(false);
-                          }}
-                        >
-                          <input type="checkbox" checked={isSelected} readOnly className="mr-2" />
-                          <span>{cat.name}</span>
-                        </div>
-                      );
-                    })}
-                  {categoryQuery && !categories.some(cat => cat.name.toLowerCase() === categoryQuery.toLowerCase()) && (
-                    <div className="admin-dropdown-item text-xs text-blue-400" onClick={async () => {
-                      try {
-                        const result = await apiCreateCategory(categoryQuery.trim());
-                        setCategories(prev => [...prev.filter(c => c.id !== result.id), { id: result.id, name: result.name }]);
-                        setSelectedCategories(prev => [...prev, result.id]);
-                        setCategoryQuery("");
-                        setCategoryDropdownOpen(false);
-                        toast.success(`Category "${result.name}" created and selected`);
-                      } catch (e) {
-                        toast.error(`Failed to create category: ${(e as Error).message}`);
-                      }
-                    }}>
-                      + Create "{categoryQuery}"
-                    </div>
-                  )}
-                </div>
-              )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="admin-input flex-1"
+                placeholder="Enter categories separated by comma (e.g., Action, Drama, Comedy)"
+                value={categoryInput}
+                onChange={(e) => {
+                  setCategoryInput(e.target.value);
+                  setCheckedCategories(false);
+                  setCategoryStatus({});
+                }}
+              />
+              <button
+                type="button"
+                className="admin-btn secondary"
+                onClick={checkCategories}
+                disabled={!categoryInput.trim()}
+              >
+                Check
+              </button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {selectedCategories.length > 0 ? (
-                selectedCategories.map(catIdOrName => {
-                  const cat = categories.find(c => c.id === catIdOrName || c.name === catIdOrName);
-                  return (
-                    <span
-                      key={catIdOrName}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs"
-                      style={{ backgroundColor: 'var(--primary)', color: 'var(--background)' }}
-                    >
-                      {cat ? cat.name : catIdOrName}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCategories(prev => prev.filter(id => id !== catIdOrName))}
-                        className="hover:opacity-70"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  );
-                })
-              ) : (
-                <span className="text-xs typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>
-                  No categories selected
-                </span>
-              )}
+            {checkedCategories && Object.keys(categoryStatus).length > 0 && (
+              <div className="space-y-1">
+                {Object.values(categoryStatus).map((status, idx) => (
+                  <div
+                    key={idx}
+                    className={`text-xs px-2 py-1 rounded ${status.exists
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-yellow-500/20 text-yellow-400'
+                      }`}
+                  >
+                    {status.exists ? (
+                      <span>✓ {status.name} (exists)</span>
+                    ) : (
+                      <span>⚠ {status.name} (will be created)</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-xs typography-inter-4" style={{ color: 'var(--neutral)' }}>
+              💡 Categories will only be created when content is successfully created. If creation fails, no categories will be created.
             </div>
           </div>
         </div>
@@ -1243,10 +1388,10 @@ export default function AdminContentIngestPage() {
           </div>
           <div className="flex items-center gap-2">
             <label className="w-40 text-sm">Episode Description</label>
-            <input 
-              className="admin-input" 
-              value={episodeDescription} 
-              onChange={e => setEpisodeDescription(e.target.value)} 
+            <input
+              className="admin-input"
+              value={episodeDescription}
+              onChange={e => setEpisodeDescription(e.target.value)}
               placeholder="Optional episode description"
             />
           </div>
@@ -1254,10 +1399,10 @@ export default function AdminContentIngestPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
-              <input 
-                id="chk-ep-cover" 
-                type="checkbox" 
-                checked={addEpCover} 
+              <input
+                id="chk-ep-cover"
+                type="checkbox"
+                checked={addEpCover}
                 onChange={e => setAddEpCover(e.target.checked)}
                 disabled={contentType === 'video' && !videoHasImages}
               />
@@ -1276,15 +1421,15 @@ export default function AdminContentIngestPage() {
             </div>
             {(addEpCover || (contentType === 'video' && !videoHasImages)) && (
               <>
-                <input 
-                  id="ep-cover-file" 
-                  type="file" 
-                  accept="image/jpeg,image/webp" 
-                  onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} 
-                  className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" 
-                  style={{ borderColor: 'var(--primary)' }} 
+                <input
+                  id="ep-cover-file"
+                  type="file"
+                  accept="image/jpeg,image/webp"
+                  onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)}
+                  className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full"
+                  style={{ borderColor: 'var(--primary)' }}
                 />
-                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3,'0')}/cover/cover.webp (or .jpg)</div>
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3, '0')}/cover/cover.webp (or .jpg)</div>
                 {(contentType === 'video' && !videoHasImages && !hasEpCoverFile) && (
                   <div className="text-xs text-red-500">⚠️ Bắt buộc upload Episode Cover Landscape cho Video content không có ảnh</div>
                 )}
@@ -1309,12 +1454,14 @@ export default function AdminContentIngestPage() {
           </button>
           <button type="button" className="admin-btn" onClick={() => {
             const mainCanon = canonicalizeLangCode(mainLanguage) || mainLanguage;
-            const headers = ["start","end",mainCanon,"cefr","difficulty_score"]; // type optional
+            // Note: Framework level columns (cefr, jlpt, hsk, etc.) are NOT included in template
+            // because they will be ignored - auto assessment will override them
+            const headers = ["start", "end", mainCanon, "difficulty_score"]; // type optional
             const sample = [
-              ["13.75","24.602","Once upon a time","A2","40"],
-              ["24.603","27.209","Her name was Ella.","A2","35"],
+              ["13.75", "24.602", "Once upon a time", "40"],
+              ["24.603", "27.209", "Her name was Ella.", "35"],
             ];
-            const csv = [headers.join(","), ...sample.map(r=>r.join(","))].join("\n");
+            const csv = [headers.join(","), ...sample.map(r => r.join(","))].join("\n");
             const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
             const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `template_${mainCanon}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
           }}>Download template</button>
@@ -1347,7 +1494,7 @@ export default function AdminContentIngestPage() {
           mainLangHeader={mainLangHeader}
           mainLangHeaderOverride={mainLangHeaderOverride}
         />
-        
+
         {/* Ambiguous column checkboxes */}
         {ambiguousHeaders.length > 0 && (
           <div className="mt-3 p-3 rounded-lg border space-y-2" style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning)' }}>
@@ -1405,6 +1552,93 @@ export default function AdminContentIngestPage() {
           </div>
         )}
       </div>
+
+      {/* Reference Data Status */}
+      {mainLanguage && (() => {
+        const framework = getFrameworkFromLanguage(mainLanguage);
+        if (!framework) {
+          return (
+            <div className="admin-panel space-y-3">
+              <div className="typography-inter-1 admin-panel-title">Auto Level Assessment</div>
+              <div className="p-3 rounded-lg border bg-yellow-500/10 border-yellow-500/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <XCircle className="w-5 h-5 text-yellow-400" />
+                  <span className="font-semibold" style={{ color: 'var(--warning)' }}>
+                    No Framework Support
+                  </span>
+                </div>
+                <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
+                  <div>⚠️ Ngôn ngữ "{langLabel(mainLanguage)}" ({mainLanguage}) không có framework tương ứng trong mapping.</div>
+                  <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
+                    Auto level assessment sẽ không chạy cho ngôn ngữ này. Hãy chọn ngôn ngữ khác có framework hỗ trợ (English → CEFR, Japanese → JLPT, Chinese → HSK, Korean → TOPIK, etc.).
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Only show panel if framework exists in mapping
+        return (
+          <div className="admin-panel space-y-3">
+            <div className="typography-inter-1 admin-panel-title">Auto Level Assessment</div>
+            {checkingReferenceData ? (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Checking reference data availability in database...</span>
+              </div>
+            ) : referenceDataStatus && referenceDataStatus.framework === framework ? (
+              <div className={`p-3 rounded-lg border ${referenceDataStatus.exists ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {referenceDataStatus.exists ? (
+                    <CheckCircle className="w-5 h-5 text-green-400" />
+                  ) : (
+                    <XCircle className="w-5 h-5 text-yellow-400" />
+                  )}
+                  <span className="font-semibold" style={{ color: referenceDataStatus.exists ? 'var(--success)' : 'var(--warning)' }}>
+                    {getFrameworkDisplayName(framework)}
+                  </span>
+                </div>
+                {referenceDataStatus.exists ? (
+                  <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
+                    <div>✓ Reference data available in database</div>
+                    {referenceDataStatus.hasReferenceList && <div className="text-xs">• Reference list imported ({framework})</div>}
+                    {referenceDataStatus.hasFrequencyData && <div className="text-xs">• Frequency data available ({framework})</div>}
+                    <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
+                      Auto level assessment will run automatically after content import.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
+                    <div>⚠ No reference data found in database</div>
+                    <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
+                      Framework {getFrameworkDisplayName(framework)} is supported, but no reference data exists in database. Please import reference data for {framework} in Level Management before creating content.
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg border bg-gray-500/10 border-gray-500/30">
+                <div className="text-sm" style={{ color: 'var(--text)' }}>
+                  Framework {getFrameworkDisplayName(framework)} is supported. Checking database for reference data...
+                </div>
+              </div>
+            )}
+            {csvFrameworkLevelIgnored.length > 0 && (
+              <div className="p-3 rounded-lg border bg-blue-500/10 border-blue-500/30">
+                <div className="text-sm font-semibold mb-1" style={{ color: 'var(--info)' }}>
+                  Framework level columns will be ignored:
+                </div>
+                <div className="text-xs space-y-1" style={{ color: 'var(--text)' }}>
+                  {csvFrameworkLevelIgnored.map((col, idx) => (
+                    <div key={idx}>• {col} (auto assessment will override)</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Card Media */}
       <CardMediaFiles
@@ -1464,53 +1698,54 @@ export default function AdminContentIngestPage() {
               { label: (contentType === 'video' && !videoHasImages) ? '3. Audio' : ((contentType === 'video' && videoHasImages) ? '4. Audio' : '4. Audio'), done: audioTotal > 0 && audioDone >= audioTotal, pending: busy && audioDone < audioTotal, value: `${audioDone}/${audioTotal}` },
               { label: (contentType === 'video' && !videoHasImages) ? '4. Import CSV' : ((contentType === 'video' && videoHasImages) ? '5. Import CSV' : '5. Import CSV'), done: importDone, pending: stage === 'import', value: importDone ? 'Done' : stage === 'import' ? 'Running' : 'Waiting' },
               ...((addEpCover || (contentType === 'video' && !videoHasImages)) && hasEpCoverFile ? [{ label: (contentType === 'video' && !videoHasImages) ? '5. Episode Cover' : '6. Episode Cover', done: epCoverDone > 0, pending: stage === 'ep_cover' || (importDone && epCoverDone === 0) }] : []),
-              { label: (contentType === 'video' && !videoHasImages) ? '6. Calculating Stats' : ((contentType === 'video' && videoHasImages) ? '6. Calculating Stats' : '7. Calculating Stats'), done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' }
+              { label: (contentType === 'video' && !videoHasImages) ? '6. Calculating Stats' : ((contentType === 'video' && videoHasImages) ? '6. Calculating Stats' : '7. Calculating Stats'), done: statsDone, pending: stage === 'calculating_stats', value: statsDone ? 'Done' : stage === 'calculating_stats' ? 'Running' : 'Waiting' },
+              { label: '8. Auto Level Assessment', done: stage === 'done' || stage === 'assessing_levels', pending: stage === 'assessing_levels', value: (stage === 'done' || stage === 'assessing_levels') ? 'Done' : 'Waiting' }
             ]}
           />
         )}
       </div>
       {confirmStop && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deletionProgress && setConfirmStop(false)}>
-        <div className="rounded-xl p-6 max-w-md w-full mx-4" style={{ backgroundColor: '#16111f', border: '3px solid #ec4899', boxShadow: '0 0 0 2px rgba(147,51,234,0.25) inset, 0 0 24px rgba(236,72,153,0.35)' }} onClick={e => e.stopPropagation()}>
-          <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận dừng quá trình</h3>
-          <p className="text-[#f5d0fe] mb-2">Bạn có muốn dừng quá trình tạo nội dung?</p>
-          <p className="text-sm text-[#e9d5ff] mb-4">Stage hiện tại: <span className="text-[#f9a8d4] font-semibold">{stage}</span></p>
-          {(importSucceededRef.current && createdFilmRef.current) && (
-            <p className="text-sm text-[#fbbf24] mb-4">⚠️ Import đã hoàn thành. Nếu Rollback, toàn bộ Content + Episode + Media đã upload sẽ bị xóa!</p>
-          )}
-          <p className="text-sm text-[#e9d5ff] mb-6">
-            {(importSucceededRef.current && createdFilmRef.current)
-              ? 'Chọn "Chỉ dừng upload" để giữ lại nội dung đã tạo, hoặc "Rollback" để xóa hoàn toàn.'
-              : 'Chọn "Dừng" để hủy tiến trình upload ngay lập tức.'}
-          </p>
-          {deletionProgress && (
-            <div className="mb-4 p-3 rounded-lg border-2" style={{ backgroundColor: 'var(--secondary)', borderColor: 'var(--primary)' }}>
-              <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
-              <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
-              <ProgressBar percent={deletionPercent} />
-            </div>
-          )}
-          <div className="flex gap-3 justify-end">
-            <button
-              className="admin-btn secondary"
-              onClick={() => { if (!deletionProgress) { performSimpleCancel(); } }}
-              disabled={!!deletionProgress}
-            >
-              {(importSucceededRef.current && createdFilmRef.current) ? 'Chỉ dừng upload' : 'Hủy'}
-            </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => !deletionProgress && setConfirmStop(false)}>
+          <div className="rounded-xl p-6 max-w-md w-full mx-4" style={{ backgroundColor: '#16111f', border: '3px solid #ec4899', boxShadow: '0 0 0 2px rgba(147,51,234,0.25) inset, 0 0 24px rgba(236,72,153,0.35)' }} onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-[#f5d0fe] mb-4">Xác nhận dừng quá trình</h3>
+            <p className="text-[#f5d0fe] mb-2">Bạn có muốn dừng quá trình tạo nội dung?</p>
+            <p className="text-sm text-[#e9d5ff] mb-4">Stage hiện tại: <span className="text-[#f9a8d4] font-semibold">{stage}</span></p>
             {(importSucceededRef.current && createdFilmRef.current) && (
-              <button className="admin-btn danger" disabled={!!deletionProgress} onClick={executeRollback}>
-                {deletionProgress ? 'Đang rollback...' : 'Rollback'}
-              </button>
+              <p className="text-sm text-[#fbbf24] mb-4">⚠️ Import đã hoàn thành. Nếu Rollback, toàn bộ Content + Episode + Media đã upload sẽ bị xóa!</p>
             )}
-            {!(importSucceededRef.current && createdFilmRef.current) && (
-              <button className="admin-btn primary" onClick={() => performSimpleCancel()}>
-                Dừng
-              </button>
+            <p className="text-sm text-[#e9d5ff] mb-6">
+              {(importSucceededRef.current && createdFilmRef.current)
+                ? 'Chọn "Chỉ dừng upload" để giữ lại nội dung đã tạo, hoặc "Rollback" để xóa hoàn toàn.'
+                : 'Chọn "Dừng" để hủy tiến trình upload ngay lập tức.'}
+            </p>
+            {deletionProgress && (
+              <div className="mb-4 p-3 rounded-lg border-2" style={{ backgroundColor: 'var(--secondary)', borderColor: 'var(--primary)' }}>
+                <div className="text-sm font-semibold text-[#f9a8d4] mb-2">{deletionProgress.stage}</div>
+                <div className="text-xs text-[#e9d5ff] mb-2">{deletionProgress.details}</div>
+                <ProgressBar percent={deletionPercent} />
+              </div>
             )}
+            <div className="flex gap-3 justify-end">
+              <button
+                className="admin-btn secondary"
+                onClick={() => { if (!deletionProgress) { performSimpleCancel(); } }}
+                disabled={!!deletionProgress}
+              >
+                {(importSucceededRef.current && createdFilmRef.current) ? 'Chỉ dừng upload' : 'Hủy'}
+              </button>
+              {(importSucceededRef.current && createdFilmRef.current) && (
+                <button className="admin-btn danger" disabled={!!deletionProgress} onClick={executeRollback}>
+                  {deletionProgress ? 'Đang rollback...' : 'Rollback'}
+                </button>
+              )}
+              {!(importSucceededRef.current && createdFilmRef.current) && (
+                <button className="admin-btn primary" onClick={() => performSimpleCancel()}>
+                  Dừng
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
       )}
     </div>
   );

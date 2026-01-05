@@ -20,7 +20,7 @@ import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from '../types
 import { getEpisodeProgress, markCardComplete, markCardIncomplete } from '../services/userProgress';
 import { useUser } from '../context/UserContext';
 import LearningProgressBar from '../components/LearningProgressBar';
-import { canonicalizeLangCode, langLabel } from '../utils/lang';
+import { canonicalizeLangCode } from '../utils/lang';
 import { normalizeCjkSpacing } from '../utils/subtitles';
 import rightAngleIcon from '../assets/icons/right-angle.svg';
 import filterIcon from '../assets/icons/filter.svg';
@@ -1850,17 +1850,13 @@ export default function WatchPage() {
           </button>
           
           {/* Category tags - inline with dropdown button */}
-          {film?.main_language && (
-            <span className="watch-tag-category">{langLabel(film.main_language)}</span>
-          )}
-          {film?.type && (
-            <span className="watch-tag-category">
-              {film.type.charAt(0).toUpperCase() + film.type.slice(1)}
-            </span>
-          )}
-          {film?.title && film.title.toLowerCase().includes('ghibli') && (
-            <span className="watch-tag-category">Ghibli</span>
-          )}
+          {film?.categories && film.categories.length > 0 ? (
+            film.categories.map((category) => (
+              <span key={category.id} className="watch-tag-category">
+                {category.name}
+              </span>
+            ))
+          ) : null}
         </div>
 
         {/* Episodes Panel - toggled by dropdown */}

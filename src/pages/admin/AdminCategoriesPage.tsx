@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiListCategories, apiCreateCategory, apiUpdateCategory, apiDeleteCategory, apiCheckCategoryUsage, type Category } from '../../services/cfApi';
+import { apiListCategories, apiCreateCategory, apiUpdateCategory, apiDeleteCategory, apiCheckCategoryUsage } from '../../services/cfApi';
+import type { Category } from '../../types';
 import { Plus, Pencil, Trash2, Search, ArrowLeft, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ConfirmDeleteModal from '../../components/admin/ConfirmDeleteModal';
