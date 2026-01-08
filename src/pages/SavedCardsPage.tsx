@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
-import { apiGetSavedCards, apiGetFilm } from '../services/cfApi';
+import { apiGetSavedCards, apiGetFilm, apiToggleSaveCard } from '../services/cfApi';
 import type { CardDoc, LevelFrameworkStats } from '../types';
 import SearchResultCard from '../components/SearchResultCard';
 import '../styles/pages/search-page.css';
@@ -9,11 +9,11 @@ export default function SavedCardsPage() {
   const { user, preferences } = useUser();
   const [cards, setCards] = useState<Array<CardDoc & { srs_state: string; film_title?: string }>>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [filmLangMap, setFilmLangMap] = useState<Record<string, string>>({});
   const [filmLevelMap, setFilmLevelMap] = useState<Record<string, { framework: string; level: string; language?: string }[]>>({});
+  const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
+  const [unsaving, setUnsaving] = useState(false);
 
   // Helpers to parse level framework stats and get dominant level
   const parseLevelStats = (raw: unknown): LevelFrameworkStats | null => {
@@ -56,11 +56,30 @@ export default function SavedCardsPage() {
     (async () => {
       try {
         setLoading(true);
-        const result = await apiGetSavedCards(user.uid, page, 50);
+        
+        // Load all saved cards by paginating through all pages
+        let allCards: Array<CardDoc & { srs_state: string; film_title?: string }> = [];
+        let currentPage = 1;
+        let hasMore = true;
+        let totalCount = 0;
+        
+        while (hasMore && mounted) {
+          const result = await apiGetSavedCards(user.uid, currentPage, 100); // Use larger limit
+          if (!mounted) return;
+          
+          allCards = [...allCards, ...result.cards];
+          totalCount = result.total;
+          hasMore = result.has_more;
+          currentPage++;
+          
+          // Safety limit to prevent infinite loop
+          if (currentPage > 1000) break;
+        }
+        
         if (!mounted) return;
         
         // Load film languages for primaryLang and level badges
-        const uniqueFilmIds = [...new Set(result.cards.map(c => c.film_id).filter(Boolean))];
+        const uniqueFilmIds = [...new Set(allCards.map(c => c.film_id).filter(Boolean))];
         const langMap: Record<string, string> = {};
         const levelMap: Record<string, { framework: string; level: string; language?: string }[]> = {};
         await Promise.all(uniqueFilmIds.map(async (filmId) => {
@@ -91,7 +110,7 @@ export default function SavedCardsPage() {
           setFilmLangMap(prev => ({ ...prev, ...langMap }));
           setFilmLevelMap(prev => ({ ...prev, ...levelMap }));
 
-          const cardsWithLevels = result.cards.map((c) => {
+          const cardsWithLevels = allCards.map((c) => {
             if (c.film_id && levelMap[c.film_id]) {
               return {
                 ...c,
@@ -108,13 +127,8 @@ export default function SavedCardsPage() {
             return c;
           });
 
-          if (page === 1) {
-            setCards(cardsWithLevels);
-          } else {
-            setCards(prev => [...prev, ...cardsWithLevels]);
-          }
-          setTotal(result.total);
-          setHasMore(result.has_more);
+          setCards(cardsWithLevels);
+          setTotal(totalCount);
         }
       } catch (error) {
         console.error('Failed to load saved cards:', error);
@@ -129,7 +143,81 @@ export default function SavedCardsPage() {
     })();
 
     return () => { mounted = false; };
-  }, [user?.uid, page]);
+  }, [user?.uid]);
+
+  // Toggle card selection
+  const toggleCardSelection = useCallback((cardId: string) => {
+    setSelectedCardIds(prev => {
+      const next = new Set(prev);
+      if (next.has(cardId)) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Check if all cards are selected
+  const allCardsSelected = useMemo(() => {
+    return cards.length > 0 && selectedCardIds.size === cards.length;
+  }, [cards.length, selectedCardIds.size]);
+
+  // Toggle select all
+  const toggleSelectAll = useCallback(() => {
+    if (allCardsSelected) {
+      setSelectedCardIds(new Set());
+    } else {
+      setSelectedCardIds(new Set(cards.map(c => c.id)));
+    }
+  }, [allCardsSelected, cards]);
+
+  // Unsave selected cards
+  const handleUnsaveSelected = useCallback(async () => {
+    if (!user?.uid || selectedCardIds.size === 0) return;
+
+    setUnsaving(true);
+    try {
+      const unsavePromises = Array.from(selectedCardIds).map(async (cardId) => {
+        const card = cards.find(c => c.id === cardId);
+        if (!card) return;
+
+        try {
+          await apiToggleSaveCard(
+            user.uid,
+            cardId,
+            card.film_id,
+            card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
+          );
+        } catch (error) {
+          console.error(`Failed to unsave card ${cardId}:`, error);
+        }
+      });
+
+      await Promise.all(unsavePromises);
+      
+      // Remove unsaved cards from the list
+      setCards(prev => prev.filter(c => !selectedCardIds.has(c.id)));
+      setSelectedCardIds(new Set());
+      setTotal(prev => Math.max(0, prev - selectedCardIds.size));
+    } catch (error) {
+      console.error('Failed to unsave cards:', error);
+    } finally {
+      setUnsaving(false);
+    }
+  }, [user?.uid, selectedCardIds, cards]);
+
+  // Handle individual card unsave (from SearchResultCard)
+  const handleCardUnsave = useCallback((cardId: string) => {
+    // Remove the card from the list
+    setCards(prev => prev.filter(c => c.id !== cardId));
+    setSelectedCardIds(prev => {
+      const next = new Set(prev);
+      next.delete(cardId);
+      return next;
+    });
+    setTotal(prev => Math.max(0, prev - 1));
+  }, []);
 
   if (!user) {
     return (
@@ -153,6 +241,39 @@ export default function SavedCardsPage() {
             <div className="search-stats typography-inter-4">
               {loading ? "Loading..." : `${total} Saved Cards`}
             </div>
+            {!loading && cards.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={allCardsSelected}
+                    onChange={toggleSelectAll}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontFamily: 'Noto Sans, sans-serif', fontSize: '14px', color: 'var(--text)' }}>
+                    Select All
+                  </span>
+                </label>
+                {selectedCardIds.size > 0 && (
+                  <button
+                    onClick={handleUnsaveSelected}
+                    disabled={unsaving}
+                    style={{
+                      padding: '8px 16px',
+                      background: unsaving ? 'var(--hover-bg)' : '#ef4444',
+                      border: '2px solid #ef4444',
+                      color: '#ffffff',
+                      fontFamily: "'Press Start 2P', monospace",
+                      fontSize: '10px',
+                      cursor: unsaving ? 'not-allowed' : 'pointer',
+                      opacity: unsaving ? 0.6 : 1,
+                    }}
+                  >
+                    {unsaving ? 'UNSAVING...' : `UNSAVE (${selectedCardIds.size})`}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="search-results layout-default">
@@ -188,33 +309,39 @@ export default function SavedCardsPage() {
                   const stableKey = `${card.film_id || "item"}-${
                     card.episode_id || card.episode || "e"
                   }-${card.id}`;
+                  const isSelected = selectedCardIds.has(card.id);
                   return (
-                    <SearchResultCard
-                      key={stableKey}
-                      card={card}
-                      primaryLang={card.film_id ? filmLangMap[card.film_id] || preferences?.main_language : preferences?.main_language}
-                      highlightQuery=""
-                    />
+                    <div key={stableKey} style={{ position: 'relative' }}>
+                      <label
+                        style={{
+                          position: 'absolute',
+                          top: '8px',
+                          left: '8px',
+                          zIndex: 10,
+                          cursor: 'pointer',
+                          background: 'rgba(0, 0, 0, 0.7)',
+                          borderRadius: '4px',
+                          padding: '4px',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleCardSelection(card.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                        />
+                      </label>
+                      <SearchResultCard
+                        card={card}
+                        primaryLang={card.film_id ? filmLangMap[card.film_id] || preferences?.main_language : preferences?.main_language}
+                        highlightQuery=""
+                        onUnsave={handleCardUnsave}
+                      />
+                    </div>
                   );
                 })}
-                {hasMore && (
-                  <div style={{ textAlign: 'center', padding: '20px' }}>
-                    <button
-                      onClick={() => setPage(prev => prev + 1)}
-                      style={{
-                        padding: '10px 20px',
-                        background: 'var(--hover-bg)',
-                        border: '2px solid var(--primary)',
-                        color: 'var(--text)',
-                        fontFamily: "'Press Start 2P', monospace",
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Load More
-                    </button>
-                  </div>
-                )}
               </>
             )}
           </div>

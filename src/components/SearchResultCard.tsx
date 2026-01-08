@@ -30,6 +30,7 @@ interface Props {
   filmTitle?: string; // content title to display
   volume?: number; // audio volume (0-100)
   subtitleLanguages?: string[]; // selected subtitle languages for memo comparison
+  onUnsave?: (cardId: string) => void; // callback when card is unsaved
 }
 
 // Memoized component to prevent unnecessary re-renders
@@ -39,6 +40,7 @@ const SearchResultCard = memo(function SearchResultCard({
   primaryLang,
   volume = 28,
   subtitleLanguages,
+  onUnsave,
 }: Props) {
   const { user, preferences } = useUser();
   // Use prop if provided, otherwise fallback to preferences
@@ -161,6 +163,10 @@ const SearchResultCard = memo(function SearchResultCard({
       } else {
         setSrsState('none');
         setSrsDropdownOpen(false);
+        // Call onUnsave callback if provided (e.g., from SavedCardsPage)
+        if (onUnsave) {
+          onUnsave(card.id);
+        }
       }
     } catch (error) {
       console.error('Failed to toggle save card:', error);

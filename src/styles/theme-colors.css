@@ -43,6 +43,13 @@
   --light-progress-bar-completed: #FDAAAA;
   --light-pk-button-text: #FFFFFF;
   --light-season-button-text: #948979;
+  --light-filter-slider-selected: #FDAAAA;
+  --light-filter-slider-unselected: #FEE4E4;
+  --light-filter-button-selected-bg: #FFF4F6;
+  --light-filter-button-unselected-bg: #FFFFFF;
+  --light-filter-button-unselected-border: #FEE4E4;
+  --light-filter-modal-footer-bg: #FFF4F6;
+  --light-media-badge-bg: rgba(253, 170, 170, 0.5);
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -86,6 +93,13 @@
   --dark-progress-bar-completed: #AA3F55;
   --dark-pk-button-text: #FFFFFF;
   --dark-season-button-text: #FDAAAA;
+  --dark-filter-slider-selected: #AA3F55;
+  --dark-filter-slider-unselected: rgba(254, 228, 228, 0.2);
+  --dark-filter-button-selected-bg: rgba(255, 244, 246, 0.1);
+  --dark-filter-button-unselected-bg: rgba(255, 255, 255, 0.05);
+  --dark-filter-button-unselected-border: rgba(254, 228, 228, 0.3);
+  --dark-filter-modal-footer-bg: rgba(255, 244, 246, 0.1);
+  --dark-media-badge-bg: rgba(253, 170, 170, 0.5);
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -148,6 +162,13 @@
   --progress-bar-completed: var(--light-progress-bar-completed);
   --pk-button-text: var(--light-pk-button-text);
   --season-button-text: var(--light-season-button-text);
+  --filter-slider-selected: var(--light-filter-slider-selected);
+  --filter-slider-unselected: var(--light-filter-slider-unselected);
+  --filter-button-selected-bg: var(--light-filter-button-selected-bg);
+  --filter-button-unselected-bg: var(--light-filter-button-unselected-bg);
+  --filter-button-unselected-border: var(--light-filter-button-unselected-border);
+  --filter-modal-footer-bg: var(--light-filter-modal-footer-bg);
+  --media-badge-bg: var(--light-media-badge-bg);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -204,6 +225,13 @@
   --progress-bar-completed: var(--dark-progress-bar-completed);
   --pk-button-text: var(--dark-pk-button-text);
   --season-button-text: var(--dark-season-button-text);
+  --filter-slider-selected: var(--dark-filter-slider-selected);
+  --filter-slider-unselected: var(--dark-filter-slider-unselected);
+  --filter-button-selected-bg: var(--dark-filter-button-selected-bg);
+  --filter-button-unselected-bg: var(--dark-filter-button-unselected-bg);
+  --filter-button-unselected-border: var(--dark-filter-button-unselected-border);
+  --filter-modal-footer-bg: var(--dark-filter-modal-footer-bg);
+  --media-badge-bg: var(--dark-media-badge-bg);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);

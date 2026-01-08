@@ -4,6 +4,17 @@
   margin: 0;
   background: var(--background);
   min-height: 100vh;
+  transition: margin-left 0.3s ease;
+}
+
+/* Default margin when filter panel is open */
+.portfolio-page-container {
+  margin-left: 20%;
+}
+
+/* When filter panel is closed, remove margin */
+.portfolio-page-container.filter-panel-closed {
+  margin-left: 0 !important;
 }
 
 /* Header Stats */
@@ -15,34 +26,76 @@
   background: var(--background);
 }
 
-.portfolio-back-btn,
-.portfolio-filter-btn {
-  background: none;
+.filter-panel-toggle-btn {
+  flex-shrink: 0;
+  padding: 5px;
+  border-radius: 8px;
+  background-color: transparent;
   border: none;
   cursor: pointer;
-  padding: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s ease;
+  transition: all 0.3s ease;
 }
 
-.portfolio-back-btn:hover,
-.portfolio-filter-btn:hover {
-  transform: scale(1.1);
+.filter-panel-toggle-btn:hover {
+  /* No background change on hover - only icon brightness changes via child img */
+  opacity: 1;
 }
 
-.portfolio-back-icon {
-  width: 20px;
-  height: 20px;
+.filter-panel-toggle-btn:hover img {
+  filter: var(--icon-hover-select-filter);
+}
+
+.filter-panel-toggle-btn {
+  gap: 8px;
+}
+
+.filter-panel-toggle-btn img {
+  width: 28px;
+  height: 28px;
   filter: var(--icon-primary-filter);
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+
+.filter-panel-toggle-btn img.rotate-180 {
   transform: rotate(180deg);
 }
 
-.portfolio-filter-icon {
-  width: 20px;
-  height: 20px;
-  filter: var(--icon-primary-filter);
+.filter-panel-toggle-btn img.filter-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.filter-panel-overlay {
+  display: none;
+}
+
+/* Show overlay only on mobile when filter panel is open */
+@media (max-width: 768px) {
+  .filter-panel-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 999;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Show overlay when filter panel is open */
+  .portfolio-page-container:has(.filter-panel-wrapper.open) .filter-panel-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .portfolio-header-stats {
@@ -86,40 +139,156 @@
   color: var(--text);
 }
 
-/* Game Scene Section */
-.portfolio-game-section {
+/* Metrics Cards Section */
+.portfolio-metrics-section {
   display: grid;
-  grid-template-columns: 3fr 7fr;
-  gap: 18px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
   padding: 24px;
-  align-items: start;
   width: 100%;
   box-sizing: border-box;
 }
 
-.portfolio-game-scene {
-  background: var(--hover-bg);
-  border: 5px solid #5745DD;
-  overflow: hidden;
-  position: relative;
-  min-width: 0;
+.portfolio-metric-card {
+  background: transparent;
+  border: 2px solid #948979;
+  border-radius: 0;
+  padding: 20px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+}
+
+.portfolio-metric-value {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.2;
+  text-align: center;
+}
+
+.portfolio-metric-label {
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--neutral);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0;
-  padding: 0;
-  height: fit-content;
-  grid-row: 1;
+  gap: 8px;
 }
 
-.portfolio-game-scene img {
-  width: 100%;
-  height: auto;
-  display: block;
-  margin: 0;
-  padding: 0;
-  object-fit: contain;
+.portfolio-metric-label-icon {
+  width: 16px;
+  height: 16px;
+  filter: brightness(0);
+  flex-shrink: 0;
 }
+
+/* Heatmap Section */
+.portfolio-heatmap-section {
+  padding: 0 24px 24px;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+
+.portfolio-grid-pattern {
+  display: grid;
+  gap: 2px;
+  background: var(--hover-bg);
+  border: 1px solid var(--neutral);
+  padding: 2px;
+  overflow: hidden;
+  align-content: start;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.portfolio-grid-square {
+  transition: background 0.2s ease;
+}
+
+.portfolio-grid-square-neutral {
+  background: var(--sidenav-bg);
+}
+
+.portfolio-grid-square-primary {
+  background: var(--primary);
+}
+
+.portfolio-grid-square-hover-select {
+  background: var(--hover-select);
+}
+
+/* Table Section */
+.portfolio-table-section {
+  padding: 0 24px 24px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.portfolio-table-container {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+}
+
+.portfolio-saved-cards-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Inter', sans-serif;
+  border-radius: 0;
+}
+
+.portfolio-saved-cards-table thead {
+  background: none;
+  border-bottom: 2px solid var(--border);
+}
+
+.portfolio-saved-cards-table th {
+  padding: 0 16px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--hover-select);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-left: none;
+  border-right: none;
+}
+
+.portfolio-saved-cards-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text);
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  text-align: center;
+}
+
+.portfolio-saved-cards-table td:first-child {
+  text-align: left;
+}
+
+.portfolio-saved-cards-table tbody tr:hover {
+  background: var(--hover-bg-subtle);
+}
+
+/* Level badge uses global level-badge class from level-framework-styles.css */
 
 .portfolio-game-characters {
   display: flex;
@@ -172,75 +341,6 @@
   transform: scale(1.05);
 }
 
-.portfolio-pk-section {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-  max-width: 100%;
-  box-sizing: border-box;
-  width: 100%;
-  padding: 8px;
-  grid-row: 1;
-  align-self: stretch;
-  height: 100%;
-  overflow: hidden;
-}
-
-.portfolio-pk-buttons {
-  display: flex;
-  flex-direction: row;
-  gap: 12px;
-  flex-shrink: 0;
-  flex-grow: 0;
-  justify-content: center;
-}
-
-.portfolio-pk-btn {
-  background: var(--primary);
-  border: 3px solid var(--hover-select);
-  border-radius: 999px;
-  padding: 8px 70px;
-  color: var(--pk-button-text);
-  font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
-  font-weight: 400;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-align: center;
-  flex: 0 1 auto;
-  white-space: nowrap;
-}
-
-.portfolio-pk-btn:hover {
-  color: var(--hover-select);
-}
-
-.portfolio-grid-pattern {
-  display: grid;
-  gap: 2px;
-  background: var(--hover-bg);
-  border: 1px solid var(--neutral);
-  padding: 2px;
-  overflow: hidden;
-  align-content: start;
-}
-
-.portfolio-grid-square {
-  transition: background 0.2s ease;
-}
-
-.portfolio-grid-square-neutral {
-  background: var(--sidenav-bg);
-}
-
-.portfolio-grid-square-primary {
-  background: var(--primary);
-}
-
-.portfolio-grid-square-hover-select {
-  background: var(--hover-select);
-}
 
 /* Graphs Section */
 .portfolio-graphs-section {
@@ -261,7 +361,7 @@
 .portfolio-graph-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -281,6 +381,7 @@
 
 .portfolio-graph-container {
   position: relative;
+  width: 100%;
 }
 
 .portfolio-graph-placeholder {
@@ -289,6 +390,12 @@
   border-radius: 4px;
   margin-bottom: 16px;
   overflow: hidden;
+  width: 100%;
+}
+
+.portfolio-graph-placeholder svg {
+  width: 100%;
+  height: 100%;
 }
 
 .portfolio-graph-line {
@@ -349,23 +456,35 @@
 .portfolio-graph-nav {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .portfolio-graph-nav-btn {
   background: none;
-  border: 1px solid var(--primary);
-  border-radius: 4px;
+  border: none;
+  border-radius: 0;
   padding: 4px 8px;
-  color: var(--text);
-  font-family: 'Press Start 2P', monospace;
-  font-size: 15px;
-  font-weight: 400;
+  color: var(--primary);
   cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.portfolio-graph-nav-btn:hover {
-  background: var(--hover-bg);
+.portfolio-graph-nav-icon {
+  width: 24px;
+  height: 24px;
+  filter: var(--icon-primary-filter);
+  transition: filter 0.2s ease;
+}
+
+.portfolio-graph-nav-icon-left {
+  transform: rotate(180deg);
+}
+
+.portfolio-graph-nav-btn:hover .portfolio-graph-nav-icon {
+  filter: var(--icon-hover-select-filter);
 }
 
 /* Stats Section (Bottom) */
@@ -405,17 +524,479 @@
   color: var(--text);
 }
 
-/* Responsive */
-@media (max-width: 1024px) {
-  .portfolio-game-section {
-    grid-template-columns: 1fr;
+/* Large Desktop (1661px and below) */
+@media (max-width: 1661px) {
+  .portfolio-page-container {
+    margin-left: 16%;
   }
   
-  .portfolio-graphs-section {
-    grid-template-columns: 1fr;
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Desktop (1575px and below) */
+@media (max-width: 1575px) {
+  .portfolio-page-container {
+    margin-left: 17%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Desktop (1475px and below) */
+@media (max-width: 1475px) {
+  .portfolio-page-container {
+    margin-left: 18%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Desktop (1375px and below) */
+@media (max-width: 1375px) {
+  .portfolio-page-container {
+    margin-left: 19%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Medium screens - adjust when filter panel hits min-width */
+@media (min-width: 1101px) and (max-width: 1300px) {
+  .portfolio-page-container {
+    margin-left: 24%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Desktop and below (xl: 1280px) */
+@media (max-width: 1280px) {
+  .portfolio-page-container {
+    margin-left: 23%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Adjust for filter panel min-width on smaller screens */
+@media (max-width: 1100px) {
+  .portfolio-page-container {
+    margin-left: 27%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Laptop and below (lg: 1024px) */
+@media (max-width: 1024px) {
+  .portfolio-page-container {
+    margin-left: 26%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
   }
   
   .portfolio-header-stats {
     gap: 16px;
   }
+  
+  .portfolio-metrics-section {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* Keep sidebar roughly 20–22% of viewport on tablet */
+  .filter-panel-wrapper {
+    width: 22%;
+    min-width: 200px;
+    max-width: 240px;
+    height: calc(100vh - 43px);
+    max-height: calc(100vh - 43px);
+  }
+}
+
+/* Medium Tablet (850px and below) - transition before mobile */
+@media (max-width: 850px) {
+  .portfolio-page-container {
+    margin-left: 26%;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Mobile/Tablet (md: 768px and below) */
+@media (max-width: 768px) {
+  .portfolio-page-container {
+    margin-left: 0 !important;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+  
+  .portfolio-metrics-section {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .portfolio-table-container {
+    overflow-x: scroll;
+  }
+  
+  .portfolio-saved-cards-table {
+    min-width: 800px;
+  }
+  
+  .filter-panel-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    /* Use a smaller relative width on mobile so content area stays visible */
+    width: 70vw;
+    max-width: 260px;
+    z-index: 1000;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    border-right: none;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+    display: flex !important; /* Always show on mobile for animation */
+  }
+
+  .filter-panel-wrapper.open {
+    transform: translateX(0);
+  }
+  
+  .filter-panel-wrapper:not(.open) {
+    transform: translateX(-100%);
+  }
+}
+
+/* Small Mobile (sm: 640px and below) */
+@media (max-width: 640px) {
+  .portfolio-page-container {
+    margin-left: 0 !important;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Extra Small Mobile (xs: 480px and below) */
+@media (max-width: 480px) {
+  .portfolio-page-container {
+    margin-left: 0 !important;
+  }
+  
+  .portfolio-page-container.filter-panel-closed {
+    margin-left: 0 !important;
+  }
+}
+
+/* Table Header Controls */
+.portfolio-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.portfolio-table-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.portfolio-table-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.portfolio-table-search-wrapper {
+  flex: 0 0 250px;
+  max-width: 250px;
+  position: relative;
+}
+
+.portfolio-table-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 2px solid var(--border);
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  outline: none;
+  background: var(--background);
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+
+.portfolio-table-search-input:focus {
+  border-color: var(--primary);
+}
+
+.portfolio-table-filter-btn {
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.portfolio-table-filter-btn:hover {
+  opacity: 0.8;
+}
+
+.portfolio-table-filter-btn img {
+  width: 24px;
+  height: 24px;
+  filter: var(--icon-primary-filter);
+}
+
+.portfolio-table-dropdown-wrapper {
+  position: relative;
+}
+
+.portfolio-table-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--hover-select);
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.portfolio-table-dropdown-btn:hover {
+  opacity: 0.8;
+}
+
+.portfolio-table-dropdown-btn img {
+  width: 12px;
+  height: 12px;
+  filter: var(--icon-text-filter);
+  transition: transform 0.2s;
+}
+
+.portfolio-table-dropdown-btn img.rotate-90 {
+  transform: rotate(90deg);
+  filter: var(--icon-text-filter);
+}
+
+.portfolio-table-dropdown-info {
+  background: none;
+  color: var(--text);
+  padding: 0;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 400;
+  min-width: auto;
+  text-align: center;
+}
+
+.portfolio-table-dropdown-btn > span:first-child {
+  color: var(--hover-select);
+}
+
+/* Override SRS dropdown container for table context */
+.portfolio-saved-cards-table .card-srs-dropdown-container {
+  position: relative;
+  display: inline-block;
+  z-index: 1;
+}
+
+.portfolio-saved-cards-table .card-srs-dropdown-btn {
+  border-radius: 4px;
+}
+
+.portfolio-saved-cards-table .card-srs-dropdown-menu {
+  z-index: 10000 !important;
+  position: absolute !important;
+  animation: fadeInDropdown 0.1s ease-out;
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+
+@keyframes fadeInDropdown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.portfolio-saved-cards-table .card-srs-dropdown-btn {
+  will-change: transform;
+}
+
+.portfolio-saved-cards-table .card-srs-dropdown-icon {
+  will-change: transform;
+}
+
+.portfolio-saved-cards-table tbody tr {
+  position: relative;
+  z-index: 1;
+}
+
+.portfolio-saved-cards-table tbody tr:has(.card-srs-dropdown-menu) {
+  z-index: 10001;
+}
+
+.portfolio-saved-cards-table .card-srs-dropdown-container:has(.card-srs-dropdown-menu) {
+  z-index: 10002;
+}
+
+.portfolio-table-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--background);
+  border: 2px solid var(--primary);
+  border-radius: 4px;
+  min-width: 180px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.portfolio-table-dropdown-item {
+  display: flex;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 8px;
+}
+
+.portfolio-table-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.portfolio-table-dropdown-item:hover {
+  background: var(--hover-bg);
+}
+
+.portfolio-table-dropdown-item.active {
+  background: var(--hover-bg);
+  font-weight: 600;
+}
+
+.portfolio-table-dropdown-checkbox {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+  background: var(--background);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.portfolio-table-dropdown-item:not(.selected) .portfolio-table-dropdown-checkbox {
+  border-color: var(--filter-button-unselected-border);
+}
+
+.portfolio-table-dropdown-checkbox.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.portfolio-table-dropdown-checkmark {
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.portfolio-table-practice-btn {
+  padding: 6px 16px;
+  background: none;
+  color: var(--primary);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.portfolio-table-practice-btn:hover {
+  opacity: 0.8;
+}
+
+/* Media Badges */
+.portfolio-media-content-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--media-badge-bg);
+  color: var(--hover-select);
+  border-radius: 5px;
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.portfolio-media-episode-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: #F2EDE5;
+  color: var(--text);
+  border-radius: 4px;
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 4px;
 }

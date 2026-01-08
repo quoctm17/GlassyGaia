@@ -1,22 +1,19 @@
 import { useRef, useState } from "react";
 import PortalDropdown from "./PortalDropdown";
 import { ChevronDown } from "lucide-react";
-import { CONTENT_TYPE_LABELS, type ContentType } from "../types/content";
 import "../styles/components/content-type-selector.css";
 
+type GroupMode = 'level' | 'contentType';
+
 interface Props {
-  value: ContentType;
-  onChange: (type: ContentType) => void;
-  options?: ContentType[];
+  value: GroupMode;
+  onChange: (mode: GroupMode) => void;
   className?: string;
 }
 
-const DEFAULT_OPTIONS: ContentType[] = ['movie', 'series', 'book', 'video'];
-
-export default function ContentTypeSelector({ 
+export default function GroupModeSelector({ 
   value, 
   onChange, 
-  options = DEFAULT_OPTIONS,
   className 
 }: Props) {
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -33,8 +30,13 @@ export default function ContentTypeSelector({
     }
   };
 
+  const options: Array<{ value: GroupMode; label: string }> = [
+    { value: 'level', label: 'Level' },
+    { value: 'contentType', label: 'Content Type' }
+  ];
+
   return (
-    <div className={"content-type-selector-container " + (className || "")}>
+    <div style={{ position: 'relative' }} className={className || ""}>
       <button
         ref={btnRef}
         onClick={() => {
@@ -48,7 +50,7 @@ export default function ContentTypeSelector({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span>{CONTENT_TYPE_LABELS[value]}</span>
+        <span>{options.find(opt => opt.value === value)?.label || 'Level'}</span>
         <ChevronDown className="content-type-selector-icon" />
       </button>
       {(open || closing) && btnRef.current && (
@@ -62,20 +64,20 @@ export default function ContentTypeSelector({
           closing={closing}
           minWidth={150}
         >
-          <div className="language-options-header">Content Type</div>
+          <div className="language-options-header">Group By</div>
           <div className="language-options-list">
-            {options.map((type) => {
-              const active = value === type;
+            {options.map((option) => {
+              const active = value === option.value;
               return (
                 <button
-                  key={type}
+                  key={option.value}
                   onClick={() => {
-                    onChange(type);
+                    onChange(option.value);
                     handleClose();
                   }}
                   className={`language-option ${active ? 'active' : ''}`}
                 >
-                  <span>{CONTENT_TYPE_LABELS[type]}</span>
+                  <span>{option.label}</span>
                 </button>
               );
             })}

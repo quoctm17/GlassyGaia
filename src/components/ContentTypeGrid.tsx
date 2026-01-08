@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, Star } from 'lucide-react';
-import { listContentByType } from '../services/firestore';
 import { 
-  apiGetFilm, 
+  apiGetFilm,
+  apiListItems,
   apiGetSRSDistribution, 
   apiGetSavedCardsCount,
   apiGetLikeCount,
@@ -16,29 +16,23 @@ import { type ContentType } from '../types/content';
 import { useUser } from '../context/UserContext';
 import { canonicalizeLangCode } from '../utils/lang';
 import SearchBar from './SearchBar';
-import ContentTypeSelector from './ContentTypeSelector';
+import GroupModeSelector from './GroupModeSelector';
+import ContentTypeGridFilterModal, { type ContentFilters } from './ContentTypeGridFilterModal';
+import ContentTypeGridSaveModal from './ContentTypeGridSaveModal';
 import rightAngleIcon from '../assets/icons/right-angle.svg';
 import saveHeartIcon from '../assets/icons/save-heart.svg';
+import filterIcon from '../assets/icons/filter.svg';
 import LanguageTag from './LanguageTag';
 import { sortLevelsByDifficulty } from '../utils/levelSort';
 import { getLevelBadgeColors } from '../utils/levelColors';
 import '../styles/components/content-type-grid.css';
 
 interface ContentTypeGridProps {
-  type: ContentType; // 'movie' | 'series' | 'book' | 'audio'
   headingOverride?: string; // optional custom heading
   limit?: number; // future: limit number of items
-  onlySelectedMainLanguage?: boolean; // filter by user's selected main language
-  showContentTypeSelector?: boolean; // show content type selector instead of framework label
-  onContentTypeChange?: (type: ContentType) => void; // callback when content type changes
 }
 
-export default function ContentTypeGrid({ 
-  type, 
-  onlySelectedMainLanguage,
-  showContentTypeSelector = false,
-  onContentTypeChange
-}: ContentTypeGridProps) {
+export default function ContentTypeGrid({}: ContentTypeGridProps) {
   const [allItems, setAllItems] = useState<FilmDoc[]>([]); // all items from API
   const [expandedFilmId, setExpandedFilmId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true); // loading state for API
@@ -52,6 +46,17 @@ export default function ContentTypeGrid({
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Filter state
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [filters, setFilters] = useState<ContentFilters>({});
+  
+  // Save modal state
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [saveModalFilmId, setSaveModalFilmId] = useState<string | null>(null);
+  
+  // Group mode state
+  const [groupMode, setGroupMode] = useState<'level' | 'contentType'>('level');
   
   // Get current framework based on main language (no dropdown needed)
   const currentFramework = useMemo(() => {
@@ -69,19 +74,19 @@ export default function ContentTypeGrid({
     (async () => {
       setLoading(true);
       try {
-        const base = await listContentByType(type);
-        const detailed = await Promise.all(base.map(async (f) => {
+        // Get all items regardless of type
+        const all = await apiListItems();
+        const detailed = await Promise.all(all.map(async (f) => {
           const d = await apiGetFilm(f.id).catch(() => null);
           return d ? { ...f, ...d } : f;
         }));
         if (!mounted) return;
+        // Filter by main_language (always filter by selected main language)
         const canonSelected = canonicalizeLangCode(selectedMain) || selectedMain;
-        const filtered = onlySelectedMainLanguage
-          ? detailed.filter((f) => {
-              const canon = canonicalizeLangCode(f.main_language || '');
-              return !!f.main_language && (canon || f.main_language) === canonSelected;
-            })
-          : detailed;
+        const filtered = detailed.filter((f) => {
+          const canon = canonicalizeLangCode(f.main_language || '');
+          return !!f.main_language && (canon || f.main_language) === canonSelected;
+        });
         setAllItems(filtered);
       } catch {
         if (mounted) setAllItems([]);
@@ -90,7 +95,7 @@ export default function ContentTypeGrid({
       }
     })();
     return () => { mounted = false; };
-  }, [type, onlySelectedMainLanguage, selectedMain]);
+  }, [selectedMain]);
 
   // Parse level framework stats
   const parseLevelStats = (raw: unknown): LevelFrameworkStats | null => {
@@ -277,8 +282,73 @@ export default function ContentTypeGrid({
       );
     }
 
+    // Apply filters
+    if (filters.mediaTypes && filters.mediaTypes.length > 0) {
+      result = result.filter(item => {
+        const itemType = (item.type || 'movie') as ContentType;
+        return filters.mediaTypes!.includes(itemType);
+      });
+    }
+
+    if (filters.levels && filters.levels.length > 0) {
+      result = result.filter(item => {
+        const dominantLevel = getDominantLevel(item);
+        if (!dominantLevel) {
+          // If item has no level, only include if 'Unknown' is selected
+          return filters.levels!.includes('Unknown');
+        }
+        const normalizedLevel = normalizeLevelToGroup(dominantLevel);
+        // Direct match - both should already be uppercase
+        return filters.levels!.includes(normalizedLevel);
+      });
+    }
+
+    if (filters.categories && filters.categories.length > 0) {
+      result = result.filter(item => {
+        if (!item.categories || item.categories.length === 0) return false;
+        const itemCategoryIds = item.categories.map(cat => cat.id);
+        return filters.categories!.some(catId => itemCategoryIds.includes(catId));
+      });
+    }
+
+    if (filters.languageAvailable && filters.languageAvailable.length > 0) {
+      // Content item must have ALL selected languages available
+      result = result.filter(item => {
+        if (!item.available_subs || item.available_subs.length === 0) return false;
+        const itemLanguages = item.available_subs;
+        // Check if item has all selected languages
+        return filters.languageAvailable!.every(lang => itemLanguages.includes(lang));
+      });
+    }
+
+    // Note: minLength, maxLength, maxDuration, minReview, maxReview
+    // are not yet implemented - only levels, categories, mediaTypes, and languageAvailable are active
+
     return result;
-  }, [allItems, searchQuery]);
+  }, [allItems, searchQuery, filters]);
+
+  // Group by content type
+  const groupedByContentType = useMemo(() => {
+    const groups: Record<string, FilmDoc[]> = {
+      'movie': [],
+      'series': [],
+      'book': [],
+      'video': [],
+      'audio': [],
+      'other': []
+    };
+
+    for (const film of filteredItems) {
+      const type = (film.type || 'other') as ContentType;
+      if (groups[type]) {
+        groups[type].push(film);
+      } else {
+        groups['other'].push(film);
+      }
+    }
+
+    return groups;
+  }, [filteredItems]);
 
   // Group by dominant level
   const groupedByLevel = useMemo(() => {
@@ -323,41 +393,58 @@ export default function ContentTypeGrid({
     return groups;
   }, [filteredItems]);
 
-  // Get all non-empty groups filtered by framework
+  // Get all non-empty groups filtered by framework or content type
   const nonEmptyGroups = useMemo(() => {
     const result: Array<{ level: string; films: FilmDoc[] }> = [];
     
-    // Define level orders by framework
-    const jlptOrder = ['N5', 'N4', 'N3', 'N2', 'N1'];
-    const cefrOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-    const hskOrder = ['HSK1', 'HSK2', 'HSK3', 'HSK4', 'HSK5', 'HSK6', 'HSK7', 'HSK8', 'HSK9'];
-    
-    let levelsOrder: string[] = [];
-    if (currentFramework === 'jlpt') {
-      levelsOrder = [...jlptOrder, 'Unknown'];
-    } else if (currentFramework === 'cefr') {
-      levelsOrder = [...cefrOrder, 'Unknown'];
-    } else if (currentFramework === 'hsk') {
-      levelsOrder = [...hskOrder, 'Unknown'];
+    if (groupMode === 'contentType') {
+      const contentTypeOrder: ContentType[] = ['movie', 'series', 'book', 'video', 'audio'];
+      
+      for (const type of contentTypeOrder) {
+        const films = groupedByContentType[type] || [];
+        if (films.length > 0) {
+          result.push({ level: type, films });
+        }
+      }
+      
+      // Add 'other' if it has items
+      const otherFilms = groupedByContentType['other'] || [];
+      if (otherFilms.length > 0) {
+        result.push({ level: 'other', films: otherFilms });
+      }
     } else {
-      // Fallback to all frameworks
-      levelsOrder = [
-        ...jlptOrder,
-        ...cefrOrder,
-        ...hskOrder,
-        'Unknown'
-      ];
-    }
-    
-    for (const level of levelsOrder) {
-      const films = groupedByLevel[level] || [];
-      if (films.length > 0) {
-        result.push({ level, films });
+      // Group by level
+      const jlptOrder = ['N5', 'N4', 'N3', 'N2', 'N1'];
+      const cefrOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+      const hskOrder = ['HSK1', 'HSK2', 'HSK3', 'HSK4', 'HSK5', 'HSK6', 'HSK7', 'HSK8', 'HSK9'];
+      
+      let levelsOrder: string[] = [];
+      if (currentFramework === 'jlpt') {
+        levelsOrder = [...jlptOrder, 'Unknown'];
+      } else if (currentFramework === 'cefr') {
+        levelsOrder = [...cefrOrder, 'Unknown'];
+      } else if (currentFramework === 'hsk') {
+        levelsOrder = [...hskOrder, 'Unknown'];
+      } else {
+        // Fallback to all frameworks
+        levelsOrder = [
+          ...jlptOrder,
+          ...cefrOrder,
+          ...hskOrder,
+          'Unknown'
+        ];
+      }
+      
+      for (const level of levelsOrder) {
+        const films = groupedByLevel[level] || [];
+        if (films.length > 0) {
+          result.push({ level, films });
+        }
       }
     }
     
     return result;
-  }, [groupedByLevel, currentFramework]);
+  }, [groupMode, groupedByLevel, groupedByContentType, currentFramework]);
 
   const toggleGroup = (level: string) => {
     const newSet = new Set(collapsedGroups);
@@ -384,14 +471,6 @@ export default function ContentTypeGrid({
     setExpandedFilmId(prev => prev === filmId ? null : filmId);
   };
 
-  // Get framework label
-  const getFrameworkLabel = (framework: 'jlpt' | 'cefr' | 'hsk'): string => {
-    if (framework === 'jlpt') return 'JLPT Level';
-    if (framework === 'cefr') return 'CEFR Level';
-    if (framework === 'hsk') return 'HSK Level';
-    return 'Level';
-  };
-
   const R2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
 
   // Horizontal scroll handler for each level group
@@ -408,18 +487,10 @@ export default function ContentTypeGrid({
       {/* Search bar */}
       <div className="content-type-grid-search">
         <div className="content-type-grid-search-row">
-          <div className="framework-dropdown-container">
-            {showContentTypeSelector && onContentTypeChange ? (
-              <ContentTypeSelector
-                value={type}
-                onChange={onContentTypeChange}
-              />
-            ) : (
-              <div className="framework-dropdown-btn">
-                <span>{getFrameworkLabel(currentFramework)}</span>
-              </div>
-            )}
-          </div>
+          <GroupModeSelector
+            value={groupMode}
+            onChange={setGroupMode}
+          />
           <SearchBar
             value={searchQuery}
             onChange={setSearchQuery}
@@ -427,8 +498,42 @@ export default function ContentTypeGrid({
             showClear
             loading={loading}
           />
+          <button
+            className={`content-type-grid-filter-btn ${isFilterModalOpen ? 'selected' : ''}`}
+            onClick={() => setIsFilterModalOpen(true)}
+            aria-label="Open filters"
+          >
+            <img
+              src={filterIcon}
+              alt="Filter"
+            />
+          </button>
         </div>
       </div>
+
+      {/* Filter Modal */}
+      <ContentTypeGridFilterModal
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        onApply={setFilters}
+        allItems={allItems}
+      />
+
+      {/* Save Modal */}
+      {saveModalFilmId && (
+        <ContentTypeGridSaveModal
+          isOpen={isSaveModalOpen}
+          onClose={() => {
+            setIsSaveModalOpen(false);
+            setSaveModalFilmId(null);
+          }}
+          onSave={() => {
+            // Save completed, filters are handled internally
+          }}
+          filmId={saveModalFilmId}
+          allItems={allItems}
+        />
+      )}
 
       {/* Level groups */}
       <div className="level-groups-container">
@@ -460,8 +565,16 @@ export default function ContentTypeGrid({
               <div key={level} className="level-group">
                 <div className="level-group-header" onClick={() => toggleGroup(level)}>
                   <div className="level-group-badge">
-                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px'}}>Level</span>
-                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px' }}>{level}</span>
+                    {groupMode === 'contentType' ? (
+                      <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px' }}>
+                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                      </span>
+                    ) : (
+                      <>
+                        <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px'}}>Level</span>
+                        <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px' }}>{level}</span>
+                      </>
+                    )}
                     <img 
                       src={rightAngleIcon} 
                       alt="Expand" 
@@ -717,7 +830,14 @@ export default function ContentTypeGrid({
                                 </div>
                                 
                                 <div className="film-detail-col-2">
-                                  <button className="action-icon-btn" onClick={(e) => e.stopPropagation()}>
+                                  <button 
+                                    className="action-icon-btn" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSaveModalFilmId(f.id);
+                                      setIsSaveModalOpen(true);
+                                    }}
+                                  >
                                     <img src={saveHeartIcon} alt="Save" className="action-icon" />
                                   </button>
                                 </div>
