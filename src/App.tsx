@@ -43,6 +43,7 @@ const AdminDatabasePage = lazy(() => import('./pages/admin/AdminDatabasePage'));
 const AdminImageMigrationPage = lazy(() => import('./pages/admin/AdminImageMigrationPage'));
 const AdminPathMigrationPage = lazy(() => import('./pages/admin/AdminPathMigrationPage'));
 const AdminAudioMigrationPage = lazy(() => import('./pages/admin/AdminAudioMigrationPage'));
+const AdminPopulateFtsPage = lazy(() => import('./pages/admin/AdminPopulateFtsPage'));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -115,6 +116,8 @@ function App() {
                 <Route path="path-migration" element={<AdminPathMigrationPage />} />
                 {/* Admin Audio Migration */}
                 <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
+                {/* Admin FTS Population */}
+                <Route path="populate-fts" element={<AdminPopulateFtsPage />} />
                 {/* Admin Categories Management */}
                 <Route path="categories" element={<AdminCategoriesPage />} />
                 {/* Admin Level Management */}

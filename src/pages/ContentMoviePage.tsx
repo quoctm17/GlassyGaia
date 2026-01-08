@@ -1,5 +1,5 @@
 import ContentTypeGrid from '../components/ContentTypeGrid';
 
 export default function ContentMoviePage() {
-  return <ContentTypeGrid type="movie" onlySelectedMainLanguage />;
+  return <ContentTypeGrid />;
 }

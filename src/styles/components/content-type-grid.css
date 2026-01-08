@@ -28,6 +28,38 @@
   gap: 12px;
 }
 
+.content-type-grid-filter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.content-type-grid-filter-btn:hover,
+.content-type-grid-filter-btn.selected {
+  background: transparent;
+}
+
+.content-type-grid-filter-btn img {
+  width: 28px;
+  height: 28px;
+  filter: var(--icon-primary-filter);
+  transition: filter 0.2s ease;
+}
+
+.content-type-grid-filter-btn:hover img,
+.content-type-grid-filter-btn.selected img {
+  filter: var(--icon-hover-select-filter);
+}
+
 .framework-dropdown-container {
   position: relative;
   flex-shrink: 0;

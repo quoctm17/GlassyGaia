@@ -777,7 +777,7 @@ export async function apiFetchCardsForFilm(
   filmId: string,
   episodeId?: string,
   max: number = 50,
-  opts?: { startFrom?: number }
+  opts?: { startFrom?: number; excludeSavedForUser?: string }
 ): Promise<CardDoc[]> {
   // Always encode parts to support non-ASCII slugs (e.g., Vietnamese)
   const filmEnc = encodeURIComponent(filmId);
@@ -787,6 +787,9 @@ export async function apiFetchCardsForFilm(
   q.set('limit', String(max));
   if (opts?.startFrom != null && Number.isFinite(opts.startFrom)) {
     q.set('start_from', String(Math.max(0, Math.floor(opts.startFrom))));
+  }
+  if (opts?.excludeSavedForUser) {
+    q.set('exclude_saved_for_user', opts.excludeSavedForUser);
   }
   q.set('v', cacheBust);
   const basePath = episodeId
