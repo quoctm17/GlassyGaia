@@ -109,8 +109,13 @@ export default function AdminCardUpdatePage() {
       }
 
       if (imageFile) {
-        const imagePath = `items/${contentSlug}/${episodeId}/${cardId}/image.jpg`;
-        await r2UploadViaSignedUrl({ bucketPath: imagePath, file: imageFile, contentType: 'image/jpeg' });
+        // Extract extension from file type (avif, webp, or jpg)
+        const isAvif = imageFile.type === 'image/avif';
+        const isWebP = imageFile.type === 'image/webp';
+        const ext = isAvif ? 'avif' : (isWebP ? 'webp' : 'jpg');
+        const contentType = isAvif ? 'image/avif' : (isWebP ? 'image/webp' : 'image/jpeg');
+        const imagePath = `items/${contentSlug}/${episodeId}/${cardId}/image.${ext}`;
+        await r2UploadViaSignedUrl({ bucketPath: imagePath, file: imageFile, contentType });
         const r2Base = (import.meta.env.VITE_R2_PUBLIC_BASE || '').replace(/\/$/, '');
         imageUrl = r2Base ? `${r2Base}/${imagePath}` : `/${imagePath}`;
         toast.success('Image uploaded successfully');

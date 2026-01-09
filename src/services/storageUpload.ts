@@ -46,8 +46,8 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
     // Enforce content type compatibility with import pattern
-    if (isImage && !/jpe?g$/i.test(f.type) && f.type !== "image/jpeg" && !/webp$/i.test(f.type) && f.type !== "image/webp") {
-      throw new Error(`File ${f.name} is not JPEG or WebP (image/jpeg, image/webp)`);
+    if (isImage && !/jpe?g$/i.test(f.type) && f.type !== "image/jpeg" && !/webp$/i.test(f.type) && f.type !== "image/webp" && f.type !== "image/avif") {
+      throw new Error(`File ${f.name} is not JPEG, WebP, or AVIF (image/jpeg, image/webp, image/avif)`);
     }
     if (!isImage && !/mpeg$/i.test(f.type) && f.type !== "audio/mpeg" && !/wav$/i.test(f.type) && f.type !== "audio/wav" && f.type !== "audio/x-wav" && !/opus$/i.test(f.type) && f.type !== "audio/opus" && f.type !== "audio/ogg") {
       throw new Error(`File ${f.name} is not MP3, WAV, or Opus (audio/mpeg, audio/wav, audio/opus)`);
@@ -97,14 +97,14 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   const uploadPlan: Array<{ file: File; cardId: string; newPath: string; legacyPath: string; contentType: string }> = [];
   for (const item of plan) {
     const ext = isImage 
-      ? (item.file.type === "image/webp" ? "webp" : "jpg")
+      ? (item.file.type === "image/avif" ? "avif" : (item.file.type === "image/webp" ? "webp" : "jpg"))
       : (item.file.type === "audio/wav" || item.file.type === "audio/x-wav" ? "wav" 
         : (item.file.type === "audio/opus" || item.file.type === "audio/ogg" ? "opus" : "mp3"));
     const fileName = `${filmId}_${paddedEp}_${item.cardId}.${ext}`;
     const newPath = `items/${filmId}/episodes/${filmId}_${paddedEp}/${type}/${fileName}`;
     const legacyPath = `items/${filmId}/episodes/${filmId}_${episodeNum}/${type}/${fileName}`;
     const contentType = isImage 
-      ? (item.file.type === "image/webp" ? "image/webp" : "image/jpeg")
+      ? (item.file.type === "image/avif" ? "image/avif" : (item.file.type === "image/webp" ? "image/webp" : "image/jpeg"))
       : (item.file.type === "audio/wav" || item.file.type === "audio/x-wav" ? "audio/wav" 
         : (item.file.type === "audio/opus" || item.file.type === "audio/ogg" ? "audio/opus" : "audio/mpeg"));
     uploadPlan.push({ file: item.file, cardId: item.cardId, newPath, legacyPath, contentType });
@@ -200,29 +200,31 @@ export async function uploadMediaBatch(params: UploadMediaParams, onProgress?: (
   await runBatch();
 }
 
-// Upload cover image (JPEG/WebP) to items/{filmId}/cover_image/cover.jpg or cover_landscape.jpg
+// Upload cover image (JPEG/WebP/AVIF) to items/{filmId}/cover_image/cover.{ext} or cover_landscape.{ext}
 export async function uploadCoverImage(params: { filmId: string; episodeNum: number; file: File; landscape?: boolean }) {
   const { filmId, /* episodeNum */ file, landscape } = params;
-  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg' && !/webp$/i.test(file.type) && file.type !== 'image/webp') {
-    throw new Error('Cover must be a JPEG or WebP image');
+  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg' && !/webp$/i.test(file.type) && file.type !== 'image/webp' && file.type !== 'image/avif') {
+    throw new Error('Cover must be a JPEG, WebP, or AVIF image');
   }
+  const isAvif = file.type === 'image/avif';
   const isWebP = file.type === 'image/webp';
-  const ext = isWebP ? 'webp' : 'jpg';
-  const contentType = isWebP ? 'image/webp' : 'image/jpeg';
+  const ext = isAvif ? 'avif' : (isWebP ? 'webp' : 'jpg');
+  const contentType = isAvif ? 'image/avif' : (isWebP ? 'image/webp' : 'image/jpeg');
   const filename = landscape ? `cover_landscape.${ext}` : `cover.${ext}`;
   const bucketPath = `items/${filmId}/cover_image/${filename}`;
   await r2UploadViaSignedUrl({ bucketPath, file, contentType });
 }
 
-// Upload episode cover image (JPEG/WebP) to items/{filmId}/episodes/{filmId}_{episodeNum}/cover/cover.jpg or cover_landscape.jpg
+// Upload episode cover image (JPEG/WebP/AVIF) to items/{filmId}/episodes/{filmId}_{episodeNum}/cover/cover.{ext} or cover_landscape.{ext}
 export async function uploadEpisodeCoverImage(params: { filmId: string; episodeNum: number; file: File; landscape?: boolean }) {
   const { filmId, episodeNum, file, landscape } = params;
-  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg' && !/webp$/i.test(file.type) && file.type !== 'image/webp') {
-    throw new Error('Episode cover must be a JPEG or WebP image');
+  if (!/jpe?g$/i.test(file.type) && file.type !== 'image/jpeg' && !/webp$/i.test(file.type) && file.type !== 'image/webp' && file.type !== 'image/avif') {
+    throw new Error('Episode cover must be a JPEG, WebP, or AVIF image');
   }
+  const isAvif = file.type === 'image/avif';
   const isWebP = file.type === 'image/webp';
-  const ext = isWebP ? 'webp' : 'jpg';
-  const contentType = isWebP ? 'image/webp' : 'image/jpeg';
+  const ext = isAvif ? 'avif' : (isWebP ? 'webp' : 'jpg');
+  const contentType = isAvif ? 'image/avif' : (isWebP ? 'image/webp' : 'image/jpeg');
   const filename = landscape ? `cover_landscape.${ext}` : `cover.${ext}`;
   const epFolderPadded = `${filmId}_${String(episodeNum).padStart(3,'0')}`;
   const epFolderLegacy = `${filmId}_${episodeNum}`;

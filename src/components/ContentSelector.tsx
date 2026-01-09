@@ -97,18 +97,16 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     return maxLevel;
   };
 
-  // Counts: prioritize server-side counts, fallback to client-side counting
-  // Merge with allContentIds to ensure all items have counts
+  // Counts: Use provided contentCounts or fallback to client-side counting from allResults
+  // This is much faster than server-side counting which scans the entire database
   const counts: Record<string, number> = useMemo(() => {
     const result: Record<string, number> = {};
     
-    // Start with server-side counts if available
-    if (contentCounts) {
+    // Use provided contentCounts if available (from client-side counting in SearchPage)
+    if (contentCounts && Object.keys(contentCounts).length > 0) {
       Object.assign(result, contentCounts);
-    }
-    
-    // Fallback: count from allResults if server counts not available
-    if (!contentCounts || Object.keys(contentCounts).length === 0) {
+    } else {
+      // Fallback: count from allResults (client-side, fast)
       for (const c of allResults) {
         const fid = String(c.film_id ?? '');
         if (!fid) continue;
@@ -116,7 +114,7 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
       }
     }
     
-    // Ensure all content items from allContentIds have an entry
+    // Ensure all content items from allContentIds have an entry (even if 0)
     if (allContentIds && allContentIds.length > 0) {
       for (const id of allContentIds) {
         if (!(id in result)) {

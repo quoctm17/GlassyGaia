@@ -107,8 +107,8 @@ export default function CardMediaFiles({
       <div className={`grid gap-3 ${hideImages ? 'md:grid-cols-1' : 'md:grid-cols-2'}`}>
         {!hideImages && (
           <div className="admin-subpanel">
-            <div className="text-xs mb-2 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Images (.webp recommended)</div>
-            <input type="file" accept="image/jpeg,image/webp" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+              <div className="text-xs mb-2 typography-inter-4" style={{ color: 'var(--sub-language-text)' }}>Images (.avif, .webp, or .jpg)</div>
+            <input type="file" accept="image/jpeg,image/webp,image/avif" multiple onChange={onPickImages} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
           </div>
         )}
         <div className="admin-subpanel">

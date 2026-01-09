@@ -1,14 +1,15 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Papa from 'papaparse';
-import { apiGetEpisodeDetail, apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats } from '../../services/cfApi';
+import { apiGetEpisodeDetail, apiUpdateEpisodeMeta, apiGetFilm, apiCalculateStats, apiAssessContentLevel, apiCheckReferenceData } from '../../services/cfApi';
 import type { EpisodeDetailDoc, FilmDoc } from '../../types';
 import toast from 'react-hot-toast';
 import { uploadEpisodeCoverImage, uploadMediaBatch, type MediaType } from '../../services/storageUpload';
-import { Loader2, RefreshCcw, ArrowLeft } from 'lucide-react';
+import { Loader2, RefreshCcw, ArrowLeft, XCircle, CheckCircle } from 'lucide-react';
 import { importFilmFromCsv, type ImportFilmMeta } from '../../services/importer';
 import { canonicalizeLangCode, expandCanonicalToAliases, langLabel } from '../../utils/lang';
 import { detectSubtitleHeaders, findHeaderForLang as findHeaderUtil, categorizeHeaders } from '../../utils/csvDetection';
+import { getFrameworkFromLanguage, getFrameworkDisplayName } from '../../utils/frameworkMapping';
 import ProgressBar from '../../components/ProgressBar';
 import ProgressPanel from '../../components/admin/ProgressPanel';
 import CsvPreviewPanel from '../../components/admin/CsvPreviewPanel';
@@ -107,11 +108,21 @@ export default function AdminEpisodeUpdatePage() {
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [csvSubtitleWarnings, setCsvSubtitleWarnings] = useState<string[]>([]);
+  const [csvFrameworkLevelIgnored, setCsvFrameworkLevelIgnored] = useState<string[]>([]);
   const [csvValid, setCsvValid] = useState<boolean | null>(null);
   const [mainLangHeaderOverride, setMainLangHeaderOverride] = useState<string>('');
   // Reserved column confirmation state (for ambiguous columns like 'id' which could be Indonesian)
   const [confirmedAsLanguage, setConfirmedAsLanguage] = useState<Set<string>>(new Set());
   const csvRef = useRef<HTMLInputElement | null>(null);
+
+  // Reference data check state
+  const [referenceDataStatus, setReferenceDataStatus] = useState<{
+    framework: string | null;
+    exists: boolean;
+    hasReferenceList: boolean;
+    hasFrequencyData: boolean;
+  } | null>(null);
+  const [checkingReferenceData, setCheckingReferenceData] = useState(false);
   const SUPPORTED_CANON = useMemo(() => ["ar","eu","bn","yue","ca","zh","zh_trad","hr","cs","da","nl","en","fil","fi","fr","fr_ca","gl","de","el","he","hi","hu","is","id","it","ja","ko","ms","ml","no","nb","pl","pt_br","pt_pt","ro","ru","es_la","es_es","sv","se","ta","te","th","tr","uk","vi","lv","fa","ku","ckb","kmr","sdh","sl","sr","bg","ur","sq","lt","kk","sk","uz","be","bs","mr","mn","et","hy"] as const, []);
 
   const validateCsv = useCallback((headers: string[], rows: Record<string,string>[]) => {
@@ -189,9 +200,56 @@ export default function AdminEpisodeUpdatePage() {
       const rowList = emptySubtitleRows.slice(0, 10).join(', ') + (emptySubtitleRows.length > 10 ? '...' : '');
       subWarnings.push(`${emptySubtitleRows.length} cards có subtitle trống (hàng: ${rowList}). Các subtitle trống sẽ bị bỏ qua khi upload.`);
     }
+    // Framework level columns that will be ignored (auto assessment will override)
+    const RESERVED_COLUMNS = new Set([
+      "id", "card_id", "cardid", "card id",
+      "no", "number", "card_number", "cardnumber", "card number",
+      "start", "start_time", "starttime", "start time", "start_time_ms",
+      "end", "end_time", "endtime", "end time", "end_time_ms",
+      "duration", "length", "card_length",
+      "type", "card_type", "cardtype", "card type",
+      "sentence", "text", "content",
+      "image", "image_url", "imageurl", "image url", "image_key",
+      "audio", "audio_url", "audiourl", "audio url", "audio_key",
+      "difficulty", "difficulty_score", "difficultyscore", "difficulty score",
+      "cefr", "cefr_level", "cefr level",
+      "jlpt", "jlpt_level", "jlpt level",
+      "hsk", "hsk_level", "hsk level",
+      "topik", "topik_level", "topik level",
+      "delf", "delf_level", "delf level",
+      "dele", "dele_level", "dele level",
+      "goethe", "goethe_level", "goethe level",
+      "testdaf", "testdaf_level", "testdaf level",
+      "notes", "tags", "metadata",
+      "hiragana", "katakana", "romaji"
+    ]);
+    const frameworkLevelColumns = new Set([
+      "cefr", "cefr level", "cefr_level",
+      "jlpt", "jlpt level", "jlpt_level",
+      "hsk", "hsk level", "hsk_level",
+      "topik", "topik level", "topik_level",
+      "delf", "delf level", "delf_level",
+      "dele", "dele level", "dele_level",
+      "goethe", "goethe level", "goethe_level",
+      "testdaf", "testdaf level", "testdaf_level"
+    ]);
+    const frameworkLevelIgnored: string[] = [];
+    for (const h of headers) {
+      const raw = (h || '').trim();
+      if (!raw) continue;
+      const low = raw.toLowerCase();
+      if (RESERVED_COLUMNS.has(low)) {
+        if (frameworkLevelColumns.has(low)) {
+          frameworkLevelIgnored.push(raw);
+        }
+        continue;
+      }
+    }
+
     setCsvErrors(errors);
     setCsvWarnings(warnings);
     setCsvSubtitleWarnings(subWarnings);
+    setCsvFrameworkLevelIgnored(frameworkLevelIgnored);
     setCsvValid(errors.length===0);
   }, [filmMainLang, SUPPORTED_CANON, mainLangHeaderOverride, confirmedAsLanguage]);
 
@@ -225,6 +283,43 @@ export default function AdminEpisodeUpdatePage() {
   useEffect(()=>{ if(!mainLangHeaderOptions.length){ setMainLangHeaderOverride(''); return; } if(mainLangHeaderOverride && mainLangHeaderOptions.includes(mainLangHeaderOverride)) return; const canon = canonicalizeLangCode(filmMainLang) || filmMainLang; const aliasNorms = new Set(expandCanonicalToAliases(canon).map(a=>a.toLowerCase().replace(/[_\s-]/g,''))); const matching = mainLangHeaderOptions.find(h=>aliasNorms.has(h.toLowerCase().replace(/[_\s-]/g,''))); setMainLangHeaderOverride(matching || mainLangHeaderOptions[0]); }, [mainLangHeaderOptions, filmMainLang, mainLangHeaderOverride]);
   useEffect(()=>{ if(csvHeaders.length && csvRows.length) validateCsv(csvHeaders, csvRows); }, [csvHeaders, csvRows, validateCsv]);
 
+  // Check reference data when main language changes
+  useEffect(() => {
+    const checkReferenceData = async () => {
+      if (!filmMainLang) {
+        setReferenceDataStatus(null);
+        return;
+      }
+      
+      const framework = getFrameworkFromLanguage(filmMainLang);
+      if (!framework) {
+        setReferenceDataStatus(null);
+        return;
+      }
+      
+      try {
+        setCheckingReferenceData(true);
+        const status = await apiCheckReferenceData(framework);
+        setReferenceDataStatus({
+          framework,
+          ...status
+        });
+        
+        // Only show toast if data exists (success) - don't show error for missing data
+        if (status.exists) {
+          toast.success(`Reference data available for ${getFrameworkDisplayName(framework)}`, { duration: 3000 });
+        }
+      } catch (error) {
+        console.error('Failed to check reference data:', error);
+        setReferenceDataStatus(null);
+      } finally {
+        setCheckingReferenceData(false);
+      }
+    };
+    
+    checkReferenceData();
+  }, [filmMainLang]);
+
   const onPickCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if(!f) return; const text = await f.text(); setCsvText(text); setCsvFileName(f.name);
     // Reset confirmed language columns when new file is loaded
@@ -244,9 +339,8 @@ export default function AdminEpisodeUpdatePage() {
     return csvOk && cardMediaOk && !loading;
   }, [csvValid, csvRows.length, isVideoContent, videoHasImages, imageFiles.length, audioFiles.length, loading]);
   const [reimportBusy, setReimportBusy] = useState(false);
-  const [reimportStage, setReimportStage] = useState<'idle'|'deleting'|'uploading_media'|'uploading_episode_media'|'import'|'stats'|'done'>('idle');
+  const [reimportStage, setReimportStage] = useState<'idle'|'deleting'|'uploading_media'|'uploading_episode_media'|'import'|'stats'|'assessing_levels'|'done'>('idle');
   const [confirmRollback, setConfirmRollback] = useState(false);
-  const [deletionPercent, setDeletionPercent] = useState(0);
   const onCancelReimport = () => {
     // Show confirmation modal
     setConfirmRollback(true);
@@ -268,7 +362,6 @@ export default function AdminEpisodeUpdatePage() {
       
       // Skip episode deletion - preserve episode and media
       // Use mode='replace' in importFilmFromCsv to only update cards
-      setDeletionPercent(100);
       toast('Giữ nguyên episode và media, chỉ thay thế cards', { icon: 'ℹ️' });
       
       if (cancelRequestedRef.current) throw new Error('User cancelled');
@@ -368,7 +461,7 @@ export default function AdminEpisodeUpdatePage() {
             }
           }
           used.add(cardId);
-          const ext = isImage ? (f.type === "image/webp" ? "webp" : "jpg") : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav" : (f.type === "audio/opus" || f.type === "audio/ogg" ? "opus" : "mp3"));
+          const ext = isImage ? (f.type === "image/avif" ? "avif" : (f.type === "image/webp" ? "webp" : "jpg")) : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav" : (f.type === "audio/opus" || f.type === "audio/ogg" ? "opus" : "mp3"));
           if (isImage) { imageExtensions[cardId] = ext; } else { audioExtensions[cardId] = ext; }
         });
       };
@@ -432,6 +525,20 @@ export default function AdminEpisodeUpdatePage() {
         console.warn('Stats error:', statsErr);
       }
       
+      // Auto level assessment (always enabled)
+      try {
+        setReimportStage("assessing_levels");
+        toast.loading("Running auto level assessment...", { id: "auto-assessment" });
+        await apiAssessContentLevel(contentSlug!, (_progress) => {
+          // Progress callback for assessment (currently not used in UI)
+        });
+        toast.success("Auto level assessment completed", { id: "auto-assessment" });
+      } catch (err) {
+        console.warn('Auto level assessment failed:', err);
+        toast.error("Auto level assessment failed: " + (err as Error).message, { id: "auto-assessment" });
+        // Non-blocking error - don't fail the whole import
+      }
+      
       setReimportStage('done');
       toast.success('Episode replaced successfully!');
       
@@ -451,7 +558,6 @@ export default function AdminEpisodeUpdatePage() {
         toast.error('Replace failed: ' + msg);
       }
       setReimportStage('idle');
-      setDeletionPercent(0);
     } finally { 
       setReimportBusy(false); 
     }
@@ -634,7 +740,7 @@ export default function AdminEpisodeUpdatePage() {
                 )}
                 <input 
                   type="file" 
-                  accept="image/jpeg,image/webp" 
+                  accept="image/jpeg,image/webp,image/avif" 
                   onChange={(e) => setCoverFile(e.target.files?.[0] || null)} 
                   className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
                 />
@@ -800,6 +906,92 @@ export default function AdminEpisodeUpdatePage() {
               mainLangHeaderOverride={mainLangHeaderOverride}
             />
             
+            {/* Reference Data Status / Auto Level Assessment */}
+            {filmMainLang && (() => {
+              const framework = getFrameworkFromLanguage(filmMainLang);
+              if (!framework) {
+                return (
+                  <div className="admin-panel space-y-3 mt-3">
+                    <div className="typography-inter-1 admin-panel-title">Auto Level Assessment</div>
+                    <div className="p-3 rounded-lg border bg-yellow-500/10 border-yellow-500/30">
+                      <div className="flex items-center gap-2 mb-2">
+                        <XCircle className="w-5 h-5 text-yellow-400" />
+                        <span className="font-semibold" style={{ color: 'var(--warning)' }}>
+                          No Framework Support
+                        </span>
+                      </div>
+                      <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
+                        <div>⚠️ Ngôn ngữ "{langLabel(filmMainLang)}" ({filmMainLang}) không có framework tương ứng trong mapping.</div>
+                        <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
+                          Auto level assessment sẽ không chạy cho ngôn ngữ này. Hãy chọn ngôn ngữ khác có framework hỗ trợ (English → CEFR, Japanese → JLPT, Chinese → HSK, Korean → TOPIK, etc.).
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="admin-panel space-y-3 mt-3">
+                  <div className="typography-inter-1 admin-panel-title">Auto Level Assessment</div>
+                  {checkingReferenceData ? (
+                    <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Checking reference data availability in database...</span>
+                    </div>
+                  ) : referenceDataStatus && referenceDataStatus.framework === framework ? (
+                    <div className={`p-3 rounded-lg border ${referenceDataStatus.exists ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        {referenceDataStatus.exists ? (
+                          <CheckCircle className="w-5 h-5 text-green-400" />
+                        ) : (
+                          <XCircle className="w-5 h-5 text-yellow-400" />
+                        )}
+                        <span className="font-semibold" style={{ color: referenceDataStatus.exists ? 'var(--success)' : 'var(--warning)' }}>
+                          {getFrameworkDisplayName(framework)}
+                        </span>
+                      </div>
+                      {referenceDataStatus.exists ? (
+                        <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
+                          <div>✓ Reference data available in database</div>
+                          {referenceDataStatus.hasReferenceList && <div className="text-xs">• Reference list imported ({framework})</div>}
+                          {referenceDataStatus.hasFrequencyData && <div className="text-xs">• Frequency data available ({framework})</div>}
+                          <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
+                            Auto level assessment will run automatically after episode import.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
+                          <div>⚠ No reference data found in database</div>
+                          <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
+                            Framework {getFrameworkDisplayName(framework)} is supported, but no reference data exists in database. Please import reference data for {framework} in Level Management before creating content.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-lg border bg-gray-500/10 border-gray-500/30">
+                      <div className="text-sm" style={{ color: 'var(--text)' }}>
+                        Framework {getFrameworkDisplayName(framework)} is supported. Checking database for reference data...
+                      </div>
+                    </div>
+                  )}
+                  {csvFrameworkLevelIgnored.length > 0 && (
+                    <div className="p-3 rounded-lg border bg-blue-500/10 border-blue-500/30">
+                      <div className="text-sm font-semibold mb-1" style={{ color: 'var(--info)' }}>
+                        Framework level columns will be ignored:
+                      </div>
+                      <div className="text-xs space-y-1" style={{ color: 'var(--text)' }}>
+                        {csvFrameworkLevelIgnored.map((col, idx) => (
+                          <div key={idx}>• {col} (auto assessment will override)</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            
             {/* Ambiguous column checkboxes */}
             {ambiguousHeaders.length > 0 && (
               <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-600/40 rounded-lg space-y-2">
@@ -877,59 +1069,61 @@ export default function AdminEpisodeUpdatePage() {
             {(reimportBusy || reimportStage === 'done') && (
               (() => {
                 const items = [
-                  {
-                    label: '1. Delete Old Episode',
-                    done: reimportStage !== 'idle' && reimportStage !== 'deleting',
-                    pending: reimportStage === 'deleting',
-                    value: reimportStage === 'deleting' && deletionPercent > 0 ? `${Math.min(100, deletionPercent)}%` : undefined,
-                  },
                   ...((isVideoContent && !videoHasImages) ? [] : [{
-                    label: '2. Images',
+                    label: '1. Images',
                     done: imagesDone === imageFiles.length && imageFiles.length > 0,
                     pending: imageFiles.length > 0 && imagesDone < imageFiles.length,
                     value: `${imagesDone}/${imageFiles.length}`,
                   }]),
                   {
-                    label: (isVideoContent && !videoHasImages) ? '2. Audio' : ((isVideoContent && videoHasImages) ? '3. Audio' : '3. Audio'),
+                    label: (isVideoContent && !videoHasImages) ? '1. Audio' : ((isVideoContent && videoHasImages) ? '2. Audio' : '2. Audio'),
                     done: audioDone === audioFiles.length && audioFiles.length > 0,
                     pending: audioFiles.length > 0 && audioDone < audioFiles.length,
                     value: `${audioDone}/${audioFiles.length}`,
                   },
                   {
-                    label: (isVideoContent && !videoHasImages) ? '3. Import CSV' : ((isVideoContent && videoHasImages) ? '4. Import CSV' : '4. Import CSV'),
-                    done: reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media',
+                    label: (isVideoContent && !videoHasImages) ? '2. Import CSV' : ((isVideoContent && videoHasImages) ? '3. Import CSV' : '3. Import CSV'),
+                    done: reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media' || reimportStage === 'assessing_levels',
                     pending: reimportStage === 'import',
                   },
                 ];
                 if (coverFile) {
                   items.push({
-                    label: '5. Episode Cover',
+                    label: (isVideoContent && !videoHasImages) ? '3. Episode Cover' : ((isVideoContent && videoHasImages) ? '4. Episode Cover' : '4. Episode Cover'),
                     done: epCoverDone > 0,
                     pending: reimportStage === 'uploading_episode_media' && epCoverDone === 0,
                   });
                 }
                 items.push({
-                  label: coverFile ? '6. Calculating Stats' : '5. Calculating Stats',
-                  done: reimportStage === 'done',
+                  label: (isVideoContent && !videoHasImages) ? ((coverFile) ? '4. Calculating Stats' : '3. Calculating Stats') : ((isVideoContent && videoHasImages) ? ((coverFile) ? '5. Calculating Stats' : '4. Calculating Stats') : ((coverFile) ? '5. Calculating Stats' : '4. Calculating Stats')),
+                  done: reimportStage === 'done' || reimportStage === 'assessing_levels',
                   pending: reimportStage === 'stats',
+                });
+                items.push({
+                  label: (isVideoContent && !videoHasImages) ? ((coverFile) ? '5. Auto Level Assessment' : '4. Auto Level Assessment') : ((isVideoContent && videoHasImages) ? ((coverFile) ? '6. Auto Level Assessment' : '5. Auto Level Assessment') : ((coverFile) ? '6. Auto Level Assessment' : '5. Auto Level Assessment')),
+                  done: reimportStage === 'done' || reimportStage === 'assessing_levels',
+                  pending: reimportStage === 'assessing_levels',
+                  value: (reimportStage === 'done' || reimportStage === 'assessing_levels') ? 'Done' : 'Waiting',
                 });
 
                 let totalSteps = 0;
                 let completedSteps = 0;
-                totalSteps++;
-                if (reimportStage !== 'idle' && reimportStage !== 'deleting') completedSteps++;
                 // For video: only count audio, skip images
-                if (!isVideoContent) totalSteps += imageFiles.length;
+                if (!isVideoContent || videoHasImages) {
+                  totalSteps += imageFiles.length;
+                  completedSteps += imagesDone;
+                }
                 totalSteps += audioFiles.length;
-                if (!isVideoContent) completedSteps += imagesDone;
                 completedSteps += audioDone;
-                totalSteps++;
-                if (reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media') completedSteps++;
+                totalSteps++; // Import CSV step
+                if (reimportStage === 'stats' || reimportStage === 'done' || reimportStage === 'uploading_episode_media' || reimportStage === 'assessing_levels') completedSteps++;
                 if (coverFile) {
                   totalSteps++;
                   if (epCoverDone > 0) completedSteps++;
                 }
-                totalSteps++;
+                totalSteps++; // Calculating Stats step
+                if (reimportStage === 'done' || reimportStage === 'assessing_levels') completedSteps++;
+                totalSteps++; // Auto Level Assessment step
                 if (reimportStage === 'done') completedSteps++;
                 let pct: number;
                 if (totalSteps === 0) pct = 0;

@@ -4664,7 +4664,7 @@ export default {
         }
       }
 
-      // Admin: Update image path in database (for JPG -> WebP migration)
+      // Admin: Update image path in database (for JPG -> AVIF migration)
       if (path === '/admin/update-image-path' && request.method === 'POST') {
         try {
           const body = await request.json();
@@ -4839,11 +4839,11 @@ export default {
         }
       }
 
-      // Admin: Bulk migrate all database paths from .jpg/.mp3 to .webp/.opus
+      // Admin: Bulk migrate all database paths from .jpg/.webp/.mp3 to .avif/.opus
       if (path === '/admin/migrate-paths' && request.method === 'POST') {
         try {
           const body = await request.json();
-          const { dryRun = true, imageExtension = 'webp', audioExtension = 'opus' } = body;
+          const { dryRun = true, imageExtension = 'avif', audioExtension = 'opus' } = body;
           
           const stats = {
             contentCovers: 0,
@@ -4865,29 +4865,29 @@ export default {
           if (dryRun) {
             // DRY RUN: Count what would be updated
             
-            // Count content_items covers
+            // Count content_items covers (.jpg, .jpeg, .webp)
             const contentCovers = await env.DB.prepare(
-              `SELECT COUNT(*) as count FROM content_items WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'`
+              `SELECT COUNT(*) as count FROM content_items WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'`
             ).first();
             stats.contentCovers = contentCovers?.count || 0;
             
             const contentLandscapes = await env.DB.prepare(
-              `SELECT COUNT(*) as count FROM content_items WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg'`
+              `SELECT COUNT(*) as count FROM content_items WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg' OR cover_landscape_key LIKE '%.webp'`
             ).first();
             stats.contentLandscapes = contentLandscapes?.count || 0;
             
-            // Count episodes covers
+            // Count episodes covers (.jpg, .jpeg, .webp)
             const episodeCovers = await env.DB.prepare(
-              `SELECT COUNT(*) as count FROM episodes WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'`
+              `SELECT COUNT(*) as count FROM episodes WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'`
             ).first();
             stats.episodeCovers = episodeCovers?.count || 0;
             
             // Note: episodes.cover_landscape_key column has been removed
             stats.episodeLandscapes = 0;
             
-            // Count cards images
+            // Count cards images (.jpg, .jpeg, .webp)
             const cardImages = await env.DB.prepare(
-              `SELECT COUNT(*) as count FROM cards WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg'`
+              `SELECT COUNT(*) as count FROM cards WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg' OR image_key LIKE '%.webp'`
             ).first();
             stats.cardImages = cardImages?.count || 0;
             
@@ -4912,38 +4912,38 @@ export default {
           try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           
           try {
-            // Update content_items.cover_key (.jpg -> .webp)
+            // Update content_items.cover_key (.jpg/.jpeg/.webp -> .avif)
             const r1 = await env.DB.prepare(`
               UPDATE content_items 
-              SET cover_key = REPLACE(REPLACE(cover_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
-              WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'
+              SET cover_key = REPLACE(REPLACE(REPLACE(cover_key, '.webp', '.${imageExtension}'), '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'
             `).run();
             stats.contentCovers = r1.meta?.changes || 0;
             
-            // Update content_items.cover_landscape_key (.jpg -> .webp)
+            // Update content_items.cover_landscape_key (.jpg/.jpeg/.webp -> .avif)
             const r2 = await env.DB.prepare(`
               UPDATE content_items 
-              SET cover_landscape_key = REPLACE(REPLACE(cover_landscape_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
-              WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg'
+              SET cover_landscape_key = REPLACE(REPLACE(REPLACE(cover_landscape_key, '.webp', '.${imageExtension}'), '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg' OR cover_landscape_key LIKE '%.webp'
             `).run();
             stats.contentLandscapes = r2.meta?.changes || 0;
             
-            // Update episodes.cover_key (.jpg -> .webp)
+            // Update episodes.cover_key (.jpg/.jpeg/.webp -> .avif)
             const r3 = await env.DB.prepare(`
               UPDATE episodes 
-              SET cover_key = REPLACE(REPLACE(cover_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
-              WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg'
+              SET cover_key = REPLACE(REPLACE(REPLACE(cover_key, '.webp', '.${imageExtension}'), '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'
             `).run();
             stats.episodeCovers = r3.meta?.changes || 0;
             
             // Note: episodes.cover_landscape_key column has been removed
             stats.episodeLandscapes = 0;
             
-            // Update cards.image_key (.jpg -> .webp)
+            // Update cards.image_key (.jpg/.jpeg/.webp -> .avif)
             const r5 = await env.DB.prepare(`
               UPDATE cards 
-              SET image_key = REPLACE(REPLACE(image_key, '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
-              WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg'
+              SET image_key = REPLACE(REPLACE(REPLACE(image_key, '.webp', '.${imageExtension}'), '.jpg', '.${imageExtension}'), '.jpeg', '.${imageExtension}')
+              WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg' OR image_key LIKE '%.webp'
             `).run();
             stats.cardImages = r5.meta?.changes || 0;
             
