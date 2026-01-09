@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import { apiR2Delete, r2UploadViaSignedUrl, apiR2ListFlatPage, apiR2ListPaged } from "../../services/cfApi";
 import { Folder, ChevronRight, Image, AlertTriangle } from "lucide-react";
@@ -50,6 +50,51 @@ export default function AdminImageMigrationPage() {
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const abortScanRef = useRef(false);
+  const [avifSupported, setAvifSupported] = useState<boolean | null>(null);
+
+  // Check AVIF encoding support on component mount
+  useEffect(() => {
+    let mounted = true;
+    const checkAvifSupport = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          if (mounted) setAvifSupported(false);
+          return;
+        }
+        
+        // Try to encode a tiny image to AVIF
+        // Note: toBlob is async, but we check if it's supported by attempting encoding
+        let checked = false;
+        canvas.toBlob((blob) => {
+          if (mounted && !checked) {
+            checked = true;
+            setAvifSupported(blob !== null);
+          }
+        }, 'image/avif', 0.9);
+        
+        // If not supported, blob callback won't be called or will be called with null
+        // Set a timeout to mark as unsupported if no response
+        setTimeout(() => {
+          if (mounted && !checked) {
+            checked = true;
+            setAvifSupported(false);
+          }
+        }, 500);
+      } catch {
+        if (mounted) setAvifSupported(false);
+      }
+    };
+    
+    checkAvifSupport();
+    
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const addLog = (type: MigrationLog['type'], message: string, details?: string) => {
     const log: MigrationLog = {
@@ -74,10 +119,10 @@ export default function AdminImageMigrationPage() {
       addLog('info', '💡 Tip: Click "Stop Scan" to abort early');
       
       // Use flat list to recursively scan all files in prefix
-      const jpgFiles: Array<{ key: string; size?: number; modified?: string | null }> = [];
+      const imageFiles: Array<{ key: string; size?: number; modified?: string | null }> = [];
       let cursor: string | null = null;
       let pageCount = 0;
-      const MAX_JPG_FILES = 10000; // Safety limit
+      const MAX_IMAGE_FILES = 10000; // Safety limit
       
       do {
         if (abortScanRef.current) {
@@ -87,46 +132,52 @@ export default function AdminImageMigrationPage() {
         
         const page = await apiR2ListFlatPage(prefix, cursor || undefined, 5000);
         
-        // Filter JPG/JPEG immediately on each page
-        const pageJpgFiles = page.objects.filter(obj => 
-          obj.key.toLowerCase().endsWith('.jpg') || 
-          obj.key.toLowerCase().endsWith('.jpeg')
-        );
+        // Filter JPG/JPEG/WebP immediately on each page
+        const pageImageFiles = page.objects.filter(obj => {
+          const key = obj.key.toLowerCase();
+          return key.endsWith('.jpg') || 
+                 key.endsWith('.jpeg') ||
+                 key.endsWith('.webp');
+        });
         
-        jpgFiles.push(...pageJpgFiles);
+        imageFiles.push(...pageImageFiles);
         cursor = page.cursor;
         pageCount++;
         
         // Log only every 5 pages to reduce UI overhead
         if (pageCount % 5 === 0 || !cursor) {
-          addLog('info', `📄 Page ${pageCount}: Found ${jpgFiles.length} JPG/JPEG files so far`);
+          addLog('info', `📄 Page ${pageCount}: Found ${imageFiles.length} JPG/JPEG/WebP files so far`);
         }
         
-        // Safety check: stop if too many JPG files found
-        if (jpgFiles.length >= MAX_JPG_FILES) {
-          addLog('warning', `⚠️ Reached safety limit of ${MAX_JPG_FILES} JPG files. Stopping scan.`);
+        // Safety check: stop if too many image files found
+        if (imageFiles.length >= MAX_IMAGE_FILES) {
+          addLog('warning', `⚠️ Reached safety limit of ${MAX_IMAGE_FILES} image files. Stopping scan.`);
           break;
         }
       } while (cursor);
       
-      setImages(jpgFiles.map(f => ({
+      setImages(imageFiles.map(f => ({
         key: f.key,
         size: Number(f.size || 0),
         modified: f.modified || ''
       })));
       
-      setStats(prev => ({ ...prev, total: jpgFiles.length }));
+      setStats(prev => ({ ...prev, total: imageFiles.length }));
       
       if (!abortScanRef.current) {
-        addLog('success', `✅ Scan complete: Found ${jpgFiles.length} JPG/JPEG images`);
+        addLog('success', `✅ Scan complete: Found ${imageFiles.length} JPG/JPEG/WebP images`);
         
-        // Group by type
-        const coverImages = jpgFiles.filter(f => f.key.includes('/cover_image/'));
-        const episodeCovers = jpgFiles.filter(f => f.key.includes('/episodes/') && f.key.includes('/cover/'));
+        // Group by type and format
+        const coverImages = imageFiles.filter(f => f.key.includes('/cover_image/'));
+        const episodeCovers = imageFiles.filter(f => f.key.includes('/episodes/') && f.key.includes('/cover/'));
+        const jpgCount = imageFiles.filter(f => f.key.toLowerCase().endsWith('.jpg') || f.key.toLowerCase().endsWith('.jpeg')).length;
+        const webpCount = imageFiles.filter(f => f.key.toLowerCase().endsWith('.webp')).length;
         
         addLog('info', `📊 Breakdown:`);
         addLog('info', `   - Content covers: ${coverImages.length}`);
         addLog('info', `   - Episode covers: ${episodeCovers.length}`);
+        addLog('info', `   - JPG/JPEG: ${jpgCount} files`);
+        addLog('info', `   - WebP: ${webpCount} files`);
       }
       
     } catch (error) {
@@ -205,7 +256,7 @@ export default function AdminImageMigrationPage() {
     toast.success(`Selected: ${folderKey}`);
   };
 
-  const convertImageToWebP = async (blob: Blob, quality: number): Promise<Blob> => {
+  const convertImageToAvif = async (blob: Blob, quality: number): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = document.createElement('img') as HTMLImageElement;
       const url = URL.createObjectURL(blob);
@@ -225,16 +276,19 @@ export default function AdminImageMigrationPage() {
           
           ctx.drawImage(img, 0, 0);
           
+          // Try AVIF encoding - note: browser support may be limited
+          // If AVIF is not supported, toBlob will return null
           canvas.toBlob(
-            (webpBlob) => {
+            (avifBlob) => {
               URL.revokeObjectURL(url);
-              if (webpBlob) {
-                resolve(webpBlob);
+              if (avifBlob) {
+                resolve(avifBlob);
               } else {
-                reject(new Error('Failed to create WebP blob'));
+                // AVIF encoding not supported - fallback to WebP or show error
+                reject(new Error('AVIF encoding not supported in this browser. Please use a modern browser with AVIF support (Chrome 85+, Edge 85+, Firefox 93+) or consider server-side conversion.'));
               }
             },
-            'image/webp',
+            'image/avif',
             quality / 100
           );
         } catch (err) {
@@ -265,7 +319,7 @@ export default function AdminImageMigrationPage() {
     const r2PublicBase = import.meta.env.VITE_R2_PUBLIC_BASE || '';
     
     try {
-      // 1. Download original JPG via Worker proxy (to avoid CORS)
+      // 1. Download original image (JPG/JPEG/WebP) via Worker proxy (to avoid CORS)
       if (logVerbose) addLog('info', `⬇️ Downloading: ${imageKey}`);
       
       // IMPORTANT: Must use full worker URL or R2 public URL, not relative path
@@ -302,47 +356,49 @@ export default function AdminImageMigrationPage() {
       }
       
       const originalSize = blob.size;
+      const originalFormat = imageKey.toLowerCase().endsWith('.webp') ? 'WebP' : 
+                            (imageKey.toLowerCase().endsWith('.jpeg') ? 'JPEG' : 'JPG');
       
-      // 2. Convert to WebP
-      if (logVerbose) addLog('info', `🔄 Converting to WebP (quality: ${quality})...`);
-      const webpBlob = await convertImageToWebP(blob, quality);
-      const webpSize = webpBlob.size;
-      const savings = ((1 - webpSize / originalSize) * 100).toFixed(1);
+      // 2. Convert to AVIF
+      if (logVerbose) addLog('info', `🔄 Converting ${originalFormat} to AVIF (quality: ${quality})...`);
+      const avifBlob = await convertImageToAvif(blob, quality);
+      const avifSize = avifBlob.size;
+      const savings = ((1 - avifSize / originalSize) * 100).toFixed(1);
       
-      // 3. Generate new key
-      const webpKey = imageKey.replace(/\.jpe?g$/i, '.webp');
+      // 3. Generate new key (replace .jpg, .jpeg, or .webp with .avif)
+      const avifKey = imageKey.replace(/\.(jpe?g|webp)$/i, '.avif');
       
       if (dryRun) {
         if (logVerbose) {
-          addLog('warning', `[DRY RUN] Would upload: ${webpKey}`);
-          addLog('info', `   Original: ${(originalSize / 1024).toFixed(1)} KB → WebP: ${(webpSize / 1024).toFixed(1)} KB (${savings}% smaller)`);
+          addLog('warning', `[DRY RUN] Would upload: ${avifKey}`);
+          addLog('info', `   Original (${originalFormat}): ${(originalSize / 1024).toFixed(1)} KB → AVIF: ${(avifSize / 1024).toFixed(1)} KB (${savings}% smaller)`);
         }
         return true;
       }
       
-      // 4. Upload WebP
-      if (logVerbose) addLog('info', `⬆️ Uploading WebP: ${webpKey}`);
-      const webpFile = new File([webpBlob], 'image.webp', { type: 'image/webp' });
+      // 4. Upload AVIF
+      if (logVerbose) addLog('info', `⬆️ Uploading AVIF: ${avifKey}`);
+      const avifFile = new File([avifBlob], 'image.avif', { type: 'image/avif' });
       
       await r2UploadViaSignedUrl({
-        bucketPath: webpKey,
-        file: webpFile,
-        contentType: 'image/webp'
+        bucketPath: avifKey,
+        file: avifFile,
+        contentType: 'image/avif'
       });
       
-      if (logVerbose) addLog('success', `✅ Uploaded: ${webpKey} (${savings}% smaller)`);
+      if (logVerbose) addLog('success', `✅ Uploaded: ${avifKey} (${savings}% smaller)`);
       
       // 5. Update D1 database path (optional)
       if (!skipDbUpdate) {
         if (logVerbose) addLog('info', `💾 Updating database path...`);
-        await updateDatabasePath(imageKey, webpKey);
+        await updateDatabasePath(imageKey, avifKey);
       }
       
-      // 6. Delete original if requested
+      // 6. Delete original (JPG/JPEG/WebP) if requested
       if (deleteOriginal) {
-        if (logVerbose) addLog('info', `🗑️ Deleting original: ${imageKey}`);
+        if (logVerbose) addLog('info', `🗑️ Deleting original (${originalFormat}): ${imageKey}`);
         await apiR2Delete(imageKey);
-        if (logVerbose) addLog('success', `✅ Deleted original: ${imageKey}`);
+        if (logVerbose) addLog('success', `✅ Deleted original (${originalFormat}): ${imageKey}`);
       }
       
       return true;
@@ -416,7 +472,7 @@ export default function AdminImageMigrationPage() {
         // Card-level image (NEW STRUCTURE)
         // Pattern: items/{slug}/episodes/{slug}_{episode}/image/{slug}_{episode}_{cardId}.jpg
         // Example: items/anne_with_an_e_s1/episodes/anne_with_an_e_s1_005/image/anne_with_an_e_s1_005_0069.jpg
-        const match = oldKey.match(/items\/([^/]+)\/episodes\/[^/]+\/image\/.*_(\d+)\.(jpg|jpeg|webp)$/i);
+        const match = oldKey.match(/items\/([^/]+)\/episodes\/[^/]+\/image\/.*_(\d+)\.(jpg|jpeg|webp|avif)$/i);
         if (!match) {
           addLog('warning', `⚠️ Could not parse card image path: ${oldKey}`);
           return;
@@ -499,10 +555,11 @@ export default function AdminImageMigrationPage() {
     }
     
     if (!dryRun && !window.confirm(
-      `⚠️ WARNING: This will convert ${images.length} images to WebP.\n\n` +
+      `⚠️ WARNING: This will convert ${images.length} images (JPG/JPEG/WebP) to AVIF.\n\n` +
       `Delete originals: ${deleteOriginal ? 'YES' : 'NO'}\n` +
       `Quality: ${quality}%\n` +
       `Parallel processing: ${concurrency} files at a time\n\n` +
+      `Note: AVIF encoding requires browser support (Chrome 85+, Edge 85+, Firefox 93+).\n\n` +
       `This operation cannot be easily undone. Continue?`
     )) {
       return;
@@ -520,7 +577,7 @@ export default function AdminImageMigrationPage() {
     }));
     
     const mode = dryRun ? '[DRY RUN]' : '[LIVE]';
-    addLog('info', `🚀 ${mode} Starting migration of ${images.length} images (${concurrency} concurrent)...`);
+    addLog('info', `🚀 ${mode} Starting migration of ${images.length} images (JPG/JPEG/WebP → AVIF) (${concurrency} concurrent)...`);
     
     let processed = 0;
     let converted = 0;
@@ -613,9 +670,9 @@ export default function AdminImageMigrationPage() {
     <div className="migration-page-container">
       {/* Header */}
       <div className="migration-header">
-        <h1 className="migration-title">Image Migration JPG to WebP</h1>
+        <h1 className="migration-title">Image Migration JPG/WebP to AVIF</h1>
         <p className="migration-description">
-          Convert all JPG/JPEG images in R2 storage to WebP format for better performance and smaller file sizes.
+          Convert all JPG/JPEG/WebP images in R2 storage to AVIF format for better performance and smaller file sizes.
         </p>
       </div>
 
@@ -626,12 +683,42 @@ export default function AdminImageMigrationPage() {
           <div>
             <h3 className="migration-warning-title">Important Notes</h3>
             <p className="migration-warning-text">
-              This tool scans for <code>.jpg</code> and <code>.jpeg</code> files and converts them to <code>.webp</code> format.
+              This tool scans for <code>.jpg</code>, <code>.jpeg</code>, and <code>.webp</code> files and converts them to <code>.avif</code> format.
               Database paths are automatically updated. <strong>Always test with Dry Run first!</strong>
+              <br /><br />
+              <strong>Note:</strong> AVIF encoding requires browser support. Use Chrome 85+, Edge 85+, or Firefox 93+ for best results.
             </p>
           </div>
         </div>
       </div>
+
+      {/* AVIF Support Warning */}
+      {avifSupported === false && (
+        <div className="migration-warning-banner" style={{ 
+          backgroundColor: 'var(--error-bg)', 
+          borderColor: 'var(--error-border)',
+          marginTop: '1rem'
+        }}>
+          <div className="migration-warning-content">
+            <AlertTriangle size={24} className="migration-warning-icon" style={{ color: 'var(--error-text)' }} />
+            <div>
+              <h3 className="migration-warning-title" style={{ color: 'var(--error-text)' }}>
+                ⚠️ AVIF Encoding Not Supported
+              </h3>
+              <p className="migration-warning-text" style={{ color: 'var(--error-text)' }}>
+                Your browser does not support AVIF encoding. Migration will fail when converting images.
+                <br /><br />
+                Please use a modern browser with AVIF support:
+                <ul style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
+                  <li>Chrome 85+ or Edge 85+</li>
+                  <li>Firefox 93+</li>
+                </ul>
+                Alternatively, consider using server-side conversion for AVIF encoding.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Configuration Panel */}
       <div className="migration-config-panel">
@@ -685,7 +772,7 @@ export default function AdminImageMigrationPage() {
           </div>
 
           <div className="migration-config-field">
-            <label className="migration-field-label">WebP Quality</label>
+            <label className="migration-field-label">AVIF Quality</label>
             <div className="migration-range-wrapper">
               <div className="migration-range-label">
                 <span className="range-value">{quality}</span>%
@@ -730,7 +817,7 @@ export default function AdminImageMigrationPage() {
             className="migration-checkbox"
           />
           <label htmlFor="delete-original" className="migration-checkbox-label">
-            Delete original JPG files after conversion
+            Delete original files (JPG/JPEG/WebP) after conversion
           </label>
         </div>
 

@@ -190,47 +190,14 @@ function SearchPage() {
     [contentFilter]
   );
 
-  // Fetch card counts per content from server (bao gồm filter + query)
-  // OPTIMIZED: Only fetch when filter panel is open to prioritize card loading
+  // DISABLED: Server-side counts are too slow (counts entire DB)
+  // Instead, we'll use client-side counts from allResults which is much faster
+  // ContentSelector will fallback to counting from allResults if contentCounts is not provided
   useEffect(() => {
-    // Skip counts fetch if filter panel is closed - significantly improve initial load time
-    if (!isFilterPanelOpen) {
-      return;
-    }
-    
-    let cancelled = false;
-    // Delay counts fetch to prioritize card loading - wait for cards to load first
-    const timeoutId = setTimeout(() => {
-      const run = async () => {
-        try {
-          const counts = await apiSearchCounts({
-            mainLanguage: preferences.main_language || null,
-            subtitleLanguages: preferences.subtitle_languages || [],
-            // Use query + languages only so counts stay stable even when content filter changes
-            query: query.trim().length >= 2 ? query : "",
-            contentIds: undefined,
-            minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
-            maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
-            minLevel: minLevel || undefined,
-            maxLevel: maxLevel || undefined,
-          });
-          if (!cancelled) {
-            setServerContentCounts(counts);
-          }
-        } catch (error) {
-          if (!cancelled) {
-            console.error("Failed to load content counts:", error);
-            setServerContentCounts({});
-          }
-        }
-      };
-      run();
-    }, 500); // Increased delay to 500ms to ensure cards load first
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [preferences.main_language, subtitleLangsKey, query, minDifficulty, maxDifficulty, minLevel, maxLevel, isFilterPanelOpen]);
+    // Don't fetch server counts - use client-side counting instead
+    // This significantly improves performance
+    setServerContentCounts({});
+  }, []);
 
   // Handle search trigger from SearchBar (click icon or Enter key)
   const handleSearch = useCallback((searchValue: string) => {
@@ -321,25 +288,30 @@ function SearchPage() {
     return filteredItems.map((item) => item.id).filter((id): id is string => !!id);
   }, [filteredItems]);
 
-  // Content counts: 
-  // - Khi không search: dùng tổng từ server (apiSearchCounts với main_language + subtitle_languages + contentIds)
-  // - Khi search: dùng apiSearchCounts với q + mainLanguage + contentIds để lấy tổng số card match theo content
-  // Merge serverContentCounts with allContentIds to ensure all items have counts
-  // If a content item is in allContentIds but not in serverContentCounts, set count to 0
+  // Content counts: Use client-side counting from allResults (much faster than server-side)
+  // This counts only the cards that are already loaded, not the entire database
   const contentCounts = useMemo(() => {
-    const merged: Record<string, number> = { ...serverContentCounts };
+    const counts: Record<string, number> = {};
+    
+    // Count cards from allResults (already filtered by query and other filters)
+    for (const card of cards) {
+      const contentId = card.film_id || card.content_id;
+      if (contentId) {
+        counts[contentId] = (counts[contentId] || 0) + 1;
+      }
+    }
     
     // Ensure all content items from allContentIds have an entry (even if 0)
     if (allContentIds && allContentIds.length > 0) {
       for (const id of allContentIds) {
-        if (!(id in merged)) {
-          merged[id] = 0; // Initialize with 0 if not in server counts yet
+        if (!(id in counts)) {
+          counts[id] = 0; // Initialize with 0 if no cards in current results
         }
       }
     }
     
-    return merged;
-  }, [serverContentCounts, allContentIds]);
+    return counts;
+  }, [cards, allContentIds]);
 
   // Filter and shuffle cards for random display order
   // Skip shuffle for initial load to show cards faster - only shuffle on user interaction

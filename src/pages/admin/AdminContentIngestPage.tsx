@@ -588,9 +588,10 @@ export default function AdminContentIngestPage() {
     if (!file) return undefined;
     setStage("cover");
     await uploadCoverImage({ filmId, episodeNum, file });
-    // Extract extension from file type (webp or jpg)
+    // Extract extension from file type (avif, webp, or jpg)
+    const isAvif = file.type === 'image/avif';
     const isWebP = file.type === 'image/webp';
-    const ext = isWebP ? 'webp' : 'jpg';
+    const ext = isAvif ? 'avif' : (isWebP ? 'webp' : 'jpg');
     const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover.${ext}` : `/items/${filmId}/cover_image/cover.${ext}`;
     setCoverUrl(url); setCoverDone(1);
     // Removed early apiUpdateFilmMeta call (film may not exist yet). Cover URL will be applied via import filmMeta.
@@ -603,9 +604,10 @@ export default function AdminContentIngestPage() {
     if (!file) return undefined;
     setStage("cover_landscape");
     await uploadCoverImage({ filmId, episodeNum, file, landscape: true });
-    // Extract extension from file type (webp or jpg)
+    // Extract extension from file type (avif, webp, or jpg)
+    const isAvif = file.type === 'image/avif';
     const isWebP = file.type === 'image/webp';
-    const ext = isWebP ? 'webp' : 'jpg';
+    const ext = isAvif ? 'avif' : (isWebP ? 'webp' : 'jpg');
     const url = r2Base ? `${r2Base}/items/${filmId}/cover_image/cover_landscape.${ext}` : `/items/${filmId}/cover_image/cover_landscape.${ext}`;
     setCoverLandscapeDone(1);
     toast.success("Cover landscape uploaded");
@@ -731,7 +733,7 @@ export default function AdminContentIngestPage() {
           used.add(cardId);
 
           const ext = isImage
-            ? (f.type === "image/webp" ? "webp" : "jpg")
+            ? (f.type === "image/avif" ? "avif" : (f.type === "image/webp" ? "webp" : "jpg"))
             : (f.type === "audio/wav" || f.type === "audio/x-wav" ? "wav"
               : (f.type === "audio/opus" || f.type === "audio/ogg" ? "opus" : "mp3"));
 
@@ -1024,11 +1026,11 @@ export default function AdminContentIngestPage() {
                 <ul className="list-disc pl-5 mt-1 space-y-1">
                   <li><strong>Với Type = Video</strong>: Có 2 trường hợp:
                     <ul className="list-disc pl-5 mt-1 space-y-1">
-                      <li><strong>Video có ảnh</strong>: Upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho từng card (giống các type khác).</li>
+                      <li><strong>Video có ảnh</strong>: Upload cả <strong>Images</strong> (.avif, .webp, hoặc .jpg) và <strong>Audio</strong> (.opus) cho từng card (giống các type khác).</li>
                       <li><strong>Video không có ảnh</strong>: Chỉ upload <strong>Audio</strong> (.opus). <strong>Episode Cover Landscape</strong> là bắt buộc (sẽ dùng làm image cho tất cả cards).</li>
                     </ul>
                   </li>
-                  <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
+                  <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.avif, .webp, hoặc .jpg) và <strong>Audio</strong> (.opus) cho cards.</li>
                 </ul>
               </li>
             </ul>
@@ -1332,34 +1334,34 @@ export default function AdminContentIngestPage() {
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
               <input id="chk-cover" type="checkbox" checked={addCover} onChange={e => setAddCover(e.target.checked)} />
-              <label htmlFor="chk-cover" className="cursor-pointer whitespace-nowrap">Add Cover Portrait (webp)</label>
+              <label htmlFor="chk-cover" className="cursor-pointer whitespace-nowrap">Add Cover Portrait (avif/webp/jpg)</label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa dọc (.webp recommended) lưu tại items/&lt;slug&gt;/cover_image/cover.webp</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa dọc (.avif, .webp, hoặc .jpg) lưu tại items/&lt;slug&gt;/cover_image/cover.avif (or .webp, .jpg)</span>
               </span>
             </div>
             {addCover && (
               <>
-                <input id="cover-file" type="file" accept="image/jpeg,image/webp" onChange={e => {
+                <input id="cover-file" type="file" accept="image/jpeg,image/webp,image/avif" onChange={e => {
                   setHasCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0);
                 }} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
-                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover.webp (or .jpg)</div>
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover.avif (or .webp, .jpg)</div>
               </>
             )}
           </div>
           <div className="admin-subpanel space-y-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text)' }}>
               <input id="chk-cover-landscape" type="checkbox" checked={addCoverLandscape} onChange={e => setAddCoverLandscape(e.target.checked)} />
-              <label htmlFor="chk-cover-landscape" className="cursor-pointer whitespace-nowrap">Add Cover Landscape (webp)</label>
+              <label htmlFor="chk-cover-landscape" className="cursor-pointer whitespace-nowrap">Add Cover Landscape (avif/webp/jpg)</label>
               <span className="relative group inline-flex">
                 <HelpCircle className="w-4 h-4 cursor-help" style={{ color: 'var(--sub-language-text)' }} />
-                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa ngang (.webp recommended) lưu tại items/&lt;slug&gt;/cover_image/cover_landscape.webp</span>
+                <span className="absolute left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-10 w-64 p-2 rounded border text-[11px] leading-snug shadow-lg" style={{ backgroundColor: 'var(--card-bg)', borderColor: 'var(--border)', color: 'var(--text)' }}>Ảnh bìa ngang (.avif, .webp, hoặc .jpg) lưu tại items/&lt;slug&gt;/cover_image/cover_landscape.avif (or .webp, .jpg)</span>
               </span>
             </div>
             {addCoverLandscape && (
               <>
-                <input id="cover-landscape-file" type="file" accept="image/jpeg,image/webp" onChange={e => setHasCoverLandscapeFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
-                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover_landscape.webp (or .jpg)</div>
+                <input id="cover-landscape-file" type="file" accept="image/jpeg,image/webp,image/avif" onChange={e => setHasCoverLandscapeFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/cover_image/cover_landscape.avif (or .webp, .jpg)</div>
               </>
             )}
           </div>
@@ -1424,12 +1426,12 @@ export default function AdminContentIngestPage() {
                 <input
                   id="ep-cover-file"
                   type="file"
-                  accept="image/jpeg,image/webp"
+                  accept="image/jpeg,image/webp,image/avif"
                   onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)}
                   className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full"
                   style={{ borderColor: 'var(--primary)' }}
                 />
-                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3, '0')}/cover/cover.webp (or .jpg)</div>
+                <div className="text-[11px] typography-inter-4 break-words" style={{ color: 'var(--neutral)' }}>Path: items/{filmId || 'your_slug'}/episodes/{(filmId || 'your_slug') + '_' + String(episodeNum).padStart(3, '0')}/cover/cover.avif (or .webp, .jpg)</div>
                 {(contentType === 'video' && !videoHasImages && !hasEpCoverFile) && (
                   <div className="text-xs text-red-500">⚠️ Bắt buộc upload Episode Cover Landscape cho Video content không có ảnh</div>
                 )}

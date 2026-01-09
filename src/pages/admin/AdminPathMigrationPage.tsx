@@ -49,7 +49,7 @@ export default function AdminPathMigrationPage() {
 
   const startMigration = async () => {
     if (!dryRun && !window.confirm(
-      `⚠️ WARNING: This will update ALL database paths from .jpg/.mp3 to .webp/.opus\n\n` +
+      `⚠️ WARNING: This will update ALL database paths from .jpg/.webp/.mp3 to .avif/.opus\n\n` +
       `This operation will modify the database directly.\n` +
       `Make sure you have already converted the actual files in R2!\n\n` +
       `Continue?`
@@ -72,7 +72,7 @@ export default function AdminPathMigrationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dryRun,
-          imageExtension: 'webp', // jpg -> webp
+          imageExtension: 'avif', // jpg -> avif
           audioExtension: 'opus'  // mp3 -> opus
         })
       });
@@ -145,7 +145,7 @@ export default function AdminPathMigrationPage() {
       <div className="migration-header">
         <h1 className="migration-title">Database Path Migration</h1>
         <p className="migration-description">
-          Bulk update all database paths from .jpg/.mp3 to .webp/.opus format.
+          Bulk update all database paths from .jpg/.webp/.mp3 to .avif/.opus format.
           Use this AFTER you've already converted files in R2 storage.
         </p>
       </div>
@@ -160,9 +160,9 @@ export default function AdminPathMigrationPage() {
               <p><strong>This tool updates database paths ONLY, not files!</strong></p>
               <ul style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
                 <li>Make sure you've already converted files in R2 using the Image Migration tool</li>
-                <li>This will change ALL .jpg paths to .webp and .mp3 paths to .opus</li>
+                <li>This will change ALL .jpg and .webp paths to .avif, and .mp3 paths to .opus</li>
                 <li>Always test with <strong>Dry Run</strong> first to see what will be updated</li>
-                <li>After migration, old .jpg/.mp3 paths in DB will be replaced</li>
+                <li>After migration, old .jpg/.webp/.mp3 paths in DB will be replaced</li>
               </ul>
             </div>
           </div>
@@ -190,10 +190,10 @@ export default function AdminPathMigrationPage() {
         <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--secondary)', borderRadius: '8px' }}>
           <h3 className="typography-inter-2" style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text)' }}>What this tool does:</h3>
           <ul className="typography-inter-3" style={{ fontSize: '0.85rem', marginLeft: '1.5rem', lineHeight: 1.6, color: 'var(--text)' }}>
-            <li><code style={{ color: 'var(--primary)' }}>content_items.cover_key</code>: .jpg → .webp</li>
-            <li><code style={{ color: 'var(--primary)' }}>content_items.cover_landscape_key</code>: .jpg → .webp</li>
-            <li><code style={{ color: 'var(--primary)' }}>episodes.cover_key</code>: .jpg → .webp</li>
-            <li><code style={{ color: 'var(--primary)' }}>cards.image_key</code>: .jpg → .webp</li>
+            <li><code style={{ color: 'var(--primary)' }}>content_items.cover_key</code>: .jpg/.webp → .avif</li>
+            <li><code style={{ color: 'var(--primary)' }}>content_items.cover_landscape_key</code>: .jpg/.webp → .avif</li>
+            <li><code style={{ color: 'var(--primary)' }}>episodes.cover_key</code>: .jpg/.webp → .avif</li>
+            <li><code style={{ color: 'var(--primary)' }}>cards.image_key</code>: .jpg/.webp → .avif</li>
             <li><code style={{ color: 'var(--primary)' }}>cards.audio_key</code>: .mp3 → .opus</li>
           </ul>
           <p className="typography-inter-4" style={{ fontSize: '0.8rem', marginTop: '0.5rem', fontStyle: 'italic', color: 'var(--text-muted)' }}>
@@ -321,7 +321,7 @@ export default function AdminPathMigrationPage() {
                 Migration Complete!
               </h3>
               <p style={{ fontSize: '0.9rem', margin: '0.5rem 0 0 0' }}>
-                All database paths have been updated to .webp/.opus format.
+                All database paths have been updated to .avif/.opus format.
                 You can now safely use the Image Migration tool to convert remaining files.
               </p>
             </div>

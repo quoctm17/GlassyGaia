@@ -120,9 +120,10 @@ export default function AdminContentUpdatePage() {
 		if (!file) return; // optional
 		setStage('uploading-cover');
 		await uploadCoverImage({ filmId: contentSlug, episodeNum: 1, file });
-		// Extract extension from file type (webp or jpg)
+		// Extract extension from file type (avif, webp, or jpg)
+		const isAvif = file.type === 'image/avif';
 		const isWebP = file.type === 'image/webp';
-		const ext = isWebP ? 'webp' : 'jpg';
+		const ext = isAvif ? 'avif' : (isWebP ? 'webp' : 'jpg');
 		const url = r2Base ? `${r2Base}/items/${contentSlug}/cover_image/cover.${ext}` : `/items/${contentSlug}/cover_image/cover.${ext}`;
 		setCoverUrl(url);
 		setCoverUploaded(true);
@@ -135,9 +136,10 @@ export default function AdminContentUpdatePage() {
 		if (!file) return; // optional
 		setStage('uploading-cover-landscape');
 		await uploadCoverImage({ filmId: contentSlug, episodeNum: 1, file, landscape: true });
-		// Extract extension from file type (webp or jpg)
+		// Extract extension from file type (avif, webp, or jpg)
+		const isAvif = file.type === 'image/avif';
 		const isWebP = file.type === 'image/webp';
-		const ext = isWebP ? 'webp' : 'jpg';
+		const ext = isAvif ? 'avif' : (isWebP ? 'webp' : 'jpg');
 		const url = r2Base ? `${r2Base}/items/${contentSlug}/cover_image/cover_landscape.${ext}` : `/items/${contentSlug}/cover_image/cover_landscape.${ext}`;
 		setCoverLandscapeUrl(url);
 		setCoverLandscapeUploaded(true);
@@ -361,12 +363,12 @@ export default function AdminContentUpdatePage() {
 
 						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Cover Portrait (jpg)</label>
-							<input id="update-cover-file" type="file" accept="image/jpeg,image/webp" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+							<input id="update-cover-file" type="file" accept="image/jpeg,image/webp,image/avif" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
 						</div>
 
 						<div className="flex items-center gap-2">
 							<label className="w-40 text-sm">Cover Landscape (jpg)</label>
-							<input id="update-cover-landscape-file" type="file" accept="image/jpeg,image/webp" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
+							<input id="update-cover-landscape-file" type="file" accept="image/jpeg,image/webp,image/avif" className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border w-full" style={{ borderColor: 'var(--primary)' }} />
 						</div>
 
 					<div className="flex items-start gap-2 md:col-span-2">

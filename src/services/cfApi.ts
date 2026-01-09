@@ -57,7 +57,7 @@ export function buildR2MediaUrl(params: {
   episodeId: string; // accepts e1, e001, 1, filmSlug_1
   cardId: string; // display/card id; will be padded to 4 digits if numeric
   type: "audio" | "image";
-  ext?: string; // optional: specify extension (webp, jpg, opus, mp3, wav)
+  ext?: string; // optional: specify extension (avif, webp, jpg, opus, mp3, wav)
 }): string {
   // New naming convention:
   // items/{filmId}/episodes/{filmId}_{episode3}/{type}/{filmId}_{episode3}_{card4}.{ext}
