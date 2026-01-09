@@ -9,7 +9,6 @@ import { useUser } from "../context/UserContext";
 import {
   apiSearch,
   apiListItems,
-  apiSearchCounts,
   apiSearchCardsFTS,
 } from "../services/cfApi";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
@@ -33,7 +32,6 @@ function SearchPage() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [allItems, setAllItems] = useState<FilmDoc[]>([]);
-  const [serverContentCounts, setServerContentCounts] = useState<Record<string, number>>({});
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
   const [minDifficulty, setMinDifficulty] = useState(0);
@@ -193,11 +191,6 @@ function SearchPage() {
   // DISABLED: Server-side counts are too slow (counts entire DB)
   // Instead, we'll use client-side counts from allResults which is much faster
   // ContentSelector will fallback to counting from allResults if contentCounts is not provided
-  useEffect(() => {
-    // Don't fetch server counts - use client-side counting instead
-    // This significantly improves performance
-    setServerContentCounts({});
-  }, []);
 
   // Handle search trigger from SearchBar (click icon or Enter key)
   const handleSearch = useCallback((searchValue: string) => {
@@ -295,7 +288,7 @@ function SearchPage() {
     
     // Count cards from allResults (already filtered by query and other filters)
     for (const card of cards) {
-      const contentId = card.film_id || card.content_id;
+      const contentId = card.film_id;
       if (contentId) {
         counts[contentId] = (counts[contentId] || 0) + 1;
       }

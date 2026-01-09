@@ -108,7 +108,7 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     } else {
       // Fallback: count from allResults (client-side, fast)
       for (const c of allResults) {
-        const fid = String(c.film_id ?? c.content_id ?? '');
+        const fid = String(c.film_id ?? '');
         if (!fid) continue;
         result[fid] = (result[fid] || 0) + 1;
       }

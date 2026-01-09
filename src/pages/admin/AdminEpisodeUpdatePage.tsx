@@ -341,7 +341,6 @@ export default function AdminEpisodeUpdatePage() {
   const [reimportBusy, setReimportBusy] = useState(false);
   const [reimportStage, setReimportStage] = useState<'idle'|'deleting'|'uploading_media'|'uploading_episode_media'|'import'|'stats'|'assessing_levels'|'done'>('idle');
   const [confirmRollback, setConfirmRollback] = useState(false);
-  const [deletionPercent, setDeletionPercent] = useState(0);
   const onCancelReimport = () => {
     // Show confirmation modal
     setConfirmRollback(true);
@@ -363,7 +362,6 @@ export default function AdminEpisodeUpdatePage() {
       
       // Skip episode deletion - preserve episode and media
       // Use mode='replace' in importFilmFromCsv to only update cards
-      setDeletionPercent(100);
       toast('Giữ nguyên episode và media, chỉ thay thế cards', { icon: 'ℹ️' });
       
       if (cancelRequestedRef.current) throw new Error('User cancelled');
@@ -560,7 +558,6 @@ export default function AdminEpisodeUpdatePage() {
         toast.error('Replace failed: ' + msg);
       }
       setReimportStage('idle');
-      setDeletionPercent(0);
     } finally { 
       setReimportBusy(false); 
     }
