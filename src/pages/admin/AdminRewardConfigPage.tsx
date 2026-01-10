@@ -191,7 +191,9 @@ export default function AdminRewardConfigPage() {
                     xp_amount: (editing[config.id]?.xp_amount !== undefined ? editing[config.id].xp_amount : config.xp_amount) as number,
                     coin_amount: (editing[config.id]?.coin_amount !== undefined ? editing[config.id].coin_amount : config.coin_amount) as number,
                     interval_seconds: editing[config.id]?.interval_seconds !== undefined ? editing[config.id].interval_seconds : config.interval_seconds,
-                    description: (editing[config.id]?.description !== undefined ? editing[config.id].description : config.description) || ''
+                    description: editing[config.id]?.description !== undefined 
+                      ? (editing[config.id].description ?? '')
+                      : (config.description ?? '')
                   };
 
                   return (
