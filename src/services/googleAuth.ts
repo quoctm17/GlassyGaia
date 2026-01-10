@@ -73,6 +73,7 @@ export function initGoogleAuth(): Promise<void> {
  */
 export async function signInWithGoogle(): Promise<{
   success: boolean;
+  token?: string;
   user?: {
     id: string;
     email: string;
@@ -264,6 +265,7 @@ export async function signInWithGoogle(): Promise<{
  */
 export async function signInWithGoogleIdToken(idToken: string): Promise<{
   success: boolean;
+  token?: string;
   user?: {
     id: string;
     email: string;

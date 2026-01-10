@@ -455,8 +455,18 @@
 
 .portfolio-graph-nav {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: center;
+  justify-content: center;
+}
+
+.portfolio-graph-month-label {
+  color: var(--text);
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 150px;
+  text-align: center;
 }
 
 .portfolio-graph-nav-btn {

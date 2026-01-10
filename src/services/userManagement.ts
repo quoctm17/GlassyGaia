@@ -1,4 +1,5 @@
 // User management service - API calls to Cloudflare Worker
+import { getAuthHeaders } from "../utils/api";
 
 function normalizeBase(input: string | undefined): string {
   if (!input) return "";
@@ -98,9 +99,9 @@ export async function registerUser(data: {
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/register`, {
     method: "POST",
-    headers: {
+    headers: getAuthHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(data),
   });
 
@@ -119,9 +120,9 @@ export async function updateLastLogin(userId: string): Promise<void> {
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/login`, {
     method: "POST",
-    headers: {
+    headers: getAuthHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify({ user_id: userId }),
   });
 
@@ -138,9 +139,9 @@ export async function getUserProfile(userId: string): Promise<UserProfile> {
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}`, {
     method: "GET",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -158,9 +159,9 @@ export async function getUserRoles(userId: string): Promise<Array<{ role_name: s
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}/roles`, {
     method: "GET",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -185,9 +186,9 @@ export async function updateUserProfile(
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}`, {
     method: "PUT",
-    headers: {
+    headers: getAuthHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(data),
   });
 
@@ -218,9 +219,9 @@ export async function deleteUser(userId: string): Promise<{
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}`, {
     method: "DELETE",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -242,9 +243,9 @@ export async function getUserPreferences(
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}/preferences`, {
     method: "GET",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -284,9 +285,9 @@ export async function updateUserPreferences(
   
   const res = await fetch(`${API_BASE}/api/users/${userId}/preferences`, {
     method: "PUT",
-    headers: {
+    headers: getAuthHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(payload),
   });
 
@@ -317,9 +318,9 @@ export async function getUserFavorites(
 
   const res = await fetch(url, {
     method: "GET",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -346,9 +347,9 @@ export async function addFavorite(
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}/favorites`, {
     method: "POST",
-    headers: {
+    headers: getAuthHeaders({
       "Content-Type": "application/json",
-    },
+    }),
     body: JSON.stringify(data),
   });
 
@@ -390,9 +391,9 @@ export async function getUserStats(userId: string): Promise<UserStats> {
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}/stats`, {
     method: "GET",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -440,9 +441,9 @@ export async function getAllUsers(): Promise<UserProfile[]> {
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users`, {
     method: "GET",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -462,9 +463,9 @@ export async function getUserProgressData(
   assertApiBase();
   const res = await fetch(`${API_BASE}/api/users/${userId}/progress`, {
     method: "GET",
-    headers: {
+    headers: getAuthHeaders({
       Accept: "application/json",
-    },
+    }),
   });
 
   if (!res.ok) {

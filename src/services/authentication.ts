@@ -27,6 +27,7 @@ export interface AuthResponse {
     display_name: string;
     photo_url?: string;
     auth_provider: string;
+    roles?: string[];
     role?: string;
     is_admin?: number;
   };

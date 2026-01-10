@@ -11,13 +11,14 @@ import {
   apiListItems,
   apiSearchCardsFTS,
 } from "../services/cfApi";
+import { apiTrackTime } from "../services/userTracking";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
 import filterIcon from "../assets/icons/filter.svg";
 import customIcon from "../assets/icons/custom.svg";
 import "../styles/pages/search-page.css";
 
 function SearchPage() {
-  const { preferences } = useUser();
+  const { user, preferences } = useUser();
   // inputValue: giá trị đang gõ trong ô SearchBar (không dùng để query trực tiếp)
   const [searchInput, setSearchInput] = useState("");
   // query: giá trị đã được debounce, dùng để gọi API + highlight
@@ -363,6 +364,79 @@ function SearchPage() {
     };
   }, [hasMore, loading, isLoadingMore, page, query, fetchCards, isTextSearch]);
 
+  // Track reading time (debounced to avoid too many API calls)
+  const readingTimeAccumulatorRef = useRef<number>(0);
+  const readingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const handleTrackReading = useCallback((seconds: number) => {
+    if (!user?.uid || seconds <= 0) return;
+    
+    readingTimeAccumulatorRef.current += seconds;
+    
+    // Debounce: accumulate and send every 8 seconds
+    if (readingTimeoutRef.current) {
+      clearTimeout(readingTimeoutRef.current);
+    }
+    
+    readingTimeoutRef.current = setTimeout(async () => {
+      const totalSeconds = readingTimeAccumulatorRef.current;
+      if (totalSeconds > 0 && user?.uid) {
+        readingTimeAccumulatorRef.current = 0;
+        try {
+          await apiTrackTime(user.uid, totalSeconds, 'reading');
+        } catch (error) {
+          console.error('Failed to track reading time:', error);
+        }
+      }
+    }, 8000);
+  }, [user?.uid]);
+
+  // Track listening time (debounced to avoid too many API calls)
+  const listeningTimeAccumulatorRef = useRef<number>(0);
+  const listeningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const handleTrackListening = useCallback((seconds: number) => {
+    if (!user?.uid || seconds <= 0) return;
+    
+    listeningTimeAccumulatorRef.current += seconds;
+    
+    // Debounce: accumulate and send every 5 seconds
+    if (listeningTimeoutRef.current) {
+      clearTimeout(listeningTimeoutRef.current);
+    }
+    
+    listeningTimeoutRef.current = setTimeout(async () => {
+      const totalSeconds = listeningTimeAccumulatorRef.current;
+      if (totalSeconds > 0 && user?.uid) {
+        listeningTimeAccumulatorRef.current = 0;
+        try {
+          await apiTrackTime(user.uid, totalSeconds, 'listening');
+        } catch (error) {
+          console.error('Failed to track listening time:', error);
+        }
+      }
+    }, 5000);
+  }, [user?.uid]);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (readingTimeoutRef.current) {
+        clearTimeout(readingTimeoutRef.current);
+      }
+      if (listeningTimeoutRef.current) {
+        clearTimeout(listeningTimeoutRef.current);
+      }
+      // Send any remaining accumulated time
+      if (readingTimeAccumulatorRef.current > 0 && user?.uid) {
+        apiTrackTime(user.uid, readingTimeAccumulatorRef.current, 'reading').catch(() => {});
+      }
+      if (listeningTimeAccumulatorRef.current > 0 && user?.uid) {
+        apiTrackTime(user.uid, listeningTimeAccumulatorRef.current, 'listening').catch(() => {});
+      }
+    };
+  }, [user?.uid]);
+
   return (
     <div className="search-page-container">
       {/* Overlay for mobile - click outside to close */}
@@ -472,6 +546,8 @@ function SearchPage() {
                       primaryLang={preferences.main_language}
                       volume={volume}
                       subtitleLanguages={preferences.subtitle_languages}
+                      onTrackReading={handleTrackReading}
+                      onTrackListening={handleTrackListening}
                     />
                   )})}
                   {isLoadingMore && (

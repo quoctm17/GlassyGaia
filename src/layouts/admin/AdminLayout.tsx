@@ -17,7 +17,7 @@ export default function AdminLayout() {
   useEffect(() => {
     if (loading) return; // chờ user state
     if (!user) {
-      navigate('/login');
+      navigate('/auth/login');
       toast('Vui lòng đăng nhập để vào khu vực Admin');
       return;
     }

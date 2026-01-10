@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
-import { apiGetUserPortfolio, type UserPortfolio } from '../services/portfolioApi';
+import { apiGetUserPortfolio, apiGetStreakHistory, apiGetMonthlyXP, type UserPortfolio, type StreakHistoryItem, type MonthlyXPData } from '../services/portfolioApi';
 import { apiGetSavedCards, apiListItems, apiUpdateCardSRSState } from '../services/cfApi';
 import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from '../types/srsStates';
 import type { CardDoc, FilmDoc, LevelFrameworkStats } from '../types';
@@ -40,6 +40,12 @@ export default function PortfolioPage() {
   const [squareSize, setSquareSize] = useState<number>(22);
   const [gridCols, setGridCols] = useState<number>(30);
   const [gridRows, setGridRows] = useState<number>(7);
+  const [streakHistory, setStreakHistory] = useState<StreakHistoryItem[]>([]);
+  const [monthlyXPData, setMonthlyXPData] = useState<MonthlyXPData[]>([]);
+  const [currentMonth, setCurrentMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  });
 
   // Load portfolio data
   useEffect(() => {
@@ -70,6 +76,50 @@ export default function PortfolioPage() {
 
     return () => { mounted = false; };
   }, [user?.uid]);
+
+  // Load streak history for heatmap
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    let mounted = true;
+    (async () => {
+      try {
+        const history = await apiGetStreakHistory(user.uid);
+        if (mounted) {
+          setStreakHistory(history);
+        }
+      } catch (error) {
+        console.error('Failed to load streak history:', error);
+        if (mounted) {
+          setStreakHistory([]);
+        }
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [user?.uid]);
+
+  // Load monthly XP data for graph
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    let mounted = true;
+    (async () => {
+      try {
+        const data = await apiGetMonthlyXP(user.uid, currentMonth.year, currentMonth.month);
+        if (mounted) {
+          setMonthlyXPData(data);
+        }
+      } catch (error) {
+        console.error('Failed to load monthly XP:', error);
+        if (mounted) {
+          setMonthlyXPData([]);
+        }
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [user?.uid, currentMonth.year, currentMonth.month]);
 
   // Parse level framework stats helper
   const parseLevelStats = (raw: unknown): LevelFrameworkStats | null => {
@@ -520,6 +570,86 @@ export default function PortfolioPage() {
     return merged;
   }, [serverContentCounts, allContentIds]);
 
+  // Process monthly XP data for graph
+  const xpProgressData = useMemo(() => {
+    if (monthlyXPData.length === 0) return [];
+    return monthlyXPData.map(item => item.xp_earned || 0);
+  }, [monthlyXPData]);
+
+  // Calculate max XP for scaling
+  const maxXP = useMemo(() => {
+    if (xpProgressData.length === 0) return 1;
+    return Math.max(...xpProgressData, 1);
+  }, [xpProgressData]);
+
+  const scaleFactor = maxXP > 0 ? 200 / maxXP : 1;
+
+  // Generate date labels for current month
+  const dateLabels = useMemo(() => {
+    const year = currentMonth.year;
+    const month = currentMonth.month;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === month;
+    
+    return Array.from({ length: daysInMonth }, (_, i) => {
+      const day = i + 1;
+      const date = new Date(year, month - 1, day);
+      const monthStr = date.toLocaleDateString('en-US', { month: 'short' });
+      const isToday = isCurrentMonth && day === today.getDate();
+      return { 
+        label: `${monthStr} ${day}`, 
+        isToday: isToday,
+        date: date
+      };
+    });
+  }, [currentMonth]);
+
+  // Process streak history for heatmap
+  const streakMap = useMemo(() => {
+    const map = new Map<string, { achieved: boolean; count: number }>();
+    streakHistory.forEach(item => {
+      map.set(item.streak_date, {
+        achieved: item.streak_achieved === 1,
+        count: item.streak_count || 0
+      });
+    });
+    return map;
+  }, [streakHistory]);
+
+  // Calculate heatmap squares (30 columns x 7 rows = 210 days, ~7 months)
+  const heatmapSquares = useMemo(() => {
+    const squares: Array<{ date: string; achieved: boolean; count: number }> = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Generate 210 days going backwards from today
+    for (let i = 209; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const streakData = streakMap.get(dateStr);
+      
+      squares.push({
+        date: dateStr,
+        achieved: streakData?.achieved || false,
+        count: streakData?.count || 0
+      });
+    }
+    
+    return squares;
+  }, [streakMap]);
+
+  // Helper function for formatting time
+  const formatTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+  };
+
   if (!user) {
     return (
       <div style={{ 
@@ -561,28 +691,6 @@ export default function PortfolioPage() {
       </div>
     );
   }
-
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-  };
-
-  // Sample data for line graph
-  const xpProgressData = [100, 150, 200, 250, 300, 350, 400, 450, 500, 550];
-
-  // Generate date labels (10 dates, Dec 24 is Today, going backwards then forward)
-  const today = new Date(2025, 11, 24); // Dec 24, 2025
-  const dateLabels = Array.from({ length: 10 }, (_, i) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (9 - i)); // Start from Dec 15, end at Dec 24
-    const month = date.toLocaleDateString('en-US', { month: 'short' });
-    const day = date.getDate();
-    return { label: `${month} ${day}`, isToday: i === 9 };
-  });
 
   return (
     <div className={`portfolio-page-container typography-pressstart-1 ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
@@ -656,7 +764,7 @@ export default function PortfolioPage() {
       {/* Metrics Cards Section */}
       <div className="portfolio-metrics-section">
         <div className="portfolio-metric-card">
-          <div className="portfolio-metric-value">{portfolio.total_cards_reviewed.toLocaleString()}</div>
+          <div className="portfolio-metric-value">{(portfolio.due_cards_count || 0).toLocaleString()}</div>
           <div className="portfolio-metric-label">
             # Due Cards
             <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
@@ -698,74 +806,102 @@ export default function PortfolioPage() {
         <div className="portfolio-graph-card">
           <div className="portfolio-graph-header">
             <div className="portfolio-graph-nav">
-              <button className="portfolio-graph-nav-btn">
+              <button 
+                className="portfolio-graph-nav-btn"
+                onClick={() => {
+                  const newMonth = currentMonth.month === 1 ? 12 : currentMonth.month - 1;
+                  const newYear = currentMonth.month === 1 ? currentMonth.year - 1 : currentMonth.year;
+                  setCurrentMonth({ year: newYear, month: newMonth });
+                }}
+              >
                 <img src={buttonPlayIcon} alt="Previous" className="portfolio-graph-nav-icon portfolio-graph-nav-icon-left" />
               </button>
-              <button className="portfolio-graph-nav-btn">
+              <div className="portfolio-graph-month-label">
+                {new Date(currentMonth.year, currentMonth.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </div>
+              <button 
+                className="portfolio-graph-nav-btn"
+                onClick={() => {
+                  const today = new Date();
+                  const maxMonth = today.getMonth() + 1;
+                  const maxYear = today.getFullYear();
+                  if (currentMonth.year < maxYear || (currentMonth.year === maxYear && currentMonth.month < maxMonth)) {
+                    const newMonth = currentMonth.month === 12 ? 1 : currentMonth.month + 1;
+                    const newYear = currentMonth.month === 12 ? currentMonth.year + 1 : currentMonth.year;
+                    setCurrentMonth({ year: newYear, month: newMonth });
+                  }
+                }}
+                disabled={currentMonth.year === new Date().getFullYear() && currentMonth.month === new Date().getMonth() + 1}
+              >
                 <img src={buttonPlayIcon} alt="Next" className="portfolio-graph-nav-icon" />
               </button>
             </div>
           </div>
           <div className="portfolio-graph-container">
             <div className="portfolio-graph-placeholder">
-              <svg width="100%" height="100%" viewBox="0 0 1000 220" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0 }}>
-                {/* Grid lines */}
-                {[0, 25, 50, 75, 100].map((y) => (
-                  <line key={y} x1="0" y1={y * 2} x2="1000" y2={y * 2} stroke="var(--neutral)" strokeWidth="0.5" opacity="0.3" />
-                ))}
-                {/* Area fill */}
-                <polygon
-                  points={`0,200 ${xpProgressData.map((value, i) => {
-                    const x = (i / (xpProgressData.length - 1)) * 1000;
-                    const y = 200 - (value / 700) * 200;
-                    return `${x},${y}`;
-                  }).join(' ')},1000,200`}
-                  fill="var(--primary)"
-                  opacity="0.2"
-                />
-                {/* Line graph */}
-                <polyline
-                  points={xpProgressData.map((value, i) => {
-                    const x = (i / (xpProgressData.length - 1)) * 1000;
-                    const y = 200 - (value / 700) * 200;
-                    return `${x},${y}`;
-                  }).join(' ')}
-                  fill="none"
-                  stroke="var(--primary)"
-                  strokeWidth="1.5"
-                />
-                {/* Data points - squares */}
-                {xpProgressData.map((value, i) => {
-                  const x = (i / (xpProgressData.length - 1)) * 1000;
-                  const y = 200 - (value / 700) * 200;
-                  return (
-                    <rect key={i} x={x - 3} y={y - 3} width="6" height="6" fill="var(--primary)" stroke="var(--background)" strokeWidth="1" />
-                  );
-                })}
-                {/* Date labels */}
-                {dateLabels.map((date, i) => {
-                  const x = (i / (dateLabels.length - 1)) * 1000;
-                  return (
-                    <g key={i}>
-                      {date.isToday && (
-                        <line x1={x} y1="0" x2={x} y2="200" stroke="var(--hover-select)" strokeWidth="1.5" strokeDasharray="4 4" />
-                      )}
-                      <text 
-                        x={x} 
-                        y="215" 
-                        textAnchor="middle" 
-                        className="portfolio-graph-date-label"
-                        fill={date.isToday ? "var(--hover-select)" : "var(--text)"}
-                      >
-                        {date.label}
-                      </text>
-                      {date.isToday && (
-                        <text x={x} y="-5" textAnchor="middle" className="portfolio-graph-today-label">Today</text>
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
+              {xpProgressData.length > 0 ? (
+                <svg width="100%" height="100%" viewBox="0 0 1000 220" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0 }}>
+                  {[0, 25, 50, 75, 100].map((y) => (
+                    <line key={y} x1="0" y1={y * 2} x2="1000" y2={y * 2} stroke="var(--neutral)" strokeWidth="0.5" opacity="0.3" />
+                  ))}
+                  <polygon
+                    points={`0,200 ${xpProgressData.map((value, i) => {
+                      const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
+                      const y = 200 - (value * scaleFactor);
+                      return `${x},${y}`;
+                    }).join(' ')},${dateLabels.length > 1 ? 1000 : 0},200`}
+                    fill="var(--primary)"
+                    opacity="0.2"
+                  />
+                  <polyline
+                    points={xpProgressData.map((value, i) => {
+                      const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
+                      const y = 200 - (value * scaleFactor);
+                      return `${x},${y}`;
+                    }).join(' ')}
+                    fill="none"
+                    stroke="var(--primary)"
+                    strokeWidth="1.5"
+                  />
+                  {xpProgressData.map((value, i) => {
+                    const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
+                    const y = 200 - (value * scaleFactor);
+                    return (
+                      <rect key={i} x={x - 3} y={y - 3} width="6" height="6" fill="var(--primary)" stroke="var(--background)" strokeWidth="1" />
+                    );
+                  })}
+                  {dateLabels.filter((_, i) => {
+                    const step = Math.max(1, Math.floor(dateLabels.length / 10));
+                    return i % step === 0 || i === dateLabels.length - 1;
+                  }).map((date) => {
+                    const originalIdx = dateLabels.indexOf(date);
+                    const x = dateLabels.length > 1 ? (originalIdx / (dateLabels.length - 1)) * 1000 : 0;
+                    return (
+                      <g key={originalIdx}>
+                        {date.isToday && (
+                          <line x1={x} y1="0" x2={x} y2="200" stroke="var(--hover-select)" strokeWidth="1.5" strokeDasharray="4 4" />
+                        )}
+                        <text 
+                          x={x} 
+                          y="215" 
+                          textAnchor="middle" 
+                          className="portfolio-graph-date-label"
+                          fill={date.isToday ? "var(--hover-select)" : "var(--text)"}
+                        >
+                          {date.label}
+                        </text>
+                        {date.isToday && (
+                          <text x={x} y="-5" textAnchor="middle" className="portfolio-graph-today-label">Today</text>
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--neutral)' }}>
+                  No data available
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -782,20 +918,25 @@ export default function PortfolioPage() {
             gridTemplateRows: `repeat(${gridRows}, ${squareSize}px)`
           }}
         >
-          {Array.from({ length: gridSquares }).map((_, i) => {
-            const rand = Math.random();
+          {heatmapSquares.slice(0, gridSquares).map((square) => {
             let colorClass = 'neutral';
-            if (rand < 0.33) {
-              colorClass = 'neutral';
-            } else if (rand < 0.66) {
-              colorClass = 'primary';
+            if (square.achieved) {
+              // Use streak count to determine intensity
+              if (square.count >= 30) {
+                colorClass = 'hover-select'; // High streak
+              } else if (square.count >= 7) {
+                colorClass = 'primary'; // Medium streak
+              } else {
+                colorClass = 'neutral'; // Low streak (but achieved)
+              }
             } else {
-              colorClass = 'hover-select';
+              colorClass = 'neutral'; // No streak
             }
             return (
               <div 
-                key={i} 
+                key={square.date} 
                 className={`portfolio-grid-square portfolio-grid-square-${colorClass}`}
+                title={`${square.date}: ${square.achieved ? `Streak ${square.count} days` : 'No streak'}`}
               />
             );
           })}
