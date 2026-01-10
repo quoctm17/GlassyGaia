@@ -5880,7 +5880,8 @@ async function trackTime(env, userId, timeSeconds, type) {
   const rewardConfig = await getRewardConfig(env, actionType);
   if (!rewardConfig) return { xpAwarded: 0 };
   
-  const intervalSeconds = type === 'listening' ? 5 : 8;
+  // Use interval_seconds from config, fallback to defaults if not set
+  const intervalSeconds = rewardConfig.interval_seconds || (type === 'listening' ? 5 : 8);
   const checkpointField = type === 'listening' ? 'daily_listening_checkpoint' : 'daily_reading_checkpoint';
   const timeField = type === 'listening' ? 'daily_listening_time' : 'daily_reading_time';
   const totalTimeField = type === 'listening' ? 'total_listening_time' : 'total_reading_time';
@@ -6649,6 +6650,174 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           
           return json(history.results || []);
         } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get detailed user metrics (SRS, Listening, Reading metrics)
+      if (path === '/api/user/metrics' && request.method === 'GET') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          const userId = auth.userId;
+          
+          // SRS Metrics
+          const newCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total FROM user_card_states
+            WHERE user_id = ? AND srs_state = 'new'
+          `).bind(userId).first();
+          
+          const againCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total FROM user_card_states
+            WHERE user_id = ? AND srs_state = 'again'
+          `).bind(userId).first();
+          
+          const hardCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total FROM user_card_states
+            WHERE user_id = ? AND srs_state = 'hard'
+          `).bind(userId).first();
+          
+          const goodCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total FROM user_card_states
+            WHERE user_id = ? AND srs_state = 'good'
+          `).bind(userId).first();
+          
+          const easyCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total FROM user_card_states
+            WHERE user_id = ? AND srs_state = 'easy'
+          `).bind(userId).first();
+          
+          const dueCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total FROM user_card_states
+            WHERE user_id = ? 
+              AND srs_state != 'none'
+              AND (
+                next_review_at IS NULL 
+                OR next_review_at <= (unixepoch() * 1000)
+              )
+          `).bind(userId).first();
+          
+          // Average interval (in days) - only for cards with srs_state != 'none' and srs_interval > 0
+          const avgIntervalResult = await env.DB.prepare(`
+            SELECT AVG(srs_interval) as avg_interval
+            FROM user_card_states
+            WHERE user_id = ? 
+              AND srs_state != 'none'
+              AND srs_interval > 0
+          `).bind(userId).first();
+          
+          const avgIntervalDays = avgIntervalResult?.avg_interval ? (avgIntervalResult.avg_interval / 24) : 0;
+          
+          // Get user_scores first (needed for listening_sessions_count and time metrics)
+          const scores = await getOrCreateUserScores(env, userId);
+          
+          // Get reward_config IDs for listening and reading
+          const listeningRewardConfig = await getRewardConfig(env, 'listening_5s');
+          const readingRewardConfig = await getRewardConfig(env, 'reading_8s');
+          
+          // Listening Metrics - Count XP transactions using reward_config_id (more precise than description)
+          let listeningXPResult = { total_xp: 0 };
+          if (listeningRewardConfig?.id) {
+            listeningXPResult = await env.DB.prepare(`
+              SELECT COALESCE(SUM(xp_amount), 0) as total_xp
+              FROM xp_transactions
+              WHERE user_id = ? AND reward_config_id = ?
+            `).bind(userId, listeningRewardConfig.id).first();
+          }
+          
+          // Listening Count - use listening_sessions_count from user_scores if available, otherwise count XP transactions
+          // Note: listening_sessions_count counts actual play events, while XP transactions count completed intervals
+          const listeningCount = scores?.listening_sessions_count || 0;
+          // Fallback: count XP transactions if listening_sessions_count is 0 (backward compatibility)
+          let listeningCountValue = listeningCount;
+          if (listeningCountValue === 0 && listeningRewardConfig?.id) {
+            const listeningCountResult = await env.DB.prepare(`
+              SELECT COUNT(*) as total
+              FROM xp_transactions
+              WHERE user_id = ? AND reward_config_id = ?
+            `).bind(userId, listeningRewardConfig.id).first();
+            listeningCountValue = listeningCountResult?.total || 0;
+          }
+          
+          // Reading Metrics - Count XP transactions using reward_config_id (more precise than description)
+          let readingXPResult = { total_xp: 0 };
+          if (readingRewardConfig?.id) {
+            readingXPResult = await env.DB.prepare(`
+              SELECT COALESCE(SUM(xp_amount), 0) as total_xp
+              FROM xp_transactions
+              WHERE user_id = ? AND reward_config_id = ?
+            `).bind(userId, readingRewardConfig.id).first();
+          }
+          
+          // Review Count - sum of review_count from user_card_states (pointer hover > 2s)
+          const reviewCountResult = await env.DB.prepare(`
+            SELECT COALESCE(SUM(review_count), 0) as total
+            FROM user_card_states
+            WHERE user_id = ?
+          `).bind(userId).first();
+          
+          return json({
+            srs_metrics: {
+              new_cards: newCardsResult?.total || 0,
+              again_cards: againCardsResult?.total || 0,
+              hard_cards: hardCardsResult?.total || 0,
+              good_cards: goodCardsResult?.total || 0,
+              easy_cards: easyCardsResult?.total || 0,
+              due_cards: dueCardsResult?.total || 0,
+              average_interval_days: Math.round(avgIntervalDays * 100) / 100 // Round to 2 decimals
+            },
+            listening_metrics: {
+              time_minutes: Math.round((scores?.total_listening_time || 0) / 60),
+              count: listeningCountValue,
+              xp: listeningXPResult?.total_xp || 0
+            },
+            reading_metrics: {
+              time_minutes: Math.round((scores?.total_reading_time || 0) / 60),
+              count: reviewCountResult?.total || 0,
+              xp: readingXPResult?.total_xp || 0
+            }
+          });
+        } catch (e) {
+          console.error('Metrics error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Increment listening sessions count (when user clicks play audio)
+      if (path === '/api/user/increment-listening-session' && request.method === 'POST') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          const userId = auth.userId;
+          
+          // Ensure user_scores exists
+          await getOrCreateUserScores(env, userId);
+          
+          // Increment listening_sessions_count
+          await env.DB.prepare(`
+            UPDATE user_scores
+            SET listening_sessions_count = listening_sessions_count + 1,
+                updated_at = unixepoch() * 1000
+            WHERE user_id = ?
+          `).bind(userId).run();
+          
+          // Get updated count
+          const updated = await env.DB.prepare(`
+            SELECT listening_sessions_count FROM user_scores WHERE user_id = ?
+          `).bind(userId).first();
+          
+          return json({ 
+            success: true, 
+            listening_sessions_count: updated?.listening_sessions_count || 0 
+          });
+        } catch (e) {
+          console.error('Increment listening session error:', e);
           return json({ error: e.message }, { status: 500 });
         }
       }
@@ -7750,6 +7919,112 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           
           return json({ roles: roleNames });
         } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get rewards config - SuperAdmin only
+      if (path === '/api/admin/rewards-config' && request.method === 'GET') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          // Check if user is superadmin
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+          
+          const configs = await env.DB.prepare(`
+            SELECT * FROM rewards_config
+            ORDER BY action_type ASC
+          `).all();
+          
+          return json({ configs: configs.results || [] });
+        } catch (e) {
+          console.error('Get rewards config error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Update rewards config - SuperAdmin only
+      if (path === '/api/admin/rewards-config' && request.method === 'PUT') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          // Check if user is superadmin
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+          
+          const body = await request.json();
+          const { id, xp_amount, coin_amount, interval_seconds, description } = body;
+          
+          if (!id) {
+            return json({ error: 'id is required' }, { status: 400 });
+          }
+          
+          // Validate numeric fields
+          if (xp_amount !== undefined && (typeof xp_amount !== 'number' || xp_amount < 0)) {
+            return json({ error: 'xp_amount must be a non-negative number' }, { status: 400 });
+          }
+          
+          if (coin_amount !== undefined && (typeof coin_amount !== 'number' || coin_amount < 0)) {
+            return json({ error: 'coin_amount must be a non-negative number' }, { status: 400 });
+          }
+          
+          if (interval_seconds !== undefined && interval_seconds !== null && (typeof interval_seconds !== 'number' || interval_seconds < 1)) {
+            return json({ error: 'interval_seconds must be a positive number or null' }, { status: 400 });
+          }
+          
+          // Update config
+          const updateFields = [];
+          const updateValues = [];
+          
+          if (xp_amount !== undefined) {
+            updateFields.push('xp_amount = ?');
+            updateValues.push(xp_amount);
+          }
+          
+          if (coin_amount !== undefined) {
+            updateFields.push('coin_amount = ?');
+            updateValues.push(coin_amount);
+          }
+          
+          if (interval_seconds !== undefined) {
+            updateFields.push('interval_seconds = ?');
+            updateValues.push(interval_seconds);
+          }
+          
+          if (description !== undefined) {
+            updateFields.push('description = ?');
+            updateValues.push(description);
+          }
+          
+          if (updateFields.length === 0) {
+            return json({ error: 'No fields to update' }, { status: 400 });
+          }
+          
+          updateValues.push(id);
+          
+          await env.DB.prepare(`
+            UPDATE rewards_config
+            SET ${updateFields.join(', ')}, updated_at = unixepoch() * 1000
+            WHERE id = ?
+          `).bind(...updateValues).run();
+          
+          // Return updated config
+          const updated = await env.DB.prepare(`
+            SELECT * FROM rewards_config WHERE id = ?
+          `).bind(id).first();
+          
+          return json({ success: true, config: updated });
+        } catch (e) {
+          console.error('Update rewards config error:', e);
           return json({ error: e.message }, { status: 500 });
         }
       }

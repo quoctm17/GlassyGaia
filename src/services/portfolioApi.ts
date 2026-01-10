@@ -75,6 +75,52 @@ export interface MonthlyXPData {
   xp_earned: number;
 }
 
+export interface UserMetrics {
+  srs_metrics: {
+    new_cards: number;
+    again_cards: number;
+    hard_cards: number;
+    good_cards: number;
+    easy_cards: number;
+    due_cards: number;
+    average_interval_days: number;
+  };
+  listening_metrics: {
+    time_minutes: number;
+    count: number;
+    xp: number;
+  };
+  reading_metrics: {
+    time_minutes: number;
+    count: number;
+    xp: number;
+  };
+}
+
+/**
+ * Get detailed user metrics (SRS, Listening, Reading)
+ */
+export async function apiGetUserMetrics(userId: string): Promise<UserMetrics | null> {
+  assertApiBase();
+  
+  const res = await fetch(`${API_BASE}/api/user/metrics`, {
+    method: "GET",
+    headers: getAuthHeaders({
+      Accept: "application/json",
+    }),
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      return null;
+    }
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get user metrics: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
 /**
  * Get user streak history for heatmap
  */
