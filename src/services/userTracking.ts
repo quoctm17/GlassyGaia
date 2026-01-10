@@ -55,3 +55,27 @@ export async function apiTrackTime(
 
   return res.json();
 }
+
+/**
+ * Increment listening sessions count (when user clicks play audio)
+ * This tracks the number of times a user clicks play on audio, separate from XP intervals
+ * @returns Promise with success status and updated count
+ */
+export async function apiIncrementListeningSession(): Promise<{ success: boolean; listening_sessions_count: number }> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/user/increment-listening-session`, {
+    method: "POST",
+    headers: getAuthHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to increment listening session: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}

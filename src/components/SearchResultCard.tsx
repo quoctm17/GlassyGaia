@@ -5,6 +5,7 @@ import { canonicalizeLangCode } from "../utils/lang";
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
 import { apiToggleSaveCard, apiGetCardSaveStatus, apiUpdateCardSRSState, apiIncrementReviewCount } from "../services/cfApi";
+import { apiIncrementListeningSession } from "../services/userTracking";
 import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from "../types/srsStates";
 import "../styles/components/search-result-card.css";
 import threeDotsIcon from "../assets/icons/three-dots.svg";
@@ -72,6 +73,8 @@ const SearchResultCard = memo(function SearchResultCard({
   const srsDropdownRef = useRef<HTMLDivElement | null>(null);
   const hasIncrementedReview = useRef<boolean>(false);
   const incrementReviewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasIncrementedListeningSession = useRef<boolean>(false);
+  const isIncrementingListeningSession = useRef<boolean>(false);
   const pendingReviewIncrement = useRef<{ cardId: string; filmId?: string; episodeId?: string } | null>(null);
   
   // Reading time tracking
@@ -289,9 +292,10 @@ const SearchResultCard = memo(function SearchResultCard({
     }
   };
 
-  // Reset review increment flag when card changes
+  // Reset review increment flag and listening session flag when card changes
   useEffect(() => {
     hasIncrementedReview.current = false;
+    hasIncrementedListeningSession.current = false;
     // Clear any pending increment for previous card
     if (incrementReviewTimeoutRef.current) {
       clearTimeout(incrementReviewTimeoutRef.current);
@@ -329,14 +333,39 @@ const SearchResultCard = memo(function SearchResultCard({
     };
   }, [onTrackReading, onTrackListening]);
 
-  // Register/unregister audio instance in global registry
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (audio) {
-      activeAudioInstances.add(audio);
-      return () => {
-        activeAudioInstances.delete(audio);
-      };
+  // Setup event listener for audio play to track listening sessions
+  // This function is called whenever audio element is created or reused
+  const setupAudioPlayListener = useCallback((audio: HTMLAudioElement) => {
+    // Track listening session when audio starts playing
+    const handlePlay = () => {
+      // Only increment once per play session (reset when audio ends)
+      if (!hasIncrementedListeningSession.current && !isIncrementingListeningSession.current && user?.uid) {
+        hasIncrementedListeningSession.current = true;
+        isIncrementingListeningSession.current = true;
+        
+        // Increment listening session count (fire and forget, don't block audio play)
+        apiIncrementListeningSession()
+          .then(() => {
+            isIncrementingListeningSession.current = false;
+          })
+          .catch(err => {
+            console.warn('Failed to increment listening session:', err);
+            isIncrementingListeningSession.current = false;
+          });
+      }
+    };
+    
+    audio.addEventListener('play', handlePlay);
+    
+    // Store handler for cleanup
+    (audio as any).__listeningSessionHandler = handlePlay;
+  }, [user?.uid]);
+  
+  // Cleanup audio play listener
+  const cleanupAudioPlayListener = useCallback((audio: HTMLAudioElement | null) => {
+    if (audio && (audio as any).__listeningSessionHandler) {
+      audio.removeEventListener('play', (audio as any).__listeningSessionHandler);
+      delete (audio as any).__listeningSessionHandler;
     }
   }, []);
 
@@ -965,8 +994,15 @@ const SearchResultCard = memo(function SearchResultCard({
     
     if (!audioRef.current) {
       audioRef.current = new Audio(card.audio_url);
-      audioRef.current.addEventListener('ended', () => {
+      activeAudioInstances.add(audioRef.current);
+      
+      // Setup play listener for listening session tracking
+      setupAudioPlayListener(audioRef.current);
+      
+      const handleAudioEnded = () => {
         setIsPlaying(false);
+        // Reset listening session flag when audio ends so next play will increment again
+        hasIncrementedListeningSession.current = false;
         // Stop tracking listening time when audio ends
         if (onTrackListening && listeningStartTimeRef.current) {
           const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current) / 1000);
@@ -979,10 +1015,13 @@ const SearchResultCard = memo(function SearchResultCard({
           clearInterval(listeningIntervalRef.current);
           listeningIntervalRef.current = null;
         }
-      });
-      activeAudioInstances.add(audioRef.current);
+      };
+      audioRef.current.addEventListener('ended', handleAudioEnded);
     } else {
       audioRef.current.src = card.audio_url;
+      // Ensure play listener is set up for reused audio element (cleanup old one first if exists)
+      cleanupAudioPlayListener(audioRef.current);
+      setupAudioPlayListener(audioRef.current);
     }
     
     // Always set volume before any play/pause operation
@@ -1012,6 +1051,8 @@ const SearchResultCard = memo(function SearchResultCard({
           otherAudio.pause();
         }
       });
+      // Reset listening session flag for new play session
+      hasIncrementedListeningSession.current = false;
       // Set volume again right before playing to ensure it's applied
       audioRef.current.volume = normalizedVolume;
       audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
@@ -1079,6 +1120,11 @@ const SearchResultCard = memo(function SearchResultCard({
             otherAudio.pause();
           }
         });
+        // Reset listening session flag for new card audio
+        hasIncrementedListeningSession.current = false;
+        // Ensure play listener is set up
+        cleanupAudioPlayListener(audioRef.current);
+        setupAudioPlayListener(audioRef.current);
         // Set volume again right before playing to ensure it's applied
         audioRef.current.volume = normalizedVolume;
         audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
@@ -1137,6 +1183,11 @@ const SearchResultCard = memo(function SearchResultCard({
             otherAudio.pause();
           }
         });
+        // Reset listening session flag for new card audio
+        hasIncrementedListeningSession.current = false;
+        // Ensure play listener is set up
+        cleanupAudioPlayListener(audioRef.current);
+        setupAudioPlayListener(audioRef.current);
         // Set volume again right before playing to ensure it's applied
         audioRef.current.volume = normalizedVolume;
         audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
@@ -1164,6 +1215,8 @@ const SearchResultCard = memo(function SearchResultCard({
         otherAudio.pause();
       }
     });
+    // Reset listening session flag for new play session
+    hasIncrementedListeningSession.current = false;
     // Set volume again right before playing to ensure it's applied
     audioRef.current.volume = normalizedVolume;
     audioRef.current.play().catch(err => console.warn('Audio replay failed:', err));
@@ -1209,22 +1262,27 @@ const SearchResultCard = memo(function SearchResultCard({
       }
       setCurrentCardIndex(originalCardIndex);
       
-      // Auto-play audio for the original card
-      if (audioRef.current && originalCard.audio_url) {
-        audioRef.current.src = originalCard.audio_url;
-        // Set volume after src change (browser may reset volume when src changes)
-        const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
-        audioRef.current.volume = normalizedVolume;
-        // Pause all other audio instances
-        activeAudioInstances.forEach((otherAudio) => {
-          if (otherAudio !== audioRef.current) {
-            otherAudio.pause();
-          }
-        });
-        // Set volume again right before playing to ensure it's applied
-        audioRef.current.volume = normalizedVolume;
-        audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
-        setIsPlaying(true);
+        // Auto-play audio for the original card
+        if (audioRef.current && originalCard.audio_url) {
+          audioRef.current.src = originalCard.audio_url;
+          // Set volume after src change (browser may reset volume when src changes)
+          const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+          audioRef.current.volume = normalizedVolume;
+          // Pause all other audio instances
+          activeAudioInstances.forEach((otherAudio) => {
+            if (otherAudio !== audioRef.current) {
+              otherAudio.pause();
+            }
+          });
+          // Reset listening session flag for original card audio
+          hasIncrementedListeningSession.current = false;
+          // Ensure play listener is set up
+          cleanupAudioPlayListener(audioRef.current);
+          setupAudioPlayListener(audioRef.current);
+          // Set volume again right before playing to ensure it's applied
+          audioRef.current.volume = normalizedVolume;
+          audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
+          setIsPlaying(true);
       } else {
         setIsPlaying(false);
         if (audioRef.current) {

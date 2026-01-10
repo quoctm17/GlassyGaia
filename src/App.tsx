@@ -33,6 +33,7 @@ const AdminContentCardDetailPage = lazy(() => import('./pages/admin/AdminContent
 const AdminAddEpisodePage = lazy(() => import('./pages/admin/AdminAddEpisodePage'));
 const AdminCategoriesPage = lazy(() => import('./pages/admin/AdminCategoriesPage'));
 const AdminLevelManagementPage = lazy(() => import('./pages/admin/AdminLevelManagementPage'));
+const AdminRewardConfigPage = lazy(() => import('./pages/admin/AdminRewardConfigPage'));
 const AdminEpisodeDetailPage = lazy(() => import('./pages/admin/AdminEpisodeDetailPage'));
 const AdminEpisodeUpdatePage = lazy(() => import('./pages/admin/AdminEpisodeUpdatePage'));
 const AdminCardUpdatePage = lazy(() => import('./pages/admin/AdminCardUpdatePage'));
@@ -122,6 +123,8 @@ function App() {
                 <Route path="categories" element={<AdminCategoriesPage />} />
                 {/* Admin Level Management */}
                 <Route path="level-management" element={<AdminLevelManagementPage />} />
+                {/* Admin Reward Configuration */}
+                <Route path="reward-config" element={<AdminRewardConfigPage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />

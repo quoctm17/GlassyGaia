@@ -2042,3 +2042,84 @@ export async function apiCheckReferenceData(framework: string): Promise<{ exists
   return await res.json();
 }
 
+// ==================== REWARDS CONFIG (SuperAdmin only) ====================
+
+export interface RewardConfig {
+  id: number;
+  action_type: string;
+  reward_type: string;
+  xp_amount: number;
+  coin_amount: number;
+  is_repeatable: number;
+  cooldown_seconds: number | null;
+  description: string | null;
+  interval_seconds: number | null;
+  created_at: number;
+  updated_at?: number | null;
+}
+
+/**
+ * Get all rewards config (SuperAdmin only)
+ */
+export async function apiGetRewardsConfig(): Promise<RewardConfig[]> {
+  assertApiBase();
+  
+  const token = localStorage.getItem('jwt_token');
+  const headers: HeadersInit = {
+    'Accept': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  const res = await fetch(`${API_BASE}/api/admin/rewards-config`, {
+    method: 'GET',
+    headers,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to get rewards config: ${res.status} ${text}`);
+  }
+
+  const data = await res.json();
+  return data.configs || [];
+}
+
+/**
+ * Update a rewards config (SuperAdmin only)
+ */
+export async function apiUpdateRewardsConfig(
+  id: number,
+  updates: {
+    xp_amount?: number;
+    coin_amount?: number;
+    interval_seconds?: number | null;
+    description?: string | null;
+  }
+): Promise<RewardConfig> {
+  assertApiBase();
+  
+  const token = localStorage.getItem('jwt_token');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  const res = await fetch(`${API_BASE}/api/admin/rewards-config`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ id, ...updates }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to update rewards config: ${res.status} ${text}`);
+  }
+
+  const data = await res.json();
+  return data.config;
+}

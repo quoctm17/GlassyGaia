@@ -1,5 +1,7 @@
 import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Play, Pause } from "lucide-react";
+import { useUser } from '../context/UserContext';
+import { apiIncrementListeningSession } from '../services/userTracking';
 
 interface AudioPlayerProps {
   src: string;
@@ -27,10 +29,13 @@ function formatTime(sec: number) {
 const activeAudioInstances = new Set<HTMLAudioElement>();
 
 const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, className, volume = 80, onTimeUpdate, onEnded }, ref) => {
+  const { user } = useUser();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
+  const hasIncrementedListeningSession = useRef<boolean>(false);
+  const isIncrementingListeningSession = useRef<boolean>(false);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -72,21 +77,16 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
       onTimeUpdate?.(time);
     };
     const onLoaded = () => setDuration(audio.duration || 0);
-    const onEnd = () => {
-      setPlaying(false);
-      onEnded?.();
-    };
+    
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("loadedmetadata", onLoaded);
-    audio.addEventListener("ended", onEnd);
     
     return () => {
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("loadedmetadata", onLoaded);
-      audio.removeEventListener("ended", onEnd);
       activeAudioInstances.delete(audio);
     };
-  }, [onTimeUpdate, onEnded]);
+  }, [onTimeUpdate]);
 
   // Sync volume from props (0-100) to audio element (0-1)
   useEffect(() => {
@@ -108,6 +108,8 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
           otherAudio.pause();
         }
       });
+      // Reset listening session flag for new play session
+      hasIncrementedListeningSession.current = false;
       audio.play();
       setPlaying(true);
     }
@@ -121,10 +123,11 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
     setCurrent(val);
   };
 
-  // Sync play/pause state if user uses native controls
+  // Sync play/pause state and track listening sessions
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    
     const onPlay = () => {
       // Pause all other instances when this one plays
       activeAudioInstances.forEach((otherAudio) => {
@@ -133,15 +136,43 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ src, clas
         }
       });
       setPlaying(true);
+      
+      // Track listening session when audio starts playing
+      if (!hasIncrementedListeningSession.current && !isIncrementingListeningSession.current && user?.uid) {
+        hasIncrementedListeningSession.current = true;
+        isIncrementingListeningSession.current = true;
+        
+        // Increment listening session count (fire and forget, don't block audio play)
+        apiIncrementListeningSession()
+          .then(() => {
+            isIncrementingListeningSession.current = false;
+          })
+          .catch(err => {
+            console.warn('Failed to increment listening session:', err);
+            isIncrementingListeningSession.current = false;
+          });
+      }
     };
+    
     const onPause = () => setPlaying(false);
+    
+    const onEndedHandler = () => {
+      setPlaying(false);
+      // Reset flag when audio ends so next play will increment again
+      hasIncrementedListeningSession.current = false;
+      onEnded?.();
+    };
+    
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
+    audio.addEventListener("ended", onEndedHandler);
+    
     return () => {
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("ended", onEndedHandler);
     };
-  }, []);
+  }, [user?.uid, onEnded]);
 
   return (
     <div

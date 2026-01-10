@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
-import { apiGetUserPortfolio, apiGetStreakHistory, apiGetMonthlyXP, type UserPortfolio, type StreakHistoryItem, type MonthlyXPData } from '../services/portfolioApi';
+import { apiGetUserPortfolio, apiGetStreakHistory, apiGetMonthlyXP, apiGetUserMetrics, type UserPortfolio, type StreakHistoryItem, type MonthlyXPData, type UserMetrics } from '../services/portfolioApi';
 import { apiGetSavedCards, apiListItems, apiUpdateCardSRSState } from '../services/cfApi';
 import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from '../types/srsStates';
 import type { CardDoc, FilmDoc, LevelFrameworkStats } from '../types';
@@ -46,6 +46,11 @@ export default function PortfolioPage() {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() + 1 };
   });
+  const [metrics, setMetrics] = useState<UserMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  // Selected metrics for each card (index-based)
+  const [selectedMetricTypes] = useState<Array<'srs' | 'listening' | 'reading'>>(['srs', 'listening', 'reading']);
+  const [selectedMetrics, setSelectedMetrics] = useState<Array<string>>(['due_cards', 'listening_time', 'reading_time']);
 
   // Load portfolio data
   useEffect(() => {
@@ -120,6 +125,33 @@ export default function PortfolioPage() {
 
     return () => { mounted = false; };
   }, [user?.uid, currentMonth.year, currentMonth.month]);
+
+  // Load detailed metrics
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    let mounted = true;
+    (async () => {
+      try {
+        setMetricsLoading(true);
+        const data = await apiGetUserMetrics(user.uid);
+        if (mounted) {
+          setMetrics(data);
+        }
+      } catch (error) {
+        console.error('Failed to load metrics:', error);
+        if (mounted) {
+          setMetrics(null);
+        }
+      } finally {
+        if (mounted) {
+          setMetricsLoading(false);
+        }
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [user?.uid]);
 
   // Parse level framework stats helper
   const parseLevelStats = (raw: unknown): LevelFrameworkStats | null => {
@@ -650,6 +682,110 @@ export default function PortfolioPage() {
     return `${minutes}m`;
   };
 
+  // Helper function to get metric value and label
+  const getMetricValue = useCallback((cardIndex: number): { value: number | string; label: string } => {
+    if (!metrics || metricsLoading) {
+      // Fallback to portfolio data
+      if (!portfolio) return { value: 0, label: '' };
+      if (cardIndex === 0) return { value: portfolio.due_cards_count || 0, label: '# Due Cards' };
+      if (cardIndex === 1) return { value: Math.round(portfolio.total_listening_time / 60), label: 'Listening Time (min)' };
+      if (cardIndex === 2) return { value: Math.round(portfolio.total_reading_time / 60), label: 'Reading Time (min)' };
+      return { value: 0, label: '' };
+    }
+
+    const metricType = selectedMetricTypes[cardIndex];
+    const metricKey = selectedMetrics[cardIndex] || 'due_cards';
+
+    if (metricType === 'srs') {
+      const srsMetric = metrics.srs_metrics[metricKey as keyof typeof metrics.srs_metrics];
+      const labels: Record<string, string> = {
+        new_cards: '# New Cards',
+        again_cards: '# Again Cards',
+        hard_cards: '# Hard Cards',
+        good_cards: '# Good Cards',
+        easy_cards: '# Easy Cards',
+        due_cards: '# Due Cards',
+        average_interval_days: 'Average Interval (days)'
+      };
+      const value = typeof srsMetric === 'number' ? srsMetric : 0;
+      return {
+        value: metricKey === 'average_interval_days' ? value.toFixed(2) : value,
+        label: labels[metricKey] || metricKey
+      };
+    } else if (metricType === 'listening') {
+      const listeningMetric = metrics.listening_metrics[metricKey as keyof typeof metrics.listening_metrics];
+      const labels: Record<string, string> = {
+        time_minutes: 'Listening Time (min)',
+        count: 'Listening Count',
+        xp: 'Listening XP'
+      };
+      return {
+        value: typeof listeningMetric === 'number' ? listeningMetric : 0,
+        label: labels[metricKey] || metricKey
+      };
+    } else if (metricType === 'reading') {
+      const readingMetric = metrics.reading_metrics[metricKey as keyof typeof metrics.reading_metrics];
+      const labels: Record<string, string> = {
+        time_minutes: 'Reading Time (min)',
+        count: 'Review Count',
+        xp: 'Reading XP'
+      };
+      return {
+        value: typeof readingMetric === 'number' ? readingMetric : 0,
+        label: labels[metricKey] || metricKey
+      };
+    }
+
+    return { value: 0, label: '' };
+  }, [metrics, metricsLoading, portfolio, selectedMetricTypes, selectedMetrics]);
+
+  // Dropdown options for each metric type
+  const srsOptions = [
+    { key: 'new_cards', label: '# New Cards' },
+    { key: 'again_cards', label: '# Again Cards' },
+    { key: 'hard_cards', label: '# Hard Cards' },
+    { key: 'good_cards', label: '# Good Cards' },
+    { key: 'easy_cards', label: '# Easy Cards' },
+    { key: 'due_cards', label: '# Due Cards' },
+    { key: 'average_interval_days', label: 'Average Interval (days)' }
+  ];
+
+  const listeningOptions = [
+    { key: 'time_minutes', label: 'Listening Time (min)' },
+    { key: 'count', label: 'Listening Count' },
+    { key: 'xp', label: 'Listening XP' }
+  ];
+
+  const readingOptions = [
+    { key: 'time_minutes', label: 'Reading Time (min)' },
+    { key: 'count', label: 'Review Count' },
+    { key: 'xp', label: 'Reading XP' }
+  ];
+
+  // State for dropdown open/close
+  const [metricDropdownOpen, setMetricDropdownOpen] = useState<Record<number, boolean>>({});
+  const metricDropdownRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      Object.keys(metricDropdownRefs.current).forEach((cardIndex) => {
+        const ref = metricDropdownRefs.current[parseInt(cardIndex)];
+        if (ref && !ref.contains(event.target as Node)) {
+          setMetricDropdownOpen(prev => ({ ...prev, [cardIndex]: false }));
+        }
+      });
+    };
+    
+    if (Object.values(metricDropdownOpen).some(open => open)) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [metricDropdownOpen]);
+
   if (!user) {
     return (
       <div style={{ 
@@ -763,27 +899,196 @@ export default function PortfolioPage() {
 
       {/* Metrics Cards Section */}
       <div className="portfolio-metrics-section">
-        <div className="portfolio-metric-card">
-          <div className="portfolio-metric-value">{(portfolio.due_cards_count || 0).toLocaleString()}</div>
-          <div className="portfolio-metric-label">
-            # Due Cards
-            <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
-        </div>
+        {/* SRS Metrics Card */}
+        <div className="portfolio-metric-card" style={{ position: 'relative' }} ref={(el) => { if (el && metricDropdownRefs.current) metricDropdownRefs.current[0] = el; }}>
+          <div className="portfolio-metric-value">
+            {getMetricValue(0).value}
           </div>
-        <div className="portfolio-metric-card">
-          <div className="portfolio-metric-value">{Math.round(portfolio.total_listening_time / 60).toLocaleString()}</div>
-          <div className="portfolio-metric-label">
-            Listening Time (min)
+          <div 
+            className="portfolio-metric-label"
+            style={{ cursor: 'pointer', position: 'relative' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMetricDropdownOpen(prev => ({ ...prev, 0: !prev[0] }));
+            }}
+          >
+            <span>{getMetricValue(0).label}</span>
             <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
+            {metricDropdownOpen[0] && (
+              <div 
+                className="portfolio-metric-dropdown"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  minWidth: '200px',
+                  marginTop: '8px',
+                  background: 'var(--background)',
+                  border: '1px solid var(--neutral)',
+                  borderRadius: '8px',
+                  padding: '8px',
+                  zIndex: 1000,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {srsOptions.map(option => (
+                  <button
+                    key={option.key}
+                    className="portfolio-metric-dropdown-item"
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 12px',
+                      background: selectedMetrics[0] === option.key ? 'var(--primary)' : 'transparent',
+                      color: selectedMetrics[0] === option.key ? '#fff' : 'var(--text)',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      marginBottom: '4px',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onClick={() => {
+                      setSelectedMetrics(prev => { const newArr = [...prev]; newArr[0] = option.key; return newArr; });
+                      setMetricDropdownOpen(prev => ({ ...prev, 0: false }));
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-        <div className="portfolio-metric-card">
-          <div className="portfolio-metric-value">{Math.round(portfolio.total_reading_time / 60).toLocaleString()}</div>
-          <div className="portfolio-metric-label">
-            Reading Time (min)
+
+        {/* Listening Metrics Card */}
+        <div className="portfolio-metric-card" style={{ position: 'relative' }} ref={(el) => { if (el && metricDropdownRefs.current) metricDropdownRefs.current[1] = el; }}>
+          <div className="portfolio-metric-value">
+            {typeof getMetricValue(1).value === 'number' ? getMetricValue(1).value.toLocaleString() : getMetricValue(1).value}
+          </div>
+          <div 
+            className="portfolio-metric-label"
+            style={{ cursor: 'pointer', position: 'relative' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMetricDropdownOpen(prev => ({ ...prev, 1: !prev[1] }));
+            }}
+          >
+            <span>{getMetricValue(1).label}</span>
             <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
+            {metricDropdownOpen[1] && (
+              <div 
+                className="portfolio-metric-dropdown"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  minWidth: '200px',
+                  marginTop: '8px',
+                  background: 'var(--background)',
+                  border: '1px solid var(--neutral)',
+                  borderRadius: '8px',
+                  padding: '8px',
+                  zIndex: 1000,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {listeningOptions.map(option => (
+                  <button
+                    key={option.key}
+                    className="portfolio-metric-dropdown-item"
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 12px',
+                      background: selectedMetrics[1] === option.key ? 'var(--primary)' : 'transparent',
+                      color: selectedMetrics[1] === option.key ? '#fff' : 'var(--text)',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      marginBottom: '4px',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onClick={() => {
+                      setSelectedMetrics(prev => { const newArr = [...prev]; newArr[1] = option.key; return newArr; });
+                      setMetricDropdownOpen(prev => ({ ...prev, 1: false }));
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Reading Metrics Card */}
+        <div className="portfolio-metric-card" style={{ position: 'relative' }} ref={(el) => { if (el && metricDropdownRefs.current) metricDropdownRefs.current[2] = el; }}>
+          <div className="portfolio-metric-value">
+            {typeof getMetricValue(2).value === 'number' ? getMetricValue(2).value.toLocaleString() : getMetricValue(2).value}
+          </div>
+          <div 
+            className="portfolio-metric-label"
+            style={{ cursor: 'pointer', position: 'relative' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMetricDropdownOpen(prev => ({ ...prev, 2: !prev[2] }));
+            }}
+          >
+            <span>{getMetricValue(2).label}</span>
+            <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
+            {metricDropdownOpen[2] && (
+              <div 
+                className="portfolio-metric-dropdown"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  minWidth: '200px',
+                  marginTop: '8px',
+                  background: 'var(--background)',
+                  border: '1px solid var(--neutral)',
+                  borderRadius: '8px',
+                  padding: '8px',
+                  zIndex: 1000,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {readingOptions.map(option => (
+                  <button
+                    key={option.key}
+                    className="portfolio-metric-dropdown-item"
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 12px',
+                      background: selectedMetrics[2] === option.key ? 'var(--primary)' : 'transparent',
+                      color: selectedMetrics[2] === option.key ? '#fff' : 'var(--text)',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      marginBottom: '4px',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onClick={() => {
+                      setSelectedMetrics(prev => { const newArr = [...prev]; newArr[2] = option.key; return newArr; });
+                      setMetricDropdownOpen(prev => ({ ...prev, 2: false }));
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Speaking Words Card (placeholder) */}
         <div className="portfolio-metric-card">
           <div className="portfolio-metric-value">{(0).toLocaleString()}</div>
           <div className="portfolio-metric-label">
@@ -791,6 +1096,8 @@ export default function PortfolioPage() {
             <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
           </div>
         </div>
+
+        {/* Writing Words Card (placeholder) */}
         <div className="portfolio-metric-card">
           <div className="portfolio-metric-value">{(0).toLocaleString()}</div>
           <div className="portfolio-metric-label">
