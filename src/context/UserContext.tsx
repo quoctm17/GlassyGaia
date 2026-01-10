@@ -5,6 +5,7 @@ import { registerUser, getUserProfile, updateUserPreferences, getUserRoles } fro
 import { loginWithEmailPassword } from "../services/authentication";
 // Google OAuth2 (replaces Firebase) – used for Google sign-in
 import { signInWithGoogle } from "../services/googleAuth";
+import { decodeJWT, isJWTExpired } from "../utils/jwt";
 import toast from "react-hot-toast";
 
 interface CtxValue {
@@ -79,13 +80,37 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const savedKey = localStorage.getItem("admin_key");
     if (savedKey) setAdminKey(savedKey);
 
-    // Check for stored user session (if any)
-    // Note: Google OAuth doesn't maintain session like Firebase, so we check localStorage
-    const storedUserId = localStorage.getItem('user_id');
+    // Check for stored JWT token (if any)
+    const storedToken = localStorage.getItem('jwt_token');
     
-    if (storedUserId && hasGoogleConfig) {
-      // Try to load user from database
-      getUserProfile(storedUserId)
+    if (storedToken) {
+      // Check if token is expired
+      if (isJWTExpired(storedToken)) {
+        // Token expired
+        localStorage.removeItem('jwt_token');
+        setUser(null);
+        setPreferences(defaultPrefs);
+        setLoading(false);
+        toast.error('Your session has expired. Please sign in again.');
+        return;
+      }
+      
+      // Decode JWT to get user info
+      const decoded = decodeJWT(storedToken);
+      if (decoded.error || !decoded.payload) {
+        // Invalid token
+        localStorage.removeItem('jwt_token');
+        setUser(null);
+        setPreferences(defaultPrefs);
+        setLoading(false);
+        return;
+      }
+      
+      const payload = decoded.payload;
+      const userId = payload.user_id;
+      
+      // Try to load user from database to get latest info
+      getUserProfile(userId)
         .then((userProfile) => {
           // Load preferences
           if (userProfile.subtitle_languages) {
@@ -101,8 +126,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             }
           }
           
-          // Load roles
-          getUserRoles(storedUserId)
+          // Use roles from JWT payload (faster) but also refresh from DB
+          const jwtRoles = payload.roles || [];
+          getUserRoles(userId)
             .then((roles) => {
               const roleNames = roles.map(r => r.role_name);
               setUser({
@@ -110,28 +136,33 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
                 displayName: userProfile.display_name,
                 email: userProfile.email,
                 photoURL: userProfile.photo_url,
-                roles: roleNames,
+                roles: roleNames.length > 0 ? roleNames : jwtRoles, // Prefer DB roles
               });
             })
             .catch(() => {
+              // Fallback to JWT roles if DB fetch fails
               setUser({
                 uid: userProfile.id,
                 displayName: userProfile.display_name,
                 email: userProfile.email,
                 photoURL: userProfile.photo_url,
-                roles: [],
+                roles: jwtRoles,
               });
             });
         })
         .catch(() => {
-          // User not found or error - clear stored ID
-          localStorage.removeItem('user_id');
-          setUser(null);
-          setPreferences(defaultPrefs);
+          // User not found or error - use JWT payload as fallback
+          setUser({
+            uid: payload.user_id,
+            displayName: payload.display_name,
+            email: payload.email,
+            photoURL: payload.photo_url,
+            roles: payload.roles || [],
+          });
         })
         .finally(() => setLoading(false));
     } else {
-      // No stored user: treat as signed-out but keep app usable
+      // No stored token: treat as signed-out but keep app usable
       setLoading(false);
     }
   }, [hasGoogleConfig]);
@@ -141,6 +172,25 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     if (adminKey) localStorage.setItem("admin_key", adminKey);
     else localStorage.removeItem("admin_key");
   }, [adminKey]);
+
+  // Refresh roles periodically (every 5 minutes)
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    const ROLE_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+    
+    const interval = setInterval(async () => {
+      try {
+        const roles = await getUserRoles(user.uid);
+        const roleNames = roles.map(r => r.role_name);
+        setUser(prev => prev ? { ...prev, roles: roleNames } : null);
+      } catch (error) {
+        console.error('Failed to refresh roles:', error);
+      }
+    }, ROLE_REFRESH_INTERVAL_MS);
+    
+    return () => clearInterval(interval);
+  }, [user?.uid]);
 
   // Apply theme to document
   useEffect(() => {
@@ -227,8 +277,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       const result = await signInWithGoogle();
       
       if (result.success && result.user) {
-        // Store user ID for session persistence
-        localStorage.setItem('user_id', result.user.id);
+        // Store JWT token
+        if (result.token) {
+          localStorage.setItem('jwt_token', result.token);
+        }
         
         // Register/update user in database
         try {
@@ -290,13 +342,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: result.error || 'Login failed' };
       }
       
-      // Load user roles first
-      let roleNames: string[] = [];
-      try {
-        const roles = await getUserRoles(result.user.id);
-        roleNames = roles.map(r => r.role_name);
-      } catch (error) {
-        console.error('Failed to load user roles:', error);
+      // Store JWT token
+      if (result.token) {
+        localStorage.setItem('jwt_token', result.token);
+      }
+      
+      // Use roles from API response if available, otherwise load from DB
+      let roleNames: string[] = result.user.roles || [];
+      if (roleNames.length === 0) {
+        try {
+          const roles = await getUserRoles(result.user.id);
+          roleNames = roles.map(r => r.role_name);
+        } catch (error) {
+          console.error('Failed to load user roles:', error);
+        }
       }
       
       // Set user in context with roles
@@ -332,8 +391,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOutApp = async () => {
-    // Clear stored user ID
-    localStorage.removeItem('user_id');
+    // Clear stored JWT token
+    localStorage.removeItem('jwt_token');
     setPreferences(defaultPrefs);
     setUser(null);
   };

@@ -31,6 +31,8 @@ interface Props {
   volume?: number; // audio volume (0-100)
   subtitleLanguages?: string[]; // selected subtitle languages for memo comparison
   onUnsave?: (cardId: string) => void; // callback when card is unsaved
+  onTrackReading?: (seconds: number) => void; // callback to track reading time
+  onTrackListening?: (seconds: number) => void; // callback to track listening time
 }
 
 // Memoized component to prevent unnecessary re-renders
@@ -41,6 +43,8 @@ const SearchResultCard = memo(function SearchResultCard({
   volume = 28,
   subtitleLanguages,
   onUnsave,
+  onTrackReading,
+  onTrackListening,
 }: Props) {
   const { user, preferences } = useUser();
   // Use prop if provided, otherwise fallback to preferences
@@ -69,6 +73,14 @@ const SearchResultCard = memo(function SearchResultCard({
   const hasIncrementedReview = useRef<boolean>(false);
   const incrementReviewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingReviewIncrement = useRef<{ cardId: string; filmId?: string; episodeId?: string } | null>(null);
+  
+  // Reading time tracking
+  const readingStartTimeRef = useRef<number | null>(null);
+  const readingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // Listening time tracking
+  const listeningStartTimeRef = useRef<number | null>(null);
+  const listeningIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
 
   // Resolve image URL with optional R2 base for leading slashes
@@ -240,12 +252,41 @@ const SearchResultCard = memo(function SearchResultCard({
     setIsHovered(true);
     // Increment review count (will be debounced)
     incrementReviewCountForCard(card);
+    
+    // Start tracking reading time
+    if (onTrackReading) {
+      readingStartTimeRef.current = Date.now();
+      // Track reading time every 8 seconds (as per requirements)
+      readingIntervalRef.current = setInterval(() => {
+        if (readingStartTimeRef.current) {
+          const elapsed = (Date.now() - readingStartTimeRef.current) / 1000;
+          if (elapsed >= 8) {
+            onTrackReading(8);
+            readingStartTimeRef.current = Date.now(); // Reset for next interval
+          }
+        }
+      }, 8000);
+    }
   };
 
   const handleMouseLeave = () => {
     setIsHovered(false);
     // Reset flag so we can increment again when hovering back
     hasIncrementedReview.current = false;
+    
+    // Stop tracking reading time and report final time
+    if (onTrackReading && readingStartTimeRef.current) {
+      const elapsed = Math.floor((Date.now() - readingStartTimeRef.current) / 1000);
+      if (elapsed > 0) {
+        // Only track if at least 1 second has passed
+        onTrackReading(elapsed);
+      }
+      readingStartTimeRef.current = null;
+    }
+    if (readingIntervalRef.current) {
+      clearInterval(readingIntervalRef.current);
+      readingIntervalRef.current = null;
+    }
   };
 
   // Reset review increment flag when card changes
@@ -265,8 +306,28 @@ const SearchResultCard = memo(function SearchResultCard({
       if (incrementReviewTimeoutRef.current) {
         clearTimeout(incrementReviewTimeoutRef.current);
       }
+      if (readingIntervalRef.current) {
+        clearInterval(readingIntervalRef.current);
+      }
+      if (listeningIntervalRef.current) {
+        clearInterval(listeningIntervalRef.current);
+      }
+      // Report final reading time if still tracking
+      if (onTrackReading && readingStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - readingStartTimeRef.current) / 1000);
+        if (elapsed > 0) {
+          onTrackReading(elapsed);
+        }
+      }
+      // Report final listening time if still tracking
+      if (onTrackListening && listeningStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current) / 1000);
+        if (elapsed > 0) {
+          onTrackListening(elapsed);
+        }
+      }
     };
-  }, []);
+  }, [onTrackReading, onTrackListening]);
 
   // Register/unregister audio instance in global registry
   useEffect(() => {
@@ -904,7 +965,21 @@ const SearchResultCard = memo(function SearchResultCard({
     
     if (!audioRef.current) {
       audioRef.current = new Audio(card.audio_url);
-      audioRef.current.addEventListener('ended', () => setIsPlaying(false));
+      audioRef.current.addEventListener('ended', () => {
+        setIsPlaying(false);
+        // Stop tracking listening time when audio ends
+        if (onTrackListening && listeningStartTimeRef.current) {
+          const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current) / 1000);
+          if (elapsed > 0) {
+            onTrackListening(elapsed);
+          }
+          listeningStartTimeRef.current = null;
+        }
+        if (listeningIntervalRef.current) {
+          clearInterval(listeningIntervalRef.current);
+          listeningIntervalRef.current = null;
+        }
+      });
       activeAudioInstances.add(audioRef.current);
     } else {
       audioRef.current.src = card.audio_url;
@@ -917,6 +992,19 @@ const SearchResultCard = memo(function SearchResultCard({
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
+      
+      // Stop tracking listening time when paused
+      if (onTrackListening && listeningStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current) / 1000);
+        if (elapsed > 0) {
+          onTrackListening(elapsed);
+        }
+        listeningStartTimeRef.current = null;
+      }
+      if (listeningIntervalRef.current) {
+        clearInterval(listeningIntervalRef.current);
+        listeningIntervalRef.current = null;
+      }
     } else {
       // Pause all other audio instances before playing this one
       activeAudioInstances.forEach((otherAudio) => {
@@ -928,6 +1016,21 @@ const SearchResultCard = memo(function SearchResultCard({
       audioRef.current.volume = normalizedVolume;
       audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
       setIsPlaying(true);
+      
+      // Start tracking listening time
+      if (onTrackListening) {
+        listeningStartTimeRef.current = Date.now();
+        // Track listening time every 5 seconds (as per requirements)
+        listeningIntervalRef.current = setInterval(() => {
+          if (listeningStartTimeRef.current) {
+            const elapsed = (Date.now() - listeningStartTimeRef.current) / 1000;
+            if (elapsed >= 5) {
+              onTrackListening(5);
+              listeningStartTimeRef.current = Date.now(); // Reset for next interval
+            }
+          }
+        }, 5000);
+      }
     }
   };
 

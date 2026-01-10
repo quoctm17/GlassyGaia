@@ -433,6 +433,209 @@ function generateUserId() {
   return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
+// ==================== JWT HELPERS ====================
+
+// Base64URL encode
+function base64urlEncode(buffer) {
+  const base64 = btoa(String.fromCharCode(...buffer));
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// Base64URL decode
+function base64urlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return atob(str);
+}
+
+// Constant-time comparison (tránh timing attacks)
+function constantTimeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+// Create HMAC-SHA256 signature
+async function createSignature(data, secret) {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(data);
+  
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  
+  const signature = await crypto.subtle.sign('HMAC', key, messageData);
+  return new Uint8Array(signature);
+}
+
+// Generate JWT token
+async function generateJWT(userId, email, roles, secret, expiresInDays = 7) {
+  const header = {
+    alg: 'HS256',
+    typ: 'JWT'
+  };
+  
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    user_id: userId,
+    email: email,
+    roles: roles || [],
+    iat: now, // Issued at
+    exp: now + (expiresInDays * 24 * 60 * 60) // Expiration
+  };
+  
+  const encodedHeader = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)));
+  const encodedPayload = base64urlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const data = `${encodedHeader}.${encodedPayload}`;
+  
+  const signature = await createSignature(data, secret);
+  const encodedSignature = base64urlEncode(signature);
+  
+  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
+}
+
+// Verify JWT token
+async function verifyJWT(token, secret) {
+  try {
+    // 1. Tách JWT thành 3 phần
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return { valid: false, error: 'Invalid token format' };
+    }
+    
+    const [encodedHeader, encodedPayload, encodedSignature] = parts;
+    
+    // 2. Verify signature
+    const data = `${encodedHeader}.${encodedPayload}`;
+    const expectedSignature = await createSignature(data, secret);
+    const expectedSignatureEncoded = base64urlEncode(expectedSignature);
+    
+    // So sánh signature (constant-time comparison)
+    if (!constantTimeEqual(encodedSignature, expectedSignatureEncoded)) {
+      return { valid: false, error: 'Invalid signature' };
+    }
+    
+    // 3. Decode payload
+    const payloadJson = base64urlDecode(encodedPayload);
+    const payload = JSON.parse(payloadJson);
+    
+    // 4. Kiểm tra expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      return { valid: false, error: 'Token expired' };
+    }
+    
+    // 5. Token hợp lệ
+    return { valid: true, payload };
+  } catch (e) {
+    return { valid: false, error: e.message || 'Token verification failed' };
+  }
+}
+
+// Middleware để authenticate request
+async function authenticateRequest(request, env) {
+  // 1. Lấy token từ header
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { authenticated: false, error: 'Missing or invalid Authorization header' };
+  }
+  
+  const token = authHeader.substring(7); // Bỏ "Bearer "
+  
+  // 2. Verify token
+  const secret = env.JWT_SECRET;
+  if (!secret) {
+    return { authenticated: false, error: 'JWT secret not configured' };
+  }
+  
+  const result = await verifyJWT(token, secret);
+  
+  if (!result.valid) {
+    return { authenticated: false, error: result.error };
+  }
+  
+  // 3. Token hợp lệ, trả về user info
+  return {
+    authenticated: true,
+    userId: result.payload.user_id,
+    email: result.payload.email,
+    roles: result.payload.roles || []
+  };
+}
+
+// Reset daily activity tables (called by scheduled event)
+async function resetDailyTables(env) {
+  try {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    
+    // Get all users who have daily activity for yesterday
+    const usersWithActivity = await env.DB.prepare(`
+      SELECT DISTINCT user_id FROM user_daily_activity
+      WHERE activity_date = ?
+    `).bind(yesterdayStr).all();
+    
+    if (usersWithActivity && usersWithActivity.results) {
+      // For each user, archive yesterday's data to user_daily_stats if not already there
+      // and reset today's daily_activity
+      for (const row of usersWithActivity.results) {
+        const userId = row.user_id;
+        
+        // Check if yesterday's stats already exist
+        const existingStats = await env.DB.prepare(`
+          SELECT id FROM user_daily_stats
+          WHERE user_id = ? AND stats_date = ?
+        `).bind(userId, yesterdayStr).first();
+        
+        // Get yesterday's activity
+        const yesterdayActivity = await env.DB.prepare(`
+          SELECT daily_xp, daily_listening_time, daily_reading_time
+          FROM user_daily_activity
+          WHERE user_id = ? AND activity_date = ?
+        `).bind(userId, yesterdayStr).first();
+        
+        if (yesterdayActivity && !existingStats) {
+          // Archive to user_daily_stats
+          const statsId = crypto.randomUUID();
+          await env.DB.prepare(`
+            INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+          `).bind(
+            statsId,
+            userId,
+            yesterdayStr,
+            yesterdayActivity.daily_xp || 0,
+            yesterdayActivity.daily_listening_time || 0,
+            yesterdayActivity.daily_reading_time || 0
+          ).run();
+        }
+      }
+    }
+    
+    // Delete all daily_activity records that are not today (cleanup old records)
+    await env.DB.prepare(`
+      DELETE FROM user_daily_activity
+      WHERE activity_date != ?
+    `).bind(today).run();
+    
+    console.log(`[resetDailyTables] Reset daily tables for ${today}`);
+    return { success: true, date: today };
+  } catch (e) {
+    console.error('[resetDailyTables] Error:', e);
+    return { success: false, error: e.message };
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -497,13 +700,51 @@ export default {
             VALUES (?, ?, ?)
           `).bind(userId, now, now).run();
           
+          // Auto-assign default 'user' role
+          await env.DB.prepare(`
+            INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
+            VALUES (?, 'user', 'system', ?)
+          `).bind(userId, now).run();
+          
+          // Update last_login_at for immediate login after signup
+          await env.DB.prepare(`
+            UPDATE users SET last_login_at = ? WHERE id = ?
+          `).bind(now, userId).run();
+          
+          // Get user with roles
+          const userWithRoles = await env.DB.prepare(`
+            SELECT u.*, GROUP_CONCAT(ur.role_name) as roles
+            FROM users u
+            LEFT JOIN user_roles ur ON u.id = ur.user_id
+            WHERE u.id = ?
+            GROUP BY u.id
+          `).bind(userId).first();
+          
+          const roleNames = userWithRoles.roles ? userWithRoles.roles.split(',') : [];
+          
+          // Generate JWT token
+          const jwtSecret = env.JWT_SECRET;
+          if (!jwtSecret) {
+            return json({ error: 'JWT secret not configured' }, { status: 500 });
+          }
+          
+          const token = await generateJWT(
+            userId,
+            email.toLowerCase(),
+            roleNames,
+            jwtSecret,
+            7 // 7 days expiration
+          );
+          
           return json({
             success: true,
+            token: token,
             user: {
               id: userId,
               email: email.toLowerCase(),
               display_name: displayName || email.split('@')[0],
               auth_provider: 'email',
+              roles: roleNames
             },
             message: 'Account created successfully. Please check your email for verification.'
           });
@@ -624,8 +865,23 @@ export default {
           // Parse roles from comma-separated string
           const roleNames = user.roles ? user.roles.split(',') : [];
           
+          // Generate JWT token
+          const jwtSecret = env.JWT_SECRET;
+          if (!jwtSecret) {
+            return json({ error: 'JWT secret not configured' }, { status: 500 });
+          }
+          
+          const token = await generateJWT(
+            userId,
+            email,
+            roleNames,
+            jwtSecret,
+            7 // 7 days expiration
+          );
+          
           return json({
             success: true,
+            token: token,
             user: {
               id: user.id,
               email: user.email,
@@ -719,6 +975,13 @@ export default {
             VALUES (?, ?, ?, ?)
           `).bind(user.id, 'email', 1, now).run();
           
+          // Get user roles
+          const rolesResult = await env.DB.prepare(`
+            SELECT role_name FROM user_roles WHERE user_id = ?
+          `).bind(user.id).all();
+          
+          const roleNames = (rolesResult.results || []).map(r => r.role_name);
+          
           return json({
             success: true,
             user: {
@@ -727,8 +990,7 @@ export default {
               display_name: user.display_name,
               photo_url: user.photo_url,
               auth_provider: user.auth_provider,
-              role: user.role,
-              is_admin: user.is_admin,
+              roles: roleNames
             }
           });
         } catch (e) {
@@ -5404,7 +5666,317 @@ export default {
       // ==================== CARD STATE MANAGEMENT ====================
       
       // Helper function to get card UUID from display ID
-      async function getCardUUID(filmId, episodeId, cardDisplayId) {
+      // ==================== GAMIFICATION HELPER FUNCTIONS ====================
+
+// Get or create user_scores record
+async function getOrCreateUserScores(env, userId) {
+  let scores = await env.DB.prepare(`
+    SELECT * FROM user_scores WHERE user_id = ?
+  `).bind(userId).first();
+  
+  if (!scores) {
+    const scoreId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO user_scores (id, user_id, created_at, updated_at)
+      VALUES (?, ?, unixepoch() * 1000, unixepoch() * 1000)
+    `).bind(scoreId, userId).run();
+    scores = await env.DB.prepare(`
+      SELECT * FROM user_scores WHERE user_id = ?
+    `).bind(userId).first();
+  }
+  
+  return scores;
+}
+
+// Get or create user_daily_activity record for today
+async function getOrCreateDailyActivity(env, userId) {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  let activity = await env.DB.prepare(`
+    SELECT * FROM user_daily_activity WHERE user_id = ? AND activity_date = ?
+  `).bind(userId, today).first();
+  
+  if (!activity) {
+    const activityId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO user_daily_activity (id, user_id, activity_date, created_at, updated_at)
+      VALUES (?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+    `).bind(activityId, userId, today).run();
+    activity = await env.DB.prepare(`
+      SELECT * FROM user_daily_activity WHERE user_id = ? AND activity_date = ?
+    `).bind(userId, today).first();
+  }
+  
+  return activity;
+}
+
+// Get reward config by action_type
+async function getRewardConfig(env, actionType) {
+  return await env.DB.prepare(`
+    SELECT * FROM rewards_config WHERE action_type = ?
+  `).bind(actionType).first();
+}
+
+// Award XP and record transaction
+async function awardXP(env, userId, xpAmount, rewardConfigId, description, cardId, filmId) {
+  if (xpAmount <= 0) return;
+  
+  // Get or create user_scores
+  await getOrCreateUserScores(env, userId);
+  
+  // Update total_xp in user_scores
+  await env.DB.prepare(`
+    UPDATE user_scores
+    SET total_xp = total_xp + ?,
+        level = CAST((total_xp + ?) / 100 AS INTEGER) + 1,
+        updated_at = unixepoch() * 1000
+    WHERE user_id = ?
+  `).bind(xpAmount, xpAmount, userId).run();
+  
+  // Record XP transaction
+  const transactionId = crypto.randomUUID();
+  await env.DB.prepare(`
+    INSERT INTO xp_transactions (id, user_id, reward_config_id, xp_amount, card_id, film_id, description, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
+  `).bind(transactionId, userId, rewardConfigId, xpAmount, cardId || null, filmId || null, description || null).run();
+  
+  // Update daily activity
+  const today = new Date().toISOString().split('T')[0];
+  await getOrCreateDailyActivity(env, userId);
+  await env.DB.prepare(`
+    UPDATE user_daily_activity
+    SET daily_xp = daily_xp + ?,
+        updated_at = unixepoch() * 1000
+    WHERE user_id = ? AND activity_date = ?
+  `).bind(xpAmount, userId, today).run();
+  
+  // Update user_daily_stats (historical record) - update xp_earned
+  const statsExisting = await env.DB.prepare(`
+    SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
+  `).bind(userId, today).first();
+  
+  if (statsExisting) {
+    await env.DB.prepare(`
+      UPDATE user_daily_stats
+      SET xp_earned = xp_earned + ?,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ? AND stats_date = ?
+    `).bind(xpAmount, userId, today).run();
+  } else {
+    const statsId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, created_at, updated_at)
+      VALUES (?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+    `).bind(statsId, userId, today, xpAmount).run();
+  }
+  
+  // Check and update daily streak (if daily_xp >= 20)
+  await checkAndUpdateStreak(env, userId);
+}
+
+// Award coins and record transaction
+async function awardCoins(env, userId, coinAmount, rewardConfigId, description) {
+  if (coinAmount <= 0) return;
+  
+  // Get or create user_scores
+  await getOrCreateUserScores(env, userId);
+  
+  // Update coins in user_scores
+  await env.DB.prepare(`
+    UPDATE user_scores
+    SET coins = coins + ?,
+        total_coins_earned = total_coins_earned + ?,
+        updated_at = unixepoch() * 1000
+    WHERE user_id = ?
+  `).bind(coinAmount, coinAmount, userId).run();
+  
+  // Record coin transaction
+  const transactionId = crypto.randomUUID();
+  await env.DB.prepare(`
+    INSERT INTO coin_transactions (id, user_id, reward_config_id, coin_amount, transaction_type, description, created_at)
+    VALUES (?, ?, ?, ?, 'earn', ?, unixepoch() * 1000)
+  `).bind(transactionId, userId, rewardConfigId, coinAmount, description || null).run();
+}
+
+// Check and update daily streak (if daily_xp >= 20, increment streak)
+async function checkAndUpdateStreak(env, userId) {
+  const today = new Date().toISOString().split('T')[0];
+  const activity = await getOrCreateDailyActivity(env, userId);
+  
+  // Only update streak if daily_xp >= 20 and we haven't already updated today
+  if (activity.daily_xp >= 20) {
+    const scores = await getOrCreateUserScores(env, userId);
+    const lastStudyDate = scores.last_study_date;
+    
+    // Check if this is a new day (streak continuation or new streak)
+    if (lastStudyDate !== today) {
+      let newStreak = 1;
+      
+      if (lastStudyDate) {
+        // Check if yesterday was studied (streak continuation)
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        if (lastStudyDate === yesterdayStr) {
+          // Continue streak
+          newStreak = (scores.current_streak || 0) + 1;
+        }
+        // Otherwise, new streak (already set to 1)
+      }
+      
+      // Update streak
+      const longestStreak = Math.max(scores.longest_streak || 0, newStreak);
+      await env.DB.prepare(`
+        UPDATE user_scores
+        SET current_streak = ?,
+            longest_streak = ?,
+            last_study_date = ?,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ?
+      `).bind(newStreak, longestStreak, today, userId).run();
+      
+      // Record streak history
+      const historyId = crypto.randomUUID();
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO user_streak_history (id, user_id, streak_date, streak_achieved, streak_count, created_at)
+        VALUES (?, ?, ?, 1, ?, unixepoch() * 1000)
+      `).bind(historyId, userId, today, newStreak).run();
+    }
+  }
+}
+
+// Track listening or reading time and award XP based on checkpoints
+async function trackTime(env, userId, timeSeconds, type) {
+  if (timeSeconds <= 0) return { xpAwarded: 0 };
+  
+  const today = new Date().toISOString().split('T')[0];
+  await getOrCreateDailyActivity(env, userId);
+  await getOrCreateUserScores(env, userId);
+  
+  // Get reward config
+  const actionType = type === 'listening' ? 'listening_5s' : 'reading_8s';
+  const rewardConfig = await getRewardConfig(env, actionType);
+  if (!rewardConfig) return { xpAwarded: 0 };
+  
+  const intervalSeconds = type === 'listening' ? 5 : 8;
+  const checkpointField = type === 'listening' ? 'daily_listening_checkpoint' : 'daily_reading_checkpoint';
+  const timeField = type === 'listening' ? 'daily_listening_time' : 'daily_reading_time';
+  const totalTimeField = type === 'listening' ? 'total_listening_time' : 'total_reading_time';
+  
+  // Get current checkpoint - use separate queries for listening vs reading
+  let activity;
+  if (type === 'listening') {
+    activity = await env.DB.prepare(`
+      SELECT daily_listening_checkpoint, daily_listening_time FROM user_daily_activity
+      WHERE user_id = ? AND activity_date = ?
+    `).bind(userId, today).first();
+  } else {
+    activity = await env.DB.prepare(`
+      SELECT daily_reading_checkpoint, daily_reading_time FROM user_daily_activity
+      WHERE user_id = ? AND activity_date = ?
+    `).bind(userId, today).first();
+  }
+  
+  const currentCheckpoint = (type === 'listening' ? activity?.daily_listening_checkpoint : activity?.daily_reading_checkpoint) || 0;
+  const currentTime = (type === 'listening' ? activity?.daily_listening_time : activity?.daily_reading_time) || 0;
+  
+  // Calculate new total time
+  const newTime = currentTime + timeSeconds;
+  
+  // Calculate how many intervals we've completed (beyond checkpoint)
+  const newCheckpoint = Math.floor(newTime / intervalSeconds) * intervalSeconds;
+  const intervalsCompleted = Math.floor((newCheckpoint - currentCheckpoint) / intervalSeconds);
+  
+  // Award XP for completed intervals
+  let totalXPAwarded = 0;
+  if (intervalsCompleted > 0 && rewardConfig.xp_amount > 0) {
+    const xpToAward = intervalsCompleted * rewardConfig.xp_amount;
+    await awardXP(env, userId, xpToAward, rewardConfig.id, `${type} time tracking`, null, null);
+    totalXPAwarded = xpToAward;
+  }
+  
+  // Update daily activity - use separate queries for listening vs reading
+  if (type === 'listening') {
+    await env.DB.prepare(`
+      UPDATE user_daily_activity
+      SET daily_listening_time = ?,
+          daily_listening_checkpoint = ?,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ? AND activity_date = ?
+    `).bind(newTime, newCheckpoint, userId, today).run();
+  } else {
+    await env.DB.prepare(`
+      UPDATE user_daily_activity
+      SET daily_reading_time = ?,
+          daily_reading_checkpoint = ?,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ? AND activity_date = ?
+    `).bind(newTime, newCheckpoint, userId, today).run();
+  }
+  
+  // Update total time in user_scores
+  if (type === 'listening') {
+    await env.DB.prepare(`
+      UPDATE user_scores
+      SET total_listening_time = total_listening_time + ?,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ?
+    `).bind(timeSeconds, userId).run();
+  } else {
+    await env.DB.prepare(`
+      UPDATE user_scores
+      SET total_reading_time = total_reading_time + ?,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ?
+    `).bind(timeSeconds, userId).run();
+  }
+  
+  // Update user_daily_stats (historical record)
+  const statsId = crypto.randomUUID();
+  if (type === 'listening') {
+    // Check if record exists
+    const existing = await env.DB.prepare(`
+      SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
+    `).bind(userId, today).first();
+    
+    if (existing) {
+      await env.DB.prepare(`
+        UPDATE user_daily_stats
+        SET listening_time = listening_time + ?,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND stats_date = ?
+      `).bind(timeSeconds, userId, today).run();
+    } else {
+      await env.DB.prepare(`
+        INSERT INTO user_daily_stats (id, user_id, stats_date, listening_time, created_at, updated_at)
+        VALUES (?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+      `).bind(statsId, userId, today, timeSeconds).run();
+    }
+  } else {
+    // Check if record exists
+    const existing = await env.DB.prepare(`
+      SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
+    `).bind(userId, today).first();
+    
+    if (existing) {
+      await env.DB.prepare(`
+        UPDATE user_daily_stats
+        SET reading_time = reading_time + ?,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND stats_date = ?
+      `).bind(timeSeconds, userId, today).run();
+    } else {
+      await env.DB.prepare(`
+        INSERT INTO user_daily_stats (id, user_id, stats_date, reading_time, created_at, updated_at)
+        VALUES (?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+      `).bind(statsId, userId, today, timeSeconds).run();
+    }
+  }
+  
+  return { xpAwarded: totalXPAwarded };
+}
+
+async function getCardUUID(filmId, episodeId, cardDisplayId) {
         if (!filmId || !episodeId || !cardDisplayId) return null;
         
         // Try to parse card number from display ID (e.g., "000" -> 0)
@@ -5567,7 +6139,14 @@ export default {
             review_count: result?.review_count || 0
           });
         } catch (e) {
-          return json({ error: e.message }, { status: 500 });
+          console.error('[save-status] Error:', e);
+          // Return proper JSON error response with fallback values
+          return json({ 
+            error: e.message || 'Internal server error',
+            saved: false,
+            srs_state: 'none',
+            review_count: 0
+          }, { status: 500 });
         }
       }
 
@@ -5678,22 +6257,47 @@ export default {
               }
             }
             
+            // Use INSERT OR IGNORE to handle race conditions
+            // If record already exists, we'll update it instead
             const stateId = crypto.randomUUID();
-            await env.DB.prepare(`
-              INSERT INTO user_card_states (
-                id, user_id, card_id, film_id, episode_id,
-                srs_state, review_count, state_created_at, state_updated_at,
-                created_at, updated_at
-              )
-              VALUES (?, ?, ?, ?, ?, 'none', 1, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
-            `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId).run();
-            
-            reviewCount = 1;
+            try {
+              await env.DB.prepare(`
+                INSERT INTO user_card_states (
+                  id, user_id, card_id, film_id, episode_id,
+                  srs_state, review_count, state_created_at, state_updated_at,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'none', 1, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
+              `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId).run();
+              reviewCount = 1;
+            } catch (insertError) {
+              // If INSERT fails due to UNIQUE constraint, record already exists
+              // Re-check and update instead
+              const recheck = await env.DB.prepare(`
+                SELECT id, review_count FROM user_card_states
+                WHERE user_id = ? AND card_id = ?
+                LIMIT 1
+              `).bind(user_id, cardUUID).first();
+              
+              if (recheck) {
+                await env.DB.prepare(`
+                  UPDATE user_card_states
+                  SET review_count = review_count + 1,
+                      updated_at = unixepoch() * 1000
+                  WHERE user_id = ? AND card_id = ?
+                `).bind(user_id, cardUUID).run();
+                reviewCount = (recheck.review_count || 0) + 1;
+              } else {
+                // If still not found, throw the original error
+                throw insertError;
+              }
+            }
           }
           
           return json({ review_count: reviewCount });
         } catch (e) {
-          return json({ error: e.message }, { status: 500 });
+          console.error('[increment-review] Error:', e);
+          return json({ error: e.message || 'Internal server error' }, { status: 500 });
         }
       }
 
@@ -5725,6 +6329,9 @@ export default {
             WHERE user_id = ? AND card_id = ?
             LIMIT 1
           `).bind(user_id, cardUUID).first();
+          
+          // Get old state to check if it's a change (not from 'none' to 'none')
+          const oldState = existing?.srs_state || 'none';
           
           if (existing) {
             // Update existing state
@@ -5769,6 +6376,14 @@ export default {
               )
               VALUES (?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
             `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId, srs_state).run();
+          }
+          
+          // Award XP for SRS state change (only if state changed and not to/from 'none')
+          if (oldState !== srs_state && oldState !== 'none' && srs_state !== 'none') {
+            const rewardConfig = await getRewardConfig(env, 'srs_state_change');
+            if (rewardConfig && rewardConfig.xp_amount > 0) {
+              await awardXP(env, user_id, rewardConfig.xp_amount, rewardConfig.id, 'SRS state change', cardUUID, finalFilmId);
+            }
           }
           
           return json({ success: true, srs_state });
@@ -5897,6 +6512,9 @@ export default {
             return json({ error: 'Missing required parameter (user_id)' }, { status: 400 });
           }
           
+          // Ensure user_scores exists (create if not exists)
+          await getOrCreateUserScores(env, userId);
+          
           // Get user scores
           const scores = await env.DB.prepare(`
             SELECT 
@@ -5925,6 +6543,18 @@ export default {
             WHERE user_id = ?
           `).bind(userId).first();
           
+          // Get count of cards due for review (next_review_at <= now or is null for 'new' state)
+          const dueCardsResult = await env.DB.prepare(`
+            SELECT COUNT(*) as total
+            FROM user_card_states
+            WHERE user_id = ? 
+              AND srs_state != 'none'
+              AND (
+                next_review_at IS NULL 
+                OR next_review_at <= (unixepoch() * 1000)
+              )
+          `).bind(userId).first();
+          
           return json({
             user_id: userId,
             total_xp: scores?.total_xp || 0,
@@ -5936,7 +6566,106 @@ export default {
             total_cards_reviewed: reviewedCardsResult?.total || 0,
             total_listening_time: scores?.total_listening_time || 0,
             total_reading_time: scores?.total_reading_time || 0,
+            due_cards_count: dueCardsResult?.total || 0,
           });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Track listening or reading time and award XP
+      if (path === '/api/user/track-time' && request.method === 'POST') {
+        try {
+          const body = await request.json();
+          const { user_id, time_seconds, type } = body;
+          
+          if (!user_id || !time_seconds || !type) {
+            return json({ error: 'Missing required parameters (user_id, time_seconds, type)' }, { status: 400 });
+          }
+          
+          if (type !== 'listening' && type !== 'reading') {
+            return json({ error: 'Invalid type. Must be "listening" or "reading"' }, { status: 400 });
+          }
+          
+          if (time_seconds <= 0) {
+            return json({ error: 'time_seconds must be positive' }, { status: 400 });
+          }
+          
+          const result = await trackTime(env, user_id, time_seconds, type);
+          
+          return json({ success: true, xp_awarded: result.xpAwarded });
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get user streak history for heatmap
+      if (path === '/api/user/streak-history' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          
+          if (!userId) {
+            return json({ error: 'Missing required parameter (user_id)' }, { status: 400 });
+          }
+          
+          // Get streak history (last 210 days to cover ~7 months for heatmap)
+          const history = await env.DB.prepare(`
+            SELECT streak_date, streak_achieved, streak_count
+            FROM user_streak_history
+            WHERE user_id = ?
+            ORDER BY streak_date DESC
+            LIMIT 210
+          `).bind(userId).all();
+          
+          return json(history.results || []);
+        } catch (e) {
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Get monthly XP data for graph
+      if (path === '/api/user/monthly-xp' && request.method === 'GET') {
+        try {
+          const userId = url.searchParams.get('user_id');
+          const year = parseInt(url.searchParams.get('year') || '0');
+          const month = parseInt(url.searchParams.get('month') || '0');
+          
+          if (!userId || !year || !month || month < 1 || month > 12) {
+            return json({ error: 'Missing or invalid parameters (user_id, year, month)' }, { status: 400 });
+          }
+          
+          // Calculate first and last day of month
+          const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
+          const lastDay = new Date(year, month, 0).toISOString().split('T')[0]; // Last day of month
+          
+          // Get daily XP data for the month
+          const stats = await env.DB.prepare(`
+            SELECT stats_date, xp_earned
+            FROM user_daily_stats
+            WHERE user_id = ? 
+              AND stats_date >= ? 
+              AND stats_date <= ?
+            ORDER BY stats_date ASC
+          `).bind(userId, firstDay, lastDay).all();
+          
+          // Create a map for quick lookup
+          const statsMap = new Map();
+          (stats.results || []).forEach((row) => {
+            statsMap.set(row.stats_date, row.xp_earned || 0);
+          });
+          
+          // Generate all days in the month with XP data
+          const daysInMonth = new Date(year, month, 0).getDate();
+          const monthlyData = [];
+          for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            monthlyData.push({
+              date: dateStr,
+              xp_earned: statsMap.get(dateStr) || 0
+            });
+          }
+          
+          return json(monthlyData);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
@@ -7474,5 +8203,10 @@ export default {
     } catch (e) {
       return json({ error: e.message }, { status: 500 });
     }
+  },
+  
+  // Scheduled event handler (runs daily at midnight UTC)
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(resetDailyTables(env));
   }
 };
