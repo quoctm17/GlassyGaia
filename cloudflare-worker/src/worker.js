@@ -606,6 +606,9 @@ async function resetDailyTables(env) {
         
         if (yesterdayActivity && !existingStats) {
           // Archive to user_daily_stats
+          // Note: In normal flow, user_daily_stats should already have records created by awardXP() and trackTime()
+          // during the day. But if somehow it doesn't exist (edge case), create it from user_daily_activity.
+          // xp_earned should already be in user_daily_stats from awardXP calls, but if missing, use daily_xp as fallback
           const statsId = crypto.randomUUID();
           await env.DB.prepare(`
             INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at)
@@ -614,9 +617,26 @@ async function resetDailyTables(env) {
             statsId,
             userId,
             yesterdayStr,
-            yesterdayActivity.daily_xp || 0,
+            yesterdayActivity.daily_xp || 0, // Use daily_xp as xp_earned (should match if logic is correct)
             yesterdayActivity.daily_listening_time || 0,
             yesterdayActivity.daily_reading_time || 0
+          ).run();
+        } else if (yesterdayActivity && existingStats) {
+          // Record already exists in user_daily_stats (created by awardXP/trackTime during the day)
+          // Just ensure all fields are populated correctly (in case of edge cases)
+          // This is a safety check - normally shouldn't need to do anything
+          await env.DB.prepare(`
+            UPDATE user_daily_stats
+            SET listening_time = COALESCE(listening_time, ?),
+                reading_time = COALESCE(reading_time, ?),
+                updated_at = unixepoch() * 1000
+            WHERE user_id = ? AND stats_date = ?
+              AND (listening_time IS NULL OR reading_time IS NULL)
+          `).bind(
+            yesterdayActivity.daily_listening_time || 0,
+            yesterdayActivity.daily_reading_time || 0,
+            userId,
+            yesterdayStr
           ).run();
         }
       }
@@ -5762,10 +5782,12 @@ async function awardXP(env, userId, xpAmount, rewardConfigId, description, cardI
       WHERE user_id = ? AND stats_date = ?
     `).bind(xpAmount, userId, today).run();
   } else {
+    // Record doesn't exist, create new one with xp_earned
+    // Initialize listening_time and reading_time to 0 in case trackTime hasn't run yet
     const statsId = crypto.randomUUID();
     await env.DB.prepare(`
-      INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, created_at, updated_at)
-      VALUES (?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+      INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
     `).bind(statsId, userId, today, xpAmount).run();
   }
   
@@ -5932,43 +5954,51 @@ async function trackTime(env, userId, timeSeconds, type) {
   }
   
   // Update user_daily_stats (historical record)
-  const statsId = crypto.randomUUID();
+  // Note: awardXP() already updated xp_earned above if XP was awarded
+  // We just need to update listening_time or reading_time here
   if (type === 'listening') {
-    // Check if record exists
+    // Use INSERT OR REPLACE to handle case where record might exist from awardXP
+    // Or use ON CONFLICT DO UPDATE for better control
     const existing = await env.DB.prepare(`
-      SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
+      SELECT id, xp_earned FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
     `).bind(userId, today).first();
     
     if (existing) {
+      // Record exists (might have been created by awardXP), just update listening_time
       await env.DB.prepare(`
         UPDATE user_daily_stats
-        SET listening_time = listening_time + ?,
+        SET listening_time = COALESCE(listening_time, 0) + ?,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
       `).bind(timeSeconds, userId, today).run();
     } else {
+      // Record doesn't exist, create new one with listening_time and xp_earned = 0 (or NULL, default will be 0)
+      const statsId = crypto.randomUUID();
       await env.DB.prepare(`
-        INSERT INTO user_daily_stats (id, user_id, stats_date, listening_time, created_at, updated_at)
-        VALUES (?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+        INSERT INTO user_daily_stats (id, user_id, stats_date, listening_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 0, unixepoch() * 1000, unixepoch() * 1000)
       `).bind(statsId, userId, today, timeSeconds).run();
     }
   } else {
-    // Check if record exists
+    // Reading time - same logic
     const existing = await env.DB.prepare(`
-      SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
+      SELECT id, xp_earned FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
     `).bind(userId, today).first();
     
     if (existing) {
+      // Record exists (might have been created by awardXP), just update reading_time
       await env.DB.prepare(`
         UPDATE user_daily_stats
-        SET reading_time = reading_time + ?,
+        SET reading_time = COALESCE(reading_time, 0) + ?,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
       `).bind(timeSeconds, userId, today).run();
     } else {
+      // Record doesn't exist, create new one with reading_time and xp_earned = 0
+      const statsId = crypto.randomUUID();
       await env.DB.prepare(`
-        INSERT INTO user_daily_stats (id, user_id, stats_date, reading_time, created_at, updated_at)
-        VALUES (?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+        INSERT INTO user_daily_stats (id, user_id, stats_date, reading_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 0, unixepoch() * 1000, unixepoch() * 1000)
       `).bind(statsId, userId, today, timeSeconds).run();
     }
   }
