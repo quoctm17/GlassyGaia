@@ -49,7 +49,7 @@ export default function PortfolioPage() {
   const [metrics, setMetrics] = useState<UserMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
   // Selected metrics for each card (index-based)
-  const [selectedMetricTypes, setSelectedMetricTypes] = useState<Array<'srs' | 'listening' | 'reading'>>(['srs', 'listening', 'reading']);
+  const [selectedMetricTypes] = useState<Array<'srs' | 'listening' | 'reading'>>(['srs', 'listening', 'reading']);
   const [selectedMetrics, setSelectedMetrics] = useState<Array<string>>(['due_cards', 'listening_time', 'reading_time']);
 
   // Load portfolio data
@@ -686,6 +686,7 @@ export default function PortfolioPage() {
   const getMetricValue = useCallback((cardIndex: number): { value: number | string; label: string } => {
     if (!metrics || metricsLoading) {
       // Fallback to portfolio data
+      if (!portfolio) return { value: 0, label: '' };
       if (cardIndex === 0) return { value: portfolio.due_cards_count || 0, label: '# Due Cards' };
       if (cardIndex === 1) return { value: Math.round(portfolio.total_listening_time / 60), label: 'Listening Time (min)' };
       if (cardIndex === 2) return { value: Math.round(portfolio.total_reading_time / 60), label: 'Reading Time (min)' };

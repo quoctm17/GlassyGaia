@@ -100,7 +100,7 @@ export interface UserMetrics {
 /**
  * Get detailed user metrics (SRS, Listening, Reading)
  */
-export async function apiGetUserMetrics(userId: string): Promise<UserMetrics | null> {
+export async function apiGetUserMetrics(_userId: string): Promise<UserMetrics | null> {
   assertApiBase();
   
   const res = await fetch(`${API_BASE}/api/user/metrics`, {

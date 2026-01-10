@@ -2095,7 +2095,7 @@ export async function apiUpdateRewardsConfig(
     xp_amount?: number;
     coin_amount?: number;
     interval_seconds?: number | null;
-    description?: string;
+    description?: string | null;
   }
 ): Promise<RewardConfig> {
   assertApiBase();

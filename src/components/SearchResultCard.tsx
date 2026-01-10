@@ -74,7 +74,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const hasIncrementedReview = useRef<boolean>(false);
   const incrementReviewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasIncrementedListeningSession = useRef<boolean>(false);
-  const listeningSessionIncrementPromise = useRef<Promise<void> | null>(null);
+  const isIncrementingListeningSession = useRef<boolean>(false);
   const pendingReviewIncrement = useRef<{ cardId: string; filmId?: string; episodeId?: string } | null>(null);
   
   // Reading time tracking
@@ -339,19 +339,19 @@ const SearchResultCard = memo(function SearchResultCard({
     // Track listening session when audio starts playing
     const handlePlay = () => {
       // Only increment once per play session (reset when audio ends)
-      if (!hasIncrementedListeningSession.current && user?.uid) {
+      if (!hasIncrementedListeningSession.current && !isIncrementingListeningSession.current && user?.uid) {
         hasIncrementedListeningSession.current = true;
+        isIncrementingListeningSession.current = true;
         
         // Increment listening session count (fire and forget, don't block audio play)
-        if (!listeningSessionIncrementPromise.current) {
-          listeningSessionIncrementPromise.current = apiIncrementListeningSession()
-            .catch(err => {
-              console.warn('Failed to increment listening session:', err);
-            })
-            .finally(() => {
-              listeningSessionIncrementPromise.current = null;
-            });
-        }
+        apiIncrementListeningSession()
+          .then(() => {
+            isIncrementingListeningSession.current = false;
+          })
+          .catch(err => {
+            console.warn('Failed to increment listening session:', err);
+            isIncrementingListeningSession.current = false;
+          });
       }
     };
     

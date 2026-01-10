@@ -65,7 +65,16 @@ export default function AdminRewardConfigPage() {
 
     try {
       setSaving(prev => ({ ...prev, [config.id]: true }));
-      const updated = await apiUpdateRewardsConfig(config.id, updates);
+      // Filter out null values and convert description null to undefined
+      const sanitizedUpdates = {
+        ...updates,
+        description: updates.description === null ? undefined : updates.description
+      };
+      // Remove null description if it exists
+      if (sanitizedUpdates.description === undefined && 'description' in updates) {
+        delete sanitizedUpdates.description;
+      }
+      const updated = await apiUpdateRewardsConfig(config.id, sanitizedUpdates);
       
       // Update local state
       setConfigs(prev => prev.map(c => c.id === config.id ? updated : c));
@@ -182,7 +191,7 @@ export default function AdminRewardConfigPage() {
                     xp_amount: (editing[config.id]?.xp_amount !== undefined ? editing[config.id].xp_amount : config.xp_amount) as number,
                     coin_amount: (editing[config.id]?.coin_amount !== undefined ? editing[config.id].coin_amount : config.coin_amount) as number,
                     interval_seconds: editing[config.id]?.interval_seconds !== undefined ? editing[config.id].interval_seconds : config.interval_seconds,
-                    description: editing[config.id]?.description !== undefined ? editing[config.id].description : config.description || ''
+                    description: (editing[config.id]?.description !== undefined ? editing[config.id].description : config.description) || ''
                   };
 
                   return (
@@ -227,7 +236,7 @@ export default function AdminRewardConfigPage() {
                       <td className="px-4 py-3 border-b">
                         <input
                           type="text"
-                          value={currentValues.description}
+                          value={currentValues.description || ''}
                           onChange={(e) => handleFieldChange(config.id, 'description', e.target.value)}
                           className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
                         />
