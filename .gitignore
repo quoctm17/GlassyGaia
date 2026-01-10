@@ -27,3 +27,4 @@ Thumbs.db
 
 # Cloudflare worker local config (contains secrets)
 cloudflare-worker/wrangler.toml
+cloudflare-worker/.dev.vars

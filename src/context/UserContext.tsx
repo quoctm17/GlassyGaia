@@ -350,11 +350,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       // Use roles from API response if available, otherwise load from DB
       let roleNames: string[] = result.user.roles || [];
       if (roleNames.length === 0) {
-        try {
-          const roles = await getUserRoles(result.user.id);
-          roleNames = roles.map(r => r.role_name);
-        } catch (error) {
-          console.error('Failed to load user roles:', error);
+      try {
+        const roles = await getUserRoles(result.user.id);
+        roleNames = roles.map(r => r.role_name);
+      } catch (error) {
+        console.error('Failed to load user roles:', error);
         }
       }
       

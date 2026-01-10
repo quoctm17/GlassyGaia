@@ -742,7 +742,7 @@ export default function PortfolioPage() {
           <div className="portfolio-stat-item">
               <img src={heartScoreIcon} alt="Saved Cards" className="portfolio-stat-icon" />
             <span className="portfolio-stat-value">{portfolio.total_cards_saved.toLocaleString()} cards</span>
-          </div>
+            </div>
           </div>
           <div className="portfolio-stat-group portfolio-stat-group-right">
           <div className="portfolio-stat-item">
@@ -768,8 +768,8 @@ export default function PortfolioPage() {
           <div className="portfolio-metric-label">
             # Due Cards
             <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
-          </div>
         </div>
+          </div>
         <div className="portfolio-metric-card">
           <div className="portfolio-metric-value">{Math.round(portfolio.total_listening_time / 60).toLocaleString()}</div>
           <div className="portfolio-metric-label">
@@ -818,7 +818,7 @@ export default function PortfolioPage() {
               </button>
               <div className="portfolio-graph-month-label">
                 {new Date(currentMonth.year, currentMonth.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              </div>
+            </div>
               <button 
                 className="portfolio-graph-nav-btn"
                 onClick={() => {
@@ -841,9 +841,9 @@ export default function PortfolioPage() {
             <div className="portfolio-graph-placeholder">
               {xpProgressData.length > 0 ? (
                 <svg width="100%" height="100%" viewBox="0 0 1000 220" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0 }}>
-                  {[0, 25, 50, 75, 100].map((y) => (
+                {[0, 25, 50, 75, 100].map((y) => (
                     <line key={y} x1="0" y1={y * 2} x2="1000" y2={y * 2} stroke="var(--neutral)" strokeWidth="0.5" opacity="0.3" />
-                  ))}
+                ))}
                   <polygon
                     points={`0,200 ${xpProgressData.map((value, i) => {
                       const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
@@ -853,59 +853,59 @@ export default function PortfolioPage() {
                     fill="var(--primary)"
                     opacity="0.2"
                   />
-                  <polyline
+                <polyline
                     points={xpProgressData.map((value, i) => {
                       const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
                       const y = 200 - (value * scaleFactor);
-                      return `${x},${y}`;
-                    }).join(' ')}
-                    fill="none"
-                    stroke="var(--primary)"
-                    strokeWidth="1.5"
-                  />
+                    return `${x},${y}`;
+                  }).join(' ')}
+                  fill="none"
+                  stroke="var(--primary)"
+                  strokeWidth="1.5"
+                />
                   {xpProgressData.map((value, i) => {
                     const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
                     const y = 200 - (value * scaleFactor);
-                    return (
+                  return (
                       <rect key={i} x={x - 3} y={y - 3} width="6" height="6" fill="var(--primary)" stroke="var(--background)" strokeWidth="1" />
-                    );
-                  })}
+                  );
+                })}
                   {dateLabels.filter((_, i) => {
                     const step = Math.max(1, Math.floor(dateLabels.length / 10));
                     return i % step === 0 || i === dateLabels.length - 1;
                   }).map((date) => {
                     const originalIdx = dateLabels.indexOf(date);
                     const x = dateLabels.length > 1 ? (originalIdx / (dateLabels.length - 1)) * 1000 : 0;
-                    return (
+                  return (
                       <g key={originalIdx}>
-                        {date.isToday && (
-                          <line x1={x} y1="0" x2={x} y2="200" stroke="var(--hover-select)" strokeWidth="1.5" strokeDasharray="4 4" />
-                        )}
-                        <text 
-                          x={x} 
-                          y="215" 
-                          textAnchor="middle" 
-                          className="portfolio-graph-date-label"
-                          fill={date.isToday ? "var(--hover-select)" : "var(--text)"}
-                        >
-                          {date.label}
-                        </text>
-                        {date.isToday && (
-                          <text x={x} y="-5" textAnchor="middle" className="portfolio-graph-today-label">Today</text>
-                        )}
-                      </g>
-                    );
-                  })}
-                </svg>
+                      {date.isToday && (
+                        <line x1={x} y1="0" x2={x} y2="200" stroke="var(--hover-select)" strokeWidth="1.5" strokeDasharray="4 4" />
+                      )}
+                      <text 
+                        x={x} 
+                        y="215" 
+                        textAnchor="middle" 
+                        className="portfolio-graph-date-label"
+                        fill={date.isToday ? "var(--hover-select)" : "var(--text)"}
+                      >
+                        {date.label}
+                      </text>
+                      {date.isToday && (
+                        <text x={x} y="-5" textAnchor="middle" className="portfolio-graph-today-label">Today</text>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--neutral)' }}>
                   No data available
-                </div>
-              )}
             </div>
+              )}
           </div>
         </div>
-      </div>
+            </div>
+            </div>
 
       {/* Heatmap Section */}
       <div className="portfolio-heatmap-section">
@@ -932,14 +932,14 @@ export default function PortfolioPage() {
             } else {
               colorClass = 'neutral'; // No streak
             }
-            return (
+                  return (
               <div 
                 key={square.date} 
                 className={`portfolio-grid-square portfolio-grid-square-${colorClass}`}
                 title={`${square.date}: ${square.achieved ? `Streak ${square.count} days` : 'No streak'}`}
               />
-            );
-          })}
+                  );
+                })}
         </div>
       </div>
 
@@ -1033,12 +1033,12 @@ export default function PortfolioPage() {
                         </span>
                         <span>{col}</span>
                       </button>
-                    );
-                  })}
-                </div>
-              )}
+                  );
+                })}
             </div>
+              )}
           </div>
+        </div>
           <button className="portfolio-table-practice-btn typography-pressstart-1">
             Practice
           </button>
