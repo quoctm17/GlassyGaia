@@ -385,7 +385,7 @@
 }
 
 .portfolio-graph-placeholder {
-  height: 220px;
+  height: 250px;
   position: relative;
   border-radius: 4px;
   margin-bottom: 16px;
@@ -419,15 +419,15 @@
 }
 
 .portfolio-graph-today-label {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 10px;
   font-weight: 400;
   fill: var(--hover-select);
 }
 
 .portfolio-graph-date-label {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 11px;
   font-weight: 400;
   fill: var(--text);
 }

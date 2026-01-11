@@ -50,6 +50,8 @@
   --light-filter-button-unselected-border: #FEE4E4;
   --light-filter-modal-footer-bg: #FFF4F6;
   --light-media-badge-bg: rgba(253, 170, 170, 0.5);
+  --light-chart-dot-fill: #F2EDE5;
+  --light-chart-dot-stroke: #000000;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -100,6 +102,8 @@
   --dark-filter-button-unselected-border: rgba(254, 228, 228, 0.3);
   --dark-filter-modal-footer-bg: rgba(255, 244, 246, 0.1);
   --dark-media-badge-bg: rgba(253, 170, 170, 0.5);
+  --dark-chart-dot-fill: #F2EDE5;
+  --dark-chart-dot-stroke: #000000;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -169,6 +173,8 @@
   --filter-button-unselected-border: var(--light-filter-button-unselected-border);
   --filter-modal-footer-bg: var(--light-filter-modal-footer-bg);
   --media-badge-bg: var(--light-media-badge-bg);
+  --chart-dot-fill: var(--light-chart-dot-fill);
+  --chart-dot-stroke: var(--light-chart-dot-stroke);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -232,6 +238,8 @@
   --filter-button-unselected-border: var(--dark-filter-button-unselected-border);
   --filter-modal-footer-bg: var(--dark-filter-modal-footer-bg);
   --media-badge-bg: var(--dark-media-badge-bg);
+  --chart-dot-fill: var(--dark-chart-dot-fill);
+  --chart-dot-stroke: var(--dark-chart-dot-stroke);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);
