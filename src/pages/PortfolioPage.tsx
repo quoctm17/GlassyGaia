@@ -632,10 +632,20 @@ export default function PortfolioPage() {
       return { 
         label: `${monthStr} ${day}`, 
         isToday: isToday,
-        date: date
+        date: date,
+        day: day
       };
     });
   }, [currentMonth]);
+
+  // Generate visible date labels (2, 5, 8, 11... up to 29)
+  const visibleDateLabels = useMemo(() => {
+    return dateLabels.filter(date => {
+      const day = date.day;
+      // Show days: 2, 5, 8, 11, 14, 17, 20, 23, 26, 29
+      return (day - 2) % 3 === 0 && day <= 29;
+    });
+  }, [dateLabels]);
 
   // Process streak history for heatmap
   const streakMap = useMemo(() => {
@@ -1145,24 +1155,42 @@ export default function PortfolioPage() {
             </div>
           </div>
           <div className="portfolio-graph-container">
+            {/* Tooltip for chart points */}
+            <div
+              id="xp-chart-tooltip"
+              style={{
+                display: 'none',
+                position: 'fixed',
+                background: 'var(--background)',
+                border: '2px solid var(--chart-dot-stroke)',
+                borderRadius: '4px',
+                padding: '8px 12px',
+                fontFamily: "'Noto Sans', sans-serif",
+                fontSize: '14px',
+                color: 'var(--text)',
+                pointerEvents: 'none',
+                zIndex: 10000,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+              }}
+            />
             <div className="portfolio-graph-placeholder">
               {xpProgressData.length > 0 ? (
-                <svg width="100%" height="100%" viewBox="0 0 1000 220" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0 }}>
+                <svg width="100%" height="100%" viewBox="40 -20 1000 270" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0 }}>
                 {[0, 25, 50, 75, 100].map((y) => (
-                    <line key={y} x1="0" y1={y * 2} x2="1000" y2={y * 2} stroke="var(--neutral)" strokeWidth="0.5" opacity="0.3" />
+                    <line key={y} x1="40" y1={y * 2} x2="1040" y2={y * 2} stroke="var(--neutral)" strokeWidth="0.5" opacity="0.3" />
                 ))}
                   <polygon
-                    points={`0,200 ${xpProgressData.map((value, i) => {
-                      const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
+                    points={`40,200 ${xpProgressData.map((value, i) => {
+                      const x = dateLabels.length > 1 ? 40 + (i / (dateLabels.length - 1)) * 1000 : 40;
                       const y = 200 - (value * scaleFactor);
                       return `${x},${y}`;
-                    }).join(' ')},${dateLabels.length > 1 ? 1000 : 0},200`}
+                    }).join(' ')},${dateLabels.length > 1 ? 1040 : 40},200`}
                     fill="var(--primary)"
                     opacity="0.2"
                   />
                 <polyline
                     points={xpProgressData.map((value, i) => {
-                      const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
+                      const x = dateLabels.length > 1 ? 40 + (i / (dateLabels.length - 1)) * 1000 : 40;
                       const y = 200 - (value * scaleFactor);
                     return `${x},${y}`;
                   }).join(' ')}
@@ -1171,26 +1199,59 @@ export default function PortfolioPage() {
                   strokeWidth="1.5"
                 />
                   {xpProgressData.map((value, i) => {
-                    const x = dateLabels.length > 1 ? (i / (dateLabels.length - 1)) * 1000 : 0;
+                    const x = dateLabels.length > 1 ? 40 + (i / (dateLabels.length - 1)) * 1000 : 40;
                     const y = 200 - (value * scaleFactor);
+                    const dateLabel = dateLabels[i];
+                    const day = dateLabel?.day || i + 1;
+                    const monthStr = dateLabel?.date ? dateLabel.date.toLocaleDateString('en-US', { month: 'short' }) : '';
                   return (
-                      <rect key={i} x={x - 3} y={y - 3} width="6" height="6" fill="var(--primary)" stroke="var(--background)" strokeWidth="1" />
+                      <g key={i}>
+                        <rect 
+                          x={x - 2.5} 
+                          y={y - 2.5} 
+                          width="5" 
+                          height="5" 
+                          fill="var(--chart-dot-fill)" 
+                          stroke="var(--chart-dot-stroke)" 
+                          strokeWidth="0.8"
+                          style={{ cursor: 'pointer' }}
+                          onMouseEnter={(e) => {
+                            const tooltip = document.getElementById('xp-chart-tooltip');
+                            if (tooltip) {
+                              tooltip.textContent = `${monthStr} ${day}: ${value.toLocaleString()} XP`;
+                              tooltip.style.display = 'block';
+                              tooltip.style.left = `${e.clientX + 10}px`;
+                              tooltip.style.top = `${e.clientY - 30}px`;
+                            }
+                          }}
+                          onMouseMove={(e) => {
+                            const tooltip = document.getElementById('xp-chart-tooltip');
+                            if (tooltip) {
+                              tooltip.style.left = `${e.clientX + 10}px`;
+                              tooltip.style.top = `${e.clientY - 30}px`;
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            const tooltip = document.getElementById('xp-chart-tooltip');
+                            if (tooltip) {
+                              tooltip.style.display = 'none';
+                            }
+                          }}
+                        />
+                      </g>
                   );
                 })}
-                  {dateLabels.filter((_, i) => {
-                    const step = Math.max(1, Math.floor(dateLabels.length / 10));
-                    return i % step === 0 || i === dateLabels.length - 1;
-                  }).map((date) => {
+                  {visibleDateLabels.map((date) => {
                     const originalIdx = dateLabels.indexOf(date);
-                    const x = dateLabels.length > 1 ? (originalIdx / (dateLabels.length - 1)) * 1000 : 0;
+                    const x = dateLabels.length > 1 ? 40 + (originalIdx / (dateLabels.length - 1)) * 1000 : 40;
                   return (
                       <g key={originalIdx}>
                       {date.isToday && (
-                        <line x1={x} y1="0" x2={x} y2="200" stroke="var(--hover-select)" strokeWidth="1.5" strokeDasharray="4 4" />
+                        <line x1={x} y1="0" x2={x} y2="200" stroke="var(--hover-select)" strokeWidth="1.5" />
                       )}
                       <text 
                         x={x} 
-                        y="215" 
+                        y="240" 
                         textAnchor="middle" 
                         className="portfolio-graph-date-label"
                         fill={date.isToday ? "var(--hover-select)" : "var(--text)"}
