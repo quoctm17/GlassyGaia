@@ -653,7 +653,7 @@ export default function AdminEpisodeUpdatePage() {
             <ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
               <li><span style={{ color: 'var(--text)' }}>Save</span>: Chỉ cập nhật media của episode (Cover, Full Audio, Full Video) mà không thay đổi cards.</li>
               <li><span style={{ color: 'var(--text)' }}>Title</span>: Tiêu đề của episode.</li>
-              <li><span style={{ color: 'var(--text)' }}>Cover Image (Landscape)</span>: Ảnh bìa ngang cho episode (.webp).</li>
+              <li><span style={{ color: 'var(--text)' }}>Cover Image (Landscape)</span>: Ảnh bìa ngang cho episode (.avif, .webp, hoặc .jpg).</li>
               <li><span style={{ color: 'var(--text)' }}>Full Audio</span>: File audio đầy đủ (.opus hoặc .wav).</li>
               <li><span style={{ color: 'var(--text)' }}>Full Video</span>: File video đầy đủ (.mp4).</li>
               <li style={{ color: 'var(--warning-text, #fbbf24)' }}>Lưu ý: Save chỉ cập nhật những file bạn chọn, không ảnh hưởng đến cards hiện tại.</li>
@@ -666,11 +666,11 @@ export default function AdminEpisodeUpdatePage() {
                 <ul className="list-disc pl-5 mt-1 space-y-1">
                   <li><strong>Với Type = Video</strong>: Có 2 trường hợp:
                     <ul className="list-disc pl-5 mt-1 space-y-1">
-                      <li><strong>Video có ảnh</strong>: Upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho từng card (giống các type khác).</li>
+                      <li><strong>Video có ảnh</strong>: Upload cả <strong>Images</strong> (.avif, .webp, hoặc .jpg) và <strong>Audio</strong> (.opus) cho từng card (giống các type khác).</li>
                       <li><strong>Video không có ảnh</strong>: Chỉ upload <strong>Audio</strong> (.opus). Episode Cover Landscape sẽ được dùng làm image cho tất cả cards.</li>
                     </ul>
                   </li>
-                  <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.webp) và <strong>Audio</strong> (.opus) cho cards.</li>
+                  <li><strong>Với các Type khác</strong>: Cần upload cả <strong>Images</strong> (.avif, .webp, hoặc .jpg) và <strong>Audio</strong> (.opus) cho cards.</li>
                 </ul>
               </li>
               <li><span style={{ color: 'var(--text)' }}>Infer IDs</span>: Tự động lấy số từ tên file làm card ID. Nếu tắt, dùng Pad Digits + Start Index.</li>
@@ -744,7 +744,7 @@ export default function AdminEpisodeUpdatePage() {
                   onChange={(e) => setCoverFile(e.target.files?.[0] || null)} 
                   className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" 
                 />
-                <div className="typography-inter-4" style={{ color: 'var(--neutral)', fontSize: '11px' }}>Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover.webp (or .jpg)</div>
+                <div className="typography-inter-4" style={{ color: 'var(--neutral)', fontSize: '11px' }}>Path: items/{contentSlug}/episodes/{contentSlug}_{String(episodeNum).padStart(3,'0')}/cover/cover.avif (or .webp, .jpg)</div>
               </div>
             </div>
           </div>
