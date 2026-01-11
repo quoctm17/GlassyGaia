@@ -1320,6 +1320,7 @@ export async function apiUpdateFilmMeta(params: {
   title?: string | null;
   description?: string | null;
   cover_url?: string | null;
+  cover_landscape_url?: string | null;
   total_episodes?: number | null;
   type?: string | null;
   release_year?: number | null;

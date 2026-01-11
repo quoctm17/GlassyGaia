@@ -114,10 +114,10 @@ export default function AdminContentUpdatePage() {
 		return () => { mounted = false; };
 	}, [contentSlug]);
 
-	async function handleUploadCoverIfAny() {
+	async function handleUploadCoverIfAny(): Promise<string | undefined> {
 		const input = document.getElementById('update-cover-file') as HTMLInputElement | null;
 		const file = input?.files?.[0];
-		if (!file) return; // optional
+		if (!file) return undefined; // optional
 		setStage('uploading-cover');
 		await uploadCoverImage({ filmId: contentSlug, episodeNum: 1, file });
 		// Extract extension from file type (avif, webp, or jpg)
@@ -128,12 +128,13 @@ export default function AdminContentUpdatePage() {
 		setCoverUrl(url);
 		setCoverUploaded(true);
 		toast.success('Cover uploaded');
+		return url;
 	}
 
-	async function handleUploadCoverLandscapeIfAny() {
+	async function handleUploadCoverLandscapeIfAny(): Promise<string | undefined> {
 		const input = document.getElementById('update-cover-landscape-file') as HTMLInputElement | null;
 		const file = input?.files?.[0];
-		if (!file) return; // optional
+		if (!file) return undefined; // optional
 		setStage('uploading-cover-landscape');
 		await uploadCoverImage({ filmId: contentSlug, episodeNum: 1, file, landscape: true });
 		// Extract extension from file type (avif, webp, or jpg)
@@ -144,6 +145,7 @@ export default function AdminContentUpdatePage() {
 		setCoverLandscapeUrl(url);
 		setCoverLandscapeUploaded(true);
 		toast.success('Cover landscape uploaded');
+		return url;
 	}
 
 	async function onUpdateMeta() {
@@ -155,8 +157,9 @@ export default function AdminContentUpdatePage() {
 			setStage('idle');
 			setCoverUploaded(false);
 			setCoverLandscapeUploaded(false);
-			await handleUploadCoverIfAny();
-			await handleUploadCoverLandscapeIfAny();
+			// Upload files and get URLs
+			const uploadedCoverUrl = await handleUploadCoverIfAny();
+			const uploadedCoverLandscapeUrl = await handleUploadCoverLandscapeIfAny();
 			setStage('updating-meta');
 			const payload: {
 				filmSlug: string;
@@ -173,9 +176,18 @@ export default function AdminContentUpdatePage() {
 				filmSlug: contentSlug,
 				title: title || undefined,
 				description: description || undefined,
-				cover_url: coverUrl || undefined,
-				cover_landscape_url: coverLandscapeUrl || undefined,
 			};
+			// Include cover URLs if uploaded (use uploaded URLs, fallback to state)
+			if (uploadedCoverUrl !== undefined) {
+				payload.cover_url = uploadedCoverUrl;
+			} else if (coverUrl) {
+				payload.cover_url = coverUrl;
+			}
+			if (uploadedCoverLandscapeUrl !== undefined) {
+				payload.cover_landscape_url = uploadedCoverLandscapeUrl;
+			} else if (coverLandscapeUrl) {
+				payload.cover_landscape_url = coverLandscapeUrl;
+			}
 			// Type is read-only, don't include in payload
 			if (releaseYear !== undefined) payload.release_year = releaseYear;
 			if (isAvailable !== undefined) payload.is_available = isAvailable;
@@ -249,8 +261,8 @@ export default function AdminContentUpdatePage() {
 							<div style={{ color: 'var(--text)' }} className="font-semibold">B) Lưu ý</div>
 							<ul className="list-disc pl-5 space-y-1" style={{ color: 'var(--sub-language-text)' }}>
 								<li>Không đổi <code>Content Slug</code> và <code>Type</code> để tránh mất liên kết tới media/cards.</li>
-								<li>Ảnh bìa portrait sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover.webp (or .jpg)</code>.</li>
-								<li>Ảnh bìa landscape sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover_landscape.webp (or .jpg)</code>.</li>
+								<li>Ảnh bìa portrait sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover.avif (or .webp, .jpg)</code>.</li>
+								<li>Ảnh bìa landscape sẽ được lưu ở: <code>items/{contentSlug || 'your_slug'}/cover_image/cover_landscape.avif (or .webp, .jpg)</code>.</li>
 								<li>Nếu để trống Title/Description sẽ giữ nguyên giá trị cũ.</li>
 								<li>Với Release Year: không chọn = giữ nguyên; chọn Clear = xóa khỏi metadata.</li>
 							</ul>

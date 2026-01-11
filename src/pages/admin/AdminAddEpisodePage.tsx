@@ -885,7 +885,7 @@ export default function AdminAddEpisodePage() {
             {(addEpCover || (filmType === 'video' && !videoHasImages)) && (
               <>
                 <input id="ep-cover-file" type="file" accept="image/jpeg,image/webp,image/avif" onChange={e => setHasEpCoverFile(((e.target as HTMLInputElement).files?.length || 0) > 0)} className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border file:border-pink-300 file:bg-pink-600 file:text-white hover:file:bg-pink-500 w-full" />
-                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug + '_' + episodeNum}/cover/cover.jpg</div>
+                <div className="text-[11px] text-gray-500">Path: items/{contentSlug}/episodes/{contentSlug + '_' + episodeNum}/cover/cover.avif (or .webp, .jpg)</div>
                 {(filmType === 'video' && !videoHasImages && !hasEpCoverFile) && (
                   <div className="text-xs text-red-500">⚠️ Bắt buộc upload Episode Cover Landscape cho Video content không có ảnh</div>
                 )}
