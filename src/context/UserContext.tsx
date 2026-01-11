@@ -108,8 +108,18 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       
       const payload = decoded.payload;
       const userId = payload.user_id;
+      const jwtRoles = payload.roles || [];
       
-      // Try to load user from database to get latest info
+      // Set user immediately from JWT token (fast, no DB query needed)
+      setUser({
+        uid: userId,
+        displayName: payload.display_name,
+        email: payload.email,
+        photoURL: payload.photo_url,
+        roles: jwtRoles, // Use roles from JWT token immediately
+      });
+      
+      // Load user preferences and refresh user info from DB in background (non-blocking)
       getUserProfile(userId)
         .then((userProfile) => {
           // Load preferences
@@ -126,41 +136,40 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             }
           }
           
-          // Use roles from JWT payload (faster) but also refresh from DB
-          const jwtRoles = payload.roles || [];
-          getUserRoles(userId)
-            .then((roles) => {
-              const roleNames = roles.map(r => r.role_name);
-              setUser({
-                uid: userProfile.id,
-                displayName: userProfile.display_name,
-                email: userProfile.email,
-                photoURL: userProfile.photo_url,
-                roles: roleNames.length > 0 ? roleNames : jwtRoles, // Prefer DB roles
-              });
-            })
-            .catch(() => {
-              // Fallback to JWT roles if DB fetch fails
-              setUser({
-                uid: userProfile.id,
-                displayName: userProfile.display_name,
-                email: userProfile.email,
-                photoURL: userProfile.photo_url,
-                roles: jwtRoles,
-              });
-            });
+          // Update user info with latest from DB (but keep roles from JWT for speed)
+          setUser(prev => prev ? {
+            ...prev,
+            displayName: userProfile.display_name,
+            email: userProfile.email,
+            photoURL: userProfile.photo_url,
+            // Keep roles from JWT - they're already set above
+          } : null);
         })
-        .catch(() => {
-          // User not found or error - use JWT payload as fallback
-          setUser({
-            uid: payload.user_id,
-            displayName: payload.display_name,
-            email: payload.email,
-            photoURL: payload.photo_url,
-            roles: payload.roles || [],
-          });
+        .catch((error) => {
+          console.error('Failed to load user profile from DB:', error);
+          // User info already set from JWT, so we can continue
         })
         .finally(() => setLoading(false));
+      
+      // Refresh roles from DB in background (non-blocking, doesn't affect UI)
+      getUserRoles(userId)
+        .then((roles) => {
+          const roleNames = roles.map(r => r.role_name);
+          // Only update if roles changed (to avoid unnecessary re-renders)
+          setUser(prev => {
+            if (!prev) return null;
+            const currentRoles = prev.roles || [];
+            const rolesChanged = JSON.stringify(currentRoles.sort()) !== JSON.stringify(roleNames.sort());
+            if (rolesChanged && roleNames.length > 0) {
+              return { ...prev, roles: roleNames };
+            }
+            return prev;
+          });
+        })
+        .catch((error) => {
+          console.error('Failed to refresh roles from DB:', error);
+          // Continue with JWT roles - they're already set
+        });
     } else {
       // No stored token: treat as signed-out but keep app usable
       setLoading(false);
@@ -347,25 +356,31 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('jwt_token', result.token);
       }
       
-      // Use roles from API response if available, otherwise load from DB
-      let roleNames: string[] = result.user.roles || [];
-      if (roleNames.length === 0) {
-      try {
-        const roles = await getUserRoles(result.user.id);
-        roleNames = roles.map(r => r.role_name);
-      } catch (error) {
-        console.error('Failed to load user roles:', error);
-        }
-      }
+      // Use roles from API response (JWT token already contains roles)
+      // Set user immediately with roles from response
+      const roleNames: string[] = result.user.roles || [];
       
-      // Set user in context with roles
       setUser({
         uid: result.user.id,
         displayName: result.user.display_name,
         email: result.user.email,
         photoURL: result.user.photo_url,
-        roles: roleNames,
+        roles: roleNames, // Roles from JWT token
       });
+      
+      // Refresh roles from DB in background (non-blocking)
+      if (roleNames.length === 0) {
+        getUserRoles(result.user.id)
+          .then((roles) => {
+            const dbRoleNames = roles.map(r => r.role_name);
+            if (dbRoleNames.length > 0) {
+              setUser(prev => prev ? { ...prev, roles: dbRoleNames } : null);
+            }
+          })
+          .catch((error) => {
+            console.error('Failed to load user roles from DB:', error);
+          });
+      }
       
       // Load user preferences from database
       try {
@@ -397,10 +412,26 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
   
-  // Role checking helpers
+  // Role checking helpers - check from JWT token first, then user state
   const hasRole = (role: string): boolean => {
-    if (!user?.roles) return false;
-    return user.roles.includes(role);
+    // First check JWT token (fastest, no DB query)
+    const storedToken = localStorage.getItem('jwt_token');
+    if (storedToken && !isJWTExpired(storedToken)) {
+      const decoded = decodeJWT(storedToken);
+      if (decoded.payload && decoded.payload.roles) {
+        const jwtRoles = decoded.payload.roles || [];
+        if (jwtRoles.includes(role)) {
+          return true;
+        }
+      }
+    }
+    
+    // Fallback to user state (from context)
+    if (user?.roles) {
+      return user.roles.includes(role);
+    }
+    
+    return false;
   };
   
   const isSuperAdmin = (): boolean => {

@@ -1002,8 +1002,23 @@ export default {
           
           const roleNames = (rolesResult.results || []).map(r => r.role_name);
           
+          // Generate JWT token
+          const jwtSecret = env.JWT_SECRET;
+          if (!jwtSecret) {
+            return json({ error: 'JWT secret not configured' }, { status: 500 });
+          }
+          
+          const token = await generateJWT(
+            user.id,
+            user.email,
+            roleNames,
+            jwtSecret,
+            7 // 7 days expiration
+          );
+          
           return json({
             success: true,
+            token: token,
             user: {
               id: user.id,
               email: user.email,

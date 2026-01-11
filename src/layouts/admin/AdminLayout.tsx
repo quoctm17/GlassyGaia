@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
+import { decodeJWT, isJWTExpired } from '../../utils/jwt';
 import '../../styles/pages/admin/admin.css';
 import toast from 'react-hot-toast';
 import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag, BarChart3, Search, Settings } from 'lucide-react';
@@ -13,14 +14,33 @@ export default function AdminLayout() {
   const isContentSection = /^(\/admin\/(content|create|ingest|items))/i.test(location.pathname);
   const navigate = useNavigate();
 
-  // Nếu không phải admin email, đẩy ra khỏi khu vực admin
+  // Check admin access - use JWT token for immediate check (no DB wait)
   useEffect(() => {
-    if (loading) return; // chờ user state
+    // Check JWT token first (fast, no DB query)
+    const storedToken = localStorage.getItem('jwt_token');
+    if (storedToken && !isJWTExpired(storedToken)) {
+      const decoded = decodeJWT(storedToken);
+      if (decoded.payload) {
+        const jwtRoles = decoded.payload.roles || [];
+        const hasAdminRole = jwtRoles.includes('admin') || jwtRoles.includes('superadmin');
+        if (hasAdminRole) {
+          // User has admin role in JWT, allow access
+          // Continue to check user state for UI updates (non-blocking)
+          return;
+        }
+      }
+    }
+    
+    // No valid JWT token or no admin role in JWT
+    if (loading) return; // Wait for user state to load
+    
     if (!user) {
       navigate('/auth/login');
       toast('Vui lòng đăng nhập để vào khu vực Admin');
       return;
     }
+    
+    // Final check using context (which also checks JWT)
     if (!isAdmin()) {
       navigate('/');
       toast.error('Access denied: admin role required');
