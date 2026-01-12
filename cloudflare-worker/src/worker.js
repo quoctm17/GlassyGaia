@@ -5751,6 +5751,85 @@ async function getRewardConfig(env, actionType) {
   `).bind(actionType).first();
 }
 
+// Calculate Production Factor based on speaking_attempt and writing_attempt
+// Production Factor = 1 + min(0.28, 0.01 * speaking_attempt + 0.005 * writing_attempt)
+function calculateProductionFactor(speakingAttempt = 0, writingAttempt = 0) {
+  const factor = 0.01 * speakingAttempt + 0.005 * writingAttempt;
+  return 1 + Math.min(0.28, factor);
+}
+
+// Calculate SRS Interval based on state, srs_count, and production factor
+// Returns interval in hours
+async function calculateSRSInterval(env, srsState, srsCount, speakingAttempt = 0, writingAttempt = 0) {
+  // Get base interval from srs_base_intervals
+  const baseInterval = await env.DB.prepare(`
+    SELECT base_interval_hours, interval_multiplier 
+    FROM srs_base_intervals 
+    WHERE srs_state = ?
+  `).bind(srsState).first();
+  
+  if (!baseInterval) {
+    // Default to 0 if state not found
+    return 0;
+  }
+  
+  const baseHours = baseInterval.base_interval_hours || 0;
+  const multiplier = baseInterval.interval_multiplier || 1.0;
+  
+  // Calculate interval based on state-specific formula
+  let intervalHours = 0;
+  
+  if (srsState === 'again') {
+    // Again -> Base Interval = 1 hrs
+    intervalHours = 1;
+  } else if (srsState === 'hard') {
+    // Hard -> Base Interval = 6 × (1.3 ^ SRS Count) hrs
+    intervalHours = 6 * Math.pow(1.3, srsCount);
+  } else if (srsState === 'good') {
+    // Good -> Base Interval = 24 × (2.0 ^ SRS Count) hours
+    intervalHours = 24 * Math.pow(2.0, srsCount);
+  } else if (srsState === 'easy') {
+    // Easy -> Base Interval = 48 × (2.5 ^ SRS Count) hrs
+    intervalHours = 48 * Math.pow(2.5, srsCount);
+  } else {
+    // 'new' or other states - use base_interval_hours
+    intervalHours = baseHours;
+  }
+  
+  // Apply Production Factor
+  const productionFactor = calculateProductionFactor(speakingAttempt, writingAttempt);
+  intervalHours = intervalHours * productionFactor;
+  
+  return intervalHours;
+}
+
+// Determine if srs_count should be incremented based on state transition
+// Returns true if srs_count should increment, false otherwise
+function shouldIncrementSRSCount(oldState, newState) {
+  // State hierarchy: again < hard < good < easy
+  const stateOrder = { 'again': 0, 'hard': 1, 'good': 2, 'easy': 3 };
+  
+  const oldOrder = stateOrder[oldState] ?? -1;
+  const newOrder = stateOrder[newState] ?? -1;
+  
+  // Increment if:
+  // 1. Upgrade (again->hard, hard->good, good->easy, etc.)
+  // 2. Re-affirm good or easy (good->good, easy->easy)
+  if (newOrder > oldOrder) {
+    // Upgrade
+    return true;
+  } else if ((newState === 'good' || newState === 'easy') && newState === oldState) {
+    // Re-affirm good or easy
+    return true;
+  }
+  
+  // Don't increment if:
+  // - Downgrade (good->hard, easy->good, etc.)
+  // - Re-affirm again or hard
+  // - Any transition to/from 'none' or 'new'
+  return false;
+}
+
 // Award XP and record transaction
 async function awardXP(env, userId, xpAmount, rewardConfigId, description, cardId, filmId) {
   if (xpAmount <= 0) return;
@@ -6369,25 +6448,72 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             return json({ error: 'Card not found' }, { status: 404 });
           }
           
-          // Check if card state exists
+          // Check if card state exists and get current values
           const existing = await env.DB.prepare(`
-            SELECT id FROM user_card_states
+            SELECT id, srs_state, srs_count, speaking_attempt, writing_attempt, state_created_at
+            FROM user_card_states
             WHERE user_id = ? AND card_id = ?
             LIMIT 1
           `).bind(user_id, cardUUID).first();
           
           // Get old state to check if it's a change (not from 'none' to 'none')
           const oldState = existing?.srs_state || 'none';
+          const oldSRSCount = existing?.srs_count || 0;
+          const speakingAttempt = existing?.speaking_attempt || 0;
+          const writingAttempt = existing?.writing_attempt || 0;
+          
+          // Calculate new srs_count based on state transition
+          let newSRSCount = oldSRSCount;
+          if (oldState !== srs_state && oldState !== 'none' && srs_state !== 'none') {
+            // Only update srs_count if state actually changed (not to/from 'none')
+            if (shouldIncrementSRSCount(oldState, srs_state)) {
+              newSRSCount = oldSRSCount + 1;
+            }
+            // If downgrade or re-affirm again/hard, keep srs_count unchanged
+          } else if (oldState === 'none' && srs_state !== 'none') {
+            // First time setting state (from 'none' to any state) - start with 0
+            newSRSCount = 0;
+          }
+          
+          // Calculate SRS interval and next_review_at
+          const now = Date.now();
+          let srsInterval = 0;
+          let nextReviewAt = null;
+          let lastReviewedAt = null;
+          
+          if (srs_state !== 'none') {
+            // Calculate interval in hours
+            srsInterval = await calculateSRSInterval(env, srs_state, newSRSCount, speakingAttempt, writingAttempt);
+            
+            // Set last_reviewed_at when state changes (not when setting to 'none')
+            if (oldState !== srs_state) {
+              lastReviewedAt = now;
+              // next_review_at = last_reviewed_at + (interval in milliseconds)
+              nextReviewAt = now + (srsInterval * 60 * 60 * 1000);
+            } else {
+              // If state didn't change, keep existing values
+              const existingState = await env.DB.prepare(`
+                SELECT last_reviewed_at, next_review_at FROM user_card_states
+                WHERE user_id = ? AND card_id = ?
+              `).bind(user_id, cardUUID).first();
+              lastReviewedAt = existingState?.last_reviewed_at || null;
+              nextReviewAt = existingState?.next_review_at || null;
+            }
+          }
           
           if (existing) {
             // Update existing state
             await env.DB.prepare(`
               UPDATE user_card_states
               SET srs_state = ?,
+                  srs_count = ?,
+                  srs_interval = ?,
+                  next_review_at = ?,
+                  last_reviewed_at = ?,
                   state_updated_at = unixepoch() * 1000,
                   updated_at = unixepoch() * 1000
               WHERE user_id = ? AND card_id = ?
-            `).bind(srs_state, user_id, cardUUID).run();
+            `).bind(srs_state, newSRSCount, srsInterval, nextReviewAt, lastReviewedAt, user_id, cardUUID).run();
           } else {
             // Create new state (should not happen if card is not saved, but handle it)
             // Get film_id and episode_id from card
@@ -6413,15 +6539,32 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               }
             }
             
+            // Calculate SRS interval and next_review_at for new state
+            let srsInterval = 0;
+            let nextReviewAt = null;
+            let lastReviewedAt = null;
+            let newSRSCount = 0;
+            
+            if (srs_state !== 'none') {
+              // Calculate interval in hours
+              srsInterval = await calculateSRSInterval(env, srs_state, newSRSCount, 0, 0);
+              
+              // Set timestamps for new state
+              const now = Date.now();
+              lastReviewedAt = now;
+              nextReviewAt = now + (srsInterval * 60 * 60 * 1000);
+            }
+            
             const stateId = crypto.randomUUID();
             await env.DB.prepare(`
               INSERT INTO user_card_states (
                 id, user_id, card_id, film_id, episode_id,
-                srs_state, state_created_at, state_updated_at,
+                srs_state, srs_count, srs_interval, next_review_at, last_reviewed_at,
+                state_created_at, state_updated_at,
                 created_at, updated_at
               )
-              VALUES (?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
-            `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId, srs_state).run();
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
+            `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId, srs_state, newSRSCount, srsInterval, nextReviewAt, lastReviewedAt).run();
           }
           
           // Award XP for SRS state change (only if state changed and not to/from 'none')
@@ -6472,7 +6615,9 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               ci.slug as film_slug,
               ci.title as film_title,
               ucs.state_created_at,
-              ucs.state_updated_at
+              ucs.state_updated_at,
+              ucs.created_at,
+              ucs.next_review_at
             FROM user_card_states ucs
             JOIN cards c ON ucs.card_id = c.id
             JOIN episodes e ON c.episode_id = e.id
@@ -6491,7 +6636,7 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           
           const total = countResult?.total || 0;
           
-          // Format cards similar to CardDoc - load subtitles for each card
+          // Format cards similar to CardDoc - load subtitles and XP data for each card
           const formattedCards = await Promise.all((cards.results || []).map(async (row) => {
             const filmSlug = row.film_slug || row.film_id;
             const epSlug = row.episode_slug || row.episode_id;
@@ -6505,6 +6650,39 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             const subtitle = {};
             (subs.results || []).forEach((s) => {
               subtitle[s.language] = s.text;
+            });
+            
+            // Calculate XP for this card by activity type
+            const xpData = await env.DB.prepare(`
+              SELECT 
+                rc.action_type,
+                COALESCE(SUM(xt.xp_amount), 0) as total_xp
+              FROM xp_transactions xt
+              JOIN rewards_config rc ON xt.reward_config_id = rc.id
+              WHERE xt.user_id = ? AND xt.card_id = ?
+              GROUP BY rc.action_type
+            `).bind(userId, row.card_id).all();
+            
+            // Initialize XP counts
+            let totalXP = 0;
+            let readingXP = 0;
+            let listeningXP = 0;
+            let speakingXP = 0;
+            let writingXP = 0;
+            
+            (xpData.results || []).forEach((xpRow) => {
+              const xp = xpRow.total_xp || 0;
+              totalXP += xp;
+              
+              if (xpRow.action_type === 'reading_8s') {
+                readingXP = xp;
+              } else if (xpRow.action_type === 'listening_5s') {
+                listeningXP = xp;
+              } else if (xpRow.action_type === 'speaking_attempt') {
+                speakingXP = xp;
+              } else if (xpRow.action_type === 'writing_attempt') {
+                writingXP = xp;
+              }
             });
             
             // Build image and audio URLs from stored keys (do not reconstruct the path)
@@ -6534,6 +6712,13 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               subtitle: subtitle,
               srs_state: row.srs_state || 'none',
               film_title: row.film_title,
+              created_at: row.created_at || row.state_created_at || null,
+              next_review_at: row.next_review_at || null,
+              xp_total: totalXP,
+              xp_reading: readingXP,
+              xp_listening: listeningXP,
+              xp_speaking: speakingXP,
+              xp_writing: writingXP,
             };
           }));
           
