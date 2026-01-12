@@ -1262,27 +1262,27 @@ const SearchResultCard = memo(function SearchResultCard({
       }
       setCurrentCardIndex(originalCardIndex);
       
-        // Auto-play audio for the original card
-        if (audioRef.current && originalCard.audio_url) {
-          audioRef.current.src = originalCard.audio_url;
-          // Set volume after src change (browser may reset volume when src changes)
-          const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
-          audioRef.current.volume = normalizedVolume;
-          // Pause all other audio instances
-          activeAudioInstances.forEach((otherAudio) => {
-            if (otherAudio !== audioRef.current) {
-              otherAudio.pause();
-            }
-          });
+      // Auto-play audio for the original card
+      if (audioRef.current && originalCard.audio_url) {
+        audioRef.current.src = originalCard.audio_url;
+        // Set volume after src change (browser may reset volume when src changes)
+        const normalizedVolume = Math.max(0, Math.min(100, volume)) / 100;
+        audioRef.current.volume = normalizedVolume;
+        // Pause all other audio instances
+        activeAudioInstances.forEach((otherAudio) => {
+          if (otherAudio !== audioRef.current) {
+            otherAudio.pause();
+          }
+        });
           // Reset listening session flag for original card audio
           hasIncrementedListeningSession.current = false;
           // Ensure play listener is set up
           cleanupAudioPlayListener(audioRef.current);
           setupAudioPlayListener(audioRef.current);
-          // Set volume again right before playing to ensure it's applied
-          audioRef.current.volume = normalizedVolume;
-          audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
-          setIsPlaying(true);
+        // Set volume again right before playing to ensure it's applied
+        audioRef.current.volume = normalizedVolume;
+        audioRef.current.play().catch(err => console.warn('Audio play failed:', err));
+        setIsPlaying(true);
       } else {
         setIsPlaying(false);
         if (audioRef.current) {

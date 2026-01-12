@@ -52,6 +52,11 @@
   --light-media-badge-bg: rgba(253, 170, 170, 0.5);
   --light-chart-dot-fill: #F2EDE5;
   --light-chart-dot-stroke: #000000;
+  --light-headphone-icon: #948979;
+  --light-checkbox-bg: #F2EDE5;
+  --light-checkbox-border: rgba(43, 35, 40, 0.5);
+  --light-collapse-button-bg: #FDAAAA;
+  --light-collapse-button-text: #2B2328;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -104,6 +109,11 @@
   --dark-media-badge-bg: rgba(253, 170, 170, 0.5);
   --dark-chart-dot-fill: #F2EDE5;
   --dark-chart-dot-stroke: #000000;
+  --dark-headphone-icon: #948979;
+  --dark-checkbox-bg: rgba(242, 237, 229, 0.1);
+  --dark-checkbox-border: rgba(242, 237, 229, 0.3);
+  --dark-collapse-button-bg: #9E2741;
+  --dark-collapse-button-text: #F2EDE5;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -175,6 +185,11 @@
   --media-badge-bg: var(--light-media-badge-bg);
   --chart-dot-fill: var(--light-chart-dot-fill);
   --chart-dot-stroke: var(--light-chart-dot-stroke);
+  --headphone-icon: var(--light-headphone-icon);
+  --checkbox-bg: var(--light-checkbox-bg);
+  --checkbox-border: var(--light-checkbox-border);
+  --collapse-button-bg: var(--light-collapse-button-bg);
+  --collapse-button-text: var(--light-collapse-button-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -240,6 +255,11 @@
   --media-badge-bg: var(--dark-media-badge-bg);
   --chart-dot-fill: var(--dark-chart-dot-fill);
   --chart-dot-stroke: var(--dark-chart-dot-stroke);
+  --headphone-icon: var(--dark-headphone-icon);
+  --checkbox-bg: var(--dark-checkbox-bg);
+  --checkbox-border: var(--dark-checkbox-border);
+  --collapse-button-bg: var(--dark-collapse-button-bg);
+  --collapse-button-text: var(--dark-collapse-button-text);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);

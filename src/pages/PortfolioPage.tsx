@@ -1,7 +1,9 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
 import { apiGetUserPortfolio, apiGetStreakHistory, apiGetMonthlyXP, apiGetUserMetrics, type UserPortfolio, type StreakHistoryItem, type MonthlyXPData, type UserMetrics } from '../services/portfolioApi';
 import { apiGetSavedCards, apiListItems, apiUpdateCardSRSState } from '../services/cfApi';
+import { apiTrackTime } from '../services/userTracking';
+import { apiIncrementListeningSession } from '../services/userTracking';
 import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from '../types/srsStates';
 import type { CardDoc, FilmDoc, LevelFrameworkStats } from '../types';
 import FilterPanel from '../components/FilterPanel';
@@ -22,7 +24,7 @@ export default function PortfolioPage() {
   const [portfolio, setPortfolio] = useState<UserPortfolio | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
-  const [savedCards, setSavedCards] = useState<Array<CardDoc & { srs_state: string; film_title?: string; episode_number?: number }>>([]);
+  const [savedCards, setSavedCards] = useState<Array<CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number }>>([]);
   const [allItems, setAllItems] = useState<FilmDoc[]>([]);
   const [serverContentCounts, setServerContentCounts] = useState<Record<string, number>>({});
   const [contentFilter, setContentFilter] = useState<string[]>([]);
@@ -30,10 +32,16 @@ export default function PortfolioPage() {
   const [srsDropdownOpen, setSrsDropdownOpen] = useState<Record<string, boolean>>({});
   const srsDropdownRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [tableSearchQuery, setTableSearchQuery] = useState('');
-  const [groupBy, setGroupBy] = useState<string>('none');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [groupBy, setGroupBy] = useState<string>('save_date');
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set(['Main Subtitle', 'Image', 'Level', 'Media', 'SRS State', 'Due Date', 'XP Count']));
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [groupByDropdownOpen, setGroupByDropdownOpen] = useState(false);
   const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
+  const groupByDropdownRef = useRef<HTMLDivElement>(null);
+  const columnsDropdownRef = useRef<HTMLDivElement>(null);
+  const [groupByDropdownPosition, setGroupByDropdownPosition] = useState<{ top: number; left: number } | null>(null);
+  const [columnsDropdownPosition, setColumnsDropdownPosition] = useState<{ top: number; left: number } | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [gridSquares, setGridSquares] = useState<number>(150);
   const [gridWidth, setGridWidth] = useState<string>('100%');
@@ -50,7 +58,226 @@ export default function PortfolioPage() {
   const [metricsLoading, setMetricsLoading] = useState(false);
   // Selected metrics for each card (index-based)
   const [selectedMetricTypes] = useState<Array<'srs' | 'listening' | 'reading'>>(['srs', 'listening', 'reading']);
-  const [selectedMetrics, setSelectedMetrics] = useState<Array<string>>(['due_cards', 'listening_time', 'reading_time']);
+  const [selectedMetrics, setSelectedMetrics] = useState<Array<string>>(['due_cards', 'time_minutes', 'time_minutes']);
+  
+  // Audio and tracking state for table cards
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
+  const readingTimeAccumulatorRef = useRef<number>(0);
+  const readingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listeningTimeAccumulatorRef = useRef<number>(0);
+  const listeningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readingStartTimeRef = useRef<Record<string, number>>({});
+  const listeningStartTimeRef = useRef<Record<string, number>>({});
+  const readingIntervalRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const listeningIntervalRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const hasIncrementedListeningSessionRef = useRef<Record<string, boolean>>({});
+
+  // Track reading time (debounced to avoid too many API calls)
+  const handleTrackReading = useCallback((seconds: number) => {
+    if (!user?.uid || seconds <= 0) return;
+    
+    readingTimeAccumulatorRef.current += seconds;
+    
+    // Debounce: accumulate and send every 8 seconds
+    if (readingTimeoutRef.current) {
+      clearTimeout(readingTimeoutRef.current);
+    }
+    
+    readingTimeoutRef.current = setTimeout(async () => {
+      const totalSeconds = readingTimeAccumulatorRef.current;
+      if (totalSeconds > 0 && user?.uid) {
+        readingTimeAccumulatorRef.current = 0;
+        try {
+          await apiTrackTime(user.uid, totalSeconds, 'reading');
+        } catch (error) {
+          console.error('Failed to track reading time:', error);
+        }
+      }
+    }, 8000);
+  }, [user?.uid]);
+
+  // Track listening time (debounced to avoid too many API calls)
+  const handleTrackListening = useCallback((seconds: number) => {
+    if (!user?.uid || seconds <= 0) return;
+    
+    listeningTimeAccumulatorRef.current += seconds;
+    
+    // Debounce: accumulate and send every 5 seconds
+    if (listeningTimeoutRef.current) {
+      clearTimeout(listeningTimeoutRef.current);
+    }
+    
+    listeningTimeoutRef.current = setTimeout(async () => {
+      const totalSeconds = listeningTimeAccumulatorRef.current;
+      if (totalSeconds > 0 && user?.uid) {
+        listeningTimeAccumulatorRef.current = 0;
+        try {
+          await apiTrackTime(user.uid, totalSeconds, 'listening');
+        } catch (error) {
+          console.error('Failed to track listening time:', error);
+        }
+      }
+    }, 5000);
+  }, [user?.uid]);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (readingTimeoutRef.current) {
+        clearTimeout(readingTimeoutRef.current);
+      }
+      if (listeningTimeoutRef.current) {
+        clearTimeout(listeningTimeoutRef.current);
+      }
+      // Send any remaining accumulated time
+      if (readingTimeAccumulatorRef.current > 0 && user?.uid) {
+        apiTrackTime(user.uid, readingTimeAccumulatorRef.current, 'reading').catch(() => {});
+      }
+      if (listeningTimeAccumulatorRef.current > 0 && user?.uid) {
+        apiTrackTime(user.uid, listeningTimeAccumulatorRef.current, 'listening').catch(() => {});
+      }
+      // Cleanup all audio refs
+      Object.values(audioRefs.current).forEach(audio => {
+        audio.pause();
+        audio.src = '';
+      });
+      // Cleanup all intervals
+      Object.values(readingIntervalRef.current).forEach(interval => clearInterval(interval));
+      Object.values(listeningIntervalRef.current).forEach(interval => clearInterval(interval));
+    };
+  }, [user?.uid]);
+
+  // Handle audio play for table cards
+  const handleTableCardAudioPlay = useCallback((card: CardDoc) => {
+    if (!card.audio_url || !card.id) return;
+    
+    const cardId = card.id;
+    const isCurrentlyPlaying = playingAudioId === cardId;
+    
+    // Pause all other audio
+    Object.entries(audioRefs.current).forEach(([id, audio]) => {
+      if (id !== cardId) {
+        audio.pause();
+        // Stop tracking listening time for paused audio
+        if (listeningStartTimeRef.current[id]) {
+          const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current[id]) / 1000);
+          if (elapsed > 0) {
+            handleTrackListening(elapsed);
+          }
+          listeningStartTimeRef.current[id] = 0;
+        }
+        if (listeningIntervalRef.current[id]) {
+          clearInterval(listeningIntervalRef.current[id]);
+          delete listeningIntervalRef.current[id];
+        }
+      }
+    });
+    
+    if (isCurrentlyPlaying) {
+      // Pause current audio
+      if (audioRefs.current[cardId]) {
+        audioRefs.current[cardId].pause();
+        // Stop tracking listening time
+        if (listeningStartTimeRef.current[cardId]) {
+          const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current[cardId]) / 1000);
+          if (elapsed > 0) {
+            handleTrackListening(elapsed);
+          }
+          listeningStartTimeRef.current[cardId] = 0;
+        }
+        if (listeningIntervalRef.current[cardId]) {
+          clearInterval(listeningIntervalRef.current[cardId]);
+          delete listeningIntervalRef.current[cardId];
+        }
+      }
+      setPlayingAudioId(null);
+    } else {
+      // Play audio
+      if (!audioRefs.current[cardId]) {
+        audioRefs.current[cardId] = new Audio(card.audio_url);
+        
+        // Setup play listener for listening session tracking
+        audioRefs.current[cardId].addEventListener('play', () => {
+          if (!hasIncrementedListeningSessionRef.current[cardId] && user?.uid) {
+            hasIncrementedListeningSessionRef.current[cardId] = true;
+            apiIncrementListeningSession().catch(err => {
+              console.warn('Failed to increment listening session:', err);
+            });
+          }
+        });
+        
+        // Setup ended listener
+        audioRefs.current[cardId].addEventListener('ended', () => {
+          setPlayingAudioId(null);
+          hasIncrementedListeningSessionRef.current[cardId] = false;
+          // Stop tracking listening time
+          if (listeningStartTimeRef.current[cardId]) {
+            const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current[cardId]) / 1000);
+            if (elapsed > 0) {
+              handleTrackListening(elapsed);
+            }
+            listeningStartTimeRef.current[cardId] = 0;
+          }
+          if (listeningIntervalRef.current[cardId]) {
+            clearInterval(listeningIntervalRef.current[cardId]);
+            delete listeningIntervalRef.current[cardId];
+          }
+        });
+      } else {
+        audioRefs.current[cardId].src = card.audio_url;
+      }
+      
+      audioRefs.current[cardId].play().catch(err => console.warn('Audio play failed:', err));
+      setPlayingAudioId(cardId);
+      
+      // Start tracking listening time
+      listeningStartTimeRef.current[cardId] = Date.now();
+      listeningIntervalRef.current[cardId] = setInterval(() => {
+        if (listeningStartTimeRef.current[cardId]) {
+          const elapsed = (Date.now() - listeningStartTimeRef.current[cardId]) / 1000;
+          if (elapsed >= 5) {
+            handleTrackListening(5);
+            listeningStartTimeRef.current[cardId] = Date.now(); // Reset for next interval
+          }
+        }
+      }, 5000);
+    }
+  }, [playingAudioId, user?.uid, handleTrackListening]);
+
+  // Handle hover on table row for reading time tracking
+  const handleTableRowMouseEnter = useCallback((card: CardDoc) => {
+    if (!card.id) return;
+    
+    // Start tracking reading time
+    readingStartTimeRef.current[card.id] = Date.now();
+    readingIntervalRef.current[card.id] = setInterval(() => {
+      if (readingStartTimeRef.current[card.id]) {
+        const elapsed = (Date.now() - readingStartTimeRef.current[card.id]) / 1000;
+        if (elapsed >= 8) {
+          handleTrackReading(8);
+          readingStartTimeRef.current[card.id] = Date.now(); // Reset for next interval
+        }
+      }
+    }, 8000);
+  }, [handleTrackReading]);
+
+  const handleTableRowMouseLeave = useCallback((card: CardDoc) => {
+    if (!card.id) return;
+    
+    // Stop tracking reading time and report final time
+    if (readingStartTimeRef.current[card.id]) {
+      const elapsed = Math.floor((Date.now() - readingStartTimeRef.current[card.id]) / 1000);
+      if (elapsed > 0) {
+        handleTrackReading(elapsed);
+      }
+      readingStartTimeRef.current[card.id] = 0;
+    }
+    if (readingIntervalRef.current[card.id]) {
+      clearInterval(readingIntervalRef.current[card.id]);
+      delete readingIntervalRef.current[card.id];
+    }
+  }, [handleTrackReading]);
 
   // Load portfolio data
   useEffect(() => {
@@ -153,6 +380,15 @@ export default function PortfolioPage() {
     return () => { mounted = false; };
   }, [user?.uid]);
 
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(tableSearchQuery);
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timer);
+  }, [tableSearchQuery]);
+
   // Parse level framework stats helper
   const parseLevelStats = (raw: unknown): LevelFrameworkStats | null => {
     if (!raw) return null;
@@ -252,10 +488,19 @@ export default function PortfolioPage() {
               ? String(rawSrsState).toLowerCase().trim() 
               : 'none';
             
-            const cardData: CardDoc & { srs_state: string; film_title?: string; episode_number?: number } = {
+            const cardData: CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number } = {
               ...c,
               // Ensure srs_state is normalized and preserved
               srs_state: normalizedSrsState,
+              // Preserve created_at and next_review_at from API
+              created_at: c.created_at || null,
+              next_review_at: c.next_review_at || null,
+              // Preserve XP data from API
+              xp_total: c.xp_total || 0,
+              xp_reading: c.xp_reading || 0,
+              xp_listening: c.xp_listening || 0,
+              xp_speaking: c.xp_speaking || 0,
+              xp_writing: c.xp_writing || 0,
             };
             
             // Add levels
@@ -369,16 +614,100 @@ export default function PortfolioPage() {
           setSrsDropdownOpen(prev => ({ ...prev, [cardId]: false }));
         }
       });
+      
+      // Close Group By dropdown
+      if (groupByDropdownRef.current && !groupByDropdownRef.current.contains(event.target as Node)) {
+        setGroupByDropdownOpen(false);
+        setGroupByDropdownPosition(null);
+      }
+      
+      // Close Columns dropdown
+      if (columnsDropdownRef.current && !columnsDropdownRef.current.contains(event.target as Node)) {
+        setColumnsDropdownOpen(false);
+        setColumnsDropdownPosition(null);
+      }
     };
     
-    if (Object.values(srsDropdownOpen).some(open => open)) {
+    if (Object.values(srsDropdownOpen).some(open => open) || groupByDropdownOpen || columnsDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [srsDropdownOpen]);
+  }, [srsDropdownOpen, groupByDropdownOpen, columnsDropdownOpen]);
+  
+  // Update dropdown positions on scroll (throttled for performance)
+  useEffect(() => {
+    let rafId: number | null = null;
+    const updateDropdownPositions = () => {
+      if (rafId) return; // Skip if already scheduled
+      
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (groupByDropdownOpen && groupByDropdownRef.current) {
+          const rect = groupByDropdownRef.current.getBoundingClientRect();
+          setGroupByDropdownPosition({
+            top: rect.bottom + 4,
+            left: rect.left
+          });
+        }
+        if (columnsDropdownOpen && columnsDropdownRef.current) {
+          const rect = columnsDropdownRef.current.getBoundingClientRect();
+          setColumnsDropdownPosition({
+            top: rect.bottom + 4,
+            left: rect.left
+          });
+        }
+      });
+    };
+
+    if (groupByDropdownOpen || columnsDropdownOpen) {
+      // Use scroll with capture phase and passive for better performance
+      window.addEventListener('scroll', updateDropdownPositions, { capture: true, passive: true });
+      window.addEventListener('resize', updateDropdownPositions, { passive: true });
+      return () => {
+        if (rafId) {
+          cancelAnimationFrame(rafId);
+        }
+        window.removeEventListener('scroll', updateDropdownPositions, { capture: true } as any);
+        window.removeEventListener('resize', updateDropdownPositions);
+      };
+    }
+  }, [groupByDropdownOpen, columnsDropdownOpen]);
+  
+  // Calculate dropdown position when opening
+  const handleGroupByToggle = () => {
+    const newState = !groupByDropdownOpen;
+    setGroupByDropdownOpen(newState);
+    setColumnsDropdownOpen(false);
+    
+    if (newState && groupByDropdownRef.current) {
+      const rect = groupByDropdownRef.current.getBoundingClientRect();
+      setGroupByDropdownPosition({
+        top: rect.bottom + 4,
+        left: rect.left
+      });
+    } else {
+      setGroupByDropdownPosition(null);
+    }
+  };
+  
+  const handleColumnsToggle = () => {
+    const newState = !columnsDropdownOpen;
+    setColumnsDropdownOpen(newState);
+    setGroupByDropdownOpen(false);
+    
+    if (newState && columnsDropdownRef.current) {
+      const rect = columnsDropdownRef.current.getBoundingClientRect();
+      setColumnsDropdownPosition({
+        top: rect.bottom + 4,
+        left: rect.left
+      });
+    } else {
+      setColumnsDropdownPosition(null);
+    }
+  };
 
   // Handle SRS state change
   const handleSRSStateChange = useCallback(async (card: CardDoc, newState: SRSState) => {
@@ -478,7 +807,7 @@ export default function PortfolioPage() {
     };
   }, [portfolio]);
 
-  // Filter saved cards by content filter and main language
+  // Filter and group saved cards by content filter, main language, and group by option
   const filteredSavedCards = useMemo(() => {
     let filtered = savedCards;
 
@@ -496,20 +825,71 @@ export default function PortfolioPage() {
       filtered = filtered.filter(card => contentFilter.includes(card.film_id || ''));
     }
 
-    // Filter by table search query
-    if (tableSearchQuery.trim()) {
-      const query = tableSearchQuery.toLowerCase();
+    // Filter by table search query (debounced, only search Main Subtitle)
+    if (debouncedSearchQuery.trim()) {
+      const query = debouncedSearchQuery.toLowerCase();
       filtered = filtered.filter(card => {
         const mainLang = preferences?.main_language || 'en';
         const subtitle = card.subtitle?.[mainLang] || card.sentence || '';
-        const film = allItems.find(item => item.id === card.film_id);
-        const filmTitle = film?.title || '';
-        return subtitle.toLowerCase().includes(query) || filmTitle.toLowerCase().includes(query);
+        return subtitle.toLowerCase().includes(query);
       });
     }
 
-    return filtered;
-  }, [savedCards, preferences?.main_language, allItems, contentFilter, tableSearchQuery]);
+    // Group by Save Date if selected
+    if (groupBy === 'save_date') {
+      // Group cards by created_at (Save Date) - group by date (YYYY-MM-DD)
+      const grouped = new Map<string, typeof filtered>();
+      filtered.forEach(card => {
+        const createdAt = (card as any).created_at;
+        if (createdAt && typeof createdAt === 'number') {
+          const date = new Date(createdAt);
+          const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+          if (!grouped.has(dateKey)) {
+            grouped.set(dateKey, []);
+          }
+          grouped.get(dateKey)!.push(card);
+        } else {
+          // Cards without created_at go to "Unknown" group
+          if (!grouped.has('unknown')) {
+            grouped.set('unknown', []);
+          }
+          grouped.get('unknown')!.push(card);
+        }
+      });
+      
+      // Sort groups by date (newest first), with "unknown" at the end
+      const sortedGroups = Array.from(grouped.entries()).sort((a, b) => {
+        if (a[0] === 'unknown') return 1;
+        if (b[0] === 'unknown') return -1;
+        return b[0].localeCompare(a[0]); // Descending order (newest first)
+      });
+      
+      // Return grouped structure - will be handled in render
+      return { grouped: sortedGroups, isGrouped: true };
+    }
+
+    return { cards: filtered, isGrouped: false };
+  }, [savedCards, preferences?.main_language, allItems, contentFilter, debouncedSearchQuery, groupBy]);
+  
+  // Helper to format date for display
+  const formatGroupDate = (dateKey: string): string => {
+    if (dateKey === 'unknown') return 'Unknown';
+    const date = new Date(dateKey);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  
+  // Toggle collapse for a date group
+  const toggleGroupCollapse = useCallback((dateKey: string) => {
+    setCollapsedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(dateKey)) {
+        newSet.delete(dateKey);
+      } else {
+        newSet.add(dateKey);
+      }
+      return newSet;
+    });
+  }, []);
 
   // Filter items by mainLanguage and only show items that user has saved cards
   const filteredItems = useMemo(() => {
@@ -639,13 +1019,29 @@ export default function PortfolioPage() {
   }, [currentMonth]);
 
   // Generate visible date labels (2, 5, 8, 11... up to 29)
+  // Always include today's date if viewing current month (for Today line)
   const visibleDateLabels = useMemo(() => {
-    return dateLabels.filter(date => {
+    const filtered = dateLabels.filter(date => {
       const day = date.day;
       // Show days: 2, 5, 8, 11, 14, 17, 20, 23, 26, 29
       return (day - 2) % 3 === 0 && day <= 29;
     });
-  }, [dateLabels]);
+    
+    // Always include today's date if it's in the current month and not already in the list
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === currentMonth.year && today.getMonth() + 1 === currentMonth.month;
+    if (isCurrentMonth) {
+      const todayDay = today.getDate();
+      const todayDateLabel = dateLabels.find(d => d.day === todayDay);
+      if (todayDateLabel && !filtered.find(d => d.day === todayDay)) {
+        filtered.push(todayDateLabel);
+        // Sort by day to maintain order
+        filtered.sort((a, b) => a.day - b.day);
+      }
+    }
+    
+    return filtered;
+  }, [dateLabels, currentMonth]);
 
   // Process streak history for heatmap
   const streakMap = useMemo(() => {
@@ -852,9 +1248,9 @@ export default function PortfolioPage() {
         filmTypeMap={filmTypeMap}
         filmLangMap={filmLangMap}
         filmStatsMap={filmStatsMap}
-        allResults={filteredSavedCards}
+        allResults={filteredSavedCards.isGrouped && filteredSavedCards.grouped ? filteredSavedCards.grouped.flatMap(([_, cards]) => cards) : (filteredSavedCards.cards || [])}
         contentCounts={contentCounts}
-        totalCount={filteredSavedCards.length}
+        totalCount={filteredSavedCards.isGrouped && filteredSavedCards.grouped ? filteredSavedCards.grouped.reduce((sum, [_, cards]) => sum + cards.length, 0) : (filteredSavedCards.cards?.length || 0)}
         allContentIds={allContentIds}
         filmFilter={contentFilter}
         onSelectFilm={setContentFilter}
@@ -971,7 +1367,7 @@ export default function PortfolioPage() {
             )}
           </div>
         </div>
-
+        
         {/* Listening Metrics Card */}
         <div className="portfolio-metric-card" style={{ position: 'relative' }} ref={(el) => { if (el && metricDropdownRefs.current) metricDropdownRefs.current[1] = el; }}>
           <div className="portfolio-metric-value">
@@ -990,7 +1386,7 @@ export default function PortfolioPage() {
             {metricDropdownOpen[1] && (
               <div 
                 className="portfolio-metric-dropdown"
-                style={{
+            style={{ 
                   position: 'absolute',
                   top: '100%',
                   left: 0,
@@ -1025,8 +1421,8 @@ export default function PortfolioPage() {
                     onClick={() => {
                       setSelectedMetrics(prev => { const newArr = [...prev]; newArr[1] = option.key; return newArr; });
                       setMetricDropdownOpen(prev => ({ ...prev, 1: false }));
-                    }}
-                  >
+            }}
+          >
                     {option.label}
                   </button>
                 ))}
@@ -1156,26 +1552,10 @@ export default function PortfolioPage() {
           </div>
           <div className="portfolio-graph-container">
             {/* Tooltip for chart points */}
-            <div
-              id="xp-chart-tooltip"
-              style={{
-                display: 'none',
-                position: 'fixed',
-                background: 'var(--background)',
-                border: '2px solid var(--chart-dot-stroke)',
-                borderRadius: '4px',
-                padding: '8px 12px',
-                fontFamily: "'Noto Sans', sans-serif",
-                fontSize: '14px',
-                color: 'var(--text)',
-                pointerEvents: 'none',
-                zIndex: 10000,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-              }}
-            />
+            <div id="xp-chart-tooltip" className="portfolio-xp-chart-tooltip" />
             <div className="portfolio-graph-placeholder">
               {xpProgressData.length > 0 ? (
-                <svg width="100%" height="100%" viewBox="40 -20 1000 270" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0 }}>
+                <svg width="100%" height="100%" viewBox="30 -20 1020 270" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, left: 0 }}>
                 {[0, 25, 50, 75, 100].map((y) => (
                     <line key={y} x1="40" y1={y * 2} x2="1040" y2={y * 2} stroke="var(--neutral)" strokeWidth="0.5" opacity="0.3" />
                 ))}
@@ -1249,15 +1629,17 @@ export default function PortfolioPage() {
                       {date.isToday && (
                         <line x1={x} y1="0" x2={x} y2="200" stroke="var(--hover-select)" strokeWidth="1.5" />
                       )}
-                      <text 
-                        x={x} 
-                        y="240" 
-                        textAnchor="middle" 
-                        className="portfolio-graph-date-label"
-                        fill={date.isToday ? "var(--hover-select)" : "var(--text)"}
-                      >
-                        {date.label}
-                      </text>
+                      {!date.isToday && (
+                        <text 
+                          x={x} 
+                          y="240" 
+                          textAnchor="middle" 
+                          className="portfolio-graph-date-label"
+                          fill="var(--text)"
+                        >
+                          {date.label}
+                        </text>
+                      )}
                       {date.isToday && (
                         <text x={x} y="-5" textAnchor="middle" className="portfolio-graph-today-label">Today</text>
                       )}
@@ -1275,8 +1657,8 @@ export default function PortfolioPage() {
             </div>
             </div>
 
-      {/* Heatmap Section */}
-      <div className="portfolio-heatmap-section">
+      {/* Heatmap Section - Hidden for now */}
+      <div className="portfolio-heatmap-section" style={{ display: 'none' }}>
         <div 
           ref={gridRef} 
           className="portfolio-grid-pattern" 
@@ -1308,7 +1690,7 @@ export default function PortfolioPage() {
               />
                   );
                 })}
-        </div>
+          </div>
       </div>
 
       {/* Saved Cards Table Section */}
@@ -1328,13 +1710,10 @@ export default function PortfolioPage() {
             <button className="portfolio-table-filter-btn" aria-label="Filter">
               <img src={filterIcon} alt="Filter" />
             </button>
-            <div className="portfolio-table-dropdown-wrapper">
+            <div className="portfolio-table-dropdown-wrapper" ref={groupByDropdownRef}>
               <button
                 className="portfolio-table-dropdown-btn"
-                onClick={() => {
-                  setGroupByDropdownOpen(!groupByDropdownOpen);
-                  setColumnsDropdownOpen(false);
-                }}
+                onClick={handleGroupByToggle}
               >
                 <span>Group By</span>
                 {groupBy === 'save_date' && (
@@ -1342,8 +1721,14 @@ export default function PortfolioPage() {
                 )}
                 <img src={buttonPlayIcon} alt="" className={groupByDropdownOpen ? 'rotate-90' : ''} />
               </button>
-              {groupByDropdownOpen && (
-                <div className="portfolio-table-dropdown-menu">
+              {groupByDropdownOpen && groupByDropdownPosition && (
+                <div 
+                  className="portfolio-table-dropdown-menu"
+                  style={{
+                    top: `${groupByDropdownPosition.top}px`,
+                    left: `${groupByDropdownPosition.left}px`
+                  }}
+                >
                   <button
                     className={`portfolio-table-dropdown-item ${groupBy === 'none' ? 'active' : ''}`}
                     onClick={() => {
@@ -1365,23 +1750,26 @@ export default function PortfolioPage() {
               </div>
             )}
             </div>
-            <div className="portfolio-table-dropdown-wrapper">
+            <div className="portfolio-table-dropdown-wrapper" ref={columnsDropdownRef}>
               <button
                 className="portfolio-table-dropdown-btn"
-                onClick={() => {
-                  setColumnsDropdownOpen(!columnsDropdownOpen);
-                  setGroupByDropdownOpen(false);
-                }}
+                onClick={handleColumnsToggle}
               >
                 <span>Columns</span>
                 <span className="portfolio-table-dropdown-info">{selectedColumns.size}</span>
                 <img src={buttonPlayIcon} alt="" className={columnsDropdownOpen ? 'rotate-90' : ''} />
               </button>
-              {columnsDropdownOpen && (
-                <div className="portfolio-table-dropdown-menu">
-                  {['Main Subtitle', 'Image', 'Level', 'Media', 'SRS State', 'Due Date', 'XP Count'].map((col) => {
+              {columnsDropdownOpen && columnsDropdownPosition && (
+                <div 
+                  className="portfolio-table-dropdown-menu"
+                  style={{
+                    top: `${columnsDropdownPosition.top}px`,
+                    left: `${columnsDropdownPosition.left}px`
+                  }}
+                >
+                  {['Image', 'Level', 'Media', 'SRS State', 'Due Date', 'XP Count', 'XP Count (Reading)', 'XP Count (Listening)', 'XP Count (Speaking)', 'XP Count (Writing)'].map((col) => {
                     const isChecked = selectedColumns.has(col);
-                    return (
+                  return (
                       <button
                         key={col}
                         type="button"
@@ -1422,36 +1810,118 @@ export default function PortfolioPage() {
                 {selectedColumns.has('SRS State') && <th>SRS State</th>}
                 {selectedColumns.has('Due Date') && <th>Due Date</th>}
                 {selectedColumns.has('XP Count') && <th>XP Count</th>}
+                {selectedColumns.has('XP Count (Reading)') && <th>XP Count (Reading)</th>}
+                {selectedColumns.has('XP Count (Listening)') && <th>XP Count (Listening)</th>}
+                {selectedColumns.has('XP Count (Speaking)') && <th>XP Count (Speaking)</th>}
+                {selectedColumns.has('XP Count (Writing)') && <th>XP Count (Writing)</th>}
               </tr>
             </thead>
             <tbody>
-              {filteredSavedCards.length === 0 ? (
-                <tr>
-                  <td colSpan={selectedColumns.size} style={{ textAlign: 'center', padding: '40px', color: 'var(--neutral)' }}>
-                    No saved cards found
-                  </td>
-                </tr>
-              ) : (
-                filteredSavedCards.map((card, idx) => {
-                  const film = allItems.find(item => item.id === card.film_id);
-                  const mainLang = preferences?.main_language || 'en';
-                  const mainSubtitle = card.subtitle?.[mainLang] || card.sentence || '';
-                  // Get srs_state from card (already normalized in cardsWithLevels)
-                  const srsState = (card as any).srs_state || 'none';
-                  const episodeNum = (card as any).episode_number || null;
-                  
+              {(() => {
+                if (filteredSavedCards.isGrouped && filteredSavedCards.grouped) {
+                  // Render grouped by date
+                  if (filteredSavedCards.grouped.length === 0) {
                   return (
-                    <tr key={card.id || idx}>
+                      <tr>
+                        <td colSpan={selectedColumns.size} style={{ textAlign: 'center', padding: '40px', color: 'var(--neutral)' }}>
+                          No saved cards found
+                        </td>
+                      </tr>
+                    );
+                  }
+                  
+                  return filteredSavedCards.grouped.map(([dateKey, cards]) => {
+                    const isCollapsed = collapsedGroups.has(dateKey);
+                    const dateLabel = formatGroupDate(dateKey);
+                    
+                    return (
+                      <React.Fragment key={dateKey}>
+                        <tr className="portfolio-table-group-header">
+                          <td colSpan={selectedColumns.size} className="portfolio-table-group-header-cell">
+                            <button
+                              className="portfolio-table-collapse-button"
+                              onClick={() => toggleGroupCollapse(dateKey)}
+                            >
+                              <span>{dateLabel}</span>
+                              <img 
+                                src={buttonPlayIcon} 
+                                alt="" 
+                                className={isCollapsed ? '' : 'rotate-90'} 
+                                style={{ width: '12px', height: '12px', filter: 'var(--icon-text-filter)' }}
+                              />
+                            </button>
+                          </td>
+                        </tr>
+                        {!isCollapsed && cards.map((card, cardIdx) => {
+                          const film = allItems.find(item => item.id === card.film_id);
+                          const mainLang = preferences?.main_language || 'en';
+                          const mainSubtitle = card.subtitle?.[mainLang] || card.sentence || '';
+                          const srsState = (card as any).srs_state || 'none';
+                          const episodeNum = (card as any).episode_number || null;
+                          
+                          return (
+                            <tr 
+                              key={card.id || cardIdx}
+                              onMouseEnter={() => handleTableRowMouseEnter(card)}
+                              onMouseLeave={() => handleTableRowMouseLeave(card)}
+                            >
                       {selectedColumns.has('Main Subtitle') && (
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <input type="checkbox" />
-                            <span style={{ 
-                              overflow: 'hidden', 
-                              textOverflow: 'ellipsis', 
-                              whiteSpace: 'nowrap',
-                              maxWidth: '200px'
-                            }}>
+                            <input 
+                              type="checkbox" 
+                              className="portfolio-table-checkbox"
+                            />
+                            <div 
+                              style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                cursor: card.audio_url ? 'pointer' : 'default',
+                                position: 'relative'
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (card.audio_url) {
+                                  handleTableCardAudioPlay(card);
+                                }
+                              }}
+                              title={card.audio_url ? 'Click to play audio' : ''}
+                            >
+                              <svg 
+                                width="16" 
+                                height="16" 
+                                viewBox="0 0 24 24" 
+                                fill="none" 
+                                xmlns="http://www.w3.org/2000/svg"
+                                style={{ flexShrink: 0 }}
+                              >
+                                <path 
+                                  d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" 
+                                  fill="var(--headphone-icon)"
+                                />
+                              </svg>
+                              {playingAudioId === card.id && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '-2px',
+                                  right: '-2px',
+                                  width: '8px',
+                                  height: '8px',
+                                  borderRadius: '50%',
+                                  background: 'var(--primary)',
+                                  animation: 'pulse 1.5s ease-in-out infinite'
+                                }} />
+                              )}
+                            </div>
+                            <span 
+                              style={{ 
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis', 
+                                whiteSpace: 'nowrap',
+                                maxWidth: '200px'
+                              }}
+                              title={mainSubtitle}
+                            >
                               {mainSubtitle}
                             </span>
                           </div>
@@ -1607,16 +2077,298 @@ export default function PortfolioPage() {
                       )}
                       {selectedColumns.has('Due Date') && (
                         <td>
-                          {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {(() => {
+                            const nextReviewAt = (card as any).next_review_at;
+                            if (nextReviewAt && typeof nextReviewAt === 'number') {
+                              return new Date(nextReviewAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                            }
+                            return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                          })()}
                         </td>
                       )}
                       {selectedColumns.has('XP Count') && (
-                        <td>22 XP</td>
+                        <td>{(card as any).xp_total || 0} XP</td>
                       )}
-                    </tr>
+                      {selectedColumns.has('XP Count (Reading)') && (
+                        <td>{(card as any).xp_reading || 0} XP</td>
+                      )}
+                      {selectedColumns.has('XP Count (Listening)') && (
+                        <td>{(card as any).xp_listening || 0} XP</td>
+                      )}
+                      {selectedColumns.has('XP Count (Speaking)') && (
+                        <td>{(card as any).xp_speaking || 0} XP</td>
+                      )}
+                      {selectedColumns.has('XP Count (Writing)') && (
+                        <td>{(card as any).xp_writing || 0} XP</td>
+                      )}
+                            </tr>
                   );
-                })
-              )}
+                })}
+                      </React.Fragment>
+                    );
+                  });
+                } else {
+                  // Render ungrouped
+                  const cards = filteredSavedCards.cards || [];
+                  if (cards.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={selectedColumns.size} style={{ textAlign: 'center', padding: '40px', color: 'var(--neutral)' }}>
+                          No saved cards found
+                        </td>
+                      </tr>
+                    );
+                  }
+                  
+                  return cards.map((card, idx) => {
+                    const film = allItems.find(item => item.id === card.film_id);
+                    const mainLang = preferences?.main_language || 'en';
+                    const mainSubtitle = card.subtitle?.[mainLang] || card.sentence || '';
+                    const srsState = (card as any).srs_state || 'none';
+                    const episodeNum = (card as any).episode_number || null;
+                    
+                    return (
+                      <tr 
+                        key={card.id || idx}
+                        onMouseEnter={() => handleTableRowMouseEnter(card)}
+                        onMouseLeave={() => handleTableRowMouseLeave(card)}
+                      >
+                        {selectedColumns.has('Main Subtitle') && (
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <input 
+                                type="checkbox" 
+                                className="portfolio-table-checkbox"
+                              />
+                              <div 
+                                style={{ 
+                                  display: 'inline-flex', 
+                                  alignItems: 'center', 
+                                  cursor: card.audio_url ? 'pointer' : 'default',
+                                  position: 'relative'
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (card.audio_url) {
+                                    handleTableCardAudioPlay(card);
+                                  }
+                                }}
+                                title={card.audio_url ? 'Click to play audio' : ''}
+                              >
+                                <svg 
+                                  width="16" 
+                                  height="16" 
+                                  viewBox="0 0 24 24" 
+                                  fill="none" 
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  style={{ flexShrink: 0 }}
+                                >
+                                  <path 
+                                    d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" 
+                                    fill="var(--headphone-icon)"
+                                  />
+                                </svg>
+                                {playingAudioId === card.id && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: '-2px',
+                                    right: '-2px',
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    background: 'var(--primary)',
+                                    animation: 'pulse 1.5s ease-in-out infinite'
+                                  }} />
+                                )}
+                              </div>
+                              <span 
+                                style={{ 
+                                  overflow: 'hidden', 
+                                  textOverflow: 'ellipsis', 
+                                  whiteSpace: 'nowrap',
+                                  maxWidth: '200px'
+                                }}
+                                title={mainSubtitle}
+                              >
+                                {mainSubtitle}
+                              </span>
+                            </div>
+                          </td>
+                        )}
+                        {selectedColumns.has('Image') && (
+                          <td style={{ textAlign: 'center' }}>
+                            {card.image_url ? (
+                              <img 
+                                src={card.image_url} 
+                                alt="" 
+                                style={{ 
+                                  width: '40px', 
+                                  height: '40px', 
+                                  objectFit: 'cover', 
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  display: 'block',
+                                  margin: '0 auto'
+                                }}
+                                onClick={() => {
+                                  const w = window.open('', '_blank');
+                                  if (w && card.image_url) {
+                                    w.document.write(`
+                                      <!DOCTYPE html>
+                                      <html>
+                                        <head>
+                                          <title>Image Preview</title>
+                                          <style>
+                                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            body {
+                                              display: flex;
+                                              justify-content: center;
+                                              align-items: center;
+                                              min-height: 100vh;
+                                              background: #000;
+                                            }
+                                            img {
+                                              max-width: 90vw;
+                                              max-height: 90vh;
+                                              object-fit: contain;
+                                            }
+                                          </style>
+                                        </head>
+                                        <body>
+                                          <img src="${card.image_url}" alt="Card Image" />
+                                        </body>
+                                      </html>
+                                    `);
+                                    w.document.close();
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div style={{ width: '40px', height: '40px', background: 'var(--hover-bg)', borderRadius: '4px', margin: '0 auto' }} />
+                            )}
+                          </td>
+                        )}
+                        {selectedColumns.has('Level') && (
+                          <td>
+                            {card.levels && card.levels.length > 0 ? (
+                              card.levels.map((lvl: { framework: string; level: string; language?: string }, lvlIdx: number) => (
+                                <span key={lvlIdx} className={`level-badge level-${(lvl.level || '').toLowerCase()}`}>
+                                  {lvl.level}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="level-badge level-unknown">?</span>
+                            )}
+                          </td>
+                        )}
+                        {selectedColumns.has('Media') && (
+                          <td>
+                            {film?.title && (
+                              <span className="portfolio-media-content-badge">
+                                {film.title.length > 20 ? film.title.substring(0, 20) + '...' : film.title}
+                                {episodeNum && (
+                                  <span className="portfolio-media-episode-badge">
+                                    Ep {episodeNum}
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                          </td>
+                        )}
+                        {selectedColumns.has('SRS State') && (
+                          <td>
+                            {(() => {
+                              if (srsState && srsState !== 'none' && srsState !== '') {
+                                const isValidSRSState = SELECTABLE_SRS_STATES.includes(srsState as SRSState);
+                                const displayState = isValidSRSState ? srsState : 'new';
+                                const displayLabel = isValidSRSState 
+                                  ? SRS_STATE_LABELS[srsState as SRSState] 
+                                  : srsState.toUpperCase();
+                                
+                                return (
+                                  <div className="card-srs-dropdown-container" ref={(el) => { 
+                                    if (el && card.id) {
+                                      srsDropdownRefs.current[card.id] = el;
+                                    }
+                                  }}>
+                                    <button
+                                      type="button"
+                                      className={`card-srs-dropdown-btn srs-${displayState}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        if (card.id) {
+                                          setSrsDropdownOpen(prev => {
+                                            const newState = { ...prev };
+                                            Object.keys(newState).forEach(key => {
+                                              if (key !== card.id) newState[key] = false;
+                                            });
+                                            newState[card.id] = !prev[card.id];
+                                            return newState;
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      <span className="card-srs-dropdown-text">{displayLabel}</span>
+                                      <img src={buttonPlayIcon} alt="Dropdown" className="card-srs-dropdown-icon" />
+                                    </button>
+                                    
+                                    {card.id && srsDropdownOpen[card.id] && (
+                                      <div className="card-srs-dropdown-menu">
+                                        {SELECTABLE_SRS_STATES.map((state) => (
+                                          <button
+                                            key={state}
+                                            type="button"
+                                            className={`card-srs-dropdown-item srs-${state} ${srsState === state ? 'active' : ''}`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              e.preventDefault();
+                                              handleSRSStateChange(card, state);
+                                            }}
+                                          >
+                                            {SRS_STATE_LABELS[state]}
+                                          </button>
+                                        ))}
+          </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+                              return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                            })()}
+                          </td>
+                        )}
+                        {selectedColumns.has('Due Date') && (
+                          <td>
+                            {(() => {
+                              const nextReviewAt = (card as any).next_review_at;
+                              if (nextReviewAt && typeof nextReviewAt === 'number') {
+                                return new Date(nextReviewAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                              }
+                              return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                            })()}
+                          </td>
+                        )}
+                        {selectedColumns.has('XP Count') && (
+                          <td>{(card as any).xp_total || 0} XP</td>
+                        )}
+                        {selectedColumns.has('XP Count (Reading)') && (
+                          <td>{(card as any).xp_reading || 0} XP</td>
+                        )}
+                        {selectedColumns.has('XP Count (Listening)') && (
+                          <td>{(card as any).xp_listening || 0} XP</td>
+                        )}
+                        {selectedColumns.has('XP Count (Speaking)') && (
+                          <td>{(card as any).xp_speaking || 0} XP</td>
+                        )}
+                        {selectedColumns.has('XP Count (Writing)') && (
+                          <td>{(card as any).xp_writing || 0} XP</td>
+                        )}
+                      </tr>
+                    );
+                  });
+                }
+              })()}
             </tbody>
           </table>
         </div>
