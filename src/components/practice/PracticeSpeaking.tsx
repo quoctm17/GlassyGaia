@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { CardDoc } from '../../types';
 import { useUser } from '../../context/UserContext';
 import { Mic } from 'lucide-react';
@@ -13,7 +13,7 @@ interface PracticeSpeakingProps {
   onNext: () => void;
 }
 
-export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps) {
+export default function PracticeSpeaking({ card, onNext: _onNext }: PracticeSpeakingProps) {
   const { preferences } = useUser();
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);

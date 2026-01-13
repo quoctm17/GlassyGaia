@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { CardDoc } from '../../types';
-import { useUser } from '../../context/UserContext';
+// import { useUser } from '../../context/UserContext'; // Reserved for future use
 import buttonPlayIcon from '../../assets/icons/button-play.svg';
 import '../../styles/components/practice.css';
 
@@ -13,13 +13,15 @@ interface PracticeWritingProps {
 }
 
 export default function PracticeWriting({ card, onCheck }: PracticeWritingProps) {
-  const { preferences } = useUser();
+  // Reserved for future use:
+  // const { preferences } = useUser();
+  // const mainLang = preferences?.main_language || 'en';
+  // const sentence = card.subtitle?.[mainLang] || card.sentence || '';
+  
   const [userInput, setUserInput] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const mainLang = preferences?.main_language || 'en';
-  const sentence = card.subtitle?.[mainLang] || card.sentence || '';
   
   // Resolve image URL
   const resolvedImageUrl = (() => {

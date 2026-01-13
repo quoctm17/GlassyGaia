@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { CardDoc } from '../../types';
 import { useUser } from '../../context/UserContext';
 import buttonPlayIcon from '../../assets/icons/button-play.svg';
