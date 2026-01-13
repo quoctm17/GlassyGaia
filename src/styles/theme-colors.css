@@ -49,6 +49,10 @@
   --light-filter-button-unselected-bg: #FFFFFF;
   --light-filter-button-unselected-border: #FEE4E4;
   --light-filter-modal-footer-bg: #FFF4F6;
+  --light-dropdown-tag-bg: #FFFFFF;
+  --light-dropdown-tag-border: #FEE4E4;
+  --light-dropdown-checkbox-border: #FEE4E4;
+  --light-tooltip-icon-color: #948979;
   --light-media-badge-bg: rgba(253, 170, 170, 0.5);
   --light-chart-dot-fill: #F2EDE5;
   --light-chart-dot-stroke: #000000;
@@ -57,6 +61,7 @@
   --light-checkbox-border: rgba(43, 35, 40, 0.5);
   --light-collapse-button-bg: #FDAAAA;
   --light-collapse-button-text: #2B2328;
+  --light-practice-image-border: #FED8D8;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -106,6 +111,10 @@
   --dark-filter-button-unselected-bg: rgba(255, 255, 255, 0.05);
   --dark-filter-button-unselected-border: rgba(254, 228, 228, 0.3);
   --dark-filter-modal-footer-bg: rgba(255, 244, 246, 0.1);
+  --dark-dropdown-tag-bg: rgba(255, 255, 255, 0.1);
+  --dark-dropdown-tag-border: rgba(254, 228, 228, 0.3);
+  --dark-dropdown-checkbox-border: rgba(254, 228, 228, 0.3);
+  --dark-tooltip-icon-color: #948979;
   --dark-media-badge-bg: rgba(253, 170, 170, 0.5);
   --dark-chart-dot-fill: #F2EDE5;
   --dark-chart-dot-stroke: #000000;
@@ -114,6 +123,7 @@
   --dark-checkbox-border: rgba(242, 237, 229, 0.3);
   --dark-collapse-button-bg: #9E2741;
   --dark-collapse-button-text: #F2EDE5;
+  --dark-practice-image-border: rgba(254, 216, 216, 0.5);
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -182,6 +192,10 @@
   --filter-button-unselected-bg: var(--light-filter-button-unselected-bg);
   --filter-button-unselected-border: var(--light-filter-button-unselected-border);
   --filter-modal-footer-bg: var(--light-filter-modal-footer-bg);
+  --dropdown-tag-bg: var(--light-dropdown-tag-bg);
+  --dropdown-tag-border: var(--light-dropdown-tag-border);
+  --dropdown-checkbox-border: var(--light-dropdown-checkbox-border);
+  --tooltip-icon-color: var(--light-tooltip-icon-color);
   --media-badge-bg: var(--light-media-badge-bg);
   --chart-dot-fill: var(--light-chart-dot-fill);
   --chart-dot-stroke: var(--light-chart-dot-stroke);
@@ -190,6 +204,7 @@
   --checkbox-border: var(--light-checkbox-border);
   --collapse-button-bg: var(--light-collapse-button-bg);
   --collapse-button-text: var(--light-collapse-button-text);
+  --practice-image-border: var(--light-practice-image-border);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -252,6 +267,10 @@
   --filter-button-unselected-bg: var(--dark-filter-button-unselected-bg);
   --filter-button-unselected-border: var(--dark-filter-button-unselected-border);
   --filter-modal-footer-bg: var(--dark-filter-modal-footer-bg);
+  --dropdown-tag-bg: var(--dark-dropdown-tag-bg);
+  --dropdown-tag-border: var(--dark-dropdown-tag-border);
+  --dropdown-checkbox-border: var(--dark-dropdown-checkbox-border);
+  --tooltip-icon-color: var(--dark-tooltip-icon-color);
   --media-badge-bg: var(--dark-media-badge-bg);
   --chart-dot-fill: var(--dark-chart-dot-fill);
   --chart-dot-stroke: var(--dark-chart-dot-stroke);
@@ -260,6 +279,7 @@
   --checkbox-border: var(--dark-checkbox-border);
   --collapse-button-bg: var(--dark-collapse-button-bg);
   --collapse-button-text: var(--dark-collapse-button-text);
+  --practice-image-border: var(--dark-practice-image-border);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);

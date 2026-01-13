@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { apiGetUserPortfolio, apiGetStreakHistory, apiGetMonthlyXP, apiGetUserMetrics, type UserPortfolio, type StreakHistoryItem, type MonthlyXPData, type UserMetrics } from '../services/portfolioApi';
 import { apiGetSavedCards, apiListItems, apiUpdateCardSRSState } from '../services/cfApi';
@@ -21,6 +22,7 @@ import buttonPlayIcon from '../assets/icons/button-play.svg';
 
 export default function PortfolioPage() {
   const { user, preferences } = useUser();
+  const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState<UserPortfolio | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
@@ -44,6 +46,45 @@ export default function PortfolioPage() {
   const [columnsDropdownPosition, setColumnsDropdownPosition] = useState<{ top: number; left: number } | null>(null);
   const [practiceModalOpen, setPracticeModalOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<'reading' | 'listening' | 'speaking' | 'writing'>('reading');
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  
+  // Toggle card selection
+  const toggleCardSelection = useCallback((cardId: string) => {
+    setSelectedCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(cardId)) {
+        newSet.delete(cardId);
+      } else {
+        newSet.add(cardId);
+      }
+      return newSet;
+    });
+  }, []);
+  
+  // Handle Practice button click
+  const handlePracticeClick = useCallback(() => {
+    if (selectedCards.size === 0) {
+      // If no cards selected, show modal to select skill
+      setPracticeModalOpen(true);
+    } else {
+      // If cards selected, show modal with selected cards
+      setPracticeModalOpen(true);
+    }
+  }, [selectedCards.size]);
+  
+  // Handle Practice Go button - navigate to practice page
+  const handlePracticeGo = useCallback(() => {
+    const selectedCardIds = Array.from(selectedCards);
+    // If no cards selected, use all visible cards
+    const cardsToPractice = selectedCardIds.length > 0 
+      ? savedCards.filter(c => selectedCardIds.includes(c.id))
+      : savedCards;
+    
+    // Navigate to practice page with skill and card IDs
+    const cardIdsParam = cardsToPractice.map(c => c.id).join(',');
+    navigate(`/practice?skill=${selectedSkill}&cards=${cardIdsParam}`);
+    setPracticeModalOpen(false);
+  }, [selectedCards, selectedSkill, savedCards, navigate]);
   const gridRef = useRef<HTMLDivElement>(null);
   const [gridSquares, setGridSquares] = useState<number>(150);
   const [gridWidth, setGridWidth] = useState<string>('100%');
@@ -1910,9 +1951,9 @@ export default function PortfolioPage() {
         </div>
           <button 
             className="portfolio-table-practice-btn typography-pressstart-1"
-            onClick={() => setPracticeModalOpen(true)}
+            onClick={handlePracticeClick}
           >
-            Practice
+            Practice{selectedCards.size > 0 ? ` (${selectedCards.size})` : ''}
           </button>
         </div>
         <div className="portfolio-table-container">
@@ -1987,6 +2028,9 @@ export default function PortfolioPage() {
                             <input 
                               type="checkbox" 
                               className="portfolio-table-checkbox"
+                              checked={selectedCards.has(card.id)}
+                              onChange={() => toggleCardSelection(card.id)}
+                              onClick={(e) => e.stopPropagation()}
                             />
                             <div 
                               style={{ 
@@ -2255,6 +2299,9 @@ export default function PortfolioPage() {
                               <input 
                                 type="checkbox" 
                                 className="portfolio-table-checkbox"
+                                checked={selectedCards.has(card.id)}
+                                onChange={() => toggleCardSelection(card.id)}
+                                onClick={(e) => e.stopPropagation()}
                               />
                               <div 
                                 style={{ 
@@ -2604,11 +2651,7 @@ export default function PortfolioPage() {
               
               <button 
                 className="practice-modal-go-btn typography-pressstart-1"
-                onClick={() => {
-                  // TODO: Implement practice functionality
-                  console.log('Starting practice with skill:', selectedSkill);
-                  setPracticeModalOpen(false);
-                }}
+                onClick={handlePracticeGo}
               >
                 GO &gt;
               </button>

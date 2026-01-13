@@ -27,10 +27,13 @@ export default function DualRangeSlider({
   const containerRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
 
-  // Convert to percentage
-  const getPercent = (value: number) => Math.round(((value - min) / (max - min)) * 100);
+  // Convert to percentage (support decimals)
+  const getPercent = (value: number) => {
+    if (max === min) return 0;
+    return ((value - min) / (max - min)) * 100;
+  };
   
-  // Optimized update function using requestAnimationFrame
+  // Optimized update function using requestAnimationFrame with smooth transitions
   const updateRange = () => {
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
@@ -50,6 +53,7 @@ export default function DualRangeSlider({
       const leftPosition = 8 + (minPercent / 100) * trackWidth;
       const width = ((maxPercent - minPercent) / 100) * trackWidth;
       
+      // Use left and width for smooth animation
       range.current.style.left = `${leftPosition}px`;
       range.current.style.width = `${width}px`;
     });
@@ -100,12 +104,17 @@ export default function DualRangeSlider({
         value={minVal}
         ref={minValRef}
         onChange={(event) => {
-          const value = Math.min(+event.target.value, maxVal - step);
+          const value = Math.min(parseFloat(event.target.value), maxVal - step);
           setMinVal(value);
-          // Debounce callback to reduce lag
+          // Use requestAnimationFrame for smooth updates
           requestAnimationFrame(() => {
             onMinChange(value);
           });
+        }}
+        onInput={(event) => {
+          // Update immediately on input for smoother dragging
+          const value = Math.min(parseFloat(event.currentTarget.value), maxVal - step);
+          setMinVal(value);
         }}
         className="dual-range-slider dual-range-slider-min"
         step={step}
@@ -117,12 +126,17 @@ export default function DualRangeSlider({
         value={maxVal}
         ref={maxValRef}
         onChange={(event) => {
-          const value = Math.max(+event.target.value, minVal + step);
+          const value = Math.max(parseFloat(event.target.value), minVal + step);
           setMaxVal(value);
-          // Debounce callback to reduce lag
+          // Use requestAnimationFrame for smooth updates
           requestAnimationFrame(() => {
             onMaxChange(value);
           });
+        }}
+        onInput={(event) => {
+          // Update immediately on input for smoother dragging
+          const value = Math.max(parseFloat(event.currentTarget.value), minVal + step);
+          setMaxVal(value);
         }}
         className="dual-range-slider dual-range-slider-max"
         step={step}

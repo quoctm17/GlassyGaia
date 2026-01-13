@@ -1,0 +1,99 @@
+.practice-page {
+  min-height: 100vh;
+  background-color: var(--background-light);
+  padding: 40px 15% 60px 15%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.practice-page-loading {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background-color: var(--background-light);
+}
+
+.practice-loading-text {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.practice-back-btn {
+  padding: 12px 24px;
+  background-color: var(--primary);
+  color: var(--button-primary-text);
+  border: none;
+  border-radius: 8px;
+  font-family: 'Press Start 2P', cursive;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.practice-back-btn:hover {
+  background-color: var(--primary-dark);
+}
+
+.practice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.practice-title {
+  font-size: 15px;
+  color: var(--text);
+  margin: 0;
+}
+
+.practice-progress {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.practice-progress-bar {
+  width: 100%;
+  height: 12px;
+  background-color: var(--filter-slider-unselected);
+  border: 2px solid var(--primary);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.practice-progress-fill {
+  height: 100%;
+  background-color: var(--primary);
+  transition: width 0.3s ease;
+  border-radius: 12px;
+}
+
+.practice-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .practice-page {
+    padding: 30px 10% 50px 10%;
+  }
+}
+
+@media (max-width: 768px) {
+  .practice-page {
+    padding: 20px 5% 40px 5%;
+  }
+}
