@@ -1,6 +1,21 @@
 // Cloudflare Worker (JavaScript) compatible with Dashboard Quick Edit and wrangler
 // Bindings required: DB (D1), MEDIA_BUCKET (R2)
 
+// Reward Config IDs - Constants for rewards_config table
+// These IDs correspond to the rewards_config.id values in the database
+const REWARD_CONFIG_IDS = {
+  // Challenge types
+  DAILY_CHALLENGE: 1,
+  WEEKLY_CHALLENGE: 2,
+  
+  // Action types
+  SRS_STATE_CHANGE: 3,
+  LISTENING_5S: 4,
+  READING_8S: 5,
+  SPEAKING_ATTEMPT: 6,
+  WRITING_ATTEMPT: 7,
+};
+
 function withCors(headers = {}) {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -5744,7 +5759,14 @@ async function getOrCreateDailyActivity(env, userId) {
   return activity;
 }
 
-// Get reward config by action_type
+// Get reward config by ID (preferred method)
+async function getRewardConfigById(env, rewardConfigId) {
+  return await env.DB.prepare(`
+    SELECT * FROM rewards_config WHERE id = ?
+  `).bind(rewardConfigId).first();
+}
+
+// Get reward config by action_type (backward compatibility)
 async function getRewardConfig(env, actionType) {
   return await env.DB.prepare(`
     SELECT * FROM rewards_config WHERE action_type = ?
@@ -5807,10 +5829,17 @@ async function calculateSRSInterval(env, srsState, srsCount, speakingAttempt = 0
 // Returns true if srs_count should increment, false otherwise
 function shouldIncrementSRSCount(oldState, newState) {
   // State hierarchy: again < hard < good < easy
+  // Note: 'new' and 'none' are not in the hierarchy (they are initial states)
   const stateOrder = { 'again': 0, 'hard': 1, 'good': 2, 'easy': 3 };
   
-  const oldOrder = stateOrder[oldState] ?? -1;
-  const newOrder = stateOrder[newState] ?? -1;
+  // Only process states that are in the hierarchy (again, hard, good, easy)
+  // Ignore 'none' and 'new' states
+  if (!stateOrder.hasOwnProperty(oldState) || !stateOrder.hasOwnProperty(newState)) {
+    return false;
+  }
+  
+  const oldOrder = stateOrder[oldState];
+  const newOrder = stateOrder[newState];
   
   // Increment if:
   // 1. Upgrade (again->hard, hard->good, good->easy, etc.)
@@ -5969,9 +5998,9 @@ async function trackTime(env, userId, timeSeconds, type) {
   await getOrCreateDailyActivity(env, userId);
   await getOrCreateUserScores(env, userId);
   
-  // Get reward config
-  const actionType = type === 'listening' ? 'listening_5s' : 'reading_8s';
-  const rewardConfig = await getRewardConfig(env, actionType);
+  // Get reward config by ID
+  const rewardConfigId = type === 'listening' ? REWARD_CONFIG_IDS.LISTENING_5S : REWARD_CONFIG_IDS.READING_8S;
+  const rewardConfig = await getRewardConfigById(env, rewardConfigId);
   if (!rewardConfig) return { xpAwarded: 0 };
   
   // Use interval_seconds from config, fallback to defaults if not set
@@ -6448,6 +6477,46 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             return json({ error: 'Card not found' }, { status: 404 });
           }
           
+          // Initialize finalFilmId and finalEpisodeId from request params
+          let finalFilmId = film_id || null;
+          let finalEpisodeId = episode_id || null;
+          
+          // If not provided, get from existing state or card info
+          if (!finalFilmId || !finalEpisodeId) {
+            const existingState = await env.DB.prepare(`
+              SELECT film_id, episode_id FROM user_card_states
+              WHERE user_id = ? AND card_id = ?
+              LIMIT 1
+            `).bind(user_id, cardUUID).first();
+            
+            if (existingState) {
+              finalFilmId = finalFilmId || existingState.film_id || null;
+              finalEpisodeId = finalEpisodeId || existingState.episode_id || null;
+            }
+            
+            // If still not found, get from card info
+            if (!finalFilmId || !finalEpisodeId) {
+              const cardInfo = await env.DB.prepare(`
+                SELECT e.content_item_id, e.id as episode_id
+                FROM cards c
+                JOIN episodes e ON c.episode_id = e.id
+                WHERE c.id = ?
+              `).bind(cardUUID).first();
+              
+              if (cardInfo) {
+                if (!finalFilmId) {
+                  const filmInfo = await env.DB.prepare(`
+                    SELECT slug FROM content_items WHERE id = ?
+                  `).bind(cardInfo.content_item_id).first();
+                  finalFilmId = filmInfo?.slug || null;
+                }
+                if (!finalEpisodeId) {
+                  finalEpisodeId = cardInfo.episode_id || null;
+                }
+              }
+            }
+          }
+          
           // Check if card state exists and get current values
           const existing = await env.DB.prepare(`
             SELECT id, srs_state, srs_count, speaking_attempt, writing_attempt, state_created_at
@@ -6466,10 +6535,12 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           let newSRSCount = oldSRSCount;
           if (oldState !== srs_state && oldState !== 'none' && srs_state !== 'none') {
             // Only update srs_count if state actually changed (not to/from 'none')
+            // This handles transitions between: 'new', 'again', 'hard', 'good', 'easy'
+            // shouldIncrementSRSCount will return false for transitions involving 'new' or 'none'
             if (shouldIncrementSRSCount(oldState, srs_state)) {
               newSRSCount = oldSRSCount + 1;
             }
-            // If downgrade or re-affirm again/hard, keep srs_count unchanged
+            // If downgrade, re-affirm again/hard, or transition from/to 'new', keep srs_count unchanged
           } else if (oldState === 'none' && srs_state !== 'none') {
             // First time setting state (from 'none' to any state) - start with 0
             newSRSCount = 0;
@@ -6567,9 +6638,10 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId, srs_state, newSRSCount, srsInterval, nextReviewAt, lastReviewedAt).run();
           }
           
-          // Award XP for SRS state change (only if state changed and not to/from 'none')
-          if (oldState !== srs_state && oldState !== 'none' && srs_state !== 'none') {
-            const rewardConfig = await getRewardConfig(env, 'srs_state_change');
+          // Award XP for SRS state change (whenever state changes and new state is not 'none')
+          // This includes: 'none' -> any state, or any state -> any other state
+          if (oldState !== srs_state && srs_state !== 'none') {
+            const rewardConfig = await getRewardConfigById(env, REWARD_CONFIG_IDS.SRS_STATE_CHANGE);
             if (rewardConfig && rewardConfig.xp_amount > 0) {
               await awardXP(env, user_id, rewardConfig.xp_amount, rewardConfig.id, 'SRS state change', cardUUID, finalFilmId);
             }
@@ -6652,15 +6724,14 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               subtitle[s.language] = s.text;
             });
             
-            // Calculate XP for this card by activity type
+            // Calculate XP for this card by reward config ID
             const xpData = await env.DB.prepare(`
               SELECT 
-                rc.action_type,
+                xt.reward_config_id,
                 COALESCE(SUM(xt.xp_amount), 0) as total_xp
               FROM xp_transactions xt
-              JOIN rewards_config rc ON xt.reward_config_id = rc.id
               WHERE xt.user_id = ? AND xt.card_id = ?
-              GROUP BY rc.action_type
+              GROUP BY xt.reward_config_id
             `).bind(userId, row.card_id).all();
             
             // Initialize XP counts
@@ -6672,17 +6743,21 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             
             (xpData.results || []).forEach((xpRow) => {
               const xp = xpRow.total_xp || 0;
-              totalXP += xp;
+              const rewardConfigId = xpRow.reward_config_id;
               
-              if (xpRow.action_type === 'reading_8s') {
+              totalXP += xp; // Include ALL XP types in total (including srs_state_change)
+              
+              // Match by reward_config_id instead of action_type string
+              if (rewardConfigId === REWARD_CONFIG_IDS.READING_8S) {
                 readingXP = xp;
-              } else if (xpRow.action_type === 'listening_5s') {
+              } else if (rewardConfigId === REWARD_CONFIG_IDS.LISTENING_5S) {
                 listeningXP = xp;
-              } else if (xpRow.action_type === 'speaking_attempt') {
+              } else if (rewardConfigId === REWARD_CONFIG_IDS.SPEAKING_ATTEMPT) {
                 speakingXP = xp;
-              } else if (xpRow.action_type === 'writing_attempt') {
+              } else if (rewardConfigId === REWARD_CONFIG_IDS.WRITING_ATTEMPT) {
                 writingXP = xp;
               }
+              // Note: SRS_STATE_CHANGE XP is included in totalXP but not tracked separately
             });
             
             // Build image and audio URLs from stored keys (do not reconstruct the path)
@@ -6914,9 +6989,9 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           // Get user_scores first (needed for listening_sessions_count and time metrics)
           const scores = await getOrCreateUserScores(env, userId);
           
-          // Get reward_config IDs for listening and reading
-          const listeningRewardConfig = await getRewardConfig(env, 'listening_5s');
-          const readingRewardConfig = await getRewardConfig(env, 'reading_8s');
+          // Get reward_config by IDs for listening and reading
+          const listeningRewardConfig = await getRewardConfigById(env, REWARD_CONFIG_IDS.LISTENING_5S);
+          const readingRewardConfig = await getRewardConfigById(env, REWARD_CONFIG_IDS.READING_8S);
           
           // Listening Metrics - Count XP transactions using reward_config_id (more precise than description)
           let listeningXPResult = { total_xp: 0 };

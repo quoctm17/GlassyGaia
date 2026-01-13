@@ -17,6 +17,7 @@ const BookPage = lazy(() => import('./pages/BookPage'));
 const VideoPage = lazy(() => import('./pages/VideoPage'));
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage'));
 const SavedCardsPage = lazy(() => import('./pages/SavedCardsPage'));
+const PracticePage = lazy(() => import('./pages/PracticePage'));
 
 // Auth pages - lazy load
 const AuthLoginPage = lazy(() => import('./pages/authentication/LoginPage'));
@@ -88,6 +89,7 @@ function App() {
                 <Route path="/video" element={<VideoPage />} />
                 <Route path="/portfolio" element={<PortfolioPage />} />
                 <Route path="/saved" element={<SavedCardsPage />} />
+                <Route path="/practice" element={<PracticePage />} />
                 {/* Legacy login redirect */}
                 <Route path="/login" element={<Navigate to="/auth/login" replace />} />
                 {/* Authentication Routes */}

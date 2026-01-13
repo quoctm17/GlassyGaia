@@ -321,8 +321,17 @@ export default function ContentTypeGrid({}: ContentTypeGridProps) {
       });
     }
 
-    // Note: minLength, maxLength, maxDuration, minReview, maxReview
-    // are not yet implemented - only levels, categories, mediaTypes, and languageAvailable are active
+    if (filters.minImdb !== undefined || filters.maxImdb !== undefined) {
+      result = result.filter(item => {
+        const imdbScore = item.imdb_score;
+        if (imdbScore === null || imdbScore === undefined) return false;
+        const score = Number(imdbScore);
+        if (isNaN(score)) return false;
+        if (filters.minImdb !== undefined && score < filters.minImdb) return false;
+        if (filters.maxImdb !== undefined && score > filters.maxImdb) return false;
+        return true;
+      });
+    }
 
     return result;
   }, [allItems, searchQuery, filters]);

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { apiGetUserPortfolio, apiGetStreakHistory, apiGetMonthlyXP, apiGetUserMetrics, type UserPortfolio, type StreakHistoryItem, type MonthlyXPData, type UserMetrics } from '../services/portfolioApi';
 import { apiGetSavedCards, apiListItems, apiUpdateCardSRSState } from '../services/cfApi';
@@ -21,6 +22,7 @@ import buttonPlayIcon from '../assets/icons/button-play.svg';
 
 export default function PortfolioPage() {
   const { user, preferences } = useUser();
+  const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState<UserPortfolio | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
@@ -42,6 +44,47 @@ export default function PortfolioPage() {
   const columnsDropdownRef = useRef<HTMLDivElement>(null);
   const [groupByDropdownPosition, setGroupByDropdownPosition] = useState<{ top: number; left: number } | null>(null);
   const [columnsDropdownPosition, setColumnsDropdownPosition] = useState<{ top: number; left: number } | null>(null);
+  const [practiceModalOpen, setPracticeModalOpen] = useState(false);
+  const [selectedSkill, setSelectedSkill] = useState<'reading' | 'listening' | 'speaking' | 'writing'>('reading');
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  
+  // Toggle card selection
+  const toggleCardSelection = useCallback((cardId: string) => {
+    setSelectedCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(cardId)) {
+        newSet.delete(cardId);
+      } else {
+        newSet.add(cardId);
+      }
+      return newSet;
+    });
+  }, []);
+  
+  // Handle Practice button click
+  const handlePracticeClick = useCallback(() => {
+    if (selectedCards.size === 0) {
+      // If no cards selected, show modal to select skill
+      setPracticeModalOpen(true);
+    } else {
+      // If cards selected, show modal with selected cards
+      setPracticeModalOpen(true);
+    }
+  }, [selectedCards.size]);
+  
+  // Handle Practice Go button - navigate to practice page
+  const handlePracticeGo = useCallback(() => {
+    const selectedCardIds = Array.from(selectedCards);
+    // If no cards selected, use all visible cards
+    const cardsToPractice = selectedCardIds.length > 0 
+      ? savedCards.filter(c => selectedCardIds.includes(c.id))
+      : savedCards;
+    
+    // Navigate to practice page with skill and card IDs
+    const cardIdsParam = cardsToPractice.map(c => c.id).join(',');
+    navigate(`/practice?skill=${selectedSkill}&cards=${cardIdsParam}`);
+    setPracticeModalOpen(false);
+  }, [selectedCards, selectedSkill, savedCards, navigate]);
   const gridRef = useRef<HTMLDivElement>(null);
   const [gridSquares, setGridSquares] = useState<number>(150);
   const [gridWidth, setGridWidth] = useState<string>('100%');
@@ -73,8 +116,108 @@ export default function PortfolioPage() {
   const listeningIntervalRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const hasIncrementedListeningSessionRef = useRef<Record<string, boolean>>({});
 
+  // Refresh saved cards data (for real-time updates)
+  const refreshSavedCards = useCallback(async () => {
+    if (!user?.uid || allItems.length === 0) return;
+    
+    try {
+      const result = await apiGetSavedCards(user.uid, 1, 1000);
+      
+      // Load film levels for cards from allItems
+      const uniqueFilmIds = [...new Set(result.cards.map(c => c.film_id).filter(Boolean))];
+      const levelMap: Record<string, { framework: string; level: string; language?: string }[]> = {};
+      
+      uniqueFilmIds.forEach((filmId) => {
+        if (!filmId) return;
+        const film = allItems.find(item => item.id === filmId);
+        if (!film) return;
+        
+        if (film.level_framework_stats) {
+          const stats = parseLevelStats(film.level_framework_stats);
+          const dominant = getDominantLevel(stats);
+          if (dominant) {
+            let framework = 'level';
+            if (stats && stats.length > 0 && (stats as any)[0]?.framework) {
+              framework = (stats as any)[0].framework;
+            }
+            levelMap[filmId] = [{ framework, level: dominant }];
+          }
+        }
+      });
+
+      const parseEpisodeNum = (episodeId: string | undefined): number | null => {
+        if (!episodeId) return null;
+        const eMatch = episodeId.match(/^e(\d+)$/i);
+        if (eMatch) return parseInt(eMatch[1], 10);
+        const numMatch = episodeId.match(/_(\d+)$/);
+        if (numMatch) {
+          const num = parseInt(numMatch[1], 10);
+          return num > 0 ? num : null;
+        }
+        const endNumMatch = episodeId.match(/(\d+)$/);
+        if (endNumMatch) {
+          const num = parseInt(endNumMatch[1], 10);
+          return num > 0 ? num : null;
+        }
+        return null;
+      };
+
+      const cardsWithLevels = result.cards.map((c: any) => {
+        const rawSrsState = c.srs_state;
+        const normalizedSrsState = rawSrsState 
+          ? String(rawSrsState).toLowerCase().trim() 
+          : 'none';
+        
+        const cardData: CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number } = {
+          ...c,
+          srs_state: normalizedSrsState,
+          created_at: c.created_at || null,
+          next_review_at: c.next_review_at || null,
+          xp_total: c.xp_total || 0,
+          xp_reading: c.xp_reading || 0,
+          xp_listening: c.xp_listening || 0,
+          xp_speaking: c.xp_speaking || 0,
+          xp_writing: c.xp_writing || 0,
+        };
+        
+        if (c.film_id && levelMap[c.film_id]) {
+          cardData.levels = levelMap[c.film_id];
+        } else if (c.film_id && filmLevelMap[c.film_id]) {
+          cardData.levels = filmLevelMap[c.film_id];
+        }
+        
+        if (c.episode_number && typeof c.episode_number === 'number') {
+          cardData.episode_number = c.episode_number;
+        } else {
+          const epNum = parseEpisodeNum(c.episode_id || c.episode_slug);
+          if (epNum !== null) {
+            cardData.episode_number = epNum;
+          }
+        }
+        
+        return cardData;
+      });
+
+      setSavedCards(cardsWithLevels);
+    } catch (error) {
+      console.error('Failed to refresh saved cards:', error);
+    }
+  }, [user?.uid, allItems, filmLevelMap]);
+
+  // Refresh portfolio stats (for real-time updates)
+  const refreshPortfolio = useCallback(async () => {
+    if (!user?.uid) return;
+    
+    try {
+      const data = await apiGetUserPortfolio(user.uid);
+      setPortfolio(data);
+    } catch (error) {
+      console.error('Failed to refresh portfolio:', error);
+    }
+  }, [user?.uid]);
+
   // Track reading time (debounced to avoid too many API calls)
-  const handleTrackReading = useCallback((seconds: number) => {
+  const handleTrackReading = useCallback(async (seconds: number) => {
     if (!user?.uid || seconds <= 0) return;
     
     readingTimeAccumulatorRef.current += seconds;
@@ -90,15 +233,20 @@ export default function PortfolioPage() {
         readingTimeAccumulatorRef.current = 0;
         try {
           await apiTrackTime(user.uid, totalSeconds, 'reading');
+          // Refresh saved cards and portfolio after tracking time
+          await Promise.all([
+            refreshSavedCards(),
+            refreshPortfolio()
+          ]);
         } catch (error) {
           console.error('Failed to track reading time:', error);
         }
       }
     }, 8000);
-  }, [user?.uid]);
+  }, [user?.uid, refreshSavedCards, refreshPortfolio]);
 
   // Track listening time (debounced to avoid too many API calls)
-  const handleTrackListening = useCallback((seconds: number) => {
+  const handleTrackListening = useCallback(async (seconds: number) => {
     if (!user?.uid || seconds <= 0) return;
     
     listeningTimeAccumulatorRef.current += seconds;
@@ -114,12 +262,17 @@ export default function PortfolioPage() {
         listeningTimeAccumulatorRef.current = 0;
         try {
           await apiTrackTime(user.uid, totalSeconds, 'listening');
+          // Refresh saved cards and portfolio after tracking time
+          await Promise.all([
+            refreshSavedCards(),
+            refreshPortfolio()
+          ]);
         } catch (error) {
           console.error('Failed to track listening time:', error);
         }
       }
     }, 5000);
-  }, [user?.uid]);
+  }, [user?.uid, refreshSavedCards, refreshPortfolio]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -730,16 +883,17 @@ export default function PortfolioPage() {
         episodeId
       );
       
-      // Update card in savedCards
-      setSavedCards(prev => prev.map(c => 
-        c.id === card.id ? { ...c, srs_state: newState } as CardDoc & { srs_state: string } : c
-      ));
+      // Refresh saved cards and portfolio for real-time updates
+      await Promise.all([
+        refreshSavedCards(),
+        refreshPortfolio()
+      ]);
       
       setSrsDropdownOpen(prev => ({ ...prev, [card.id]: false }));
     } catch (error) {
       console.error('Failed to update SRS state:', error);
     }
-  }, [user?.uid]);
+  }, [user?.uid, refreshSavedCards, refreshPortfolio]);
 
   useEffect(() => {
     const calculateGridSquares = () => {
@@ -1795,8 +1949,11 @@ export default function PortfolioPage() {
               )}
           </div>
         </div>
-          <button className="portfolio-table-practice-btn typography-pressstart-1">
-            Practice
+          <button 
+            className="portfolio-table-practice-btn typography-pressstart-1"
+            onClick={handlePracticeClick}
+          >
+            Practice{selectedCards.size > 0 ? ` (${selectedCards.size})` : ''}
           </button>
         </div>
         <div className="portfolio-table-container">
@@ -1871,6 +2028,9 @@ export default function PortfolioPage() {
                             <input 
                               type="checkbox" 
                               className="portfolio-table-checkbox"
+                              checked={selectedCards.has(card.id)}
+                              onChange={() => toggleCardSelection(card.id)}
+                              onClick={(e) => e.stopPropagation()}
                             />
                             <div 
                               style={{ 
@@ -2139,6 +2299,9 @@ export default function PortfolioPage() {
                               <input 
                                 type="checkbox" 
                                 className="portfolio-table-checkbox"
+                                checked={selectedCards.has(card.id)}
+                                onChange={() => toggleCardSelection(card.id)}
+                                onClick={(e) => e.stopPropagation()}
                               />
                               <div 
                                 style={{ 
@@ -2424,6 +2587,78 @@ export default function PortfolioPage() {
           </div>
         </div>
       </div>
+
+      {/* Practice Modal */}
+      {practiceModalOpen && (
+        <div className="practice-modal-overlay" onClick={() => setPracticeModalOpen(false)}>
+          <div className="practice-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="practice-modal-header">
+              <h2 className="practice-modal-title typography-pressstart-1">PLAY</h2>
+              <button 
+                className="practice-modal-close"
+                onClick={() => setPracticeModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="practice-modal-body">
+              <div className="practice-modal-section">
+                <div className="practice-modal-label typography-pressstart-1">Skill:</div>
+                <div className="practice-modal-radio-group">
+                  <label className="practice-modal-radio">
+                    <input
+                      type="radio"
+                      name="skill"
+                      value="reading"
+                      checked={selectedSkill === 'reading'}
+                      onChange={(e) => setSelectedSkill(e.target.value as typeof selectedSkill)}
+                    />
+                    <span className="typography-pressstart-1">Reading</span>
+                  </label>
+                  <label className="practice-modal-radio">
+                    <input
+                      type="radio"
+                      name="skill"
+                      value="listening"
+                      checked={selectedSkill === 'listening'}
+                      onChange={(e) => setSelectedSkill(e.target.value as typeof selectedSkill)}
+                    />
+                    <span className="typography-pressstart-1">Listening</span>
+                  </label>
+                  <label className="practice-modal-radio">
+                    <input
+                      type="radio"
+                      name="skill"
+                      value="speaking"
+                      checked={selectedSkill === 'speaking'}
+                      onChange={(e) => setSelectedSkill(e.target.value as typeof selectedSkill)}
+                    />
+                    <span className="typography-pressstart-1">Speaking</span>
+                  </label>
+                  <label className="practice-modal-radio">
+                    <input
+                      type="radio"
+                      name="skill"
+                      value="writing"
+                      checked={selectedSkill === 'writing'}
+                      onChange={(e) => setSelectedSkill(e.target.value as typeof selectedSkill)}
+                    />
+                    <span className="typography-pressstart-1">Writing</span>
+                  </label>
+                </div>
+              </div>
+              
+              <button 
+                className="practice-modal-go-btn typography-pressstart-1"
+                onClick={handlePracticeGo}
+              >
+                GO &gt;
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
