@@ -49,11 +49,21 @@ export async function apiTrackTime(
   });
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Failed to track time: ${res.status} ${text}`);
+    let errorText = "";
+    try {
+      const errorJson = await res.json();
+      errorText = errorJson.error || JSON.stringify(errorJson);
+    } catch {
+      errorText = await res.text().catch(() => `HTTP ${res.status}`);
+    }
+    throw new Error(`Failed to track time: ${res.status} ${errorText}`);
   }
 
-  return res.json();
+  try {
+    return await res.json();
+  } catch (e) {
+    throw new Error(`Failed to parse response: ${String(e)}`);
+  }
 }
 
 /**

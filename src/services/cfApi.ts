@@ -670,6 +670,42 @@ export async function apiGetCardSaveStatus(
 }
 
 /**
+ * Batch get save status for multiple cards (optimized to reduce API calls)
+ */
+export async function apiGetCardSaveStatusBatch(
+  userId: string,
+  cards: Array<{ card_id: string; film_id?: string; episode_id?: string }>
+): Promise<Record<string, { saved: boolean; srs_state: string; review_count: number }>> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/card/save-status-batch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      cards: cards,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error(`Failed to get batch card save status: ${res.status} ${text}`);
+    // Return default values for all cards on error
+    const result: Record<string, { saved: boolean; srs_state: string; review_count: number }> = {};
+    cards.forEach(card => {
+      result[card.card_id] = { saved: false, srs_state: 'none', review_count: 0 };
+    });
+    return result;
+  }
+
+  const data = await res.json();
+  return data;
+}
+
+/**
  * Increment review count for a card
  */
 export async function apiIncrementReviewCount(
@@ -830,8 +866,15 @@ export async function apiSearchCardsFTS(params: {
   maxDifficulty?: number;
   minLevel?: string | null;
   maxLevel?: string | null;
+  minLength?: number;
+  maxLength?: number;
+  maxDuration?: number;
+  minReview?: number;
+  maxReview?: number;
+  userId?: string | null;
 }): Promise<CardDoc[]> {
-  const { q, contentIds, subtitleLanguages, minDifficulty, maxDifficulty, minLevel, maxLevel } = params;
+  const perfStart = performance.now();
+  const { q, contentIds, subtitleLanguages, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, userId } = params;
   const limit = params.limit ?? 100;
   const main = params.mainLanguage ? `&main=${encodeURIComponent(params.mainLanguage)}` : "";
   const contentIdsParam =
@@ -844,19 +887,37 @@ export async function apiSearchCardsFTS(params: {
   const difficultyMaxParam = maxDifficulty !== undefined && maxDifficulty !== null ? `&difficulty_max=${maxDifficulty}` : '';
   const levelMinParam = minLevel ? `&level_min=${encodeURIComponent(minLevel)}` : '';
   const levelMaxParam = maxLevel ? `&level_max=${encodeURIComponent(maxLevel)}` : '';
+  const lengthMinParam = minLength !== undefined && minLength !== null ? `&length_min=${minLength}` : '';
+  const lengthMaxParam = maxLength !== undefined && maxLength !== null ? `&length_max=${maxLength}` : '';
+  const durationMaxParam = maxDuration !== undefined && maxDuration !== null ? `&duration_max=${maxDuration}` : '';
+  const reviewMinParam = minReview !== undefined && minReview !== null ? `&review_min=${minReview}` : '';
+  const reviewMaxParam = maxReview !== undefined && maxReview !== null ? `&review_max=${maxReview}` : '';
+  const userIdParam = userId ? `&user_id=${encodeURIComponent(userId)}` : '';
 
   // Check cache first (short TTL)
   const cacheKey = getSearchCacheKey(params);
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+    const cacheTime = performance.now() - perfStart;
+    console.log(`[apiSearchCardsFTS] Cache hit in ${cacheTime.toFixed(2)}ms`);
     return cached.data;
   }
   
+  const fetchStart = performance.now();
   const rows = await getJson<Array<Record<string, unknown>>>(
-    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}${difficultyMinParam}${difficultyMaxParam}${levelMinParam}${levelMaxParam}`
+    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}${difficultyMinParam}${difficultyMaxParam}${levelMinParam}${levelMaxParam}${lengthMinParam}${lengthMaxParam}${durationMaxParam}${reviewMinParam}${reviewMaxParam}${userIdParam}`
   );
+  const fetchTime = performance.now() - fetchStart;
+  
+  const mapStart = performance.now();
   const result = rows.map(rowToCardDoc);
+  const mapTime = performance.now() - mapStart;
+  
   searchCache.set(cacheKey, { data: result, timestamp: Date.now() });
+  
+  const totalTime = performance.now() - perfStart;
+  console.log(`[apiSearchCardsFTS] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${result.length} items`);
+  
   return result;
 }
 
@@ -872,8 +933,15 @@ export async function apiSearch(params: {
   maxDifficulty?: number;
   minLevel?: string | null;
   maxLevel?: string | null;
+  minLength?: number;
+  maxLength?: number;
+  maxDuration?: number;
+  minReview?: number;
+  maxReview?: number;
+  userId?: string | null;
   signal?: AbortSignal;
 }): Promise<{ items: CardDoc[]; total: number; page: number; size: number }> {
+  const perfStart = performance.now();
   const query = params.query || '';
   const page = params.page ?? 1;
   const size = params.size ?? 50;
@@ -911,20 +979,51 @@ export async function apiSearch(params: {
     urlParams.set('level_max', params.maxLevel);
   }
   
+  if (params.minLength !== undefined && params.minLength !== null && params.minLength > 1) {
+    urlParams.set('length_min', String(params.minLength));
+  }
+  
+  if (params.maxLength !== undefined && params.maxLength !== null && params.maxLength < 1000) {
+    urlParams.set('length_max', String(params.maxLength));
+  }
+  
+  if (params.maxDuration !== undefined && params.maxDuration !== null && params.maxDuration < 300) {
+    urlParams.set('duration_max', String(params.maxDuration));
+  }
+  
+  if (params.minReview !== undefined && params.minReview !== null && params.minReview > 0) {
+    urlParams.set('review_min', String(params.minReview));
+  }
+  
+  if (params.maxReview !== undefined && params.maxReview !== null && params.maxReview < 10000) {
+    urlParams.set('review_max', String(params.maxReview));
+  }
+  
+  if (params.userId) {
+    urlParams.set('user_id', params.userId);
+  }
+  
   assertApiBase();
   const fullUrl = `${API_BASE}/api/search?${urlParams.toString()}`;
+  
+  const fetchStart = performance.now();
   const res = await fetch(fullUrl, {
     headers: { Accept: 'application/json' },
     signal: params.signal,
   });
   
   if (!res.ok) {
+    const fetchTime = performance.now() - fetchStart;
+    console.error(`[apiSearch] API failed after ${fetchTime.toFixed(2)}ms: ${res.status}`);
     throw new Error(`Search API failed: ${res.status}`);
   }
   
+  const jsonStart = performance.now();
   const data = await res.json();
+  const jsonTime = performance.now() - jsonStart;
   
   // Map API response to CardDoc
+  const mapStart = performance.now();
   const items: CardDoc[] = (data.items || []).map((r: Record<string, unknown>) => ({
     id: String(r.card_id || ''),
     film_id: String(r.content_slug || ''),
@@ -955,6 +1054,11 @@ export async function apiSearch(params: {
       return undefined;
     })(),
   }));
+  const mapTime = performance.now() - mapStart;
+  
+  const totalTime = performance.now() - perfStart;
+  const fetchTime = performance.now() - fetchStart;
+  console.log(`[apiSearch] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, json: ${jsonTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${items.length} items (total: ${data.total || 0})`);
   
   return {
     items,
@@ -973,6 +1077,12 @@ export async function apiSearchCounts(params: {
   maxDifficulty?: number;
   minLevel?: string | null;
   maxLevel?: string | null;
+  minLength?: number;
+  maxLength?: number;
+  maxDuration?: number;
+  minReview?: number;
+  maxReview?: number;
+  userId?: string | null;
   signal?: AbortSignal;
 }): Promise<Record<string, number>> {
   const urlParams = new URLSearchParams();
@@ -999,6 +1109,30 @@ export async function apiSearchCounts(params: {
   
   if (params.maxLevel) {
     urlParams.set('level_max', params.maxLevel);
+  }
+  
+  if (params.minLength !== undefined && params.minLength !== null) {
+    urlParams.set('length_min', String(params.minLength));
+  }
+  
+  if (params.maxLength !== undefined && params.maxLength !== null) {
+    urlParams.set('length_max', String(params.maxLength));
+  }
+  
+  if (params.maxDuration !== undefined && params.maxDuration !== null) {
+    urlParams.set('duration_max', String(params.maxDuration));
+  }
+  
+  if (params.minReview !== undefined && params.minReview !== null) {
+    urlParams.set('review_min', String(params.minReview));
+  }
+  
+  if (params.maxReview !== undefined && params.maxReview !== null) {
+    urlParams.set('review_max', String(params.maxReview));
+  }
+  
+  if (params.userId) {
+    urlParams.set('user_id', params.userId);
   }
 
   if (params.query && params.query.trim().length > 0) {

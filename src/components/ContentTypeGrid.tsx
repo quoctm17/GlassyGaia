@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, Star } from 'lucide-react';
 import { 
-  apiGetFilm,
+  apiGetFilm, 
   apiListItems,
   apiGetSRSDistribution, 
   apiGetSavedCardsCount,
@@ -84,8 +84,8 @@ export default function ContentTypeGrid({}: ContentTypeGridProps) {
         // Filter by main_language (always filter by selected main language)
         const canonSelected = canonicalizeLangCode(selectedMain) || selectedMain;
         const filtered = detailed.filter((f) => {
-          const canon = canonicalizeLangCode(f.main_language || '');
-          return !!f.main_language && (canon || f.main_language) === canonSelected;
+              const canon = canonicalizeLangCode(f.main_language || '');
+              return !!f.main_language && (canon || f.main_language) === canonSelected;
         });
         setAllItems(filtered);
       } catch {
@@ -423,31 +423,31 @@ export default function ContentTypeGrid({}: ContentTypeGridProps) {
       }
     } else {
       // Group by level
-      const jlptOrder = ['N5', 'N4', 'N3', 'N2', 'N1'];
-      const cefrOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-      const hskOrder = ['HSK1', 'HSK2', 'HSK3', 'HSK4', 'HSK5', 'HSK6', 'HSK7', 'HSK8', 'HSK9'];
-      
-      let levelsOrder: string[] = [];
-      if (currentFramework === 'jlpt') {
-        levelsOrder = [...jlptOrder, 'Unknown'];
-      } else if (currentFramework === 'cefr') {
-        levelsOrder = [...cefrOrder, 'Unknown'];
-      } else if (currentFramework === 'hsk') {
-        levelsOrder = [...hskOrder, 'Unknown'];
-      } else {
-        // Fallback to all frameworks
-        levelsOrder = [
-          ...jlptOrder,
-          ...cefrOrder,
-          ...hskOrder,
-          'Unknown'
-        ];
-      }
-      
-      for (const level of levelsOrder) {
-        const films = groupedByLevel[level] || [];
-        if (films.length > 0) {
-          result.push({ level, films });
+    const jlptOrder = ['N5', 'N4', 'N3', 'N2', 'N1'];
+    const cefrOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+    const hskOrder = ['HSK1', 'HSK2', 'HSK3', 'HSK4', 'HSK5', 'HSK6', 'HSK7', 'HSK8', 'HSK9'];
+    
+    let levelsOrder: string[] = [];
+    if (currentFramework === 'jlpt') {
+      levelsOrder = [...jlptOrder, 'Unknown'];
+    } else if (currentFramework === 'cefr') {
+      levelsOrder = [...cefrOrder, 'Unknown'];
+    } else if (currentFramework === 'hsk') {
+      levelsOrder = [...hskOrder, 'Unknown'];
+    } else {
+      // Fallback to all frameworks
+      levelsOrder = [
+        ...jlptOrder,
+        ...cefrOrder,
+        ...hskOrder,
+        'Unknown'
+      ];
+    }
+    
+    for (const level of levelsOrder) {
+      const films = groupedByLevel[level] || [];
+      if (films.length > 0) {
+        result.push({ level, films });
         }
       }
     }
@@ -499,7 +499,7 @@ export default function ContentTypeGrid({}: ContentTypeGridProps) {
           <GroupModeSelector
             value={groupMode}
             onChange={setGroupMode}
-          />
+              />
           <SearchBar
             value={searchQuery}
             onChange={setSearchQuery}
@@ -580,8 +580,8 @@ export default function ContentTypeGrid({}: ContentTypeGridProps) {
                       </span>
                     ) : (
                       <>
-                        <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px'}}>Level</span>
-                        <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px' }}>{level}</span>
+                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px'}}>Level</span>
+                    <span style={{ color: 'var(--hover-select)', fontFamily: "'Press Start 2P', monospace", fontSize: '14px' }}>{level}</span>
                       </>
                     )}
                     <img 

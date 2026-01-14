@@ -10,6 +10,7 @@ import {
   apiSearch,
   apiListItems,
   apiSearchCardsFTS,
+  apiGetCardSaveStatusBatch,
 } from "../services/cfApi";
 import { apiTrackTime } from "../services/userTracking";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
@@ -27,6 +28,7 @@ function SearchPage() {
   const [firstLoading, setFirstLoading] = useState(true);
   const [cards, setCards] = useState<CardDoc[]>([]);
   const [total, setTotal] = useState(0);
+  const [cardSaveStatuses, setCardSaveStatuses] = useState<Record<string, { saved: boolean; srs_state: string; review_count: number }>>({});
   const [contentFilter, setContentFilter] = useState<string[]>([]);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
   const [page, setPage] = useState(1);
@@ -35,10 +37,18 @@ function SearchPage() {
   const [allItems, setAllItems] = useState<FilmDoc[]>([]);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
-  const [minDifficulty, setMinDifficulty] = useState(0);
-  const [maxDifficulty, setMaxDifficulty] = useState(100);
-  const [minLevel, setMinLevel] = useState<string | null>(null);
-  const [maxLevel, setMaxLevel] = useState<string | null>(null);
+  // Legacy filters (kept for API compatibility, but not used in UI)
+  const [minDifficulty] = useState(0);
+  const [maxDifficulty] = useState(100);
+  const [minLevel] = useState<string | null>(null);
+  const [maxLevel] = useState<string | null>(null);
+  
+  // New filters
+  const [minLength, setMinLength] = useState(1);
+  const [maxLength, setMaxLength] = useState(100);
+  const [maxDuration, setMaxDuration] = useState(120);
+  const [minReview, setMinReview] = useState(0);
+  const [maxReview, setMaxReview] = useState(1000);
   const [volume, setVolume] = useState(28);
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
   const pageSize = 50;
@@ -51,8 +61,14 @@ function SearchPage() {
     async (searchQuery: string, pageNum: number) => {
       const trimmed = searchQuery.trim();
       const isText = trimmed.length >= 2;
+      
+      // Performance logging
+      const perfStart = performance.now();
+      const logLabel = `[SearchPage] fetchCards ${isText ? 'FTS' : 'Browse'} page=${pageNum}`;
+      
       // Prevent concurrent requests
       if (isFetchingRef.current && pageNum > 1) {
+        console.log(`${logLabel}: Skipped - already fetching`);
         return; // Skip if already fetching (only for pagination)
       }
 
@@ -76,6 +92,8 @@ function SearchPage() {
           // Use FTS endpoint for text search with increasing limit (pseudo-pagination)
           const maxLimit = 200;
           const effectiveLimit = Math.min(pageNum * pageSize, maxLimit);
+          
+          const apiStart = performance.now();
           const items = await apiSearchCardsFTS({
             q: trimmed,
             limit: effectiveLimit,
@@ -86,14 +104,53 @@ function SearchPage() {
             maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
             minLevel: minLevel || undefined,
             maxLevel: maxLevel || undefined,
+            minLength: minLength !== 1 ? minLength : undefined,
+            maxLength: maxLength !== 100 ? maxLength : undefined,
+            maxDuration: maxDuration !== 120 ? maxDuration : undefined,
+            minReview: minReview !== 0 ? minReview : undefined,
+            maxReview: maxReview !== 1000 ? maxReview : undefined,
+            userId: user?.uid || null,
           });
+          const apiTime = performance.now() - apiStart;
+          console.log(`${logLabel}: API call took ${apiTime.toFixed(2)}ms, returned ${items.length} items`);
+          
           setCards(items);
           setTotal(items.length);
           setPage(pageNum);
           // If we hit the current limit and haven't reached maxLimit, allow more loads
           setHasMore(items.length === effectiveLimit && effectiveLimit < maxLimit);
+          
+          // Clear save statuses when starting new search
+          if (pageNum === 1) {
+            setCardSaveStatuses({});
+          }
+          
+          // Batch load save statuses for all cards (only if user is logged in and cards exist)
+          // Load in background with delay to prioritize main content loading
+          if (user?.uid && items.length > 0) {
+            const statusStart = performance.now();
+            const cardsToLoad = items.map(card => ({
+              card_id: card.id,
+              film_id: card.film_id,
+              episode_id: card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
+            }));
+            
+            // Delay save status loading to prioritize main content (load after 500ms)
+            setTimeout(() => {
+              apiGetCardSaveStatusBatch(user.uid!, cardsToLoad)
+                .then(statuses => {
+                  const statusTime = performance.now() - statusStart;
+                  console.log(`${logLabel}: Save status batch took ${statusTime.toFixed(2)}ms for ${cardsToLoad.length} cards`);
+                  setCardSaveStatuses(prev => ({ ...prev, ...statuses }));
+                })
+                .catch(error => {
+                  console.error(`${logLabel}: Failed to load batch save statuses:`, error);
+                });
+            }, 500);
+          }
         } else {
           // Browsing mode: use paginated /api/search (supports text search too)
+          const apiStart = performance.now();
           const result = await apiSearch({
             query: trimmed, // Pass query for text search support
             page: pageNum,
@@ -105,11 +162,21 @@ function SearchPage() {
             maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
             minLevel: minLevel || undefined,
             maxLevel: maxLevel || undefined,
+            minLength: minLength !== 1 ? minLength : undefined,
+            maxLength: maxLength !== 100 ? maxLength : undefined,
+            maxDuration: maxDuration !== 120 ? maxDuration : undefined,
+            minReview: minReview !== 0 ? minReview : undefined,
+            maxReview: maxReview !== 1000 ? maxReview : undefined,
+            userId: user?.uid || null,
             signal: abortControllerRef.current.signal,
           });
+          const apiTime = performance.now() - apiStart;
+          console.log(`${logLabel}: API call took ${apiTime.toFixed(2)}ms, returned ${result.items.length} items (total: ${result.total})`);
 
           if (pageNum === 1) {
             setCards(result.items);
+            // Clear save statuses when starting new search
+            setCardSaveStatuses({});
           } else {
             setCards((prev) => [...prev, ...result.items]);
           }
@@ -124,10 +191,38 @@ function SearchPage() {
             setHasMore(pageNum * pageSize < result.total);
           }
           setPage(pageNum);
+          
+          // Batch load save statuses for all cards (only if user is logged in and cards exist)
+          // Load in background with delay to prioritize main content loading
+          if (user?.uid && result.items.length > 0) {
+            const statusStart = performance.now();
+            const cardsToLoad = result.items.map(card => ({
+              card_id: card.id,
+              film_id: card.film_id,
+              episode_id: card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
+            }));
+            
+            // Delay save status loading to prioritize main content (load after 500ms)
+            setTimeout(() => {
+              apiGetCardSaveStatusBatch(user.uid!, cardsToLoad)
+                .then(statuses => {
+                  const statusTime = performance.now() - statusStart;
+                  console.log(`${logLabel}: Save status batch took ${statusTime.toFixed(2)}ms for ${cardsToLoad.length} cards`);
+                  setCardSaveStatuses(prev => ({ ...prev, ...statuses }));
+                })
+                .catch(error => {
+                  console.error(`${logLabel}: Failed to load batch save statuses:`, error);
+                });
+            }, 500);
+          }
         }
+        
+        const totalTime = performance.now() - perfStart;
+        console.log(`${logLabel}: Total time ${totalTime.toFixed(2)}ms`);
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           // Request was cancelled - still need to reset loading
+          console.log(`${logLabel}: Cancelled`);
           if (pageNum === 1) {
             setLoading(false);
             setFirstLoading(false);
@@ -137,7 +232,8 @@ function SearchPage() {
           isFetchingRef.current = false;
           return;
         }
-        console.error("Search error:", error);
+        const totalTime = performance.now() - perfStart;
+        console.error(`${logLabel}: Error after ${totalTime.toFixed(2)}ms:`, error);
         // Don't clear cards on error for pagination - keep what we have
         if (pageNum === 1) {
           setCards([]);
@@ -153,7 +249,7 @@ function SearchPage() {
         }
       }
     },
-    [preferences.main_language, preferences.subtitle_languages, pageSize, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel]
+    [preferences.main_language, preferences.subtitle_languages, pageSize, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid]
   );
 
   // Fetch all content items on mount only (cached by apiListItems)
@@ -199,88 +295,83 @@ function SearchPage() {
       setQuery(trimmed);
   }, []);
 
-  // Debounce filter changes for better performance (except for first load)
-  const filterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track if filter modal is open to prevent auto-fetching
+  const [isFilterModalOpenState, setIsFilterModalOpenState] = useState(false);
 
   // Khi query (đã debounce) hoặc filter / language đổi thì gọi API
+  // BUT: Skip if filter modal is open (wait for Apply button)
   useEffect(() => {
-    // Cancel previous filter timeout
-    if (filterTimeoutRef.current) {
-      clearTimeout(filterTimeoutRef.current);
+    // Don't fetch if filter modal is open - wait for Apply button
+    if (isFilterModalOpenState) {
+      console.log('[SearchPage] Skipping fetch - filter modal is open');
+      return;
     }
     
-    // Debounce filter changes (100ms) for smoother UX - faster than search
-    filterTimeoutRef.current = setTimeout(() => {
-      setPage(1);
-    setHasMore(true);
-      // Reset shuffle on new search/filter
-      setShouldShuffle(false);
-      shuffleSeedRef.current = Date.now();
+    // Track when filter change started
+    if (!firstLoading) {
+      setLoading(true);
+    }
+    
+    // Immediate fetch for query/language changes, debounced for filter changes
     const trimmed = query.trim();
+    setPage(1);
+    setHasMore(true);
+    // Reset shuffle on new search/filter
+    setShouldShuffle(false);
+    shuffleSeedRef.current = Date.now();
+    
     if (trimmed.length >= 2) {
       fetchCards(trimmed, 1);
     } else {
       fetchCards("", 1);
     }
-    }, 100); // Short debounce for filter changes - prioritize responsiveness
-    
-    return () => {
-      if (filterTimeoutRef.current) {
-        clearTimeout(filterTimeoutRef.current);
-      }
-    };
-  }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, fetchCards]);
+  }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid, fetchCards, firstLoading, isFilterModalOpenState]);
 
-  // Filter items by mainLanguage
-  const filteredItems = useMemo(() => {
-    const mainLang = preferences.main_language || "en";
-    return allItems.filter((item) => item.main_language === mainLang);
-  }, [allItems, preferences.main_language]);
-
-  // Build maps for FilterPanel from all items (filtered by mainLanguage)
+  // No longer filter by mainLanguage - backend handles is_available filtering
+  // Build maps for FilterPanel from all items (backend already filters invalid items)
   const filmTitleMap = useMemo(() => {
     const map: Record<string, string> = {};
-    filteredItems.forEach((item) => {
+    allItems.forEach((item) => {
       if (item.id) {
         map[item.id] = item.title || item.id;
       }
     });
     return map;
-  }, [filteredItems]);
+  }, [allItems]);
 
   const filmTypeMap = useMemo(() => {
     const map: Record<string, string | undefined> = {};
-    filteredItems.forEach((item) => {
+    allItems.forEach((item) => {
       if (item.id) {
         map[item.id] = item.type;
       }
     });
     return map;
-  }, [filteredItems]);
+  }, [allItems]);
 
   const filmLangMap = useMemo(() => {
     const map: Record<string, string> = {};
-    filteredItems.forEach((item) => {
+    allItems.forEach((item) => {
       if (item.id && item.main_language) {
         map[item.id] = item.main_language;
       }
     });
     return map;
-  }, [filteredItems]);
+  }, [allItems]);
 
   const filmStatsMap = useMemo(() => {
     const map: Record<string, any> = {};
-    filteredItems.forEach((item) => {
+    allItems.forEach((item) => {
       if (item.id) {
         map[item.id] = item.level_framework_stats || null;
       }
     });
     return map;
-  }, [filteredItems]);
+  }, [allItems]);
 
   const allContentIds = useMemo(() => {
-    return filteredItems.map((item) => item.id).filter((id): id is string => !!id);
-  }, [filteredItems]);
+    return allItems.map((item) => item.id).filter((id): id is string => !!id);
+  }, [allItems]);
 
   // Content counts: Use client-side counting from allResults (much faster than server-side)
   // This counts only the cards that are already loaded, not the entire database
@@ -437,6 +528,24 @@ function SearchPage() {
     };
   }, [user?.uid]);
 
+  // Memoized filter change handlers to prevent unnecessary re-renders
+  const handleLengthChange = useCallback((min: number, max: number) => {
+    console.log(`[SearchPage] Length filter changed: ${min}-${max}`);
+    setMinLength(min);
+    setMaxLength(max);
+  }, []);
+
+  const handleDurationChange = useCallback((max: number) => {
+    console.log(`[SearchPage] Duration filter changed: ${max}`);
+    setMaxDuration(max);
+  }, []);
+
+  const handleReviewChange = useCallback((min: number, max: number) => {
+    console.log(`[SearchPage] Review filter changed: ${min}-${max}`);
+    setMinReview(min);
+    setMaxReview(max);
+  }, []);
+
   return (
     <div className="search-page-container">
       {/* Overlay for mobile - click outside to close */}
@@ -490,7 +599,10 @@ function SearchPage() {
               />
               <button
                 className="filter-panel-toggle-btn"
-                onClick={() => setIsFilterModalOpen(true)}
+                onClick={() => {
+                  setIsFilterModalOpen(true);
+                  setIsFilterModalOpenState(true);
+                }}
                 aria-label="Open filters"
               >
                 <img
@@ -538,6 +650,7 @@ function SearchPage() {
                     const stableKey = `${card.film_id || "item"}-${
                       card.episode_id || card.episode || "e"
                     }-${card.id}`;
+                    const saveStatus = cardSaveStatuses[card.id] || { saved: false, srs_state: 'none', review_count: 0 };
                     return (
                       <SearchResultCard
                       key={stableKey}
@@ -548,6 +661,7 @@ function SearchPage() {
                       subtitleLanguages={preferences.subtitle_languages}
                       onTrackReading={handleTrackReading}
                       onTrackListening={handleTrackListening}
+                      initialSaveStatus={saveStatus}
                     />
                   )})}
                   {isLoadingMore && (
@@ -569,20 +683,18 @@ function SearchPage() {
 
       <FilterModal
         isOpen={isFilterModalOpen}
-        onClose={() => setIsFilterModalOpen(false)}
-        minDifficulty={minDifficulty}
-        maxDifficulty={maxDifficulty}
-        onDifficultyChange={(min, max) => {
-          setMinDifficulty(min);
-          setMaxDifficulty(max);
+        onClose={() => {
+          setIsFilterModalOpen(false);
+          setIsFilterModalOpenState(false);
         }}
-        minLevel={minLevel}
-        maxLevel={maxLevel}
-        onLevelChange={(min, max) => {
-          setMinLevel(min);
-          setMaxLevel(max);
-        }}
-        mainLanguage={preferences.main_language || "en"}
+        minLength={minLength}
+        maxLength={maxLength}
+        onLengthChange={handleLengthChange}
+        maxDuration={maxDuration}
+        onDurationChange={handleDurationChange}
+        minReview={minReview}
+        maxReview={maxReview}
+        onReviewChange={handleReviewChange}
       />
 
       <CustomizeModal
