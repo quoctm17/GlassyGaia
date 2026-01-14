@@ -34,6 +34,7 @@ interface Props {
   onUnsave?: (cardId: string) => void; // callback when card is unsaved
   onTrackReading?: (seconds: number) => void; // callback to track reading time
   onTrackListening?: (seconds: number) => void; // callback to track listening time
+  initialSaveStatus?: { saved: boolean; srs_state: string; review_count: number }; // pre-loaded save status to avoid N+1 queries
 }
 
 // Memoized component to prevent unnecessary re-renders
@@ -46,6 +47,7 @@ const SearchResultCard = memo(function SearchResultCard({
   onUnsave,
   onTrackReading,
   onTrackListening,
+  initialSaveStatus,
 }: Props) {
   const { user, preferences } = useUser();
   // Use prop if provided, otherwise fallback to preferences
@@ -108,8 +110,16 @@ const SearchResultCard = memo(function SearchResultCard({
     // This ensures smooth transition when subtitle languages change
   }, [initialCard.id, initialCard.image_url, initialCard.subtitle]);
 
-  // Load saved status, SRS state, and review count for card
+  // Initialize save status from prop if provided (optimized batch loading)
   useEffect(() => {
+    if (initialSaveStatus) {
+      setIsSaved(initialSaveStatus.saved);
+      setSrsState(initialSaveStatus.srs_state as SRSState);
+      setReviewCount(initialSaveStatus.review_count);
+      return;
+    }
+    
+    // Fallback: Load saved status, SRS state, and review count for card (only if not provided)
     if (!user?.uid || !card.id) {
       setIsSaved(false);
       setSrsState('none');
@@ -142,7 +152,7 @@ const SearchResultCard = memo(function SearchResultCard({
     })();
     
     return () => { mounted = false; };
-  }, [user?.uid, card.id, card.film_id, card.episode_id, card.episode]);
+  }, [user?.uid, card.id, card.film_id, card.episode_id, card.episode, initialSaveStatus]);
 
 
   // Close SRS dropdown when clicking outside
