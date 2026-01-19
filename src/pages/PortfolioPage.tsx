@@ -28,9 +28,20 @@ export default function PortfolioPage() {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
   const [savedCards, setSavedCards] = useState<Array<CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number }>>([]);
   const [allItems, setAllItems] = useState<FilmDoc[]>([]);
-  const [serverContentCounts, setServerContentCounts] = useState<Record<string, number>>({});
   const [contentFilter, setContentFilter] = useState<string[]>([]);
   const [filmLevelMap, setFilmLevelMap] = useState<Record<string, { framework: string; level: string; language?: string }[]>>({});
+  const [savedCardsLoading, setSavedCardsLoading] = useState(false);
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCards, setTotalCards] = useState(0); // Total cards from API (all languages) - kept for reference, not used in display (filteredCount is used instead)
+  const [hasMoreCards, setHasMoreCards] = useState(false); // Whether there are more cards from API - kept for reference, not used in pagination (filteredCount is used instead)
+  const CARDS_PER_PAGE = 50; // Reduced from 100 for better performance
+  
+  // Suppress unused variable warnings - these are kept for potential future use
+  void totalCards;
+  void hasMoreCards;
+  // All unique content IDs that user has saved cards for (for FilterPanel)
+  const [allSavedContentIds, setAllSavedContentIds] = useState<string[]>([]);
   const [srsDropdownOpen, setSrsDropdownOpen] = useState<Record<string, boolean>>({});
   const srsDropdownRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [tableSearchQuery, setTableSearchQuery] = useState('');
@@ -49,13 +60,14 @@ export default function PortfolioPage() {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   
   // Toggle card selection
-  const toggleCardSelection = useCallback((cardId: string) => {
+  // card.id is now the unique card ID from database (not card_number)
+  const toggleCardSelection = useCallback((card: CardDoc) => {
     setSelectedCards(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(cardId)) {
-        newSet.delete(cardId);
+      if (newSet.has(card.id)) {
+        newSet.delete(card.id);
       } else {
-        newSet.add(cardId);
+        newSet.add(card.id);
       }
       return newSet;
     });
@@ -115,13 +127,34 @@ export default function PortfolioPage() {
   const readingIntervalRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const listeningIntervalRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const hasIncrementedListeningSessionRef = useRef<Record<string, boolean>>({});
+  const refreshSavedCardsInProgressRef = useRef<boolean>(false);
+  const refreshSavedCardsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRefreshSavedCardsRef = useRef<boolean>(false);
 
-  // Refresh saved cards data (for real-time updates)
-  const refreshSavedCards = useCallback(async () => {
+  // Internal function to actually perform the refresh (without debouncing)
+  // Only loads one page at a time for better performance
+  const performRefreshSavedCards = useCallback(async (page: number = currentPage) => {
     if (!user?.uid || allItems.length === 0) return;
     
+    // If already in progress, mark that we need another refresh after this one completes
+    if (refreshSavedCardsInProgressRef.current) {
+      pendingRefreshSavedCardsRef.current = true;
+      return;
+    }
+    
+    refreshSavedCardsInProgressRef.current = true;
+    const wasPending = pendingRefreshSavedCardsRef.current;
+    pendingRefreshSavedCardsRef.current = false;
+    
     try {
-      const result = await apiGetSavedCards(user.uid, 1, 1000);
+      setSavedCardsLoading(true);
+      
+      // Load only one page at a time
+      const result = await apiGetSavedCards(user.uid, page, CARDS_PER_PAGE);
+      
+      // Update pagination state (keep for internal use, but display will use filteredCount)
+      setTotalCards(result.total || 0);
+      setHasMoreCards(result.has_more || false);
       
       // Load film levels for cards from allItems
       const uniqueFilmIds = [...new Set(result.cards.map(c => c.film_id).filter(Boolean))];
@@ -144,6 +177,9 @@ export default function PortfolioPage() {
           }
         }
       });
+
+      // Update filmLevelMap with new level data
+      setFilmLevelMap(prev => ({ ...prev, ...levelMap }));
 
       const parseEpisodeNum = (episodeId: string | undefined): number | null => {
         if (!episodeId) return null;
@@ -201,8 +237,38 @@ export default function PortfolioPage() {
       setSavedCards(cardsWithLevels);
     } catch (error) {
       console.error('Failed to refresh saved cards:', error);
+      // On error, set empty array to avoid showing stale data
+      setSavedCards([]);
+    } finally {
+      setSavedCardsLoading(false);
+      refreshSavedCardsInProgressRef.current = false;
+      
+      // If there was a pending refresh or a new one was requested, trigger it
+      if (pendingRefreshSavedCardsRef.current || wasPending) {
+        pendingRefreshSavedCardsRef.current = false;
+        // Use a small delay to avoid immediate re-trigger
+        setTimeout(() => {
+          performRefreshSavedCards(currentPage);
+        }, 200);
+      }
     }
-  }, [user?.uid, allItems, filmLevelMap]);
+  }, [user?.uid, allItems, filmLevelMap, currentPage]);
+
+  // Public debounced refresh function
+  const refreshSavedCards = useCallback(() => {
+    if (!user?.uid || allItems.length === 0) return;
+    
+    // Clear any pending debounce timeout
+    if (refreshSavedCardsTimeoutRef.current) {
+      clearTimeout(refreshSavedCardsTimeoutRef.current);
+      refreshSavedCardsTimeoutRef.current = null;
+    }
+    
+    // Debounce: wait 1000ms before actually making the request
+    refreshSavedCardsTimeoutRef.current = setTimeout(() => {
+      performRefreshSavedCards();
+    }, 1000);
+  }, [user?.uid, allItems.length, performRefreshSavedCards]);
 
   // Refresh portfolio stats (for real-time updates)
   const refreshPortfolio = useCallback(async () => {
@@ -233,11 +299,8 @@ export default function PortfolioPage() {
         readingTimeAccumulatorRef.current = 0;
         try {
           await apiTrackTime(user.uid, totalSeconds, 'reading');
-          // Refresh saved cards and portfolio after tracking time
-          await Promise.all([
-            refreshSavedCards(),
-            refreshPortfolio()
-          ]);
+          // Only refresh portfolio after tracking time (saved cards don't need immediate refresh)
+          await refreshPortfolio();
         } catch (error) {
           console.error('Failed to track reading time:', error);
         }
@@ -262,11 +325,8 @@ export default function PortfolioPage() {
         listeningTimeAccumulatorRef.current = 0;
         try {
           await apiTrackTime(user.uid, totalSeconds, 'listening');
-          // Refresh saved cards and portfolio after tracking time
-          await Promise.all([
-            refreshSavedCards(),
-            refreshPortfolio()
-          ]);
+          // Only refresh portfolio after tracking time (saved cards don't need immediate refresh)
+          await refreshPortfolio();
         } catch (error) {
           console.error('Failed to track listening time:', error);
         }
@@ -298,6 +358,11 @@ export default function PortfolioPage() {
       // Cleanup all intervals
       Object.values(readingIntervalRef.current).forEach(interval => clearInterval(interval));
       Object.values(listeningIntervalRef.current).forEach(interval => clearInterval(interval));
+      // Cleanup refresh timeout
+      if (refreshSavedCardsTimeoutRef.current) {
+        clearTimeout(refreshSavedCardsTimeoutRef.current);
+        refreshSavedCardsTimeoutRef.current = null;
+      }
     };
   }, [user?.uid]);
 
@@ -574,120 +639,21 @@ export default function PortfolioPage() {
     return maxLevel;
   };
 
-  // Load saved cards (after allItems is loaded)
+  // Load saved cards (after allItems is loaded) - use performRefreshSavedCards to avoid duplicate API calls
+  // Reset to page 1 when user, allItems, or main_language changes
   useEffect(() => {
     if (!user?.uid || allItems.length === 0) return;
+    
+    // Reset to page 1 when user, allItems, or main_language changes
+    setCurrentPage(1);
+  }, [user?.uid, allItems.length, preferences?.main_language]);
 
-    let mounted = true;
-    (async () => {
-      try {
-        // Load all saved cards (may need pagination in the future)
-        const result = await apiGetSavedCards(user.uid, 1, 1000);
-        if (!mounted) return;
-
-        // Load film levels for cards from allItems
-        const uniqueFilmIds = [...new Set(result.cards.map(c => c.film_id).filter(Boolean))];
-        const levelMap: Record<string, { framework: string; level: string; language?: string }[]> = {};
-        
-        uniqueFilmIds.forEach((filmId) => {
-          if (!filmId) return;
-          const film = allItems.find(item => item.id === filmId);
-          if (!film) return;
-          
-          if (film.level_framework_stats) {
-            const stats = parseLevelStats(film.level_framework_stats);
-            const dominant = getDominantLevel(stats);
-            if (dominant) {
-              // Use first framework entry if available, otherwise generic
-              let framework = 'level';
-              if (stats && stats.length > 0 && (stats as any)[0]?.framework) {
-                framework = (stats as any)[0].framework;
-              }
-              levelMap[filmId] = [{ framework, level: dominant }];
-            }
-          }
-        });
-
-        if (mounted) {
-          setFilmLevelMap(prev => ({ ...prev, ...levelMap }));
-
-          // Helper to parse episode number from slug (fallback if API doesn't provide episode_number)
-          const parseEpisodeNum = (episodeId: string | undefined): number | null => {
-            if (!episodeId) return null;
-            // Try pattern like "e1", "e5", etc.
-            const eMatch = episodeId.match(/^e(\d+)$/i);
-            if (eMatch) return parseInt(eMatch[1], 10);
-            // Try pattern like "alice_in_borderland_s3_001" -> extract last number
-            // Match the last underscore followed by digits
-            const numMatch = episodeId.match(/_(\d+)$/);
-            if (numMatch) {
-              const num = parseInt(numMatch[1], 10);
-              return num > 0 ? num : null;
-            }
-            // Try to extract any trailing number sequence
-            const endNumMatch = episodeId.match(/(\d+)$/);
-            if (endNumMatch) {
-              const num = parseInt(endNumMatch[1], 10);
-              return num > 0 ? num : null;
-            }
-            return null;
-          };
-
-          // Map levels and episode numbers to cards
-          const cardsWithLevels = result.cards.map((c: any) => {
-            // Normalize srs_state from API response (ensure lowercase and trim)
-            const rawSrsState = c.srs_state;
-            const normalizedSrsState = rawSrsState 
-              ? String(rawSrsState).toLowerCase().trim() 
-              : 'none';
-            
-            const cardData: CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number } = {
-              ...c,
-              // Ensure srs_state is normalized and preserved
-              srs_state: normalizedSrsState,
-              // Preserve created_at and next_review_at from API
-              created_at: c.created_at || null,
-              next_review_at: c.next_review_at || null,
-              // Preserve XP data from API
-              xp_total: c.xp_total || 0,
-              xp_reading: c.xp_reading || 0,
-              xp_listening: c.xp_listening || 0,
-              xp_speaking: c.xp_speaking || 0,
-              xp_writing: c.xp_writing || 0,
-            };
-            
-            // Add levels
-            if (c.film_id && levelMap[c.film_id]) {
-              cardData.levels = levelMap[c.film_id];
-            } else if (c.film_id && filmLevelMap[c.film_id]) {
-              cardData.levels = filmLevelMap[c.film_id];
-            }
-            
-            // Use episode_number from API if available, otherwise parse from slug
-            if (c.episode_number && typeof c.episode_number === 'number') {
-              cardData.episode_number = c.episode_number;
-            } else {
-              const epNum = parseEpisodeNum(c.episode_id || c.episode_slug);
-              if (epNum !== null) {
-                cardData.episode_number = epNum;
-              }
-            }
-            
-            return cardData;
-          });
-
-          setSavedCards(cardsWithLevels);
-        }
-      } catch (error) {
-        console.error('Failed to load saved cards:', error);
-        if (mounted) {
-          setSavedCards([]);
-        }
-      }
-    })();
-
-    return () => { mounted = false; };
-  }, [user?.uid, allItems]);
+  // Load cards when page changes (including initial load)
+  // Also reload when main_language changes to ensure cards are filtered correctly
+  useEffect(() => {
+    if (!user?.uid || allItems.length === 0) return;
+    performRefreshSavedCards(currentPage);
+  }, [currentPage, user?.uid, allItems.length, preferences?.main_language]);
 
   // Load all content items
   useEffect(() => {
@@ -709,54 +675,61 @@ export default function PortfolioPage() {
     };
   }, []);
 
-  // Fetch content counts for saved cards
+  // Removed content counts calculation - too expensive when user has many cards
+  // FilterPanel will only show content items that user has saved cards for
+
+  // Load all unique content IDs that user has saved cards for (for FilterPanel)
+  // This loads a few pages to get unique content_ids without loading all cards
   useEffect(() => {
-    if (!isFilterPanelOpen || !user?.uid) {
-      return;
-    }
+    if (!user?.uid) return;
     
     let cancelled = false;
-    const timeoutId = setTimeout(() => {
-      const run = async () => {
+    
+    (async () => {
         try {
-          // Get unique content IDs from saved cards filtered by main language
-          const mainLang = preferences?.main_language || null;
           const contentIdsSet = new Set<string>();
-          savedCards.forEach(card => {
+        let page = 1;
+        const MAX_PAGES_TO_SCAN = 20; // Scan up to 20 pages to get unique content_ids (1000 cards)
+        let hasMore = true;
+        
+        // Load pages until we've seen enough or no more cards
+        while (hasMore && page <= MAX_PAGES_TO_SCAN && !cancelled) {
+          const result = await apiGetSavedCards(user.uid, page, CARDS_PER_PAGE);
+          
+          if (result.cards && result.cards.length > 0) {
+            result.cards.forEach((card: any) => {
             if (card.film_id) {
-              const item = allItems.find(item => item.id === card.film_id);
-              if (!mainLang || item?.main_language === mainLang) {
                 contentIdsSet.add(card.film_id);
               }
+            });
+            
+            hasMore = result.has_more || false;
+            page++;
+            
+            // Small delay to avoid overwhelming the worker
+            if (hasMore && page <= MAX_PAGES_TO_SCAN) {
+              await new Promise(resolve => setTimeout(resolve, 50));
             }
-          });
-          
-          // Count saved cards per content
-          const counts: Record<string, number> = {};
-          savedCards.forEach(card => {
-            if (card.film_id && contentIdsSet.has(card.film_id)) {
-              counts[card.film_id] = (counts[card.film_id] || 0) + 1;
-            }
-          });
-          
-          if (!cancelled) {
-            setServerContentCounts(counts);
-          }
-        } catch (error) {
-          if (!cancelled) {
-            console.error("Failed to calculate content counts:", error);
-            setServerContentCounts({});
+          } else {
+            hasMore = false;
           }
         }
-      };
-      run();
-    }, 500);
+          
+          if (!cancelled) {
+          setAllSavedContentIds(Array.from(contentIdsSet));
+          }
+        } catch (error) {
+        console.error('Failed to load content IDs:', error);
+          if (!cancelled) {
+          setAllSavedContentIds([]);
+          }
+        }
+    })();
     
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
     };
-  }, [user?.uid, savedCards, allItems, preferences?.main_language, isFilterPanelOpen]);
+  }, [user?.uid]);
 
   // Close SRS dropdowns when clicking outside
   useEffect(() => {
@@ -965,7 +938,7 @@ export default function PortfolioPage() {
   const filteredSavedCards = useMemo(() => {
     let filtered = savedCards;
 
-    // Filter by main language
+    // Filter by main language FIRST (before other filters)
     if (preferences?.main_language) {
       const mainLang = preferences.main_language;
       filtered = filtered.filter(card => {
@@ -992,12 +965,18 @@ export default function PortfolioPage() {
     // Group by Save Date if selected
     if (groupBy === 'save_date') {
       // Group cards by created_at (Save Date) - group by date (YYYY-MM-DD)
+      // Use state_created_at (when user saved card) which is now in created_at field
       const grouped = new Map<string, typeof filtered>();
       filtered.forEach(card => {
         const createdAt = (card as any).created_at;
         if (createdAt && typeof createdAt === 'number') {
+          // createdAt is in milliseconds (Unix timestamp * 1000)
           const date = new Date(createdAt);
-          const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+          // Use UTC date to avoid timezone issues
+          const year = date.getUTCFullYear();
+          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(date.getUTCDate()).padStart(2, '0');
+          const dateKey = `${year}-${month}-${day}`; // YYYY-MM-DD in UTC
           if (!grouped.has(dateKey)) {
             grouped.set(dateKey, []);
           }
@@ -1025,6 +1004,14 @@ export default function PortfolioPage() {
     return { cards: filtered, isGrouped: false };
   }, [savedCards, preferences?.main_language, allItems, contentFilter, debouncedSearchQuery, groupBy]);
   
+  // Calculate filtered count for pagination display
+  const filteredCount = useMemo(() => {
+    if (filteredSavedCards.isGrouped && filteredSavedCards.grouped) {
+      return filteredSavedCards.grouped.reduce((sum, [_, cards]) => sum + cards.length, 0);
+    }
+    return filteredSavedCards.cards?.length || 0;
+  }, [filteredSavedCards]);
+  
   // Helper to format date for display
   const formatGroupDate = (dateKey: string): string => {
     if (dateKey === 'unknown') return 'Unknown';
@@ -1045,58 +1032,61 @@ export default function PortfolioPage() {
     });
   }, []);
 
-  // Filter items by mainLanguage and only show items that user has saved cards
-  const filteredItems = useMemo(() => {
-    const mainLang = preferences?.main_language || "en";
-    // Get unique content IDs from saved cards
-    const savedContentIds = new Set<string>();
-    savedCards.forEach(card => {
-      if (card.film_id) {
-        savedContentIds.add(card.film_id);
-      }
-    });
-    
-    // Filter by main language and only include items with saved cards
-    return allItems.filter((item) => {
-      return item.main_language === mainLang && savedContentIds.has(item.id);
-    });
-  }, [allItems, preferences?.main_language, savedCards]);
-
-  // Build maps for FilterPanel from all items (filtered by mainLanguage)
+  // Build maps for FilterPanel - include all saved content IDs that match main_language
+  // This ensures FilterPanel shows all content items user has saved
   const filmTitleMap = useMemo(() => {
     const map: Record<string, string> = {};
-    filteredItems.forEach((item) => {
-      if (item.id) {
+    const mainLang = preferences?.main_language || "en";
+    const savedContentIdsSet = new Set(allSavedContentIds);
+    
+    // Add all items from allItems that match main_language and are in allSavedContentIds
+    allItems.forEach((item) => {
+      if (item.id && savedContentIdsSet.has(item.id) && item.main_language === mainLang) {
         map[item.id] = item.title || item.id;
       }
     });
+    
     return map;
-  }, [filteredItems]);
+  }, [allItems, allSavedContentIds, preferences?.main_language]);
 
   const filmTypeMap = useMemo(() => {
     const map: Record<string, string | undefined> = {};
-    filteredItems.forEach((item) => {
-      if (item.id) {
+    const mainLang = preferences?.main_language || "en";
+    const savedContentIdsSet = new Set(allSavedContentIds);
+    
+    // Add all items from allItems that match main_language and are in allSavedContentIds
+    allItems.forEach((item) => {
+      if (item.id && savedContentIdsSet.has(item.id) && item.main_language === mainLang) {
         map[item.id] = item.type;
       }
     });
+    
     return map;
-  }, [filteredItems]);
+  }, [allItems, allSavedContentIds, preferences?.main_language]);
 
   const filmLangMap = useMemo(() => {
     const map: Record<string, string> = {};
-    filteredItems.forEach((item) => {
-      if (item.id && item.main_language) {
+    const mainLang = preferences?.main_language || "en";
+    const savedContentIdsSet = new Set(allSavedContentIds);
+    
+    // Add all items from allItems that match main_language and are in allSavedContentIds
+    allItems.forEach((item) => {
+      if (item.id && item.main_language && savedContentIdsSet.has(item.id) && item.main_language === mainLang) {
         map[item.id] = item.main_language;
       }
     });
+    
     return map;
-  }, [filteredItems]);
+  }, [allItems, allSavedContentIds, preferences?.main_language]);
 
   const filmStatsMap = useMemo(() => {
     const map: Record<string, LevelFrameworkStats | null> = {};
-    filteredItems.forEach((item) => {
-      if (item.id) {
+    const mainLang = preferences?.main_language || "en";
+    const savedContentIdsSet = new Set(allSavedContentIds);
+    
+    // Add all items from allItems that match main_language and are in allSavedContentIds
+    allItems.forEach((item) => {
+      if (item.id && savedContentIdsSet.has(item.id) && item.main_language === mainLang) {
         const raw = item.level_framework_stats;
         if (!raw) {
           map[item.id] = null;
@@ -1114,27 +1104,31 @@ export default function PortfolioPage() {
         }
       }
     });
+    
     return map;
-  }, [filteredItems]);
+  }, [allItems, allSavedContentIds, preferences?.main_language]);
 
-  const allContentIds = useMemo(() => {
-    return filteredItems.map((item) => item.id).filter((id): id is string => !!id);
-  }, [filteredItems]);
-
-  // Content counts: merge serverContentCounts with allContentIds
-  const contentCounts = useMemo(() => {
-    const merged: Record<string, number> = { ...serverContentCounts };
+  // Use allSavedContentIds filtered by main_language for FilterPanel
+  // This ensures FilterPanel shows all content items user has saved that match main_language
+  // We need to check main_language from allItems, but include all matching items
+  const savedContentIds = useMemo(() => {
+    const mainLang = preferences?.main_language || "en";
+    const savedContentIdsSet = new Set(allSavedContentIds);
     
-    if (allContentIds && allContentIds.length > 0) {
-      for (const id of allContentIds) {
-        if (!(id in merged)) {
-          merged[id] = 0;
-        }
-      }
-    }
+    // Get all items from allItems that:
+    // 1. Are in allSavedContentIds (user has saved cards)
+    // 2. Have matching main_language
+    const matchingIds = allItems
+      .filter(item => {
+        const hasSavedCards = savedContentIdsSet.has(item.id);
+        const matchesLanguage = item.main_language === mainLang;
+        return hasSavedCards && matchesLanguage;
+      })
+      .map(item => item.id)
+      .filter((id): id is string => !!id);
     
-    return merged;
-  }, [serverContentCounts, allContentIds]);
+    return matchingIds;
+  }, [allItems, allSavedContentIds, preferences?.main_language]);
 
   // Process monthly XP data for graph
   const xpProgressData = useMemo(() => {
@@ -1403,9 +1397,9 @@ export default function PortfolioPage() {
         filmLangMap={filmLangMap}
         filmStatsMap={filmStatsMap}
         allResults={filteredSavedCards.isGrouped && filteredSavedCards.grouped ? filteredSavedCards.grouped.flatMap(([_, cards]) => cards) : (filteredSavedCards.cards || [])}
-        contentCounts={contentCounts}
+        contentCounts={undefined}
         totalCount={filteredSavedCards.isGrouped && filteredSavedCards.grouped ? filteredSavedCards.grouped.reduce((sum, [_, cards]) => sum + cards.length, 0) : (filteredSavedCards.cards?.length || 0)}
-        allContentIds={allContentIds}
+        allContentIds={savedContentIds}
         filmFilter={contentFilter}
         onSelectFilm={setContentFilter}
         mainLanguage={preferences?.main_language || "en"}
@@ -1952,6 +1946,7 @@ export default function PortfolioPage() {
           <button 
             className="portfolio-table-practice-btn typography-pressstart-1"
             onClick={handlePracticeClick}
+            disabled={selectedCards.size === 0}
           >
             Practice{selectedCards.size > 0 ? ` (${selectedCards.size})` : ''}
           </button>
@@ -2016,9 +2011,12 @@ export default function PortfolioPage() {
                           const srsState = (card as any).srs_state || 'none';
                           const episodeNum = (card as any).episode_number || null;
                           
+                          // Create unique key by combining dateKey, film_id, episode_id, and card.id
+                          const uniqueKey = `${dateKey}-${card.film_id || ''}-${card.episode_id || ''}-${card.id || cardIdx}`;
+                          
                           return (
                             <tr 
-                              key={card.id || cardIdx}
+                              key={uniqueKey}
                               onMouseEnter={() => handleTableRowMouseEnter(card)}
                               onMouseLeave={() => handleTableRowMouseLeave(card)}
                             >
@@ -2029,7 +2027,7 @@ export default function PortfolioPage() {
                               type="checkbox" 
                               className="portfolio-table-checkbox"
                               checked={selectedCards.has(card.id)}
-                              onChange={() => toggleCardSelection(card.id)}
+                              onChange={() => toggleCardSelection(card)}
                               onClick={(e) => e.stopPropagation()}
                             />
                             <div 
@@ -2287,9 +2285,12 @@ export default function PortfolioPage() {
                     const srsState = (card as any).srs_state || 'none';
                     const episodeNum = (card as any).episode_number || null;
                     
+                    // Create unique key by combining film_id, episode_id, card.id, and index
+                    const uniqueKey = `${card.film_id || ''}-${card.episode_id || ''}-${card.id || idx}-${idx}`;
+                    
                     return (
                       <tr 
-                        key={card.id || idx}
+                        key={uniqueKey}
                         onMouseEnter={() => handleTableRowMouseEnter(card)}
                         onMouseLeave={() => handleTableRowMouseLeave(card)}
                       >
@@ -2300,7 +2301,7 @@ export default function PortfolioPage() {
                                 type="checkbox" 
                                 className="portfolio-table-checkbox"
                                 checked={selectedCards.has(card.id)}
-                                onChange={() => toggleCardSelection(card.id)}
+                                onChange={() => toggleCardSelection(card)}
                                 onClick={(e) => e.stopPropagation()}
                               />
                               <div 
@@ -2534,6 +2535,67 @@ export default function PortfolioPage() {
               })()}
             </tbody>
           </table>
+        </div>
+        
+        {/* Pagination Controls */}
+        <div className="portfolio-table-pagination" style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          padding: '16px',
+          borderTop: '1px solid var(--neutral)',
+          marginTop: '16px'
+        }}>
+          <div style={{ color: 'var(--text)', fontSize: '14px' }}>
+            {savedCardsLoading ? (
+              'Loading...'
+            ) : (
+              filteredCount > 0 ? (
+                `Showing ${((currentPage - 1) * CARDS_PER_PAGE) + 1}-${Math.min(currentPage * CARDS_PER_PAGE, filteredCount)} of ${filteredCount.toLocaleString()} cards`
+              ) : (
+                'No cards found'
+              )
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              className="portfolio-table-pagination-btn"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1 || savedCardsLoading}
+              style={{
+                padding: '8px 16px',
+                background: currentPage === 1 || savedCardsLoading ? 'var(--hover-bg)' : 'var(--primary)',
+                color: currentPage === 1 || savedCardsLoading ? 'var(--neutral)' : '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: currentPage === 1 || savedCardsLoading ? 'not-allowed' : 'pointer',
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: '10px'
+              }}
+            >
+              Previous
+            </button>
+            <span style={{ color: 'var(--text)', fontSize: '14px', minWidth: '80px', textAlign: 'center' }}>
+              Page {currentPage} {filteredCount > 0 && `of ${Math.ceil(filteredCount / CARDS_PER_PAGE)}`}
+            </span>
+            <button
+              className="portfolio-table-pagination-btn"
+              onClick={() => setCurrentPage(prev => prev + 1)}
+              disabled={currentPage * CARDS_PER_PAGE >= filteredCount || savedCardsLoading}
+              style={{
+                padding: '8px 16px',
+                background: currentPage * CARDS_PER_PAGE >= filteredCount || savedCardsLoading ? 'var(--hover-bg)' : 'var(--primary)',
+                color: currentPage * CARDS_PER_PAGE >= filteredCount || savedCardsLoading ? 'var(--neutral)' : '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: currentPage * CARDS_PER_PAGE >= filteredCount || savedCardsLoading ? 'not-allowed' : 'pointer',
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: '10px'
+              }}
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
 

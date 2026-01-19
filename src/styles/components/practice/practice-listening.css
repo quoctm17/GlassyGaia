@@ -1,0 +1,214 @@
+/* Practice Listening Component Styles */
+
+/* Listening - Blank Input */
+.practice-listening-sentence {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background-color: transparent;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--text);
+}
+
+.practice-blank-input {
+  border: 2px solid var(--filter-slider-unselected);
+  background: transparent;
+  outline: none;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  width: 100px;
+  text-align: left;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.practice-blank-input:focus {
+  border-color: var(--primary);
+}
+
+.practice-blank-input::placeholder {
+  color: var(--practice-placeholder-color);
+}
+
+/* Blank input states for correct/incorrect */
+.practice-blank-input.correct {
+  background-color: var(--practice-success-input-bg);
+  border-color: var(--practice-success-input-border);
+  color: var(--practice-success-input-text);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.practice-blank-input.incorrect {
+  background-color: var(--practice-error-input-bg);
+  border-color: var(--practice-error-input-border);
+  color: var(--practice-error-input-text);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+/* Answer Result States */
+.practice-listening-result-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.practice-listening-result-container.correct {
+  background: linear-gradient(to bottom, var(--practice-success-gradient-start) 0%, var(--practice-success-gradient-end) 100%);
+  border: 2px solid var(--practice-success-border);
+}
+
+.practice-listening-result-container.incorrect {
+  background: linear-gradient(to bottom, var(--practice-error-gradient-start) 0%, var(--practice-error-gradient-end) 100%);
+  border: 2px solid var(--practice-error-border);
+}
+
+/* Header in result container */
+.practice-listening-result-container .practice-listening-result-header {
+  padding:  10px 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.practice-listening-result-container .practice-listening-result-header.correct {
+  color: var(--practice-success-text);
+}
+
+.practice-listening-result-container .practice-listening-result-header.incorrect {
+  color: var(--practice-error-text);
+}
+
+/* When practice-input-section is inside result container, it should take 80% height and be at bottom */
+.practice-listening-result-container .practice-input-section {
+  flex: 0 0 80%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--background);
+  border: none;
+  border-radius: 8px 8px 0 0;
+  margin-top: auto;
+}
+
+/* Success icon - circular background with checkmark */
+.practice-listening-success-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--practice-success-icon-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.practice-listening-success-icon-check {
+  width: 10px;
+  height: 6px;
+  position: relative;
+  border-left: 2px solid var(--background);
+  border-bottom: 2px solid var(--background);
+  transform: rotate(-45deg);
+  margin-top: -2px;
+}
+
+/* Error icon - circular background with transparent X */
+.practice-listening-error-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--practice-error-icon-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.practice-listening-error-icon-x {
+  width: 10px;
+  height: 10px;
+  position: relative;
+}
+
+.practice-listening-error-icon-x::before,
+.practice-listening-error-icon-x::after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  height: 10px;
+  background-color: var(--background);
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
+}
+
+.practice-listening-error-icon-x::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.practice-listening-error-icon-x::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.practice-listening-result-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.practice-listening-result-sentence {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.practice-listening-result-answer {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.practice-listening-result-answer.correct {
+  background-color: var(--practice-success-bubble-bg);
+  color: var(--practice-success-text);
+}
+
+.practice-listening-result-answer.incorrect {
+  background-color: var(--practice-error-bubble-bg);
+  color: var(--practice-error-text);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .practice-listening-sentence {
+    font-size: 16px;
+  }
+
+  .practice-blank-input {
+    font-size: 16px;
+    width: 80px;
+  }
+
+  .practice-listening-result-sentence,
+  .practice-listening-result-answer {
+    font-size: 16px;
+  }
+}

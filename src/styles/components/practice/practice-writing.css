@@ -1,0 +1,170 @@
+/* Practice Writing Component Styles */
+
+/* Input Section - Writing component uses different border color */
+.practice-input-section {
+  border: 2px solid var(--text);
+}
+
+/* Answer Result States */
+.practice-writing-result-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.practice-writing-result-container.correct {
+  background: linear-gradient(to bottom, var(--practice-success-gradient-start) 0%, var(--practice-success-gradient-end) 100%);
+  border: 2px solid var(--practice-success-border);
+}
+
+.practice-writing-result-container.incorrect {
+  background: linear-gradient(to bottom, var(--practice-error-gradient-start) 0%, var(--practice-error-gradient-end) 100%);
+  border: 2px solid var(--practice-error-border);
+}
+
+/* Header in result container */
+.practice-writing-result-container .practice-writing-result-header {
+  padding: 10px 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.practice-writing-result-container .practice-writing-result-header.correct {
+  color: var(--practice-success-text);
+}
+
+.practice-writing-result-container .practice-writing-result-header.incorrect {
+  color: var(--practice-error-text);
+}
+
+/* When practice-input-section is inside result container, it should take 80% height and be at bottom */
+.practice-writing-result-container .practice-input-section {
+  flex: 0 0 80%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--background);
+  border: none;
+  border-radius: 8px 8px 0 0;
+  margin-top: auto;
+}
+
+/* Success icon - circular background with checkmark */
+.practice-writing-success-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--practice-success-icon-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.practice-writing-success-icon-check {
+  width: 10px;
+  height: 6px;
+  position: relative;
+  border-left: 2px solid var(--background);
+  border-bottom: 2px solid var(--background);
+  transform: rotate(-45deg);
+  margin-top: -2px;
+}
+
+/* Error icon - circular background with transparent X */
+.practice-writing-error-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--practice-error-icon-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.practice-writing-error-icon-x {
+  width: 10px;
+  height: 10px;
+  position: relative;
+}
+
+.practice-writing-error-icon-x::before,
+.practice-writing-error-icon-x::after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  height: 10px;
+  background-color: var(--background);
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
+}
+
+.practice-writing-error-icon-x::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.practice-writing-error-icon-x::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.practice-writing-result-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px;
+}
+
+.practice-writing-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.practice-writing-answer-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.practice-writing-answer-text {
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.practice-writing-answer-text.correct {
+  background-color: var(--practice-success-input-bg);
+  border: 2px solid var(--practice-success-input-border);
+  color: var(--practice-success-input-text);
+}
+
+.practice-writing-answer-text.incorrect {
+  background-color: var(--practice-error-input-bg);
+  border: 2px solid var(--practice-error-input-border);
+  color: var(--practice-error-input-text);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .practice-writing-answer-text {
+    font-size: 14px;
+  }
+}

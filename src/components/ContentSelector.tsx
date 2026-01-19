@@ -128,11 +128,14 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
 
   // Available film ids from either external or fetched films, filtered by main language
   const filmIds: string[] = useMemo(() => {
-    // If allContentIds provided, use that (all available content)
-    // Otherwise fall back to external or fetched films
-    let ids = allContentIds 
-      ? allContentIds 
-      : (filmTitleMapExternal ? Object.keys(filmTitleMapExternal) : films.map(f => f.id));
+    // If allContentIds provided, use that directly (already filtered by main_language from parent)
+    // This is used by PortfolioPage where allContentIds is already filtered by main_language
+    if (allContentIds && allContentIds.length > 0) {
+      return allContentIds;
+    }
+    
+    // Otherwise fall back to external or fetched films and filter by main language
+    let ids = filmTitleMapExternal ? Object.keys(filmTitleMapExternal) : films.map(f => f.id);
     // Filter by main language if specified
     if (mainLanguage) {
       ids = ids.filter(id => {
