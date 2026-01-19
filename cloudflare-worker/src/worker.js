@@ -110,6 +110,40 @@ function kanaOnlyString(s) {
   return String(s).replace(/[^\p{Script=Hiragana}\p{Script=Katakana}\p{L}\p{N}\s]/gu, '').trim();
 }
 
+// Helper function to extract searchable terms from text
+function extractSearchTerms(text, language) {
+  if (!text || typeof text !== 'string') return [];
+  const terms = new Set();
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const isCJK = ['ja', 'zh', 'ko', 'zh-CN', 'zh-TW'].includes(language);
+  
+  if (isCJK) {
+    // For CJK: Extract character sequences (2-6 characters)
+    // Remove furigana brackets first
+    const normalized = trimmed.replace(/\[[^\]]+\]/g, '').replace(/\s+/g, '');
+    for (let len = 2; len <= Math.min(6, normalized.length); len++) {
+      for (let i = 0; i <= normalized.length - len; i++) {
+        const seq = normalized.substring(i, i + len);
+        if (seq && !seq.includes(' ')) {
+          terms.add(seq);
+        }
+      }
+    }
+  } else {
+    // For non-CJK: Extract words (2+ characters, alphanumeric)
+    const words = trimmed
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && /[a-zA-Z0-9]/.test(w));
+    words.forEach(w => terms.add(w));
+  }
+
+  return Array.from(terms);
+}
+
 // Expand Japanese index text by adding mixed kanji/kana tokens from bracketed furigana: 例) 黒川[くろかわ]
 // Also normalizes whitespace for consistent FTS matching
 // IMPORTANT: Indexes BOTH the base text (without brackets) AND the reading separately
@@ -2208,6 +2242,57 @@ export default {
             hasLevelFilter
           });
           return json({ error: 'search_failed', message: String(e) }, { status: 500 });
+        }
+      }
+
+      // Autocomplete API: Fast suggestions from search_terms table
+      if (path === '/api/search/autocomplete' && request.method === 'GET') {
+        try {
+          const query = (url.searchParams.get('q') || '').trim();
+          const language = url.searchParams.get('language') || null;
+          const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '10', 10), 1), 50);
+
+          if (!query || query.length < 1) {
+            return json({ suggestions: [] });
+          }
+
+          // Build query: prefix match on term, optionally filter by language
+          // Order by frequency (desc) then term (asc) for best matches first
+          let stmt;
+          let params;
+
+          if (language) {
+            stmt = `
+              SELECT term, frequency
+              FROM search_terms
+              WHERE language = ?
+                AND term LIKE ? || '%'
+              ORDER BY frequency DESC, term ASC
+              LIMIT ?
+            `;
+            params = [language, query, limit];
+          } else {
+            stmt = `
+              SELECT term, frequency, language
+              FROM search_terms
+              WHERE term LIKE ? || '%'
+              ORDER BY frequency DESC, term ASC
+              LIMIT ?
+            `;
+            params = [query, limit];
+          }
+
+          const result = await env.DB.prepare(stmt).bind(...params).all();
+          const suggestions = (result.results || []).map(row => ({
+            term: row.term,
+            frequency: row.frequency || 0,
+            language: row.language || null
+          }));
+
+          return json({ suggestions });
+        } catch (e) {
+          console.error('[WORKER /api/search/autocomplete] Error:', e);
+          return json({ error: 'autocomplete_failed', message: String(e), suggestions: [] }, { status: 500 });
         }
       }
 
@@ -5596,13 +5681,30 @@ export default {
             });
           }
           
-          // Prepare batch inserts
+          // OPTIMIZED: Prepare batch inserts with smart Japanese expansion
+          // Only expand Japanese text if it contains brackets (furigana) - skip expensive regex for most cases
           const stmts = [];
+          const hasBracketsRe = /\[[^\]]+\]/; // Quick check for brackets
+          
+          // Pre-process all items to prepare statements
           for (const r of items) {
-            // Use expandJaIndexText for Japanese, regular text for others
-            const idxText = (String(r.language).toLowerCase() === 'ja') 
-              ? expandJaIndexText(String(r.text)) 
-              : String(r.text);
+            let idxText;
+            const lang = String(r.language).toLowerCase();
+            const text = String(r.text);
+            
+            if (lang === 'ja') {
+              // OPTIMIZATION: Only call expandJaIndexText if text has brackets (furigana)
+              // Most subtitles don't have brackets, so this saves significant processing time
+              if (hasBracketsRe.test(text)) {
+                idxText = expandJaIndexText(text);
+              } else {
+                // No brackets - just normalize whitespace (much faster)
+                idxText = text.replace(/\s+/g, '');
+              }
+            } else {
+              // For non-Japanese: use text as-is
+              idxText = text;
+            }
             
             // Use INSERT OR IGNORE to avoid duplicates
             stmts.push(env.DB.prepare(`
@@ -5611,21 +5713,19 @@ export default {
             `).bind(idxText, r.language, r.card_id));
           }
           
-          // Execute in batches of 300 to avoid limits
+          // OPTIMIZED: Execute in larger batches (1000 instead of 300) for maximum performance
+          // D1's batch() automatically runs in a transaction, no need for BEGIN/COMMIT
           let inserted = 0;
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
-          try {
-            for (let i = 0; i < stmts.length; i += 300) {
-              const slice = stmts.slice(i, i + 300);
-              if (slice.length) {
-                const results = await env.DB.batch(slice);
-                inserted += results.reduce((sum, r) => sum + (r.meta?.changes || 0), 0);
-              }
+          const BATCH_SIZE = 1000; // Increased from 300 to 1000 for better throughput
+          
+          // Process in batches to avoid statement limits
+          // Each batch() call is automatically transactional
+          for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+            const slice = stmts.slice(i, i + BATCH_SIZE);
+            if (slice.length) {
+              const results = await env.DB.batch(slice);
+              inserted += results.reduce((sum, r) => sum + (r.meta?.changes || 0), 0);
             }
-            try { await env.DB.prepare('COMMIT').run(); } catch {}
-          } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
-            throw e;
           }
           
           const nextOffset = offset + items.length;
@@ -6398,6 +6498,115 @@ async function trackTime(env, userId, timeSeconds, type) {
   }
   
   return { xpAwarded: totalXPAwarded };
+}
+
+// Track speaking or writing attempt and award XP
+async function trackAttempt(env, userId, type, cardId, filmId) {
+  // Get reward config by ID
+  const rewardConfigId = type === 'speaking' ? REWARD_CONFIG_IDS.SPEAKING_ATTEMPT : REWARD_CONFIG_IDS.WRITING_ATTEMPT;
+  const rewardConfig = await getRewardConfigById(env, rewardConfigId);
+  if (!rewardConfig) return { xpAwarded: 0 };
+  
+  const today = new Date().toISOString().split('T')[0];
+  await getOrCreateUserScores(env, userId);
+  await getOrCreateDailyActivity(env, userId);
+  
+  // Award XP (will handle transaction, daily stats, and streak)
+  if (rewardConfig.xp_amount > 0) {
+    await awardXP(env, userId, rewardConfig.xp_amount, rewardConfig.id, `${type} attempt`, cardId || null, filmId || null);
+  }
+  
+  // Update speaking_attempt or writing_attempt in user_card_states if card_id is provided
+  if (cardId) {
+    if (type === 'speaking') {
+      await env.DB.prepare(`
+        UPDATE user_card_states
+        SET speaking_attempt = speaking_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND card_id = ?
+      `).bind(userId, cardId).run();
+    } else {
+      await env.DB.prepare(`
+        UPDATE user_card_states
+        SET writing_attempt = writing_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND card_id = ?
+      `).bind(userId, cardId).run();
+    }
+  }
+  
+  // Update user_scores (lifetime totals)
+  if (type === 'speaking') {
+    await env.DB.prepare(`
+      UPDATE user_scores
+      SET total_speaking_attempt = total_speaking_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ?
+    `).bind(userId).run();
+  } else {
+    await env.DB.prepare(`
+      UPDATE user_scores
+      SET total_writing_attempt = total_writing_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ?
+    `).bind(userId).run();
+  }
+  
+  // Update user_daily_activity (reset daily)
+  if (type === 'speaking') {
+    await env.DB.prepare(`
+      UPDATE user_daily_activity
+      SET speaking_attempt = speaking_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ? AND activity_date = ?
+    `).bind(userId, today).run();
+  } else {
+    await env.DB.prepare(`
+      UPDATE user_daily_activity
+      SET writing_attempt = writing_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ? AND activity_date = ?
+    `).bind(userId, today).run();
+  }
+  
+  // Update user_daily_stats (historical record)
+  const statsExisting = await env.DB.prepare(`
+    SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
+  `).bind(userId, today).first();
+  
+  if (statsExisting) {
+    if (type === 'speaking') {
+      await env.DB.prepare(`
+        UPDATE user_daily_stats
+        SET speaking_attempt = speaking_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND stats_date = ?
+      `).bind(userId, today).run();
+    } else {
+      await env.DB.prepare(`
+        UPDATE user_daily_stats
+        SET writing_attempt = writing_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND stats_date = ?
+      `).bind(userId, today).run();
+    }
+  } else {
+    // Record doesn't exist, create new one
+    const statsId = crypto.randomUUID();
+    if (type === 'speaking') {
+      await env.DB.prepare(`
+        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, 1, 0, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
+      `).bind(statsId, userId, today).run();
+    } else {
+      await env.DB.prepare(`
+        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, 0, 1, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
+      `).bind(statsId, userId, today).run();
+    }
+  }
+  
+  return { xpAwarded: rewardConfig.xp_amount || 0 };
 }
 
 async function getCardUUID(filmId, episodeId, cardDisplayId) {
@@ -7201,6 +7410,7 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               srs_state: row.srs_state || 'none',
               film_title: row.film_title,
               created_at: row.state_created_at || row.created_at || null, // Use state_created_at (when user saved card) instead of created_at (when record was created)
+              state_updated_at: row.state_updated_at || null, // Last time the SRS state was updated
               next_review_at: row.next_review_at || null,
               xp_total: totalXP,
               xp_reading: readingXP,
@@ -7243,7 +7453,9 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               current_streak,
               longest_streak,
               total_listening_time,
-              total_reading_time
+              total_reading_time,
+              total_speaking_attempt,
+              total_writing_attempt
             FROM user_scores
             WHERE user_id = ?
           `).bind(userId).first();
@@ -7285,6 +7497,8 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             total_cards_reviewed: reviewedCardsResult?.total || 0,
             total_listening_time: scores?.total_listening_time || 0,
             total_reading_time: scores?.total_reading_time || 0,
+            total_speaking_attempt: scores?.total_speaking_attempt || 0,
+            total_writing_attempt: scores?.total_writing_attempt || 0,
             due_cards_count: dueCardsResult?.total || 0,
           });
         } catch (e) {
@@ -7317,6 +7531,41 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           }
           
           const result = await trackTime(env, user_id, time_seconds, type);
+          
+          return json({ success: true, xp_awarded: result.xpAwarded });
+        } catch (e) {
+          const errorMessage = e?.message || String(e) || 'Unknown error';
+          return json({ error: 'D1_ERROR: ' + errorMessage }, { status: 500 });
+        }
+      }
+
+      // Track speaking or writing attempt and award XP
+      if (path === '/api/user/track-attempt' && request.method === 'POST') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+
+          let body;
+          try {
+            body = await request.json();
+          } catch (parseError) {
+            return json({ error: 'Failed to parse body as JSON', details: String(parseError) }, { status: 400 });
+          }
+          
+          const { user_id, type, card_id, film_id } = body;
+          const userId = auth.userId || user_id;
+          
+          if (!userId || !type) {
+            return json({ error: 'Missing required parameters (user_id, type)' }, { status: 400 });
+          }
+          
+          if (type !== 'speaking' && type !== 'writing') {
+            return json({ error: 'Invalid type. Must be "speaking" or "writing"' }, { status: 400 });
+          }
+          
+          const result = await trackAttempt(env, userId, type, card_id || null, film_id || null);
           
           return json({ success: true, xp_awarded: result.xpAwarded });
         } catch (e) {
@@ -8639,6 +8888,90 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           return json({ configs: configs.results || [] });
         } catch (e) {
           console.error('Get rewards config error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Populate search_terms table from card_subtitles - SuperAdmin only
+      if (path === '/api/admin/populate-search-terms' && request.method === 'POST') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          // Check if user is superadmin
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+
+          const body = await request.json().catch(() => ({}));
+          const batchSize = Math.min(Math.max(parseInt(body.batchSize || '100', 10), 10), 1000);
+          const offset = parseInt(body.offset || '0', 10);
+
+          // Fetch a batch of subtitles
+          const subtitles = await env.DB.prepare(`
+            SELECT id, card_id, language, text
+            FROM card_subtitles
+            WHERE text IS NOT NULL AND LENGTH(text) > 0
+            ORDER BY id
+            LIMIT ? OFFSET ?
+          `).bind(batchSize, offset).all();
+
+          if (!subtitles.results || subtitles.results.length === 0) {
+            return json({ 
+              message: 'No more subtitles to process',
+              processed: 0,
+              totalProcessed: offset
+            });
+          }
+
+          // OPTIMIZED: Process all subtitles and batch insert terms
+          const termMap = new Map(); // Map<`${term}:${language}`, frequency>
+
+          // Extract terms from all subtitles
+          for (const sub of subtitles.results) {
+            const terms = extractSearchTerms(sub.text, sub.language);
+            for (const term of terms) {
+              const key = `${term}:${sub.language}`;
+              termMap.set(key, (termMap.get(key) || 0) + 1);
+            }
+          }
+
+          // OPTIMIZED: Batch insert all terms
+          // D1's batch() automatically runs in a transaction, no need for BEGIN/COMMIT
+          let inserted = 0;
+          const insertStmts = [];
+          
+          for (const [key, frequency] of termMap.entries()) {
+            const [term, language] = key.split(':');
+            insertStmts.push(env.DB.prepare(`
+              INSERT INTO search_terms (term, language, frequency, created_at, updated_at)
+              VALUES (?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
+              ON CONFLICT(term, language) DO UPDATE SET
+                frequency = frequency + ?,
+                updated_at = unixepoch() * 1000
+            `).bind(term, language, frequency, frequency));
+          }
+
+          // Execute in batches of 500 - each batch() call is automatically transactional
+          for (let i = 0; i < insertStmts.length; i += 500) {
+            const slice = insertStmts.slice(i, i + 500);
+            if (slice.length) {
+              const results = await env.DB.batch(slice);
+              inserted += results.reduce((sum, r) => sum + (r.meta?.changes || 0), 0);
+            }
+          }
+
+          return json({
+            message: 'Batch processed successfully',
+            processed: subtitles.results.length,
+            termsInserted: inserted,
+            totalProcessed: offset + subtitles.results.length,
+            hasMore: subtitles.results.length === batchSize
+          });
+        } catch (e) {
+          console.error('[WORKER /api/admin/populate-search-terms] Error:', e);
           return json({ error: e.message }, { status: 500 });
         }
       }

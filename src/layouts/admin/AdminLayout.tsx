@@ -96,6 +96,12 @@ export default function AdminLayout() {
             <Search className="w-4 h-4 mr-2" />
             <span>Populate FTS</span>
           </NavLink>
+          {isSuperAdmin() && (
+            <NavLink to="/admin/populate-search-terms" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+              <Search className="w-4 h-4 mr-2" />
+              <span>Populate Search Terms</span>
+            </NavLink>
+          )}
           <NavLink to="/admin/categories" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
             <Tag className="w-4 h-4 mr-2" />
             <span>Categories</span>

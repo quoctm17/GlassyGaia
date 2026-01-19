@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { CardDoc } from '../../types';
 import { useUser } from '../../context/UserContext';
+import { apiTrackTime } from '../../services/userTracking';
 import buttonPlayIcon from '../../assets/icons/button-play.svg';
 import '../../styles/components/practice/practice-listening.css';
 import '../../styles/pages/practice-page.css';
@@ -14,7 +15,7 @@ interface PracticeListeningProps {
 }
 
 export default function PracticeListening({ card, onCheck }: PracticeListeningProps) {
-  const { preferences } = useUser();
+  const { user, preferences } = useUser();
   const [userInput, setUserInput] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -77,6 +78,88 @@ export default function PracticeListening({ card, onCheck }: PracticeListeningPr
     };
   }, []);
 
+  // Track listening time (debounced to avoid too many API calls)
+  const listeningTimeAccumulatorRef = useRef<number>(0);
+  const listeningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listeningStartTimeRef = useRef<number | null>(null);
+  const listeningIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  const handleTrackListening = useCallback((seconds: number) => {
+    if (!user?.uid || seconds <= 0) return;
+    
+    listeningTimeAccumulatorRef.current += seconds;
+    
+    // Debounce: accumulate and send every 5 seconds
+    if (listeningTimeoutRef.current) {
+      clearTimeout(listeningTimeoutRef.current);
+    }
+    
+    listeningTimeoutRef.current = setTimeout(async () => {
+      const totalSeconds = listeningTimeAccumulatorRef.current;
+      if (totalSeconds > 0 && user?.uid) {
+        listeningTimeAccumulatorRef.current = 0;
+        try {
+          await apiTrackTime(user.uid, totalSeconds, 'listening');
+        } catch (error) {
+          console.error('Failed to track listening time:', error);
+        }
+      }
+    }, 5000);
+  }, [user?.uid]);
+
+  // Track listening time when audio is playing
+  useEffect(() => {
+    if (!user?.uid || !isPlaying) {
+      if (listeningIntervalRef.current) {
+        clearInterval(listeningIntervalRef.current);
+        listeningIntervalRef.current = null;
+      }
+      return;
+    }
+    
+    // Start tracking when audio starts playing
+    listeningStartTimeRef.current = Date.now();
+    listeningIntervalRef.current = setInterval(() => {
+      if (listeningStartTimeRef.current && isPlaying) {
+        const elapsed = (Date.now() - listeningStartTimeRef.current) / 1000;
+        if (elapsed >= 5) {
+          handleTrackListening(5);
+          listeningStartTimeRef.current = Date.now(); // Reset for next interval
+        }
+      }
+    }, 5000);
+    
+    return () => {
+      if (listeningIntervalRef.current) {
+        clearInterval(listeningIntervalRef.current);
+        listeningIntervalRef.current = null;
+      }
+      if (listeningStartTimeRef.current && isPlaying) {
+        const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current) / 1000);
+        if (elapsed > 0) {
+          handleTrackListening(elapsed);
+        }
+        listeningStartTimeRef.current = null;
+      }
+    };
+  }, [isPlaying, user?.uid, handleTrackListening]);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (listeningTimeoutRef.current) {
+        clearTimeout(listeningTimeoutRef.current);
+      }
+      if (listeningIntervalRef.current) {
+        clearInterval(listeningIntervalRef.current);
+      }
+      // Send any remaining accumulated time
+      if (listeningTimeAccumulatorRef.current > 0 && user?.uid) {
+        apiTrackTime(user.uid, listeningTimeAccumulatorRef.current, 'listening').catch(() => {});
+      }
+    };
+  }, [user?.uid]);
+
   // Reset audio and state when card changes
   useEffect(() => {
     if (audioRef.current) {
@@ -87,7 +170,19 @@ export default function PracticeListening({ card, onCheck }: PracticeListeningPr
     setUserInput('');
     setCheckResult(null);
     setHasChecked(false);
-  }, [card.id]);
+    // Reset listening time tracking
+    if (listeningIntervalRef.current) {
+      clearInterval(listeningIntervalRef.current);
+      listeningIntervalRef.current = null;
+    }
+    if (listeningStartTimeRef.current) {
+      const elapsed = Math.floor((Date.now() - listeningStartTimeRef.current) / 1000);
+      if (elapsed > 0 && user?.uid) {
+        handleTrackListening(elapsed);
+      }
+      listeningStartTimeRef.current = null;
+    }
+  }, [card.id, user?.uid, handleTrackListening]);
   
   // Normalize text for comparison
   // Removes ruby text (brackets), punctuation, normalizes spacing

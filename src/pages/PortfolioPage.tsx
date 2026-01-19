@@ -8,6 +8,7 @@ import { apiIncrementListeningSession } from '../services/userTracking';
 import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from '../types/srsStates';
 import type { CardDoc, FilmDoc, LevelFrameworkStats } from '../types';
 import FilterPanel from '../components/FilterPanel';
+import { langLabel } from '../utils/lang';
 import '../styles/pages/portfolio-page.css';
 import '../styles/components/search-result-card.css';
 import '../styles/level-framework-styles.css';
@@ -26,7 +27,7 @@ export default function PortfolioPage() {
   const [portfolio, setPortfolio] = useState<UserPortfolio | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
-  const [savedCards, setSavedCards] = useState<Array<CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number }>>([]);
+  const [savedCards, setSavedCards] = useState<Array<CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; state_updated_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number }>>([]);
   const [allItems, setAllItems] = useState<FilmDoc[]>([]);
   const [contentFilter, setContentFilter] = useState<string[]>([]);
   const [filmLevelMap, setFilmLevelMap] = useState<Record<string, { framework: string; level: string; language?: string }[]>>({});
@@ -204,10 +205,11 @@ export default function PortfolioPage() {
           ? String(rawSrsState).toLowerCase().trim() 
           : 'none';
         
-        const cardData: CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number } = {
+        const cardData: CardDoc & { srs_state: string; film_title?: string; episode_number?: number; created_at?: number | null; state_updated_at?: number | null; next_review_at?: number | null; xp_total?: number; xp_reading?: number; xp_listening?: number; xp_speaking?: number; xp_writing?: number } = {
           ...c,
           srs_state: normalizedSrsState,
           created_at: c.created_at || null,
+          state_updated_at: (c as any).state_updated_at || null,
           next_review_at: c.next_review_at || null,
           xp_total: c.xp_total || 0,
           xp_reading: c.xp_reading || 0,
@@ -1032,6 +1034,67 @@ export default function PortfolioPage() {
     });
   }, []);
 
+  // Get all available subtitle languages from savedCards
+  const availableSubtitleLanguages = useMemo(() => {
+    const langSet = new Set<string>();
+    savedCards.forEach(card => {
+      if (card.subtitle) {
+        Object.keys(card.subtitle).forEach(lang => langSet.add(lang));
+      }
+    });
+    // Sort by language code
+    return Array.from(langSet).sort();
+  }, [savedCards]);
+
+  // Helper to calculate SRS Interval in days from next_review_at
+  const calculateIntervalDays = useCallback((nextReviewAt: number | null | undefined): number | null => {
+    if (!nextReviewAt || typeof nextReviewAt !== 'number') return null;
+    const now = Date.now();
+    const diffMs = nextReviewAt - now;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    return diffDays;
+  }, []);
+
+  // Grouped columns structure for dropdown
+  const columnGroups = useMemo(() => {
+    const mainLang = preferences?.main_language || 'en';
+    
+    // Exclude main language from subtitle languages list
+    const subtitleLangs = availableSubtitleLanguages.filter(lang => lang !== mainLang);
+    
+    return [
+      {
+        label: 'Image & Subtitle Language',
+        columns: [
+          'Image',
+          ...subtitleLangs.map(lang => `Subtitle (${langLabel(lang)})`)
+        ]
+      },
+      {
+        label: 'Date',
+        columns: ['Save Date', 'Updated Date', 'Due Date']
+      },
+      {
+        label: 'Tag',
+        columns: ['Level', 'Media']
+      },
+      {
+        label: 'SRS System',
+        columns: ['SRS State', 'Interval']
+      },
+      {
+        label: 'XP Count',
+        columns: [
+          'XP Count',
+          'XP Count (Reading)',
+          'XP Count (Listening)',
+          'XP Count (Speaking)',
+          'XP Count (Writing)'
+        ]
+      }
+    ];
+  }, [availableSubtitleLanguages, preferences?.main_language]);
+
   // Build maps for FilterPanel - include all saved content IDs that match main_language
   // This ensures FilterPanel shows all content items user has saved
   const filmTitleMap = useMemo(() => {
@@ -1225,16 +1288,6 @@ export default function PortfolioPage() {
     
     return squares;
   }, [streakMap]);
-
-  // Helper function for formatting time
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-  };
 
   // Helper function to get metric value and label
   const getMetricValue = useCallback((cardIndex: number): { value: number | string; label: string } => {
@@ -1642,20 +1695,24 @@ export default function PortfolioPage() {
           </div>
         </div>
 
-        {/* Speaking Words Card (placeholder) */}
+        {/* Speaking Attempts Card */}
         <div className="portfolio-metric-card">
-          <div className="portfolio-metric-value">{(0).toLocaleString()}</div>
+          <div className="portfolio-metric-value">
+            {(portfolio?.total_speaking_attempt || 0).toLocaleString()}
+          </div>
           <div className="portfolio-metric-label">
-            # Speaking Words
+            # Speaking Attempts
             <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
           </div>
         </div>
 
-        {/* Writing Words Card (placeholder) */}
+        {/* Writing Attempts Card */}
         <div className="portfolio-metric-card">
-          <div className="portfolio-metric-value">{(0).toLocaleString()}</div>
+          <div className="portfolio-metric-value">
+            {(portfolio?.total_writing_attempt || 0).toLocaleString()}
+          </div>
           <div className="portfolio-metric-label">
-            # Writing Words
+            # Writing Attempts
             <img src={buttonPlayIcon} alt="" className="portfolio-metric-label-icon" />
           </div>
         </div>
@@ -1912,33 +1969,56 @@ export default function PortfolioPage() {
                   className="portfolio-table-dropdown-menu"
                   style={{
                     top: `${columnsDropdownPosition.top}px`,
-                    left: `${columnsDropdownPosition.left}px`
+                    left: `${columnsDropdownPosition.left}px`,
+                    maxHeight: '500px',
+                    overflowY: 'auto'
                   }}
                 >
-                  {['Image', 'Level', 'Media', 'SRS State', 'Due Date', 'XP Count', 'XP Count (Reading)', 'XP Count (Listening)', 'XP Count (Speaking)', 'XP Count (Writing)'].map((col) => {
-                    const isChecked = selectedColumns.has(col);
-                  return (
-                      <button
-                        key={col}
-                        type="button"
-                        className={`portfolio-table-dropdown-item ${isChecked ? 'selected' : ''}`}
-                        onClick={() => {
-                          const newSet = new Set(selectedColumns);
-                          if (isChecked) {
-                            newSet.delete(col);
-                          } else {
-                            newSet.add(col);
-                          }
-                          setSelectedColumns(newSet);
+                  {columnGroups.map((group, groupIdx) => (
+                    <div key={groupIdx}>
+                      <div 
+                        className="portfolio-table-dropdown-group-label"
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          color: 'var(--sub-language-text)',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderBottom: groupIdx < columnGroups.length - 1 ? '1px solid var(--hover-bg)' : 'none'
                         }}
                       >
-                        <span className={`portfolio-table-dropdown-checkbox ${isChecked ? 'checked' : ''}`}>
-                          {isChecked && <span className="portfolio-table-dropdown-checkmark">✓</span>}
-                        </span>
-                        <span>{col}</span>
-                      </button>
-                  );
-                })}
+                        {group.label}
+                      </div>
+                      {group.columns.map((col) => {
+                        const isChecked = selectedColumns.has(col);
+                        return (
+                          <button
+                            key={col}
+                            type="button"
+                            className={`portfolio-table-dropdown-item ${isChecked ? 'selected' : ''}`}
+                            onClick={() => {
+                              const newSet = new Set(selectedColumns);
+                              if (isChecked) {
+                                newSet.delete(col);
+                              } else {
+                                newSet.add(col);
+                              }
+                              setSelectedColumns(newSet);
+                            }}
+                            style={{
+                              paddingLeft: '24px'
+                            }}
+                          >
+                            <span className={`portfolio-table-dropdown-checkbox ${isChecked ? 'checked' : ''}`}>
+                              {isChecked && <span className="portfolio-table-dropdown-checkmark">✓</span>}
+                            </span>
+                            <span>{col}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
             </div>
               )}
           </div>
@@ -1957,9 +2037,18 @@ export default function PortfolioPage() {
               <tr>
                 {selectedColumns.has('Main Subtitle') && <th>Main Subtitle</th>}
                 {selectedColumns.has('Image') && <th>Image</th>}
+                {availableSubtitleLanguages.filter(lang => {
+                  const mainLang = preferences?.main_language || 'en';
+                  return lang !== mainLang && selectedColumns.has(`Subtitle (${langLabel(lang)})`);
+                }).map(lang => (
+                  <th key={lang}>Subtitle ({langLabel(lang)})</th>
+                ))}
+                {selectedColumns.has('Save Date') && <th>Save Date</th>}
+                {selectedColumns.has('Updated Date') && <th>Updated Date</th>}
                 {selectedColumns.has('Level') && <th>Level</th>}
                 {selectedColumns.has('Media') && <th>Media</th>}
                 {selectedColumns.has('SRS State') && <th>SRS State</th>}
+                {selectedColumns.has('Interval') && <th>Interval</th>}
                 {selectedColumns.has('Due Date') && <th>Due Date</th>}
                 {selectedColumns.has('XP Count') && <th>XP Count</th>}
                 {selectedColumns.has('XP Count (Reading)') && <th>XP Count (Reading)</th>}
@@ -2073,9 +2162,9 @@ export default function PortfolioPage() {
                             </div>
                             <span 
                               style={{ 
-                                overflow: 'hidden', 
-                                textOverflow: 'ellipsis', 
-                                whiteSpace: 'nowrap',
+                                display: 'block',
+                                whiteSpace: 'normal',
+                                wordWrap: 'break-word',
                                 maxWidth: '200px'
                               }}
                               title={mainSubtitle}
@@ -2137,6 +2226,46 @@ export default function PortfolioPage() {
                           ) : (
                             <div style={{ width: '40px', height: '40px', background: 'var(--hover-bg)', borderRadius: '4px', margin: '0 auto' }} />
                           )}
+                        </td>
+                      )}
+                      {availableSubtitleLanguages.filter(lang => {
+                        const mainLang = preferences?.main_language || 'en';
+                        return lang !== mainLang && selectedColumns.has(`Subtitle (${langLabel(lang)})`);
+                      }).map(lang => (
+                        <td key={lang}>
+                          <span 
+                            style={{ 
+                              display: 'block',
+                              whiteSpace: 'normal',
+                              wordWrap: 'break-word',
+                              maxWidth: '200px'
+                            }}
+                            title={card.subtitle?.[lang] || ''}
+                          >
+                            {card.subtitle?.[lang] || <span style={{ color: 'var(--neutral)' }}>-</span>}
+                          </span>
+                        </td>
+                      ))}
+                      {selectedColumns.has('Save Date') && (
+                        <td>
+                          {(() => {
+                            const createdAt = (card as any).created_at;
+                            if (createdAt && typeof createdAt === 'number') {
+                              return new Date(createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                            }
+                            return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                          })()}
+                        </td>
+                      )}
+                      {selectedColumns.has('Updated Date') && (
+                        <td>
+                          {(() => {
+                            const updatedAt = (card as any).state_updated_at;
+                            if (updatedAt && typeof updatedAt === 'number') {
+                              return new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                            }
+                            return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                          })()}
                         </td>
                       )}
                       {selectedColumns.has('Level') && (
@@ -2227,6 +2356,23 @@ export default function PortfolioPage() {
                                     </div>
                                   )}
                                 </div>
+                              );
+                            }
+                            return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                          })()}
+                        </td>
+                      )}
+                      {selectedColumns.has('Interval') && (
+                        <td>
+                          {(() => {
+                            const nextReviewAt = (card as any).next_review_at;
+                            const intervalDays = calculateIntervalDays(nextReviewAt);
+                            if (intervalDays !== null) {
+                              const displayDays = intervalDays < 0 ? `${Math.abs(intervalDays)} days ago` : `${intervalDays} days`;
+                              return (
+                                <span style={{ color: intervalDays < 0 ? 'var(--primary)' : 'var(--text)' }}>
+                                  {displayDays}
+                                </span>
                               );
                             }
                             return <span style={{ color: 'var(--neutral)' }}>-</span>;
@@ -2412,6 +2558,46 @@ export default function PortfolioPage() {
                             )}
                           </td>
                         )}
+                        {availableSubtitleLanguages.filter(lang => {
+                          const mainLang = preferences?.main_language || 'en';
+                          return lang !== mainLang && selectedColumns.has(`Subtitle (${langLabel(lang)})`);
+                        }).map(lang => (
+                          <td key={lang}>
+                            <span 
+                              style={{ 
+                                display: 'block',
+                                whiteSpace: 'normal',
+                                wordWrap: 'break-word',
+                                maxWidth: '200px'
+                              }}
+                              title={card.subtitle?.[lang] || ''}
+                            >
+                              {card.subtitle?.[lang] || <span style={{ color: 'var(--neutral)' }}>-</span>}
+                            </span>
+                          </td>
+                        ))}
+                        {selectedColumns.has('Save Date') && (
+                          <td>
+                            {(() => {
+                              const createdAt = (card as any).created_at;
+                              if (createdAt && typeof createdAt === 'number') {
+                                return new Date(createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                              }
+                              return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                            })()}
+                          </td>
+                        )}
+                        {selectedColumns.has('Updated Date') && (
+                          <td>
+                            {(() => {
+                              const updatedAt = (card as any).state_updated_at;
+                              if (updatedAt && typeof updatedAt === 'number') {
+                                return new Date(updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                              }
+                              return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                            })()}
+                          </td>
+                        )}
                         {selectedColumns.has('Level') && (
                           <td>
                             {card.levels && card.levels.length > 0 ? (
@@ -2496,6 +2682,23 @@ export default function PortfolioPage() {
           </div>
                                     )}
                                   </div>
+                                );
+                              }
+                              return <span style={{ color: 'var(--neutral)' }}>-</span>;
+                            })()}
+                          </td>
+                        )}
+                        {selectedColumns.has('Interval') && (
+                          <td>
+                            {(() => {
+                              const nextReviewAt = (card as any).next_review_at;
+                              const intervalDays = calculateIntervalDays(nextReviewAt);
+                              if (intervalDays !== null) {
+                                const displayDays = intervalDays < 0 ? `${Math.abs(intervalDays)} days ago` : `${intervalDays} days`;
+                                return (
+                                  <span style={{ color: intervalDays < 0 ? 'var(--primary)' : 'var(--text)' }}>
+                                    {displayDays}
+                                  </span>
                                 );
                               }
                               return <span style={{ color: 'var(--neutral)' }}>-</span>;
@@ -2599,56 +2802,6 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      {/* Stats Grid (moved to bottom) */}
-      <div className="portfolio-stats-section">
-        <h2 className="portfolio-stats-title typography-inter-1">Statistics</h2>
-        <div className="portfolio-stats-grid">
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Total XP</div>
-            <div className="portfolio-stat-value typography-inter-1">{portfolio.total_xp.toLocaleString()}</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Level</div>
-            <div className="portfolio-stat-value typography-inter-1">{portfolio.level}</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Coins</div>
-            <div className="portfolio-stat-value typography-inter-1">{portfolio.coins.toLocaleString()}</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Current Streak</div>
-            <div className="portfolio-stat-value typography-inter-1">{portfolio.current_streak} days</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Longest Streak</div>
-            <div className="portfolio-stat-value typography-inter-1">{portfolio.longest_streak} days</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Cards Saved</div>
-            <div className="portfolio-stat-value typography-inter-1">{portfolio.total_cards_saved.toLocaleString()}</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Cards Reviewed</div>
-            <div className="portfolio-stat-value typography-inter-1">{portfolio.total_cards_reviewed.toLocaleString()}</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Listening Time</div>
-            <div className="portfolio-stat-value typography-inter-1">{formatTime(portfolio.total_listening_time)}</div>
-          </div>
-          
-          <div className="portfolio-stat-card">
-            <div className="portfolio-stat-label typography-inter-4">Reading Time</div>
-            <div className="portfolio-stat-value typography-inter-1">{formatTime(portfolio.total_reading_time)}</div>
-          </div>
-        </div>
-      </div>
 
       {/* Practice Modal */}
       {practiceModalOpen && (

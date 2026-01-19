@@ -45,6 +45,7 @@
   cursor: pointer;
   transition: all 0.2s ease;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  padding: 0;
 }
 
 .practice-microphone-btn:hover:not(:disabled) {
@@ -64,6 +65,25 @@
 .practice-microphone-btn.recording {
   background-color: var(--hover-select);
   animation: pulse 1.5s ease-in-out infinite;
+  border-radius: 50px;
+  width: auto;
+  padding: 0 20px;
+  min-width: 200px;
+}
+
+/* Sound Wave Visualization */
+.practice-sound-wave-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 40px;
+  width: 100%;
+}
+
+.practice-sound-wave-bar {
+  min-height: 4px;
+  transition: height 0.1s ease-out;
 }
 
 .practice-speaking-transcript {

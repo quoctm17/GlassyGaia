@@ -921,6 +921,41 @@ export async function apiSearchCardsFTS(params: {
   return result;
 }
 
+/**
+ * Get autocomplete suggestions from search_terms table
+ */
+export async function apiSearchAutocomplete(params: {
+  q: string;
+  language?: string | null;
+  limit?: number;
+}): Promise<{ suggestions: Array<{ term: string; frequency: number; language: string | null }> }> {
+  assertApiBase();
+  const { q, language, limit = 10 } = params;
+  
+  const urlParams = new URLSearchParams();
+  urlParams.set('q', q);
+  if (language) {
+    urlParams.set('language', language);
+  }
+  if (limit !== 10) {
+    urlParams.set('limit', String(limit));
+  }
+
+  const res = await fetch(`${API_BASE}/api/search/autocomplete?${urlParams}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to get autocomplete suggestions: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
 // New unified search API endpoint (paginated with main_language + subtitle_languages filters)
 export async function apiSearch(params: {
   query?: string;

@@ -32,6 +32,8 @@ export interface UserPortfolio {
   total_cards_reviewed: number;
   total_listening_time: number;
   total_reading_time: number;
+  total_speaking_attempt: number;
+  total_writing_attempt: number;
   due_cards_count: number;
 }
 
