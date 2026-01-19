@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { CardDoc } from '../../types';
 import { useUser } from '../../context/UserContext';
+import { apiTrackTime } from '../../services/userTracking';
 import buttonPlayIcon from '../../assets/icons/button-play.svg';
 import '../../styles/components/practice/practice-reading.css';
 import '../../styles/pages/practice-page.css';
@@ -14,7 +15,7 @@ interface PracticeReadingProps {
 }
 
 export default function PracticeReading({ card, onCheck }: PracticeReadingProps) {
-  const { preferences } = useUser();
+  const { user, preferences } = useUser();
   const [userInput, setUserInput] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -115,6 +116,60 @@ export default function PracticeReading({ card, onCheck }: PracticeReadingProps)
     };
   }, []);
 
+  // Track reading time (debounced to avoid too many API calls)
+  const readingTimeAccumulatorRef = useRef<number>(0);
+  const readingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readingStartTimeRef = useRef<number | null>(null);
+  
+  const handleTrackReading = useCallback((seconds: number) => {
+    if (!user?.uid || seconds <= 0) return;
+    
+    readingTimeAccumulatorRef.current += seconds;
+    
+    // Debounce: accumulate and send every 8 seconds
+    if (readingTimeoutRef.current) {
+      clearTimeout(readingTimeoutRef.current);
+    }
+    
+    readingTimeoutRef.current = setTimeout(async () => {
+      const totalSeconds = readingTimeAccumulatorRef.current;
+      if (totalSeconds > 0 && user?.uid) {
+        readingTimeAccumulatorRef.current = 0;
+        try {
+          await apiTrackTime(user.uid, totalSeconds, 'reading');
+        } catch (error) {
+          console.error('Failed to track reading time:', error);
+        }
+      }
+    }, 8000);
+  }, [user?.uid]);
+
+  // Track reading time when user views the card
+  useEffect(() => {
+    if (!user?.uid) return;
+    
+    // Start tracking when component mounts
+    readingStartTimeRef.current = Date.now();
+    
+    // Track time on unmount
+    return () => {
+      if (readingStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - readingStartTimeRef.current) / 1000);
+        if (elapsed > 0) {
+          handleTrackReading(elapsed);
+        }
+        readingStartTimeRef.current = null;
+      }
+      if (readingTimeoutRef.current) {
+        clearTimeout(readingTimeoutRef.current);
+      }
+      // Send any remaining accumulated time
+      if (readingTimeAccumulatorRef.current > 0 && user?.uid) {
+        apiTrackTime(user.uid, readingTimeAccumulatorRef.current, 'reading').catch(() => {});
+      }
+    };
+  }, [card.id, user?.uid, handleTrackReading]);
+
   // Reset audio and state when card changes
   useEffect(() => {
     if (audioRef.current) {
@@ -125,7 +180,15 @@ export default function PracticeReading({ card, onCheck }: PracticeReadingProps)
     setUserInput('');
     setCheckResult(null);
     setHasChecked(false);
-  }, [card.id]);
+    // Reset reading time tracking for new card
+    if (readingStartTimeRef.current) {
+      const elapsed = Math.floor((Date.now() - readingStartTimeRef.current) / 1000);
+      if (elapsed > 0 && user?.uid) {
+        handleTrackReading(elapsed);
+      }
+      readingStartTimeRef.current = Date.now();
+    }
+  }, [card.id, user?.uid, handleTrackReading]);
   
   const handleCheck = () => {
     if (hasChecked) {

@@ -1,0 +1,7 @@
+-- Migration 042: Populate search_terms table from existing card_subtitles
+-- NOTE: This migration only creates the table structure.
+-- The actual population should be done via the /api/admin/populate-search-terms endpoint
+-- or by running the populateSearchTerms function in the worker code.
+-- 
+-- This is because SQLite has limitations with complex text processing,
+-- and JavaScript is better suited for extracting searchable terms from subtitle text.

@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { CardDoc } from '../../types';
+import { useUser } from '../../context/UserContext';
+import { apiTrackAttempt } from '../../services/userTracking';
 import buttonPlayIcon from '../../assets/icons/button-play.svg';
 import '../../styles/components/practice/practice-writing.css';
 import '../../styles/pages/practice-page.css';
@@ -13,6 +15,7 @@ interface PracticeWritingProps {
 }
 
 export default function PracticeWriting({ card, onCheck }: PracticeWritingProps) {
+  const { user } = useUser();
   const [userInput, setUserInput] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -112,7 +115,7 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
     return normalized;
   };
   
-  const handleCheck = () => {
+  const handleCheck = async () => {
     if (hasChecked) {
       // If already checked, proceed to next card
       onCheck();
@@ -127,6 +130,15 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
     const isCorrect = normalizedInput === normalizedAnswer;
     setCheckResult(isCorrect ? 'correct' : 'incorrect');
     setHasChecked(true);
+
+    // Track writing attempt (award XP)
+    if (user?.uid) {
+      try {
+        await apiTrackAttempt(user.uid, 'writing', card.id, card.film_id);
+      } catch (error) {
+        console.error('Failed to track writing attempt:', error);
+      }
+    }
   };
 
   return (

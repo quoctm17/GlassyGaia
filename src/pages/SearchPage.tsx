@@ -289,10 +289,11 @@ function SearchPage() {
   // Instead, we'll use client-side counts from allResults which is much faster
   // ContentSelector will fallback to counting from allResults if contentCounts is not provided
 
-  // Handle search trigger from SearchBar (click icon or Enter key)
+  // Handle search trigger from SearchBar (click icon or Enter key, or suggestion selected)
+  // This should only trigger when user explicitly searches, not while typing
   const handleSearch = useCallback((searchValue: string) => {
     const trimmed = searchValue.trim();
-      setQuery(trimmed);
+    setQuery(trimmed);
   }, []);
 
   // Track if filter modal is open to prevent auto-fetching
@@ -596,6 +597,9 @@ function SearchPage() {
                 onSearch={handleSearch}
                 placeholder=""
                 loading={loading || firstLoading}
+                enableAutocomplete={true}
+                autocompleteLanguage={preferences.main_language || null}
+                debounceMs={0}
               />
               <button
                 className="filter-panel-toggle-btn"

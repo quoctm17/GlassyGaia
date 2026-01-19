@@ -89,3 +89,51 @@ export async function apiIncrementListeningSession(): Promise<{ success: boolean
 
   return res.json();
 }
+
+/**
+ * Track speaking or writing attempt and award XP
+ * @param userId - User ID
+ * @param type - 'speaking' or 'writing'
+ * @param cardId - Optional card ID
+ * @param filmId - Optional film ID
+ * @returns Promise with success status and XP awarded
+ */
+export async function apiTrackAttempt(
+  userId: string,
+  type: 'speaking' | 'writing',
+  cardId?: string | null,
+  filmId?: string | null
+): Promise<{ success: boolean; xp_awarded: number }> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/user/track-attempt`, {
+    method: "POST",
+    headers: getAuthHeaders({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    }),
+    body: JSON.stringify({
+      user_id: userId,
+      type: type,
+      card_id: cardId || null,
+      film_id: filmId || null,
+    }),
+  });
+
+  if (!res.ok) {
+    let errorText = "";
+    try {
+      const errorJson = await res.json();
+      errorText = errorJson.error || JSON.stringify(errorJson);
+    } catch {
+      errorText = await res.text().catch(() => `HTTP ${res.status}`);
+    }
+    throw new Error(`Failed to track attempt: ${res.status} ${errorText}`);
+  }
+
+  try {
+    return await res.json();
+  } catch (e) {
+    throw new Error(`Failed to parse response: ${String(e)}`);
+  }
+}
