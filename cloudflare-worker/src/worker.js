@@ -7095,6 +7095,8 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               e.episode_number,
               ci.slug as film_slug,
               ci.title as film_title,
+              c.id as card_db_id,  -- Unique card ID from database
+              c.card_number,  -- Card number in episode (for display)
               ucs.state_created_at,
               ucs.state_updated_at,
               ucs.created_at,
@@ -7124,9 +7126,10 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             const cardDisplayId = String(row.card_number || '').padStart(3, '0');
             
             // Load subtitles for this card
+            const cardDbId = row.card_db_id || row.card_id; // Use card_db_id (unique ID) if available
             const subs = await env.DB.prepare(`
               SELECT language, text FROM card_subtitles WHERE card_id = ?
-            `).bind(row.card_id).all();
+            `).bind(cardDbId).all();
             
             const subtitle = {};
             (subs.results || []).forEach((s) => {
@@ -7141,7 +7144,7 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               FROM xp_transactions xt
               WHERE xt.user_id = ? AND xt.card_id = ?
               GROUP BY xt.reward_config_id
-            `).bind(userId, row.card_id).all();
+            `).bind(userId, cardDbId).all();
             
             // Initialize XP counts
             let totalXP = 0;
@@ -7179,7 +7182,8 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               : '';
             
             return {
-              id: cardDisplayId,
+              id: cardDbId || cardDisplayId,  // Use unique card ID from database, fallback to display ID
+              card_number: row.card_number || null,  // Card number in episode (for display purposes)
               film_id: filmSlug,
               episode_id: epSlug,
               episode: epSlug,
@@ -7196,7 +7200,7 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
               subtitle: subtitle,
               srs_state: row.srs_state || 'none',
               film_title: row.film_title,
-              created_at: row.created_at || row.state_created_at || null,
+              created_at: row.state_created_at || row.created_at || null, // Use state_created_at (when user saved card) instead of created_at (when record was created)
               next_review_at: row.next_review_at || null,
               xp_total: totalXP,
               xp_reading: readingXP,

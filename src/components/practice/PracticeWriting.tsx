@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import type { CardDoc } from '../../types';
-// import { useUser } from '../../context/UserContext'; // Reserved for future use
 import buttonPlayIcon from '../../assets/icons/button-play.svg';
-import '../../styles/components/practice.css';
+import '../../styles/components/practice/practice-writing.css';
+import '../../styles/pages/practice-page.css';
 
 // Global registry to ensure only one audio plays at a time
 const activeAudioInstances = new Set<HTMLAudioElement>();
@@ -13,15 +13,13 @@ interface PracticeWritingProps {
 }
 
 export default function PracticeWriting({ card, onCheck }: PracticeWritingProps) {
-  // Reserved for future use:
-  // const { preferences } = useUser();
-  // const mainLang = preferences?.main_language || 'en';
-  // const sentence = card.subtitle?.[mainLang] || card.sentence || '';
-  
   const [userInput, setUserInput] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [checkResult, setCheckResult] = useState<'correct' | 'incorrect' | null>(null);
+  const [hasChecked, setHasChecked] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const correctAnswer = card.card_type || ''; // card_type contains the correct answer
   
   // Resolve image URL
   const resolvedImageUrl = (() => {
@@ -75,19 +73,60 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
     };
   }, []);
 
-  // Reset audio when card changes
+  // Reset audio and state when card changes
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.pause();
       setIsPlaying(false);
     }
     setImageError(false);
+    setUserInput('');
+    setCheckResult(null);
+    setHasChecked(false);
   }, [card.id]);
   
+  // Normalize text for comparison
+  // Removes ruby text (brackets), punctuation, normalizes spacing
+  // Preserves diacritics (accents) for languages like Vietnamese
+  const normalizeText = (text: string): string => {
+    if (!text) return '';
+    
+    // Remove ruby text brackets: 贾[jiǎ]斯[sī]汀[tīng] -> 贾斯汀
+    let normalized = text.replace(/\[[^\]]+\]/g, '');
+    
+    // Remove common punctuation marks only (preserve letters with diacritics)
+    // Include both ASCII and Unicode punctuation
+    normalized = normalized.replace(/[、。．・，,。！!？?：:；;「」『』（）()［］\[\]…—-]/g, '');
+    
+    // Remove other common punctuation but preserve Unicode letters (including Vietnamese, French, etc.)
+    // Use Unicode property escapes to match only punctuation, not letters with diacritics
+    normalized = normalized.replace(/[\p{P}\p{S}]/gu, '');
+    
+    // Normalize whitespace: trim and collapse multiple spaces to single space
+    normalized = normalized.trim().replace(/\s+/g, ' ');
+    
+    // Convert to lowercase for comparison (case-insensitive)
+    // This preserves diacritics (á, é, í, ó, ú, ư, etc.)
+    normalized = normalized.toLowerCase();
+    
+    return normalized;
+  };
+  
   const handleCheck = () => {
-    // TODO: Validate user input against correct answer
-    // For now, just proceed to next card
-    onCheck();
+    if (hasChecked) {
+      // If already checked, proceed to next card
+      onCheck();
+      return;
+    }
+    
+    // Normalize user input and correct answer for comparison
+    const normalizedInput = normalizeText(userInput);
+    const normalizedAnswer = normalizeText(correctAnswer);
+    
+    // Check if answer is correct
+    const isCorrect = normalizedInput === normalizedAnswer;
+    setCheckResult(isCorrect ? 'correct' : 'incorrect');
+    setHasChecked(true);
   };
 
   return (
@@ -119,27 +158,70 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
         )}
       </div>
 
-      {/* Input Section */}
-      <div className="practice-input-section">
-        <input
-          type="text"
-          className="practice-input"
-          placeholder="Enter the sentence"
-          value={userInput}
-          onChange={(e) => setUserInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              handleCheck();
-            }
-          }}
-        />
-        <button 
-          className="practice-check-btn"
-          onClick={handleCheck}
-        >
-          CHECK
-        </button>
-      </div>
+      {/* Input Section with blank or Result Section */}
+      {!hasChecked ? (
+        <div className="practice-input-section">
+          <input
+            type="text"
+            className="practice-input"
+            placeholder="Enter the sentence"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleCheck();
+              }
+            }}
+          />
+          <button 
+            className="practice-check-btn"
+            onClick={handleCheck}
+            disabled={!userInput.trim()}
+          >
+            CHECK
+          </button>
+        </div>
+      ) : (
+        <div className={`practice-writing-result-container ${checkResult}`}>
+          <div className={`practice-writing-result-header ${checkResult}`}>
+            {checkResult === 'correct' ? (
+              <>
+                <div className="practice-writing-success-icon">
+                  <div className="practice-writing-success-icon-check"></div>
+                </div>
+                <span className="typography-noto-success-text">Great job</span>
+              </>
+            ) : (
+              <>
+                <div className="practice-writing-error-icon">
+                  <div className="practice-writing-error-icon-x"></div>
+                </div>
+                <span className="typography-noto-error-text">That's not correct</span>
+              </>
+            )}
+          </div>
+          <div className="practice-input-section">
+            <div className="practice-writing-result-content">
+              <div className="practice-writing-answer">
+                <div className="practice-writing-answer-label">Your answer:</div>
+                <div className={`practice-writing-answer-text ${checkResult}`}>
+                  {userInput || '(empty)'}
+                </div>
+                <div className="practice-writing-answer-label">Correct answer:</div>
+                <div className="practice-writing-answer-text correct">
+                  {card.card_type || '(not available)'}
+                </div>
+              </div>
+            </div>
+            <button 
+              className="practice-next-btn"
+              onClick={handleCheck}
+            >
+              NEXT
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -49,6 +49,8 @@
   --light-filter-button-unselected-bg: #FFFFFF;
   --light-filter-button-unselected-border: #FEE4E4;
   --light-filter-modal-footer-bg: #FFF4F6;
+  --light-practice-reading-wrapper-bg: #FFF4F6;
+  --light-practice-reading-wrapper-border: #FED8D8;
   --light-dropdown-tag-bg: #FFFFFF;
   --light-dropdown-tag-border: #FEE4E4;
   --light-dropdown-checkbox-border: #FEE4E4;
@@ -62,6 +64,31 @@
   --light-collapse-button-bg: #FDAAAA;
   --light-collapse-button-text: #2B2328;
   --light-practice-image-border: #FED8D8;
+  /* Practice success colors */
+  --light-practice-success-gradient-start: #E7F9EC;
+  --light-practice-success-gradient-end: #33CC5E;
+  --light-practice-success-border: #ADEBBF;
+  --light-practice-success-text: #065F46;
+  --light-practice-success-bubble-bg: #ADEBBF;
+  --light-practice-success-input-bg: #E7F9EC;
+  --light-practice-success-input-border: #ADEBBF;
+  --light-practice-success-input-text: #33CC5E;
+  --light-practice-success-icon-bg: #33CC5E;
+  /* Practice error colors */
+  --light-practice-error-gradient-start: #FFE0E0;
+  --light-practice-error-gradient-end: #FF4D4D;
+  --light-practice-error-border: #FF9999;
+  --light-practice-error-text: #991B1B;
+  --light-practice-error-bubble-bg: #FF9999;
+  --light-practice-error-input-bg: #FFE0E0;
+  --light-practice-error-input-border: #FF9999;
+  --light-practice-error-input-text: #FF4D4D;
+  --light-practice-error-icon-bg: #FF4D4D;
+  /* Practice input colors */
+  --light-practice-input-border: #CCCCCC;
+  --light-practice-placeholder-color: #9E9E9E;
+  --light-practice-input-section-bg: #FFFFFF;
+  --light-practice-input-bg: #FFFFFF;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -124,6 +151,31 @@
   --dark-collapse-button-bg: #9E2741;
   --dark-collapse-button-text: #F2EDE5;
   --dark-practice-image-border: rgba(254, 216, 216, 0.5);
+  /* Practice success colors */
+  --dark-practice-success-gradient-start: #E7F9EC;
+  --dark-practice-success-gradient-end: #33CC5E;
+  --dark-practice-success-border: #ADEBBF;
+  --dark-practice-success-text: #065F46;
+  --dark-practice-success-bubble-bg: #ADEBBF;
+  --dark-practice-success-input-bg: #E7F9EC;
+  --dark-practice-success-input-border: #ADEBBF;
+  --dark-practice-success-input-text: #33CC5E;
+  --dark-practice-success-icon-bg: #33CC5E;
+  /* Practice error colors */
+  --dark-practice-error-gradient-start: #FFE0E0;
+  --dark-practice-error-gradient-end: #FF4D4D;
+  --dark-practice-error-border: #FF9999;
+  --dark-practice-error-text: #991B1B;
+  --dark-practice-error-bubble-bg: #FF9999;
+  --dark-practice-error-input-bg: #FFE0E0;
+  --dark-practice-error-input-border: #FF9999;
+  --dark-practice-error-input-text: #FF4D4D;
+  --dark-practice-error-icon-bg: #FF4D4D;
+  /* Practice input colors */
+  --dark-practice-input-border: #CCCCCC;
+  --dark-practice-placeholder-color: #9E9E9E;
+  --dark-practice-input-section-bg: #2B2328;
+  --dark-practice-input-bg: #FFFFFF;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -205,6 +257,32 @@
   --collapse-button-bg: var(--light-collapse-button-bg);
   --collapse-button-text: var(--light-collapse-button-text);
   --practice-image-border: var(--light-practice-image-border);
+  --practice-success-gradient-start: var(--light-practice-success-gradient-start);
+  --practice-success-gradient-end: var(--light-practice-success-gradient-end);
+  --practice-success-border: var(--light-practice-success-border);
+  --practice-success-text: var(--light-practice-success-text);
+  --practice-success-bubble-bg: var(--light-practice-success-bubble-bg);
+  --practice-success-input-bg: var(--light-practice-success-input-bg);
+  --practice-success-input-border: var(--light-practice-success-input-border);
+  --practice-success-input-text: var(--light-practice-success-input-text);
+  --practice-success-icon-bg: var(--light-practice-success-icon-bg);
+  --practice-error-gradient-start: var(--light-practice-error-gradient-start);
+  --practice-error-gradient-end: var(--light-practice-error-gradient-end);
+  --practice-error-border: var(--light-practice-error-border);
+  --practice-error-text: var(--light-practice-error-text);
+  --practice-error-bubble-bg: var(--light-practice-error-bubble-bg);
+  --practice-error-input-bg: var(--light-practice-error-input-bg);
+  --practice-error-input-border: var(--light-practice-error-input-border);
+  --practice-error-input-text: var(--light-practice-error-input-text);
+  --practice-error-icon-bg: var(--light-practice-error-icon-bg);
+  --practice-input-border: var(--light-practice-input-border);
+  --practice-placeholder-color: var(--light-practice-placeholder-color);
+  --practice-input-section-bg: var(--light-practice-input-section-bg);
+  --practice-input-bg: var(--light-practice-input-bg);
+  --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
+  --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
+  --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
+  --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -280,6 +358,30 @@
   --collapse-button-bg: var(--dark-collapse-button-bg);
   --collapse-button-text: var(--dark-collapse-button-text);
   --practice-image-border: var(--dark-practice-image-border);
+  --practice-success-gradient-start: var(--dark-practice-success-gradient-start);
+  --practice-success-gradient-end: var(--dark-practice-success-gradient-end);
+  --practice-success-border: var(--dark-practice-success-border);
+  --practice-success-text: var(--dark-practice-success-text);
+  --practice-success-bubble-bg: var(--dark-practice-success-bubble-bg);
+  --practice-success-input-bg: var(--dark-practice-success-input-bg);
+  --practice-success-input-border: var(--dark-practice-success-input-border);
+  --practice-success-input-text: var(--dark-practice-success-input-text);
+  --practice-success-icon-bg: var(--dark-practice-success-icon-bg);
+  --practice-error-gradient-start: var(--dark-practice-error-gradient-start);
+  --practice-error-gradient-end: var(--dark-practice-error-gradient-end);
+  --practice-error-border: var(--dark-practice-error-border);
+  --practice-error-text: var(--dark-practice-error-text);
+  --practice-error-bubble-bg: var(--dark-practice-error-bubble-bg);
+  --practice-error-input-bg: var(--dark-practice-error-input-bg);
+  --practice-error-input-border: var(--dark-practice-error-input-border);
+  --practice-error-input-text: var(--dark-practice-error-input-text);
+  --practice-error-icon-bg: var(--dark-practice-error-icon-bg);
+  --practice-input-border: var(--dark-practice-input-border);
+  --practice-placeholder-color: var(--dark-practice-placeholder-color);
+  --practice-input-section-bg: var(--dark-practice-input-section-bg);
+  --practice-input-bg: var(--dark-practice-input-bg);
+  --practice-reading-wrapper-bg: var(--dark-practice-reading-wrapper-bg);
+  --practice-reading-wrapper-border: var(--dark-practice-reading-wrapper-border);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);
