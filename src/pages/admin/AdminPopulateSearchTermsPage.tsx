@@ -34,6 +34,7 @@ export default function AdminPopulateSearchTermsPage() {
     return saved ? parseInt(saved, 10) : 0;
   });
   const abortControllerRef = useRef<AbortController | null>(null);
+  const totalRef = useRef<number>(0); // Store total in ref to preserve it across renders
 
   // Save offset to localStorage whenever it changes
   useEffect(() => {
@@ -53,9 +54,71 @@ export default function AdminPopulateSearchTermsPage() {
     setLogs(prev => [log, ...prev].slice(0, 500)); // Keep last 500 logs
   };
 
-  const populateBatch = async (offset: number): Promise<{ done: boolean; nextOffset: number | null; stats: PopulateStats } | null> => {
+  const loadStats = async (preserveProgress = true) => {
+    try {
+      const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
+
+      // Get auth token from localStorage
+      const token = localStorage.getItem('jwt_token');
+      if (!token) {
+        return; // Can't load stats without auth
+      }
+
+      // When preserving progress, use currentOffset to get accurate stats
+      // Otherwise use offset 0 to get total count
+      const offsetToUse = preserveProgress && currentOffset > 0 ? currentOffset : 0;
+
+      const response = await fetch(`${apiBase}/api/admin/populate-search-terms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          offset: offsetToUse,
+          batchSize: 1,
+          includeTotal: true // Request total count
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.total !== undefined) {
+          const total = data.total || 0;
+          totalRef.current = total; // Store total in ref
+
+          if (preserveProgress) {
+            // Update stats but preserve processed count from currentOffset
+            setStats(prev => {
+              const processed = Math.max(prev.processed || 0, currentOffset);
+              return {
+                total: total || prev.total || 0,
+                processed: processed,
+                termsInserted: prev.termsInserted || 0,
+                remaining: Math.max(0, (total || prev.total || 0) - processed),
+                hasMore: prev.hasMore !== false
+              };
+            });
+          } else {
+            // Full reset (only used on mount or explicit reset)
+            setStats({
+              total: total,
+              processed: 0,
+              termsInserted: 0,
+              remaining: total,
+              hasMore: true
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load stats:', error);
+    }
+  };
+
+  const populateBatch = async (offset: number, currentTotal: number, currentTermsInserted: number): Promise<{ done: boolean; nextOffset: number | null; stats: PopulateStats } | null> => {
     const apiBase = import.meta.env.VITE_CF_API_BASE || import.meta.env.VITE_WORKER_BASE || '';
-    
+
     // Get auth token from localStorage
     const token = localStorage.getItem('jwt_token');
     if (!token) {
@@ -64,13 +127,14 @@ export default function AdminPopulateSearchTermsPage() {
 
     const response = await fetch(`${apiBase}/api/admin/populate-search-terms`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
         offset,
-        batchSize
+        batchSize,
+        includeTotal: currentTotal === 0 // Only request total if we don't have it
       }),
       signal: abortControllerRef.current?.signal
     });
@@ -84,20 +148,30 @@ export default function AdminPopulateSearchTermsPage() {
     }
 
     const result = await response.json();
-    
+
     // Calculate stats
     const processed = result.processed || 0;
     const newProcessed = offset + processed;
     const hasMore = result.hasMore !== false && processed > 0;
-    
+
+    // IMPORTANT: Use total passed as parameter (from current stats), NOT from API response
+    // If API returned total and we don't have one, use it, but otherwise preserve existing
+    const total = currentTotal > 0 ? currentTotal : (result.total || 0);
+
+    // Calculate cumulative terms inserted
+    // result.termsInserted is the number inserted in THIS batch only (from API)
+    // We need to accumulate it with previous cumulative total
+    const batchTermsInserted = result.termsInserted || 0; // Terms inserted in this batch
+    const cumulativeTermsInserted = currentTermsInserted + batchTermsInserted; // Total cumulative
+
     return {
       done: !hasMore,
       nextOffset: hasMore ? newProcessed : null,
       stats: {
-        total: result.totalProcessed || newProcessed,
-        processed: newProcessed,
-        termsInserted: (stats.termsInserted || 0) + (result.termsInserted || 0),
-        remaining: hasMore ? Math.max(0, (result.totalProcessed || newProcessed) - newProcessed) : 0,
+        total: total, // Use total from parameter (current stats), preserve it
+        processed: newProcessed, // Number of subtitles processed so far
+        termsInserted: cumulativeTermsInserted, // Cumulative total of terms inserted successfully
+        remaining: total > 0 ? Math.max(0, total - newProcessed) : 0,
         hasMore
       }
     };
@@ -105,7 +179,7 @@ export default function AdminPopulateSearchTermsPage() {
 
   const startPopulate = async () => {
     if (populating) return;
-    
+
     if (!window.confirm(
       `⚠️ This will populate the search_terms table for autocomplete suggestions.\n\n` +
       `This operation will process subtitles in batches of ${batchSize}.\n` +
@@ -118,12 +192,21 @@ export default function AdminPopulateSearchTermsPage() {
     setPopulating(true);
     setLogs([]);
     abortControllerRef.current = new AbortController();
-    
+
+    // Ensure we have total count before starting
+    if (totalRef.current === 0) {
+      addLog('info', '📊 Loading total count...');
+      await loadStats(false); // Load total without preserving progress
+    }
+
     addLog('info', `🚀 Starting search_terms population (batch size: ${batchSize})...`);
-    
+    if (totalRef.current > 0) {
+      addLog('info', `📈 Total subtitles to process: ${totalRef.current.toLocaleString()}`);
+    }
+
     let offset = currentOffset;
     let batchNumber = 0;
-    
+
     try {
       while (true) {
         if (abortControllerRef.current?.signal.aborted) {
@@ -133,24 +216,41 @@ export default function AdminPopulateSearchTermsPage() {
 
         batchNumber++;
         addLog('info', `📦 Processing batch #${batchNumber} (offset: ${offset})...`);
-        
-        const result = await populateBatch(offset);
-        
+
+        // Pass current total and termsInserted to populateBatch to preserve and accumulate correctly
+        const result = await populateBatch(offset, totalRef.current, stats.termsInserted || 0);
+
         if (!result) {
           throw new Error('Failed to get result from batch');
         }
 
-        // Update stats
-        setStats(result.stats);
-        
+        // Update stats - NEVER update total during populate, use ref value
+        // Total should be set once by loadStats() and never change
+        // Terms Inserted should be cumulative (total inserted so far)
+        const preservedTotal = totalRef.current || 0;
+        setStats(() => ({
+          total: preservedTotal, // Always use ref value, never update
+          processed: result.stats.processed, // Number of subtitles processed so far
+          termsInserted: result.stats.termsInserted, // Cumulative total of terms inserted successfully (from populateBatch)
+          remaining: preservedTotal > 0 ? Math.max(0, preservedTotal - result.stats.processed) : 0,
+          hasMore: result.stats.hasMore
+        }));
+
         const newOffset = result.nextOffset || result.stats.processed;
         setCurrentOffset(newOffset);
-        
-        addLog('success', 
+
+        // Calculate terms inserted in this batch (difference between current and previous)
+        const previousTermsInserted = stats.termsInserted || 0;
+        const batchTermsInserted = result.stats.termsInserted - previousTermsInserted;
+        const progressInfo = preservedTotal > 0
+          ? `(${Math.round((result.stats.processed / preservedTotal) * 100)}% of ${preservedTotal.toLocaleString()})`
+          : '';
+
+        addLog('success',
           `✅ Batch #${batchNumber} complete: ` +
-          `Processed ${result.stats.processed}, ` +
-          `Inserted ${result.stats.termsInserted - (stats.termsInserted || 0)} terms this batch, ` +
-          `Total inserted: ${result.stats.termsInserted}`
+          `Processed ${result.stats.processed.toLocaleString()} subtitles ${progressInfo}, ` +
+          `Inserted ${batchTermsInserted.toLocaleString()} terms in this batch, ` +
+          `Total inserted: ${result.stats.termsInserted.toLocaleString()} terms`
         );
 
         if (result.done || !result.nextOffset) {
@@ -160,7 +260,7 @@ export default function AdminPopulateSearchTermsPage() {
         }
 
         offset = result.nextOffset;
-        
+
         // Small delay between batches to avoid overwhelming the database
         await new Promise(resolve => setTimeout(resolve, 200));
       }
@@ -193,15 +293,24 @@ export default function AdminPopulateSearchTermsPage() {
     if (window.confirm('Reset progress? This will start from the beginning.')) {
       setCurrentOffset(0);
       localStorage.removeItem('search_terms_populate_offset');
+      totalRef.current = 0; // Reset ref too
       setStats({ total: 0, processed: 0, termsInserted: 0, remaining: 0, hasMore: true });
       setLogs([]);
       addLog('info', '🔄 Progress reset');
     }
   };
 
-  const progressPercent = stats.total > 0 
-    ? Math.round((stats.processed / stats.total) * 100) 
+  const progressPercent = stats.total > 0
+    ? Math.round((stats.processed / stats.total) * 100)
     : 0;
+
+  // Load stats on mount
+  useEffect(() => {
+    loadStats(true); // Preserve progress when loading
+    if (currentOffset > 0) {
+      addLog('info', `📌 Resuming from saved progress: ${currentOffset.toLocaleString()} subtitles processed`);
+    }
+  }, []); // Only run on mount
 
   return (
     <div className="migration-page-container">
@@ -224,15 +333,15 @@ export default function AdminPopulateSearchTermsPage() {
             <input
               type="number"
               min="10"
-              max="1000"
+              max="10000"
               step="10"
               value={batchSize}
-              onChange={(e) => setBatchSize(Math.max(10, Math.min(1000, Number(e.target.value))))}
+              onChange={(e) => setBatchSize(Math.max(10, Math.min(10000, Number(e.target.value))))}
               disabled={populating}
               className="migration-field-input"
             />
             <span className="migration-field-hint">
-              Number of subtitles to process per batch (10-1000, recommended: 100)
+              Number of subtitles to process per batch (10-10000, recommended: 100)
             </span>
           </div>
         </div>
@@ -242,14 +351,29 @@ export default function AdminPopulateSearchTermsPage() {
       <div className="migration-stats-panel">
         <h2 className="migration-panel-title">Population Statistics</h2>
         <div className="migration-stats-grid">
+          {stats.total > 0 && (
+            <div className="migration-stat-card total">
+              <div className="migration-stat-label">Total Subtitles</div>
+              <div className="migration-stat-value">{stats.total.toLocaleString()}</div>
+            </div>
+          )}
           <div className="migration-stat-card processed">
-            <div className="migration-stat-label">Processed Subtitles</div>
+            <div className="migration-stat-label">Processed</div>
             <div className="migration-stat-value">{stats.processed.toLocaleString()}</div>
+            <div className="migration-stat-label" style={{ fontSize: '0.625rem', marginTop: '0.25rem', opacity: 0.7 }}>
+              Subtitles processed
+            </div>
           </div>
           <div className="migration-stat-card success">
             <div className="migration-stat-label">Terms Inserted</div>
             <div className="migration-stat-value">{stats.termsInserted.toLocaleString()}</div>
           </div>
+          {stats.total > 0 && (
+            <div className="migration-stat-card warning">
+              <div className="migration-stat-label">Remaining</div>
+              <div className="migration-stat-value">{stats.remaining.toLocaleString()}</div>
+            </div>
+          )}
           <div className="migration-stat-card info">
             <div className="migration-stat-label">Progress</div>
             <div className="migration-stat-value">{progressPercent}%</div>
@@ -261,13 +385,13 @@ export default function AdminPopulateSearchTermsPage() {
       {stats.total > 0 && (
         <div className="migration-progress-wrapper">
           <div className="migration-progress-bar">
-            <div 
-              className="migration-progress-fill" 
+            <div
+              className="migration-progress-fill"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
           <div className="migration-progress-text">
-            {stats.processed.toLocaleString()} subtitles processed ({progressPercent}%)
+            {stats.processed.toLocaleString()} / {stats.total.toLocaleString()} subtitles processed ({progressPercent}%)
           </div>
         </div>
       )}
@@ -311,6 +435,18 @@ export default function AdminPopulateSearchTermsPage() {
             Reset Progress
           </button>
         )}
+
+        <button
+          className="migration-btn secondary"
+          onClick={() => {
+            loadStats(true); // Preserve progress when refreshing
+            addLog('info', '🔄 Stats refreshed');
+          }}
+          disabled={populating}
+        >
+          <RefreshCw size={16} />
+          Refresh Stats
+        </button>
       </div>
 
       {/* Logs Panel */}
@@ -336,11 +472,11 @@ export default function AdminPopulateSearchTermsPage() {
       <div className="migration-config-panel">
         <h2 className="migration-panel-title">About Search Terms Population</h2>
         <div className="migration-description">
-          <ul style={{ 
-            listStyle: 'disc', 
-            paddingLeft: '1.5rem', 
+          <ul style={{
+            listStyle: 'disc',
+            paddingLeft: '1.5rem',
             lineHeight: '1.8',
-            margin: 0 
+            margin: 0
           }}>
             <li>The <strong>search_terms</strong> table stores unique searchable terms/phrases extracted from subtitles</li>
             <li>For CJK languages (Japanese, Chinese, Korean): extracts character sequences (2-6 characters)</li>
