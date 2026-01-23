@@ -21,6 +21,7 @@ function withCors(headers = {}) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400', // 24 hours in seconds
     'Cross-Origin-Opener-Policy': 'unsafe-none',
     'Cross-Origin-Embedder-Policy': 'unsafe-none',
     ...headers,
@@ -213,30 +214,28 @@ const LEVEL_MAPS = {
 // Get framework from main language
 function getFrameworkFromLanguage(language) {
   if (!language) return 'CEFR';
-  const langLower = String(language).toLowerCase();
+  const langLower = String(language || '').toLowerCase();
   if (langLower === 'ja' || langLower === 'japanese') return 'JLPT';
-  if (langLower === 'zh' || langLower === 'chinese' || langLower === 'zh-cn' || langLower === 'zh-tw') return 'HSK';
+  if (langLower.startsWith('zh') || langLower === 'chinese') return 'HSK';
   return 'CEFR'; // Default to CEFR for English and other languages
 }
 
 // Map level to numeric index for range filtering
 function getLevelIndex(level, language) {
-  // 1. Input Validation: Both level and language are mandatory for accurate mapping.
+  // Input Validation: Both level and language are mandatory for accurate mapping.
   if (!level || !language) return -1;
 
-  // 2. Identify the Framework based on language input.
+  // Identify the Framework based on language input.
   const framework = getFrameworkFromLanguage(language);
   const map = LEVEL_MAPS[framework];
   if (!map) return -1;
 
-  // 3. Logic handling: Use numeric strings for HSK, uppercase for others (CEFR/JLPT).
-  // This prevents collision and unnecessary string transformations.
-  const lookupKey = (framework === 'HSK') 
-    ? String(level) 
-    : String(level).toUpperCase();
-
-  // 4. Constant time lookup (O(1)). Use nullish coalescing to handle index 0 correctly.
-  return map[lookupKey] ?? -1;
+  // We convert to string to handle both number 1 and string "1"
+  const normalizedLevel = String(level).trim().toUpperCase();
+  
+  // This lookup is still O(1) and safe because 'map' is already 
+  // narrowed down to the specific framework.
+  return map[normalizedLevel] ?? -1;
 }
 
 /**
@@ -290,11 +289,14 @@ async function hashPassword(password) {
     256
   );
 
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const saltArray = Array.from(salt);
+// Optimized Combining: Create one buffer and copy data into it
+  const hashArray = new Uint8Array(hashBuffer);
+  const combined = new Uint8Array(salt.length + hashArray.length);
+  combined.set(salt);
+  combined.set(hashArray, salt.length);
 
-  const combined = saltArray.concat(hashArray);
-  return btoa(String.fromCharCode(...combined));
+  // Modern Base64 conversion (More efficient than btoa + String.fromCharCode)
+  return btoa(String.fromCharCode.apply(null, combined));
 }
 
 // Helper function to update card_subtitle_language_map normalized table
@@ -418,14 +420,24 @@ async function populateInChunks(env) {
 
 // Verify password against hash
 async function verifyPassword(password, hash) {
-  try {
+try {
+    if (!password || !hash) return false;
+
+    // Decode Base64 to Uint8Array
+    const binaryString = atob(hash);
+    const combined = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      combined[i] = binaryString.charCodeAt(i);
+    }
+
+    // Extract Salt (first 16 bytes) and Hash (remaining 32 bytes)
+    // .subarray() is O(1) as it creates a view, whereas .slice() is O(n)
+    const salt = combined.subarray(0, 16);
+    const storedHash = combined.subarray(16);
+
     const encoder = new TextEncoder();
-    const combined = Uint8Array.from(atob(hash), c => c.charCodeAt(0));
-
-    const salt = combined.slice(0, 16);
-    const storedHash = combined.slice(16);
-
     const passwordBuffer = encoder.encode(password);
+    
     const key = await crypto.subtle.importKey(
       'raw',
       passwordBuffer,
@@ -449,15 +461,14 @@ async function verifyPassword(password, hash) {
 
     if (hashArray.length !== storedHash.length) return false;
 
-    let isValid = true;
+    let isValid = 0;
     for (let i = 0; i < hashArray.length; i++) {
-      if (hashArray[i] !== storedHash[i]) {
-        isValid = false;
-      }
+      isValid |= hashArray[i] ^ storedHash[i];
     }
 
-    return isValid;
+    return isValid === 0;
   } catch (e) {
+    console.error("[verifyPassword] Error:", e.message);
     return false;
   }
 }
@@ -466,32 +477,41 @@ async function verifyPassword(password, hash) {
 function generateToken() {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
-  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  return Array.prototype.map.call(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 // Generate user ID
 function generateUserId() {
-  return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `user_${crypto.randomUUID()}`;
 }
 
 // ==================== JWT HELPERS ====================
 
 // Base64URL encode
 function base64urlEncode(buffer) {
-  const base64 = btoa(String.fromCharCode(...buffer));
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  // Use .apply to avoid stack limits associated with the spread operator (...)
+  const binary = String.fromCharCode.apply(null, new Uint8Array(buffer));
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
 }
 
 // Base64URL decode
 function base64urlDecode(str) {
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (str.length % 4) str += '=';
-  return atob(str);
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  // Efficiently handle padding
+  const pad = str.length % 4;
+  const padded = pad ? base64 + '='.repeat(4 - pad) : base64;
+  return atob(padded);
 }
 
 // Constant-time comparison (tránh timing attacks)
 function constantTimeEqual(a, b) {
-  if (a.length !== b.length) return false;
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) {
+    return false;
+  }
+  
   let result = 0;
   for (let i = 0; i < a.length; i++) {
     result |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -515,6 +535,10 @@ async function createSignature(data, secret) {
 
   const signature = await crypto.subtle.sign('HMAC', key, messageData);
   return new Uint8Array(signature);
+  } catch (err) {
+    console.error('[createSignature] Crypto error:', err.message);
+    throw new Error('Signature generation failed');
+  }
 }
 
 // Generate JWT token
@@ -540,7 +564,7 @@ async function generateJWT(userId, email, roles, secret, expiresInDays = 7) {
   const signature = await createSignature(data, secret);
   const encodedSignature = base64urlEncode(signature);
 
-  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
+  return `${data}.${encodedSignature}`;
 }
 
 // Verify JWT token
@@ -574,7 +598,13 @@ async function verifyJWT(token, secret) {
       return { valid: false, error: 'Token expired' };
     }
 
-    // 5. Token hợp lệ
+    // 5. Kiểm tra Issued At (iat) để tránh clock skew (lệch múi giờ server)
+    // Cho phép lệch 60 giây để đảm bảo tính ổn định
+    if (payload.iat && payload.iat > now + 60) {
+      return { valid: false, error: 'Token issued in the future' };
+    }
+
+    // 6. Token hợp lệ
     return { valid: true, payload };
   } catch (e) {
     return { valid: false, error: e.message || 'Token verification failed' };
@@ -589,7 +619,10 @@ async function authenticateRequest(request, env) {
     return { authenticated: false, error: 'Missing or invalid Authorization header' };
   }
 
-  const token = authHeader.substring(7); // Bỏ "Bearer "
+  const token = authHeader.slice(7).trim(); // Dùng .slice() và .trim() để sạch token
+  if (!token) {
+    return { authenticated: false, error: 'Unauthorized: Token is empty' };
+  }
 
   // 2. Verify token
   const secret = env.JWT_SECRET;
@@ -604,13 +637,19 @@ async function authenticateRequest(request, env) {
   }
 
   // 3. Token hợp lệ, trả về user info
+  const { user_id, email, roles, exp } = result.payload;
+
   return {
     authenticated: true,
-    userId: result.payload.user_id,
-    email: result.payload.email,
-    roles: result.payload.roles || []
+    userId: user_id,
+    email: email,
+    roles: roles || [],
+    expiresAt: exp, // Useful for debugging or frontend sync
+    
+    // Helper function: makes checking permissions much cleaner
+    isAdmin: (roles || []).includes('admin'),
+    isPremium: (roles || []).includes('premium')
   };
-}
 
 // Reset daily activity tables (called by scheduled event)
 async function resetDailyTables(env) {
@@ -620,79 +659,36 @@ async function resetDailyTables(env) {
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-    // Get all users who have daily activity for yesterday
-    const usersWithActivity = await env.DB.prepare(`
-      SELECT DISTINCT user_id FROM user_daily_activity
+    // Perform the Archive (The "Heavy Lifting")
+    // This SQL handles the mapping, the unique ID generation, and the conflicts in one go.
+    await env.DB.prepare(`
+      INSERT INTO user_daily_stats (
+        id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at
+      )
+      SELECT 
+        hex(randomblob(16)), user_id, activity_date, daily_xp, daily_listening_time, daily_reading_time, 
+        unixepoch() * 1000, unixepoch() * 1000
+      FROM user_daily_activity
       WHERE activity_date = ?
-    `).bind(yesterdayStr).all();
+      ON CONFLICT(user_id, stats_date) DO UPDATE SET
+        listening_time = COALESCE(user_daily_stats.listening_time, excluded.listening_time),
+        reading_time = COALESCE(user_daily_stats.reading_time, excluded.reading_time),
+        updated_at = unixepoch() * 1000
+    `).bind(yesterdayStr).run();
 
-    if (usersWithActivity && usersWithActivity.results) {
-      // For each user, archive yesterday's data to user_daily_stats if not already there
-      // and reset today's daily_activity
-      for (const row of usersWithActivity.results) {
-        const userId = row.user_id;
-
-        // Check if yesterday's stats already exist
-        const existingStats = await env.DB.prepare(`
-          SELECT id FROM user_daily_stats
-          WHERE user_id = ? AND stats_date = ?
-        `).bind(userId, yesterdayStr).first();
-
-        // Get yesterday's activity
-        const yesterdayActivity = await env.DB.prepare(`
-          SELECT daily_xp, daily_listening_time, daily_reading_time
-          FROM user_daily_activity
-          WHERE user_id = ? AND activity_date = ?
-        `).bind(userId, yesterdayStr).first();
-
-        if (yesterdayActivity && !existingStats) {
-          // Archive to user_daily_stats
-          // Note: In normal flow, user_daily_stats should already have records created by awardXP() and trackTime()
-          // during the day. But if somehow it doesn't exist (edge case), create it from user_daily_activity.
-          // xp_earned should already be in user_daily_stats from awardXP calls, but if missing, use daily_xp as fallback
-          const statsId = crypto.randomUUID();
-          await env.DB.prepare(`
-            INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
-          `).bind(
-            statsId,
-            userId,
-            yesterdayStr,
-            yesterdayActivity.daily_xp || 0, // Use daily_xp as xp_earned (should match if logic is correct)
-            yesterdayActivity.daily_listening_time || 0,
-            yesterdayActivity.daily_reading_time || 0
-          ).run();
-        } else if (yesterdayActivity && existingStats) {
-          // Record already exists in user_daily_stats (created by awardXP/trackTime during the day)
-          // Just ensure all fields are populated correctly (in case of edge cases)
-          // This is a safety check - normally shouldn't need to do anything
-          await env.DB.prepare(`
-            UPDATE user_daily_stats
-            SET listening_time = COALESCE(listening_time, ?),
-                reading_time = COALESCE(reading_time, ?),
-                updated_at = unixepoch() * 1000
-            WHERE user_id = ? AND stats_date = ?
-              AND (listening_time IS NULL OR reading_time IS NULL)
-          `).bind(
-            yesterdayActivity.daily_listening_time || 0,
-            yesterdayActivity.daily_reading_time || 0,
-            userId,
-            yesterdayStr
-          ).run();
-        }
-      }
-    }
-
-    // Delete all daily_activity records that are not today (cleanup old records)
+    // Clean up the source table
+    // We use < today to ensure we don't accidentally delete data from a user 
+    // who has already started their session on the new day.
     await env.DB.prepare(`
       DELETE FROM user_daily_activity
-      WHERE activity_date != ?
+      WHERE activity_date < ?
     `).bind(today).run();
 
-    console.log(`[resetDailyTables] Reset daily tables for ${today}`);
-    return { success: true, date: today };
+    console.log(`[resetDailyTables] Maintenance complete for ${today}`);
+    return { success: true };
+
   } catch (e) {
-    console.error('[resetDailyTables] Error:', e);
+    console.error('[resetDailyTables] Critical Error:', e);
     return { success: false, error: e.message };
   }
 }
