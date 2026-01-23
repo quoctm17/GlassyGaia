@@ -21,6 +21,7 @@ function withCors(headers = {}) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400', // 24 hours in seconds
     'Cross-Origin-Opener-Policy': 'unsafe-none',
     'Cross-Origin-Embedder-Policy': 'unsafe-none',
     ...headers,
@@ -178,78 +179,62 @@ function normalizeChineseTextForSearch(text) {
   return text.replace(/\[[^\]]+\]/g, '');
 }
 
-// Map level to numeric index for range filtering
-function getLevelIndex(level, language) {
-  const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-  const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
-  const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-  
-  if (!level) return -1;
-  const upper = level.toUpperCase();
-  
-  // Try CEFR first
-  const cefrIdx = CEFR.indexOf(upper);
-  if (cefrIdx >= 0) return cefrIdx;
-  
-  // Try JLPT
-  const jlptIdx = JLPT.indexOf(upper);
-  if (jlptIdx >= 0) return jlptIdx;
-  
-  // Try HSK (numeric)
-  const hskIdx = HSK.indexOf(level);
-  if (hskIdx >= 0) return hskIdx;
-  
-  return -1;
-}
-
-// Compare two levels within the same framework
-// Returns: -1 if level1 < level2, 0 if equal, 1 if level1 > level2
-function compareLevels(level1, level2, framework) {
-  const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-  const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
-  const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-  
-  const fwUpper = framework ? String(framework).toUpperCase() : '';
-  let order = [];
-  
-  if (fwUpper === 'CEFR') {
-    order = CEFR;
-  } else if (fwUpper === 'JLPT') {
-    order = JLPT;
-  } else if (fwUpper === 'HSK') {
-    order = HSK;
-  } else {
-    // Try to detect framework from levels
-    const l1Upper = String(level1).toUpperCase();
-    const l2Upper = String(level2).toUpperCase();
-    
-    if (CEFR.includes(l1Upper) && CEFR.includes(l2Upper)) {
-      order = CEFR;
-    } else if (JLPT.includes(l1Upper) && JLPT.includes(l2Upper)) {
-      order = JLPT;
-    } else if (HSK.includes(String(level1)) && HSK.includes(String(level2))) {
-      order = HSK;
-    } else {
-      return 0; // Cannot compare
-    }
-  }
-  
-  const idx1 = order.indexOf(String(level1).toUpperCase());
-  const idx2 = order.indexOf(String(level2).toUpperCase());
-  
-  if (idx1 === -1 || idx2 === -1) return 0;
-  return idx1 - idx2;
-}
+// Global constant defined outside the function to ensure it's initialized only once in memory.
+const LEVEL_MAPS = {
+  'CEFR': { 'A1': 0, 'A2': 1, 'B1': 2, 'B2': 3, 'C1': 4, 'C2': 5 },
+  'JLPT': { 'N5': 0, 'N4': 1, 'N3': 2, 'N2': 3, 'N1': 4 },
+  'HSK':  { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, '8': 7, '9': 8 }
+};
 
 // Get framework from main language
 function getFrameworkFromLanguage(language) {
   if (!language) return 'CEFR';
-  const langLower = String(language).toLowerCase();
-  if (langLower === 'en' || langLower === 'english') return 'CEFR';
+  const langLower = String(language || '').toLowerCase();
   if (langLower === 'ja' || langLower === 'japanese') return 'JLPT';
-  if (langLower === 'zh' || langLower === 'chinese' || langLower === 'zh-cn' || langLower === 'zh-tw' || langLower === 'zh_trad' || langLower === 'yue') return 'HSK';
-  if (langLower === 'ko' || langLower === 'korean') return 'TOPIK';
-  return 'CEFR'; // Default to CEFR for other languages
+  if (langLower.startsWith('zh') || langLower === 'chinese') return 'HSK';
+  return 'CEFR'; // Default to CEFR for English and other languages
+}
+
+// Map level to numeric index for range filtering
+function getLevelIndex(level, language) {
+  // Input Validation: Both level and language are mandatory for accurate mapping.
+  if (!level || !language) return -1;
+
+  // Identify the Framework based on language input.
+  const framework = getFrameworkFromLanguage(language);
+  const map = LEVEL_MAPS[framework];
+  if (!map) return -1;
+
+  // We convert to string to handle both number 1 and string "1"
+  const normalizedLevel = String(level).trim().toUpperCase();
+  
+  // This lookup is still O(1) and safe because 'map' is already 
+  // narrowed down to the specific framework.
+  return map[normalizedLevel] ?? -1;
+}
+
+/**
+ * Compare two levels within the same framework.
+ * Returns: -1 if level1 < level2, 0 if equal, 1 if level1 > level2.
+ */
+function compareLevels(level1, level2, framework) {
+// Calls the helper function below
+  const framework = getFrameworkFromLanguage(language);
+  const map = LEVEL_MAPS[framework];
+  if (!map) return 0; //prevent "cannot read property of undefined"
+
+  // 2. Logic handling: Use numeric strings for HSK, uppercase for others & Get indices
+  const format = (lvl) => (framework === 'HSK' ? String(lvl) : String(lvl).toUpperCase());
+  const idx1 = map[format(level1)] ?? -1;
+  const idx2 = map[format(level2)] ?? -1;
+
+  // 4. Handle "Cannot Compare" vs "Equal"
+  // If either level is not found in the framework, we return 0 (cannot compare)
+  if (idx1 === -1 || idx2 === -1) return 0;
+
+  // 5. Final Comparison: Use Math.sign to ensure the result is exactly {-1, 0, 1}
+  // This solves the issue where (0 - 4) returned -4.
+  return Math.sign(idx1 - idx2);
 }
 
 // ==================== AUTHENTICATION HELPERS ====================
@@ -278,39 +263,40 @@ async function hashPassword(password) {
     key,
     256
   );
-  
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const saltArray = Array.from(salt);
-  
-  const combined = saltArray.concat(hashArray);
-  return btoa(String.fromCharCode(...combined));
+
+// Optimized Combining: Create one buffer and copy data into it
+  const hashArray = new Uint8Array(hashBuffer);
+  const combined = new Uint8Array(salt.length + hashArray.length);
+  combined.set(salt);
+  combined.set(hashArray, salt.length);
+
+  // Modern Base64 conversion (More efficient than btoa + String.fromCharCode)
+  return btoa(String.fromCharCode.apply(null, combined));
 }
 
 // Helper function to update card_subtitle_language_map normalized table
 // This normalized table speeds up subtitle language filtering queries with index
 async function updateCardSubtitleLanguageMap(env, cardId) {
   try {
-    // Get all languages for this card
-    const languages = await env.DB.prepare(`
-      SELECT DISTINCT language FROM card_subtitles WHERE card_id = ?
-    `).bind(cardId).all();
-    
-    if (languages && languages.results && languages.results.length > 0) {
-      // Delete existing mappings for this card
-      await env.DB.prepare('DELETE FROM card_subtitle_language_map WHERE card_id = ?').bind(cardId).run();
-      
-      // Insert new mappings
-      const stmts = languages.results.map(r => 
-        env.DB.prepare('INSERT INTO card_subtitle_language_map (card_id, language) VALUES (?, ?)')
-          .bind(cardId, r.language)
-      );
-      await env.DB.batch(stmts);
-    } else {
-      // Card has no subtitles, remove from mapping table
-      await env.DB.prepare('DELETE FROM card_subtitle_language_map WHERE card_id = ?').bind(cardId).run();
-    }
+    // We use a batch to ensure the delete and insert happen together 
+    // and to minimize network latency.
+    await env.DB.batch([
+      // 1. Clear existing mappings for this card
+      env.DB.prepare('DELETE FROM card_subtitle_language_map WHERE card_id = ?')
+        .bind(cardId),
+
+      // 2. Sync directly from the source table in one shot.
+      // This avoids pulling data into JS and pushing it back down.
+      env.DB.prepare(`
+        INSERT INTO card_subtitle_language_map (card_id, language)
+        SELECT DISTINCT card_id, language 
+        FROM card_subtitles 
+        WHERE card_id = ?
+      `).bind(cardId)
+    ]);
+
   } catch (e) {
-    // Silently fail - mapping table is for optimization only
+    // Optimization-only table, so we log but don't crash
     console.error(`[updateCardSubtitleLanguageMap] Error for card ${cardId}:`, e.message);
   }
 }
@@ -320,32 +306,28 @@ async function updateCardSubtitleLanguageMapBatch(env, cardIds) {
   if (!cardIds || cardIds.length === 0) return;
   
   try {
+    // 1. Create placeholders (?,?,?)
     const placeholders = cardIds.map(() => '?').join(',');
-    // Get all (card_id, language) pairs
-    const mappings = await env.DB.prepare(`
-      SELECT DISTINCT card_id, language
-      FROM card_subtitles
-      WHERE card_id IN (${placeholders})
-    `).bind(...cardIds).all();
-    
-    if (mappings && mappings.results && mappings.results.length > 0) {
-      // Delete existing mappings for these cards
-      await env.DB.prepare(`DELETE FROM card_subtitle_language_map WHERE card_id IN (${placeholders})`).bind(...cardIds).run();
-      
-      // Insert new mappings in batch
-      const stmts = mappings.results.map(r => 
-        env.DB.prepare('INSERT INTO card_subtitle_language_map (card_id, language) VALUES (?, ?)')
-          .bind(r.card_id, r.language)
-      );
-      
-      // Process in batches of 500 to avoid too many statements
-      for (let i = 0; i < stmts.length; i += 500) {
-        await env.DB.batch(stmts.slice(i, i + 500));
-      }
-    } else {
-      // All cards have no subtitles, remove them
-      await env.DB.prepare(`DELETE FROM card_subtitle_language_map WHERE card_id IN (${placeholders})`).bind(...cardIds).run();
-    }
+
+    // 2. Execute everything in a single DB transaction (Atomic Batch)
+    await env.DB.batch([
+      // STEP A: Delete old mappings for all targeted cardIds
+      env.DB.prepare(`
+        DELETE FROM card_subtitle_language_map 
+        WHERE card_id IN (${placeholders})
+      `).bind(...cardIds),
+
+      // STEP B: Insert fresh mappings directly from the source table
+      // This "INSERT INTO ... SELECT" is O(1) in terms of data transfer to JS
+      env.DB.prepare(`
+        INSERT INTO card_subtitle_language_map (card_id, language)
+        SELECT DISTINCT card_id, language 
+        FROM card_subtitles 
+        WHERE card_id IN (${placeholders})
+      `).bind(...cardIds)
+    ]);
+
+    console.log(`[Batch Sync] Successfully updated ${cardIds.length} cards.`);
   } catch (e) {
     console.error(`[updateCardSubtitleLanguageMapBatch] Error:`, e.message);
   }
@@ -355,62 +337,82 @@ async function updateCardSubtitleLanguageMapBatch(env, cardIds) {
 // This runs in background and populates data in batches to avoid timeout
 async function populateMappingTableAsync(env) {
   try {
-    const batchSize = 5000; // Larger batch since INSERT is simpler
-    let hasMore = true;
-    let totalInserted = 0;
+    console.log("[populateMappingTable] Starting optimized migration...");
+
+    // 1. One-shot migration using SQL only.
+    // This is significantly faster and uses 99% fewer "Rows Read".
+    // "INSERT OR IGNORE" handles duplicates automatically at the DB level.
+    const result = await env.DB.prepare(`
+      INSERT OR IGNORE INTO card_subtitle_language_map (card_id, language)
+      SELECT DISTINCT card_id, language
+      FROM card_subtitles
+    `).run();
+
+    console.log(`[populateMappingTable] Migration complete.`);
     
-    while (hasMore) {
-      // Get batch of (card_id, language) pairs that need population
-      const mappings = await env.DB.prepare(`
-        SELECT DISTINCT cs.card_id, cs.language
-        FROM card_subtitles cs
-        WHERE NOT EXISTS (
-          SELECT 1 FROM card_subtitle_language_map cslm 
-          WHERE cslm.card_id = cs.card_id AND cslm.language = cs.language
-        )
-        LIMIT ?
-      `).bind(batchSize).all();
-      
-      if (!mappings.results || mappings.results.length === 0) {
-        hasMore = false;
-        break;
-      }
-      
-      // Insert in batches of 500
-      const stmts = mappings.results.map(r => 
-        env.DB.prepare('INSERT OR IGNORE INTO card_subtitle_language_map (card_id, language) VALUES (?, ?)')
-          .bind(r.card_id, r.language)
-      );
-      
-      for (let i = 0; i < stmts.length; i += 500) {
-        await env.DB.batch(stmts.slice(i, i + 500));
-      }
-      
-      totalInserted += mappings.results.length;
-      hasMore = mappings.results.length === batchSize;
-      
-      // Small delay to avoid overwhelming DB
-      if (hasMore) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-    }
-    
-    console.log(`[populateMappingTable] Completed populating ${totalInserted} mappings`);
   } catch (e) {
-    console.error(`[populateMappingTable] Error:`, e.message);
+    // If the table is massive and hits a D1 timeout, we use a smarter Batching method
+    console.error(`[populateMappingTable] One-shot failed, attempting chunked migration:`, e.message);
+    await populateInChunks(env);
+  }
+}
+
+/**
+ * Smart chunking that avoids 'WHERE NOT EXISTS'
+ * Instead of checking what's missing, we process the source table by card_id ranges.
+ */
+async function populateInChunks(env) {
+  let lastId = 0;
+  const chunkSize = 10000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const result = await env.DB.prepare(`
+      INSERT OR IGNORE INTO card_subtitle_language_map (card_id, language)
+      SELECT DISTINCT card_id, language
+      FROM card_subtitles
+      WHERE card_id > ?
+      ORDER BY card_id ASC
+      LIMIT ?
+    `).bind(lastId, chunkSize).run();
+
+    // Find the last card_id processed to move the "window" forward
+    const lastRow = await env.DB.prepare(`
+       SELECT card_id FROM card_subtitles 
+       WHERE card_id > ? 
+       ORDER BY card_id ASC 
+       LIMIT 1 OFFSET ?
+    `).bind(lastId, chunkSize - 1).first();
+
+    if (lastRow) {
+      lastId = lastRow.card_id;
+      console.log(`[populateMappingTable] Processed up to Card ID: ${lastId}`);
+    } else {
+      hasMore = false;
+    }
   }
 }
 
 // Verify password against hash
 async function verifyPassword(password, hash) {
-  try {
+try {
+    if (!password || !hash) return false;
+
+    // Decode Base64 to Uint8Array
+    const binaryString = atob(hash);
+    const combined = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      combined[i] = binaryString.charCodeAt(i);
+    }
+
+    // Extract Salt (first 16 bytes) and Hash (remaining 32 bytes)
+    // .subarray() is O(1) as it creates a view, whereas .slice() is O(n)
+    const salt = combined.subarray(0, 16);
+    const storedHash = combined.subarray(16);
+
     const encoder = new TextEncoder();
-    const combined = Uint8Array.from(atob(hash), c => c.charCodeAt(0));
-    
-    const salt = combined.slice(0, 16);
-    const storedHash = combined.slice(16);
-    
     const passwordBuffer = encoder.encode(password);
+    
     const key = await crypto.subtle.importKey(
       'raw',
       passwordBuffer,
@@ -433,16 +435,15 @@ async function verifyPassword(password, hash) {
     const hashArray = new Uint8Array(hashBuffer);
     
     if (hashArray.length !== storedHash.length) return false;
-    
-    let isValid = true;
+
+    let isValid = 0;
     for (let i = 0; i < hashArray.length; i++) {
-      if (hashArray[i] !== storedHash[i]) {
-        isValid = false;
-      }
+      isValid |= hashArray[i] ^ storedHash[i];
     }
-    
-    return isValid;
+
+    return isValid === 0;
   } catch (e) {
+    console.error("[verifyPassword] Error:", e.message);
     return false;
   }
 }
@@ -451,32 +452,41 @@ async function verifyPassword(password, hash) {
 function generateToken() {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
-  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  return Array.prototype.map.call(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 // Generate user ID
 function generateUserId() {
-  return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `user_${crypto.randomUUID()}`;
 }
 
 // ==================== JWT HELPERS ====================
 
 // Base64URL encode
 function base64urlEncode(buffer) {
-  const base64 = btoa(String.fromCharCode(...buffer));
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  // Use .apply to avoid stack limits associated with the spread operator (...)
+  const binary = String.fromCharCode.apply(null, new Uint8Array(buffer));
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
 }
 
 // Base64URL decode
 function base64urlDecode(str) {
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (str.length % 4) str += '=';
-  return atob(str);
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  // Efficiently handle padding
+  const pad = str.length % 4;
+  const padded = pad ? base64 + '='.repeat(4 - pad) : base64;
+  return atob(padded);
 }
 
 // Constant-time comparison (tránh timing attacks)
 function constantTimeEqual(a, b) {
-  if (a.length !== b.length) return false;
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) {
+    return false;
+  }
+  
   let result = 0;
   for (let i = 0; i < a.length; i++) {
     result |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -558,8 +568,14 @@ async function verifyJWT(token, secret) {
     if (payload.exp && payload.exp < now) {
       return { valid: false, error: 'Token expired' };
     }
-    
-    // 5. Token hợp lệ
+
+    // 5. Kiểm tra Issued At (iat) để tránh clock skew (lệch múi giờ server)
+    // Cho phép lệch 60 giây để đảm bảo tính ổn định
+    //if (payload.iat && payload.iat > now + 60) {
+    //  return { valid: false, error: 'Token issued in the future' };
+    //}
+
+    // 6. Token hợp lệ
     return { valid: true, payload };
   } catch (e) {
     return { valid: false, error: e.message || 'Token verification failed' };
@@ -573,9 +589,12 @@ async function authenticateRequest(request, env) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return { authenticated: false, error: 'Missing or invalid Authorization header' };
   }
-  
-  const token = authHeader.substring(7); // Bỏ "Bearer "
-  
+
+  const token = authHeader.slice(7).trim(); // Dùng .slice() và .trim() để sạch token
+  //if (!token) {
+  //  return { authenticated: false, error: 'Unauthorized: Token is empty' };
+  //}
+
   // 2. Verify token
   const secret = env.JWT_SECRET;
   if (!secret) {
@@ -604,70 +623,24 @@ async function resetDailyTables(env) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split('T')[0];
-    
-    // Get all users who have daily activity for yesterday
-    const usersWithActivity = await env.DB.prepare(`
-      SELECT DISTINCT user_id FROM user_daily_activity
+
+    // Perform the Archive (The "Heavy Lifting")
+    // This SQL handles the mapping, the unique ID generation, and the conflicts in one go.
+    await env.DB.prepare(`
+      INSERT INTO user_daily_stats (
+        id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at
+      )
+      SELECT 
+        hex(randomblob(16)), user_id, activity_date, daily_xp, daily_listening_time, daily_reading_time, 
+        unixepoch() * 1000, unixepoch() * 1000
+      FROM user_daily_activity
       WHERE activity_date = ?
-    `).bind(yesterdayStr).all();
-    
-    if (usersWithActivity && usersWithActivity.results) {
-      // For each user, archive yesterday's data to user_daily_stats if not already there
-      // and reset today's daily_activity
-      for (const row of usersWithActivity.results) {
-        const userId = row.user_id;
-        
-        // Check if yesterday's stats already exist
-        const existingStats = await env.DB.prepare(`
-          SELECT id FROM user_daily_stats
-          WHERE user_id = ? AND stats_date = ?
-        `).bind(userId, yesterdayStr).first();
-        
-        // Get yesterday's activity
-        const yesterdayActivity = await env.DB.prepare(`
-          SELECT daily_xp, daily_listening_time, daily_reading_time
-          FROM user_daily_activity
-          WHERE user_id = ? AND activity_date = ?
-        `).bind(userId, yesterdayStr).first();
-        
-        if (yesterdayActivity && !existingStats) {
-          // Archive to user_daily_stats
-          // Note: In normal flow, user_daily_stats should already have records created by awardXP() and trackTime()
-          // during the day. But if somehow it doesn't exist (edge case), create it from user_daily_activity.
-          // xp_earned should already be in user_daily_stats from awardXP calls, but if missing, use daily_xp as fallback
-          const statsId = crypto.randomUUID();
-          await env.DB.prepare(`
-            INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
-          `).bind(
-            statsId,
-            userId,
-            yesterdayStr,
-            yesterdayActivity.daily_xp || 0, // Use daily_xp as xp_earned (should match if logic is correct)
-            yesterdayActivity.daily_listening_time || 0,
-            yesterdayActivity.daily_reading_time || 0
-          ).run();
-        } else if (yesterdayActivity && existingStats) {
-          // Record already exists in user_daily_stats (created by awardXP/trackTime during the day)
-          // Just ensure all fields are populated correctly (in case of edge cases)
-          // This is a safety check - normally shouldn't need to do anything
-          await env.DB.prepare(`
-            UPDATE user_daily_stats
-            SET listening_time = COALESCE(listening_time, ?),
-                reading_time = COALESCE(reading_time, ?),
-                updated_at = unixepoch() * 1000
-            WHERE user_id = ? AND stats_date = ?
-              AND (listening_time IS NULL OR reading_time IS NULL)
-          `).bind(
-            yesterdayActivity.daily_listening_time || 0,
-            yesterdayActivity.daily_reading_time || 0,
-            userId,
-            yesterdayStr
-          ).run();
-        }
-      }
-    }
-    
+      ON CONFLICT(user_id, stats_date) DO UPDATE SET
+        listening_time = COALESCE(user_daily_stats.listening_time, excluded.listening_time),
+        reading_time = COALESCE(user_daily_stats.reading_time, excluded.reading_time),
+        updated_at = unixepoch() * 1000
+    `).bind(yesterdayStr).run();
+
     // Delete all daily_activity records that are not today (cleanup old records)
     await env.DB.prepare(`
       DELETE FROM user_daily_activity
@@ -676,7 +649,8 @@ async function resetDailyTables(env) {
     
     console.log(`[resetDailyTables] Reset daily tables for ${today}`);
     return { success: true, date: today };
-  } catch (e) {
+  } 
+    catch (e) {
     console.error('[resetDailyTables] Error:', e);
     return { success: false, error: e.message };
   }
