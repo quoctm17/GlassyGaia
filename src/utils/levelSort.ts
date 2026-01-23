@@ -5,7 +5,6 @@
 
 const CEFR_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 const JLPT_ORDER = ['N5', 'N4', 'N3', 'N2', 'N1'];
-const TOPIK_ORDER = ['1', '2', '3', '4', '5', '6'];
 
 export function sortLevelsByDifficulty(levels: Record<string, number>): [string, number][] {
   const entries = Object.entries(levels);

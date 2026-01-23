@@ -228,13 +228,13 @@ export default function AdminPopulateSearchTermsPage() {
         // Total should be set once by loadStats() and never change
         // Terms Inserted should be cumulative (total inserted so far)
         const preservedTotal = totalRef.current || 0;
-        setStats(prev => ({
+        setStats({
           total: preservedTotal, // Always use ref value, never update
           processed: result.stats.processed, // Number of subtitles processed so far
           termsInserted: result.stats.termsInserted, // Cumulative total of terms inserted successfully (from populateBatch)
           remaining: preservedTotal > 0 ? Math.max(0, preservedTotal - result.stats.processed) : 0,
           hasMore: result.stats.hasMore
-        }));
+        });
         
         const newOffset = result.nextOffset || result.stats.processed;
         setCurrentOffset(newOffset);

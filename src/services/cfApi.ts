@@ -2316,7 +2316,7 @@ export interface ReferenceImportProgress {
 }
 
 export async function apiImportReferenceData(
-  type: 'cefr' | 'reference' | 'frequency',
+  _type: 'cefr' | 'reference' | 'frequency', // Parameter kept for backward compatibility but not used
   data: Record<string, number> | Array<Record<string, unknown>>,
   framework?: string
 ): Promise<{ success: boolean; errors?: string[]; processed?: number }> {
