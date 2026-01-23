@@ -128,7 +128,6 @@ export default function AdminContentIngestPage() {
   const [referenceDataStatus, setReferenceDataStatus] = useState<{
     framework: string | null;
     exists: boolean;
-    hasReferenceList: boolean;
     hasFrequencyData: boolean;
   } | null>(null);
   const [checkingReferenceData, setCheckingReferenceData] = useState(false);
@@ -1603,18 +1602,17 @@ export default function AdminContentIngestPage() {
                 </div>
                 {referenceDataStatus.exists ? (
                   <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
-                    <div>✓ Reference data available in database</div>
-                    {referenceDataStatus.hasReferenceList && <div className="text-xs">• Reference list imported ({framework})</div>}
-                    {referenceDataStatus.hasFrequencyData && <div className="text-xs">• Frequency data available ({framework})</div>}
+                    <div>✓ Frequency data available in database</div>
+                    {referenceDataStatus.hasFrequencyData && <div className="text-xs">• Frequency lookup data imported ({framework})</div>}
                     <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
-                      Auto level assessment will run automatically after content import.
+                      Auto level assessment will run automatically after content import using frequency ranks and cutoff thresholds.
                     </div>
                   </div>
                 ) : (
                   <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
-                    <div>⚠ No reference data found in database</div>
+                    <div>⚠ No frequency data found in database</div>
                     <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
-                      Framework {getFrameworkDisplayName(framework)} is supported, but no reference data exists in database. Please import reference data for {framework} in Level Management before creating content.
+                      Framework {getFrameworkDisplayName(framework)} is supported, but no frequency data exists in database. Please import frequency JSON file for {framework} in Level Management before creating content.
                     </div>
                   </div>
                 )}

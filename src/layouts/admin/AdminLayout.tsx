@@ -92,10 +92,7 @@ export default function AdminLayout() {
             <Music className="w-4 h-4 mr-2" />
             <span>Audio Migration</span>
           </NavLink>
-          <NavLink to="/admin/populate-fts" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-            <Search className="w-4 h-4 mr-2" />
-            <span>Populate FTS</span>
-          </NavLink>
+          {/* Populate FTS removed - FTS5 table dropped */}
           {isSuperAdmin() && (
             <NavLink to="/admin/populate-search-terms" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
               <Search className="w-4 h-4 mr-2" />

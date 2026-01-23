@@ -1979,6 +1979,223 @@ export async function apiGetDatabaseStats(): Promise<Record<string, number>> {
   return await res.json();
 }
 
+/**
+ * Get detailed database size analysis (SuperAdmin only)
+ */
+export async function apiGetDatabaseSizeAnalysis(): Promise<{
+  database: {
+    pageCount: number | null;
+    pageSizeBytes: number | null;
+    estimatedSizeMB: number;
+    estimatedSizeGB: number;
+    maxSizeGB: number;
+    usagePercent: number;
+  };
+  tables: Array<{
+    name: string;
+    type: string;
+    critical: boolean;
+    rowCount: number;
+    estimatedSizeMB: number;
+    estimatedSizeGB: number;
+  }>;
+  analysis: {
+    search_terms: {
+      totalRows: number;
+      uniqueRows: number;
+      duplicates: number;
+    };
+    card_subtitles_fts: {
+      rowCount: number;
+    };
+  };
+  recommendations: Array<{
+    priority: string;
+    action: string;
+    description: string;
+    estimatedSavingsMB: number;
+  }>;
+}> {
+  assertApiBase();
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const res = await fetch(`${API_BASE}/api/admin/database-size-analysis`, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch database size analysis: ${res.status} ${text}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Cleanup duplicate search_terms (SuperAdmin only)
+ */
+export async function apiCleanupSearchTerms(minFrequency?: number): Promise<{
+  message: string;
+  duplicatesRemoved: number;
+  lowFrequencyRemoved: number;
+  remainingRows: number;
+}> {
+  assertApiBase();
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const res = await fetch(`${API_BASE}/api/admin/cleanup-search-terms`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ minFrequency: minFrequency || 1 })
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to cleanup search_terms: ${res.status} ${text}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Optimize search_terms by removing low-frequency terms (SuperAdmin only)
+ */
+export async function apiOptimizeSearchTerms(minFrequency: number): Promise<{
+  message: string;
+  removedRows: number;
+  remainingRows: number;
+  minFrequency: number;
+}> {
+  assertApiBase();
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const res = await fetch(`${API_BASE}/api/admin/optimize-search-terms`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ minFrequency })
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to optimize search_terms: ${res.status} ${text}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Cleanup orphaned FTS5 records (SuperAdmin only)
+ */
+export async function apiCleanupFts5Orphaned(): Promise<{
+  message: string;
+  removedRows: number;
+  remainingRows: number;
+}> {
+  assertApiBase();
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const res = await fetch(`${API_BASE}/api/admin/cleanup-fts5-orphaned`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to cleanup FTS5 orphaned records: ${res.status} ${text}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Rebuild FTS5 index (SuperAdmin only)
+ */
+export async function apiRebuildFts5(batchSize?: number, offset?: number): Promise<{
+  message: string;
+  processed: number;
+  totalProcessed: number;
+  totalRows: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+}> {
+  assertApiBase();
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const res = await fetch(`${API_BASE}/api/admin/rebuild-fts5`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ batchSize: batchSize || 10000, offset: offset || 0 })
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to rebuild FTS5: ${res.status} ${text}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Drop FTS5 table (SuperAdmin only) - Use if migration fails
+ */
+export async function apiDropFts5(): Promise<{
+  message: string;
+  success: boolean;
+}> {
+  assertApiBase();
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    throw new Error('Authentication required');
+  }
+
+  const res = await fetch(`${API_BASE}/api/admin/drop-fts5`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to drop FTS5 table: ${res.status} ${text}`);
+  }
+
+  return await res.json();
+}
+
 export async function apiGetTableData(tableName: string, limit: number = 100): Promise<Array<Record<string, unknown>>> {
   assertApiBase();
   const fullUrl = `${API_BASE}/api/admin/table-data/${tableName}?limit=${limit}`;
@@ -2100,11 +2317,19 @@ export interface ReferenceImportProgress {
 
 export async function apiImportReferenceData(
   type: 'cefr' | 'reference' | 'frequency',
-  data: Array<Record<string, unknown>>,
+  data: Record<string, number> | Array<Record<string, unknown>>,
   framework?: string
-): Promise<{ success: boolean; errors?: string[] }> {
+): Promise<{ success: boolean; errors?: string[]; processed?: number }> {
   assertApiBase();
   const fullUrl = `${API_BASE}/admin/import-reference`;
+  
+  // For frequency type, data should be a JSON object { word: rank }
+  // For backward compatibility, we still accept arrays but the API now expects objects for frequency
+  const requestBody: { type: string; data: Record<string, number> | Array<Record<string, unknown>>; framework?: string } = {
+    type: 'frequency', // Always use 'frequency' now (no more 'cefr' type)
+    data: data as any,
+    framework
+  };
   
   const res = await fetch(fullUrl, {
     method: 'POST',
@@ -2112,7 +2337,7 @@ export async function apiImportReferenceData(
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
-    body: JSON.stringify({ type: type === 'reference' ? 'cefr' : type, data, framework }),
+    body: JSON.stringify(requestBody),
   });
   
   if (!res.ok) {

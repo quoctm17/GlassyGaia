@@ -25,6 +25,5 @@ Thumbs.db
 # Vercel local metadata
 .vercel/
 
-# Cloudflare worker local config (contains secrets)
-cloudflare-worker/wrangler.toml
+# Cloudflare worker secrets (local dev only)
 cloudflare-worker/.dev.vars
