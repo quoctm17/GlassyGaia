@@ -220,8 +220,6 @@ function getLevelIndex(level, language) {
  * Returns: -1 if level1 < level2, 0 if equal, 1 if level1 > level2.
  */
 function compareLevels(level1, level2, framework) {
-// Calls the helper function below
-  const framework = getFrameworkFromLanguage(language);
   const map = LEVEL_MAPS[framework];
   if (!map) return 0; //prevent "cannot read property of undefined"
 
