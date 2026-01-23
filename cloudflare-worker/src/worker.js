@@ -190,9 +190,11 @@ const LEVEL_MAPS = {
 function getFrameworkFromLanguage(language) {
   if (!language) return 'CEFR';
   const langLower = String(language || '').toLowerCase();
+  if (langLower === 'en' || langLower === 'english') return 'CEFR';
   if (langLower === 'ja' || langLower === 'japanese') return 'JLPT';
-  if (langLower.startsWith('zh') || langLower === 'chinese') return 'HSK';
-  return 'CEFR'; // Default to CEFR for English and other languages
+  if (langLower.startsWith('zh') || langLower === 'chinese' || langLower === 'zh_trad' || langLower === 'yue') return 'HSK';
+  if (langLower === 'ko' || langLower === 'korean') return 'TOPIK';
+  return 'CEFR'; // Default to CEFR for other languages
 }
 
 // Map level to numeric index for range filtering
