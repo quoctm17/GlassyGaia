@@ -28,7 +28,7 @@ function withCors(headers = {}) {
   };
 }
 
-// Build LIKE query for card_subtitles search (replaces FTS5)
+// Build LIKE query for card_subtitles search
 // Since we use autocomplete, users only search when selecting a suggestion
 // This makes LIKE search acceptable for the reduced search volume
 function buildLikeQuery(q, language) {
@@ -1153,7 +1153,7 @@ export default {
           let likeQuery = '';
           
           if (hasTextQuery) {
-            // Use LIKE search on card_subtitles (FTS5 removed to save 6GB)
+            // Use LIKE search on card_subtitles
             // Autocomplete ensures users only search when selecting suggestions
             const langForSearch = (mainLanguage || '').toLowerCase() || null;
             likeQuery = buildLikeQuery(q, langForSearch);
@@ -1170,7 +1170,7 @@ export default {
             ? contentIdsArr.map(() => '?').join(',')
             : '';
 
-          // Build query with LIKE search on card_subtitles (FTS5 removed)
+          // Build query with LIKE search on card_subtitles
           let textSearchCondition = '';
           if (hasTextQuery && likeQuery) {
             // LIKE search on card_subtitles - acceptable since users only search after autocomplete
@@ -1821,7 +1821,7 @@ export default {
           
           // 7. Add text search query if needed
           if (hasTextQuery && likeQuery) {
-            // LIKE search: use built LIKE query (FTS5 removed to save 6GB)
+            // LIKE search: use built LIKE query
             if (mainLanguage) {
               // Add language filter first, then LIKE query (with % wildcards)
               params.push(mainLanguage);
@@ -2328,12 +2328,12 @@ export default {
             }
           }
 
-          // If there is a text query, use LIKE search on card_subtitles (FTS5 removed)
+          // If there is a text query, use LIKE search on card_subtitles
           if (q) {
             const mainCanon = mainLanguage ? String(mainLanguage).toLowerCase() : null;
             const likePattern = buildLikeQuery(q, mainLanguage || '');
 
-            // Use LIKE search for all queries (FTS5 removed to save 6GB)
+            // Use LIKE search for all queries
             if (likePattern) {
               let sql = `
                 SELECT 
@@ -3340,7 +3340,6 @@ export default {
                 const cardPh = cardIds.map(() => '?').join(',');
                 // Delete subtitles and difficulty levels
                 try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch {}
-                // FTS5 removed - no longer needed
                 try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch {}
                 // Update mapping table (async, don't block)
                 updateCardSubtitleLanguageMapBatch(env, cardIds).catch(err => {
@@ -3567,7 +3566,6 @@ export default {
             if (cardIds.length) {
               const ph = cardIds.map(() => '?').join(',');
               try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
-              // FTS5 removed - no longer needed
               try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
               // Update summary table (async, don't block)
               updateCardSubtitleLanguagesBatch(env, cardIds).catch(err => {
@@ -4327,7 +4325,7 @@ export default {
         } catch { return json([]); }
       }
 
-      // 6b) Full-text search endpoint (FTS5) over subtitles
+      // 6b) Full-text search endpoint over subtitles
       if (path === '/search' && request.method === 'GET') {
         const qRaw = url.searchParams.get('q') || '';
         const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') || '50')));
@@ -4366,7 +4364,7 @@ export default {
           const hasLevelFilter = levelMin !== null || levelMax !== null;
           const framework = getFrameworkFromLanguage(mainLang);
 
-          // ---------- 1) Try LIKE search on card_subtitles (FTS5 removed to save 6GB) ----------
+          // ---------- 1) Try LIKE search on card_subtitles ----------
           let rows = [];
           try {
             // Build a LIKE query for card_subtitles
@@ -4743,7 +4741,7 @@ export default {
           try {
             // Update subtitle if provided
             if (body.subtitle && typeof body.subtitle === 'object') {
-              // Replace existing subtitles (FTS5 removed - no longer needed)
+              // Replace existing subtitles
               await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run();
               for (const [lang, text] of Object.entries(body.subtitle)) {
                 if (text && String(text).trim()) {
@@ -4816,7 +4814,6 @@ export default {
             try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           try {
             try { await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run(); } catch {}
-            // FTS5 removed - no longer needed
             try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id=?').bind(row.id).run(); } catch {}
             // Update summary table
             await updateCardSubtitleLanguages(env, row.id);
@@ -5132,9 +5129,6 @@ export default {
             try {
               await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run();
             } catch {}
-            try {
-              // FTS5 removed - no longer needed
-            } catch {}
             try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run(); } catch {}
             try { await env.DB.prepare('DELETE FROM cards WHERE episode_id=?').bind(episode.id).run(); } catch {}
           }
@@ -5151,7 +5145,6 @@ export default {
           const cardsNewSchema = [];
           const cardsLegacySchema = [];
           const subStmts = [];
-          // FTS5 removed - no longer needed
           const diffStmts = [];
           const cardIdsForSummaryUpdate = new Set(); // Track cards that need summary table update
 
@@ -5215,7 +5208,6 @@ export default {
               for (const [lang, text] of Object.entries(c.subtitle)) {
                 if (!text) continue;
                 subStmts.push(env.DB.prepare('INSERT OR IGNORE INTO card_subtitles (card_id,language,text) VALUES (?,?,?)').bind(cardUuid, lang, text));
-                // FTS5 removed - no longer needed
               }
             }
             if (Array.isArray(c.difficulty_levels)) {
@@ -5235,7 +5227,6 @@ export default {
             try {
               await runStmtBatches(useLegacy ? cardsLegacySchema : cardsNewSchema, 200);
               await runStmtBatches(subStmts, 400);
-              // FTS5 removed - no longer needed
               await runStmtBatches(diffStmts, 400);
               try { await env.DB.prepare('COMMIT').run(); } catch {}
               
@@ -5591,12 +5582,6 @@ export default {
         }
       }
 
-      // Admin: Populate FTS table - REMOVED (FTS5 table dropped to save 6GB)
-      // Search now uses LIKE queries on card_subtitles table
-      // Endpoint completely removed - no longer needed
-
-      // Admin: Reindex FTS (ja) - REMOVED (FTS5 table dropped to save 6GB)
-      // Endpoint completely removed - no longer needed
 
       // ==================== USER PROGRESS TRACKING ====================
       
@@ -8451,7 +8436,6 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             'episodes',
             'cards',
             'card_subtitles',
-            // card_subtitles_fts removed - no longer needed
             'search_terms',
             'card_difficulty_levels'
           ];
@@ -8586,13 +8570,13 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           const allTables = allObjects.filter(obj => obj.type === 'table');
           const allViews = allObjects.filter(obj => obj.type === 'view');
           
-          // Filter out FTS5 shadow tables and Cloudflare internal tables
+          // Filter out shadow tables and Cloudflare internal tables
           // Only count actual user tables (not views, not internal tables)
           const filteredTables = allTables.filter(table => {
             const name = table.name;
             // Skip Cloudflare internal tables
             if (name.startsWith('_cf_')) return false;
-            // Skip FTS5 shadow tables (these are internal to FTS5 virtual tables)
+            // Skip shadow tables (these are internal to virtual tables)
             if (name.includes('_fts_content') || 
                 name.includes('_fts_docsize') || 
                 name.includes('_fts_data') || 
@@ -8619,7 +8603,6 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           });
           
           // Define critical tables and their avg row sizes (more accurate estimates)
-          // FTS5 removed - no longer needed
           const tableConfig = {
             'search_terms': { avgRowSize: 50, type: 'Regular', critical: true, multiplier: 1.0 },
             'card_subtitles': { avgRowSize: 250, type: 'Regular', critical: true, multiplier: 1.0 }, // Increased for accurate size estimation (includes text data)
@@ -8737,8 +8720,6 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             duplicateInfo = { error: e.message };
           }
 
-          // FTS5 removed - no longer needed
-
           // Use actual size from Cloudflare API if available, otherwise use estimation
           const finalSizeGB = actualDatabaseSizeGB !== null ? actualDatabaseSizeGB : totalEstimatedSizeGB;
           const finalSizeMB = actualDatabaseSizeMB !== null ? actualDatabaseSizeMB : (totalEstimatedSizeMB * 1.9);
@@ -8805,8 +8786,6 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
             });
           }
         }
-
-        // FTS5 removed - no longer needed
 
         // Check user_progress size
         const userProgressTable = tables.find(t => t.name === 'user_progress');
@@ -9268,9 +9247,6 @@ async function getCardUUID(filmId, episodeId, cardDisplayId) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
-      // FTS5 endpoints completely removed - FTS5 table dropped to save 6GB
-      // Search now uses LIKE queries on card_subtitles table with autocomplete from search_terms
 
       // Update rewards config - SuperAdmin only
       if (path === '/api/admin/rewards-config' && request.method === 'PUT') {
