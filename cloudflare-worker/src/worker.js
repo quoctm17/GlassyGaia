@@ -21,7 +21,7 @@ function withCors(headers = {}) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    //'Access-Control-Max-Age': '86400', // 24 hours in seconds
+    'Access-Control-Max-Age': '86400', // 24 hours in seconds
     'Cross-Origin-Opener-Policy': 'unsafe-none',
     'Cross-Origin-Embedder-Policy': 'unsafe-none',
     ...headers,
@@ -535,10 +535,6 @@ async function createSignature(data, secret) {
 
   const signature = await crypto.subtle.sign('HMAC', key, messageData);
   return new Uint8Array(signature);
-  } catch (err) {
-    console.error('[createSignature] Crypto error:', err.message);
-    throw new Error('Signature generation failed');
-  }
 }
 
 // Generate JWT token
@@ -564,7 +560,7 @@ async function generateJWT(userId, email, roles, secret, expiresInDays = 7) {
   const signature = await createSignature(data, secret);
   const encodedSignature = base64urlEncode(signature);
 
-  return `${data}.${encodedSignature}`;
+  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
 }
 
 // Verify JWT token
@@ -600,9 +596,9 @@ async function verifyJWT(token, secret) {
 
     // 5. Kiểm tra Issued At (iat) để tránh clock skew (lệch múi giờ server)
     // Cho phép lệch 60 giây để đảm bảo tính ổn định
-    if (payload.iat && payload.iat > now + 60) {
-      return { valid: false, error: 'Token issued in the future' };
-    }
+    //if (payload.iat && payload.iat > now + 60) {
+    //  return { valid: false, error: 'Token issued in the future' };
+    //}
 
     // 6. Token hợp lệ
     return { valid: true, payload };
@@ -620,9 +616,9 @@ async function authenticateRequest(request, env) {
   }
 
   const token = authHeader.slice(7).trim(); // Dùng .slice() và .trim() để sạch token
-  if (!token) {
-    return { authenticated: false, error: 'Unauthorized: Token is empty' };
-  }
+  //if (!token) {
+  //  return { authenticated: false, error: 'Unauthorized: Token is empty' };
+  //}
 
   // 2. Verify token
   const secret = env.JWT_SECRET;
@@ -637,19 +633,13 @@ async function authenticateRequest(request, env) {
   }
 
   // 3. Token hợp lệ, trả về user info
-  const { user_id, email, roles, exp } = result.payload;
-
   return {
     authenticated: true,
-    userId: user_id,
-    email: email,
-    roles: roles || [],
-    expiresAt: exp, // Useful for debugging or frontend sync
-    
-    // Helper function: makes checking permissions much cleaner
-    isAdmin: (roles || []).includes('admin'),
-    isPremium: (roles || []).includes('premium')
+    userId: result.payload.user_id,
+    email: result.payload.email,
+    roles: result.payload.roles || []
   };
+}
 
 // Reset daily activity tables (called by scheduled event)
 async function resetDailyTables(env) {
@@ -676,19 +666,17 @@ async function resetDailyTables(env) {
         updated_at = unixepoch() * 1000
     `).bind(yesterdayStr).run();
 
-    // Clean up the source table
-    // We use < today to ensure we don't accidentally delete data from a user 
-    // who has already started their session on the new day.
+    // Delete all daily_activity records that are not today (cleanup old records)
     await env.DB.prepare(`
       DELETE FROM user_daily_activity
-      WHERE activity_date < ?
+      WHERE activity_date != ?
     `).bind(today).run();
 
-    console.log(`[resetDailyTables] Maintenance complete for ${today}`);
-    return { success: true };
-
-  } catch (e) {
-    console.error('[resetDailyTables] Critical Error:', e);
+    console.log(`[resetDailyTables] Reset daily tables for ${today}`);
+    return { success: true, date: today };
+  } 
+    catch (e) {
+    console.error('[resetDailyTables] Error:', e);
     return { success: false, error: e.message };
   }
 }
