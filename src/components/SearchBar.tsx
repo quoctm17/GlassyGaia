@@ -82,7 +82,7 @@ export default function SearchBar({
           language: autocompleteLanguage || undefined,
           limit: 10,
         });
-
+        
         if (!controller.signal.aborted) {
           setSuggestions(result.suggestions);
           setShowSuggestions(result.suggestions.length > 0);
@@ -200,7 +200,7 @@ export default function SearchBar({
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node) &&
-        inputRef.current && !inputRef.current.contains(event.target as Node)) {
+          inputRef.current && !inputRef.current.contains(event.target as Node)) {
         setShowSuggestions(false);
       }
     };
@@ -255,12 +255,26 @@ export default function SearchBar({
             <X className="w-4 h-4" />
           </button>
         )}
-
+        
         {/* Autocomplete suggestions dropdown */}
         {enableAutocomplete && showSuggestions && suggestions.length > 0 && (
           <div
             ref={suggestionsRef}
             className="search-autocomplete-dropdown"
+            style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              marginTop: '4px',
+              backgroundColor: 'var(--sidenav-bg)',
+              border: '2px solid var(--neutral)',
+              borderRadius: '8px',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+              zIndex: 1000,
+              maxHeight: '300px',
+              overflowY: 'auto',
+            }}
           >
             {loadingSuggestions && (
               <div style={{ padding: '12px', textAlign: 'center', color: 'var(--neutral)' }}>
@@ -272,11 +286,18 @@ export default function SearchBar({
                 key={`${suggestion.term}-${index}`}
                 onClick={() => handleSelectSuggestion(suggestion.term)}
                 onMouseEnter={() => setSelectedIndex(index)}
-                className={`search-autocomplete-item ${selectedIndex === index ? 'selected' : ''}`}
+                style={{
+                  padding: '12px 16px',
+                  cursor: 'pointer',
+                  backgroundColor: selectedIndex === index ? 'var(--hover-bg)' : 'transparent',
+                  color: 'var(--text)',
+                  borderBottom: index < suggestions.length - 1 ? '1px solid var(--neutral)' : 'none',
+                  transition: 'background-color 0.15s',
+                }}
               >
-                <div className="search-autocomplete-term">{suggestion.term}</div>
+                <div style={{ fontWeight: 500, fontSize: '15px' }}>{suggestion.term}</div>
                 {suggestion.language && (
-                  <div className="search-autocomplete-meta">
+                  <div style={{ fontSize: '12px', color: 'var(--neutral)', marginTop: '2px' }}>
                     {suggestion.language}
                   </div>
                 )}

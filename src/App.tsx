@@ -44,7 +44,7 @@ const AdminDatabasePage = lazy(() => import('./pages/admin/AdminDatabasePage'));
 const AdminImageMigrationPage = lazy(() => import('./pages/admin/AdminImageMigrationPage'));
 const AdminPathMigrationPage = lazy(() => import('./pages/admin/AdminPathMigrationPage'));
 const AdminAudioMigrationPage = lazy(() => import('./pages/admin/AdminAudioMigrationPage'));
-const AdminPopulateFtsPage = lazy(() => import('./pages/admin/AdminPopulateFtsPage'));
+// AdminPopulateFtsPage removed - FTS5 table dropped
 const AdminPopulateSearchTermsPage = lazy(() => import('./pages/admin/AdminPopulateSearchTermsPage'));
 
 // Loading fallback component
@@ -121,7 +121,7 @@ function App() {
                 {/* Admin Audio Migration */}
                 <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
                 {/* Admin FTS Population */}
-                <Route path="populate-fts" element={<AdminPopulateFtsPage />} />
+                {/* populate-fts route removed - FTS5 table dropped */}
                 {/* Admin Search Terms Population */}
                 <Route path="populate-search-terms" element={<AdminPopulateSearchTermsPage />} />
                 {/* Admin Categories Management */}

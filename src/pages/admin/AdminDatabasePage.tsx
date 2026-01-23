@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Database, Table, Shield, Key, Users, Settings, BookOpen, TrendingUp, BarChart3, MoreHorizontal, Eye, Pencil, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
-import { apiGetDatabaseStats, apiGetTableData, apiUpdateTableRecord, apiDeleteTableRecord } from '../../services/cfApi';
+import { apiGetDatabaseStats, apiGetTableData, apiUpdateTableRecord, apiDeleteTableRecord, apiGetDatabaseSizeAnalysis, apiCleanupSearchTerms, apiOptimizeSearchTerms } from '../../services/cfApi';
 import PortalDropdown from '../../components/PortalDropdown';
 import TableDetailModal from '../../components/admin/TableDetailModal';
 import TableEditModal from '../../components/admin/TableEditModal';
@@ -98,6 +98,12 @@ export default function AdminDatabasePage() {
   const [openMenuFor, setOpenMenuFor] = useState<{ id: string; anchor: HTMLElement; closing?: boolean } | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<Record<string, unknown> | null>(null);
   const [editingRecord, setEditingRecord] = useState<Record<string, unknown> | null>(null);
+  const [sizeAnalysis, setSizeAnalysis] = useState<any>(null);
+  const [sizeAnalysisLoading, setSizeAnalysisLoading] = useState(false);
+  const [sizeAnalysisError, setSizeAnalysisError] = useState<string | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
+  // FTS5 removed - no longer needed
   
   // Only SuperAdmin can access this page
   useEffect(() => {
@@ -213,8 +219,358 @@ export default function AdminDatabasePage() {
             <h2 className="admin-title" style={{ color: 'var(--primary)' }}>Database Management</h2>
             <p className="typography-inter-4" style={{ color: 'var(--sub-language-text)', marginTop: '0.25rem' }}>Quản lý CRUD cho các bảng trong D1 Database</p>
           </div>
+          <button
+            className="admin-btn"
+            onClick={async () => {
+              setSizeAnalysisLoading(true);
+              setSizeAnalysisError(null);
+              try {
+                const analysis = await apiGetDatabaseSizeAnalysis();
+                setSizeAnalysis(analysis);
+              } catch (e) {
+                setSizeAnalysisError(e instanceof Error ? e.message : 'Failed to load size analysis');
+                toast.error('Failed to load database size analysis');
+              } finally {
+                setSizeAnalysisLoading(false);
+              }
+            }}
+            disabled={sizeAnalysisLoading}
+          >
+            {sizeAnalysisLoading ? 'Loading...' : '📊 Analyze Database Size'}
+          </button>
         </div>
       </div>
+
+      {/* Database Size Analysis Section */}
+      {sizeAnalysis && (
+        <div style={{ marginBottom: '2rem', padding: '1.5rem', background: 'var(--card-bg)', border: '2px solid var(--border)', borderRadius: '0.5rem' }}>
+          <h3 style={{ fontFamily: 'Press Start 2P', fontSize: '0.875rem', color: 'var(--primary)', marginBottom: '1rem' }}>
+            Database Size Analysis
+          </h3>
+          
+          {/* Database Overview */}
+          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--background)', borderRadius: '0.375rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  Database Size
+                  {sizeAnalysis.database.isActualSize ? (
+                    <span style={{ fontSize: '0.625rem', padding: '0.125rem 0.375rem', background: 'var(--success)', borderRadius: '0.25rem', color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                      ✓ Actual (Cloudflare API)
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '0.625rem', padding: '0.125rem 0.375rem', background: 'var(--warning)', borderRadius: '0.25rem', color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                      ⚠ Estimated
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontFamily: 'Press Start 2P', fontSize: '1.25rem', color: (sizeAnalysis.database.usagePercent || 0) > 80 ? 'var(--error)' : (sizeAnalysis.database.usagePercent || 0) > 60 ? 'var(--warning)' : 'var(--success)' }}>
+                  {(sizeAnalysis.database.sizeGB || sizeAnalysis.database.estimatedSizeGB || sizeAnalysis.database.actualSizeGB || 0).toFixed(2)} GB
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {(sizeAnalysis.database.usagePercent || 0).toFixed(1)}% of {(sizeAnalysis.database.maxSizeGB || 10)}GB limit
+                </div>
+                {sizeAnalysis.database.isActualSize && sizeAnalysis.database.actualSizeBytes && (
+                  <div style={{ fontSize: '0.625rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    Bytes: {(sizeAnalysis.database.actualSizeBytes || 0).toLocaleString()}
+                    <br />
+                    MB: {(sizeAnalysis.database.actualSizeMB || 0).toFixed(2)}
+                  </div>
+                )}
+                {!sizeAnalysis.database.isActualSize && (
+                  <div style={{ fontSize: '0.625rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    <div style={{ color: 'var(--warning)', marginBottom: '0.25rem' }}>
+                      ⚠ Using estimation
+                    </div>
+                    <div style={{ fontSize: '0.5rem' }}>
+                      To get actual size from Cloudflare:
+                      <br />
+                      1. Get API token from Cloudflare Dashboard
+                      <br />
+                      2. Run: wrangler secret put CLOUDFLARE_API_TOKEN
+                      <br />
+                      3. Run: wrangler secret put CLOUDFLARE_ACCOUNT_ID
+                    </div>
+                    {sizeAnalysis.database.rawDataSizeMB !== undefined && (
+                      <>
+                        <div style={{ marginTop: '0.25rem' }}>
+                          Raw data: {(sizeAnalysis.database.rawDataSizeMB || 0).toFixed(2)} MB
+                          <br />
+                          Est. overhead: {(sizeAnalysis.database.overheadMB || 0).toFixed(2)} MB
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Total Tables</div>
+                <div style={{ fontFamily: 'Press Start 2P', fontSize: '1rem', color: 'var(--text)' }}>
+                  {(sizeAnalysis.database.totalTables || sizeAnalysis.tables?.length || 0).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {sizeAnalysis.tables?.filter((t: any) => !t.error && t.rowCount !== undefined).length || 0} analyzed
+                </div>
+              </div>
+              {sizeAnalysis.database.totalViews !== undefined && sizeAnalysis.database.totalViews > 0 && (
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Total Views</div>
+                  <div style={{ fontFamily: 'Press Start 2P', fontSize: '1rem', color: 'var(--text)' }}>
+                    {sizeAnalysis.database.totalViews.toLocaleString()}
+                  </div>
+                </div>
+              )}
+              {sizeAnalysis.database.pageCount !== null && sizeAnalysis.database.pageCount !== undefined && (
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Page Count</div>
+                  <div style={{ fontFamily: 'Press Start 2P', fontSize: '1rem', color: 'var(--text)' }}>
+                    {sizeAnalysis.database.pageCount.toLocaleString()}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Progress Bar */}
+            <div style={{ width: '100%', height: '1.5rem', background: 'var(--background)', border: '2px solid var(--border)', borderRadius: '0.375rem', overflow: 'hidden', position: 'relative' }}>
+              <div 
+                style={{ 
+                  height: '100%', 
+                  background: (sizeAnalysis.database.usagePercent || 0) > 80 ? 'var(--error)' : (sizeAnalysis.database.usagePercent || 0) > 60 ? 'var(--warning)' : 'var(--success)',
+                  width: `${Math.min(sizeAnalysis.database.usagePercent || 0, 100)}%`,
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Search Terms Projection */}
+          {sizeAnalysis.tables && (() => {
+            const searchTermsTable = sizeAnalysis.tables.find((t: any) => t.name === 'search_terms');
+            const cardSubtitlesTable = sizeAnalysis.tables.find((t: any) => t.name === 'card_subtitles');
+            if (searchTermsTable && cardSubtitlesTable) {
+              const currentTerms = searchTermsTable.rowCount || 0;
+              const totalSubtitles = cardSubtitlesTable.rowCount || 0;
+              // Estimate: if we have terms from ~19% of subtitles (2.477M / 12.9M), project full size
+              const estimatedTermsWhenComplete = totalSubtitles > 0 && currentTerms > 0
+                ? Math.round((currentTerms / Math.max(2477000, totalSubtitles * 0.19)) * totalSubtitles)
+                : currentTerms;
+              const estimatedSizeMB = (estimatedTermsWhenComplete * 50) / (1024 * 1024);
+              const estimatedSizeGB = estimatedSizeMB / 1024;
+              const estimatedSizeWithOverheadGB = estimatedSizeGB * 1.9;
+              const currentSizeGB = searchTermsTable.estimatedSizeGB || 0;
+              const additionalSizeGB = estimatedSizeWithOverheadGB - (currentSizeGB * 1.9);
+              
+              if (estimatedTermsWhenComplete > currentTerms && additionalSizeGB > 0.1) {
+                return (
+                  <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(251, 191, 36, 0.1)', border: '2px solid var(--warning)', borderRadius: '0.375rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--warning)', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      ⚠️ Search Terms Projection
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Current: {currentTerms.toLocaleString()} terms ({currentSizeGB.toFixed(2)} GB)
+                      <br />
+                      Projected (when complete): ~{estimatedTermsWhenComplete.toLocaleString()} terms (~{estimatedSizeGB.toFixed(2)} GB raw, ~{estimatedSizeWithOverheadGB.toFixed(2)} GB with overhead)
+                      <br />
+                      <strong style={{ color: 'var(--warning)' }}>
+                        Additional size: ~{additionalSizeGB.toFixed(2)} GB
+                      </strong>
+                      <br />
+                      <span style={{ fontSize: '0.625rem' }}>
+                        Projected total DB size: ~{((sizeAnalysis.database.estimatedSizeGB || 0) + additionalSizeGB).toFixed(2)} GB
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+            }
+            return null;
+          })()}
+
+          {/* Table Sizes */}
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h4 style={{ fontFamily: 'Press Start 2P', fontSize: '0.75rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>
+              Table Sizes (sorted by size) - Total: {sizeAnalysis.tables?.length || 0} tables
+              {sizeAnalysis.database.totalViews !== undefined && sizeAnalysis.database.totalViews > 0 && (
+                <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                  • {sizeAnalysis.database.totalViews} views
+                </span>
+              )}
+            </h4>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: '0.75rem'
+            }}>
+              {sizeAnalysis.tables
+                .filter((table: any) => !table.error && table.rowCount !== undefined)
+                .sort((a: any, b: any) => (b.estimatedSizeGB || 0) - (a.estimatedSizeGB || 0))
+                .map((table: any) => (
+                <div 
+                  key={table.name}
+                  style={{ 
+                    padding: '0.75rem', 
+                    background: 'var(--background)', 
+                    border: '2px solid var(--border)', 
+                    borderRadius: '0.375rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontFamily: 'Press Start 2P', fontSize: '0.625rem', color: 'var(--text)', wordBreak: 'break-word' }}>
+                          {table.name}
+                        </span>
+                        {table.critical && (
+                          <span style={{ fontSize: '0.625rem', padding: '0.125rem 0.375rem', background: 'var(--error)', borderRadius: '0.25rem', whiteSpace: 'nowrap' }}>
+                            Critical
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {(table.rowCount || 0).toLocaleString()} rows
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: 'Press Start 2P', fontSize: '0.875rem', color: (table.estimatedSizeGB || 0) > 1 ? 'var(--warning)' : 'var(--text)', textAlign: 'right', whiteSpace: 'nowrap', marginLeft: '0.5rem' }}>
+                      {(table.estimatedSizeGB || 0).toFixed(2)} GB
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '0.625rem', color: 'var(--text-muted)' }}>
+                    {(table.estimatedSizeMB || 0).toFixed(2)} MB
+                  </div>
+                </div>
+              ))}
+              {sizeAnalysis.tables.filter((table: any) => table.error).length > 0 && (
+                <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', border: '2px solid var(--error)', borderRadius: '0.375rem' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--error)', marginBottom: '0.5rem' }}>Tables with errors:</div>
+                  {sizeAnalysis.tables.filter((table: any) => table.error).map((table: any) => (
+                    <div key={table.name} style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                      {table.name}: {table.error}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Recommendations */}
+          {sizeAnalysis.recommendations && sizeAnalysis.recommendations.length > 0 && (
+            <div>
+              <h4 style={{ fontFamily: 'Press Start 2P', fontSize: '0.75rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>
+                Optimization Recommendations
+              </h4>
+              <div style={{ display: 'grid', gap: '0.75rem' }}>
+                {sizeAnalysis.recommendations.map((rec: any, idx: number) => (
+                  <div 
+                    key={idx}
+                    style={{ 
+                      padding: '1rem', 
+                      background: rec.priority === 'CRITICAL' ? 'rgba(239, 68, 68, 0.1)' : rec.priority === 'HIGH' ? 'rgba(251, 191, 36, 0.1)' : 'rgba(59, 130, 246, 0.1)',
+                      border: `2px solid ${rec.priority === 'CRITICAL' ? 'var(--error)' : rec.priority === 'HIGH' ? 'var(--warning)' : 'var(--info)'}`, 
+                      borderRadius: '0.375rem'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.5rem' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '0.25rem' }}>
+                          [{rec.priority}] {rec.action}
+                        </div>
+                        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                          {rec.description}
+                        </div>
+                        {rec.action.includes('Clean duplicate') && (
+                          <button
+                            className="admin-btn"
+                            style={{ fontSize: '0.625rem', padding: '0.5rem 1rem' }}
+                            onClick={async () => {
+                              if (!window.confirm('This will remove duplicate rows from search_terms. Continue?')) return;
+                              setCleaningUp(true);
+                              try {
+                                const result = await apiCleanupSearchTerms();
+                                toast.success(`Removed ${result.duplicatesRemoved.toLocaleString()} duplicates. ${result.remainingRows.toLocaleString()} rows remaining.`);
+                                // Reload analysis
+                                const newAnalysis = await apiGetDatabaseSizeAnalysis();
+                                setSizeAnalysis(newAnalysis);
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : 'Cleanup failed');
+                              } finally {
+                                setCleaningUp(false);
+                              }
+                            }}
+                            disabled={cleaningUp}
+                          >
+                            {cleaningUp ? 'Cleaning...' : '🧹 Clean Duplicates'}
+                          </button>
+                        )}
+                        {rec.action.includes('Optimize search_terms') && (
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <input
+                              type="number"
+                              min="1"
+                              max="10"
+                              defaultValue="2"
+                              id={`minFreq-${idx}`}
+                              style={{ 
+                                padding: '0.5rem', 
+                                background: 'var(--background)', 
+                                border: '2px solid var(--border)', 
+                                borderRadius: '0.25rem',
+                                color: 'var(--text)',
+                                width: '80px',
+                                fontSize: '0.875rem'
+                              }}
+                            />
+                            <label htmlFor={`minFreq-${idx}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              Min frequency
+                            </label>
+                            <button
+                              className="admin-btn"
+                              style={{ fontSize: '0.625rem', padding: '0.5rem 1rem' }}
+                              onClick={async () => {
+                                const minFreq = parseInt((document.getElementById(`minFreq-${idx}`) as HTMLInputElement)?.value || '2', 10);
+                                if (!window.confirm(`This will remove all search_terms with frequency < ${minFreq}. Continue?`)) return;
+                                setOptimizing(true);
+                                try {
+                                  const result = await apiOptimizeSearchTerms(minFreq);
+                                  toast.success(`Removed ${result.removedRows.toLocaleString()} rows. ${result.remainingRows.toLocaleString()} rows remaining.`);
+                                  // Reload analysis
+                                  const newAnalysis = await apiGetDatabaseSizeAnalysis();
+                                  setSizeAnalysis(newAnalysis);
+                                } catch (e) {
+                                  toast.error(e instanceof Error ? e.message : 'Optimization failed');
+                                } finally {
+                                  setOptimizing(false);
+                                }
+                              }}
+                              disabled={optimizing}
+                            >
+                              {optimizing ? 'Optimizing...' : '⚡ Optimize'}
+                            </button>
+                          </div>
+                        )}
+                        {/* FTS5 removed - no longer needed */}
+                      </div>
+                      {rec.estimatedSavingsMB > 0 && (
+                        <div style={{ fontFamily: 'Press Start 2P', fontSize: '0.75rem', color: 'var(--success)', marginLeft: '1rem' }}>
+                          Save ~{rec.estimatedSavingsMB.toFixed(0)} MB
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sizeAnalysisError && (
+        <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(239, 68, 68, 0.1)', border: '2px solid var(--error)', borderRadius: '0.375rem', color: 'var(--error)' }}>
+          Error: {sizeAnalysisError}
+        </div>
+      )}
 
       <div className="database-grid">
         {loading && (

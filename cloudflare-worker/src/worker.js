@@ -7,7 +7,7 @@ const REWARD_CONFIG_IDS = {
   // Challenge types
   DAILY_CHALLENGE: 1,
   WEEKLY_CHALLENGE: 2,
-
+  
   // Action types
   SRS_STATE_CHANGE: 3,
   LISTENING_5S: 4,
@@ -28,65 +28,40 @@ function withCors(headers = {}) {
   };
 }
 
-function buildFtsQuery(q, language) {
+// Build LIKE query for card_subtitles search (replaces FTS5)
+// Since we use autocomplete, users only search when selecting a suggestion
+// This makes LIKE search acceptable for the reduced search volume
+function buildLikeQuery(q, language) {
   const cleaned = (q || '').trim();
   if (!cleaned) return '';
-
+  
   // Detect if query contains Japanese characters (Hiragana, Katakana, or Kanji)
   const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(cleaned);
-
+  
   // For Japanese: normalize whitespace AND remove furigana brackets from query
   // User might search "番線" but DB has "番線[ばんせん]" - we need to match the base kanji
-  // This handles cases like "番線に" vs "番線 に" or "番線[ばんせん]に" in subtitle text
   let normalized = (hasJapanese || language === 'ja') ? cleaned.replace(/\s+/g, '') : cleaned;
-
+  
   // For Japanese: also remove any furigana brackets from the query itself
-  // e.g., user searches "番線[ばんせん]" -> normalize to "番線"
   if (hasJapanese || language === 'ja') {
     normalized = normalized.replace(/\[[^\]]+\]/g, '');
   }
-
-  // If the user wraps text in quotes, treat it as an exact phrase
-  const quotedMatch = normalized.match(/^\s*"([\s\S]+)"\s*$/);
-  if (quotedMatch) {
-    const phrase = quotedMatch[1].replace(/["']/g, '').replace(/[^\p{L}\p{N}\s]+/gu, ' ').trim().replace(/\s+/g, ' ');
-    return phrase ? `"${phrase}"` : '';
-  }
-
-  // With FTS5 trigram tokenizer, we can now use FTS for ALL languages including CJK
-  // The trigram tokenizer handles CJK characters efficiently by breaking them into 3-character sequences
-  // For CJK: normalize and wrap in quotes for phrase search
-  if (hasJapanese || language === 'ja') {
-    // Sanitize: Escape double quotes to prevent syntax errors
-    const sanitized = normalized.replace(/"/g, '""');
-    // Wrap in quotes for trigram phrase search
-    return sanitized ? `"${sanitized}"` : '';
-  }
-
-  // Non-Japanese: tokenize by whitespace
-  const tokens = normalized
-    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 8);
-  if (!tokens.length) return '';
-
-  if (tokens.length === 1) {
-    const t = escapeFtsToken(tokens[0]);
-    if (!t) return '';
-    // Exact word matching (quoted) to avoid substring matches
-    return `"${t}"`;
-  }
-
-  // Multi-word non-Japanese: exact phrase matching
-  const phrase = tokens.map(escapeFtsToken).join(' ');
-  return phrase ? `"${phrase}"` : '';
-}
-
-function escapeFtsToken(t) {
-  // Remove quotes and stray punctuation that might slip through
-  return String(t).replace(/["'.,;:!?()\[\]{}]/g, '');
+  
+  // Escape SQL LIKE special characters: %, _, [, ]
+  // Escape % and _ by prefixing with \
+  // Escape [ and ] by doubling them
+  const escapeLike = (str) => {
+    return str
+      .replace(/\\/g, '\\\\')  // Escape backslashes first
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]');
+  };
+  
+  // For LIKE search, we use %query% pattern for substring matching
+  // This is acceptable since users only search after selecting from autocomplete
+  return escapeLike(normalized);
 }
 
 // Japanese helpers: normalize Katakana to Hiragana and full-width forms
@@ -119,7 +94,7 @@ function extractSearchTerms(text, language) {
   if (!trimmed) return [];
 
   const isCJK = ['ja', 'zh', 'ko', 'zh-CN', 'zh-TW'].includes(language);
-
+  
   if (isCJK) {
     // For CJK: Extract character sequences (2-6 characters)
     // Remove furigana brackets first
@@ -152,22 +127,22 @@ function extractSearchTerms(text, language) {
 function expandJaIndexText(text) {
   // First, normalize whitespace (remove all spaces) for consistent FTS matching
   const src = String(text || '').replace(/\s+/g, '');
-
+  
   const extra = [];
   const re = /(\p{Script=Han}+[\p{Script=Han}・・]*)\[([\p{Script=Hiragana}\p{Script=Katakana}]+)\]/gu;
   let baseText = src; // text with brackets removed
   let m;
-
+  
   while ((m = re.exec(src)) !== null) {
     const kan = m[1];
     const rawKana = m[2];
     const hira = normalizeJaInput(rawKana);
     if (!kan || !hira) continue;
-
+    
     // Add base kanji (without brackets) and reading separately to index
     extra.push(kan);
     extra.push(hira);
-
+    
     // Add mixed kanji/kana variants for partial matching
     const firstKan = kan[0];
     const lastKan = kan[kan.length - 1];
@@ -178,15 +153,15 @@ function expandJaIndexText(text) {
       extra.push(firstKan + suff);
     }
   }
-
+  
   // Remove all brackets from base text so "番線[ばんせん]" becomes "番線"
   baseText = baseText.replace(/\[[^\]]+\]/g, '');
-
+  
   if (!extra.length) return baseText;
-
+  
   // Deduplicate extras to keep FTS text compact
   const uniq = Array.from(new Set(extra.filter(Boolean)));
-
+  
   // Index format: base_text + space + all_variants
   // This allows searching by base kanji OR reading OR mixed
   return `${baseText} ${uniq.join(' ')}`;
@@ -269,7 +244,7 @@ async function hashPassword(password) {
   const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const passwordBuffer = encoder.encode(password);
-
+  
   const key = await crypto.subtle.importKey(
     'raw',
     passwordBuffer,
@@ -277,7 +252,7 @@ async function hashPassword(password) {
     false,
     ['deriveBits']
   );
-
+  
   const hashBuffer = await crypto.subtle.deriveBits(
     {
       name: 'PBKDF2',
@@ -329,7 +304,7 @@ async function updateCardSubtitleLanguageMap(env, cardId) {
 // Batch update mapping table for multiple cards
 async function updateCardSubtitleLanguageMapBatch(env, cardIds) {
   if (!cardIds || cardIds.length === 0) return;
-
+  
   try {
     // 1. Create placeholders (?,?,?)
     const placeholders = cardIds.map(() => '?').join(',');
@@ -445,7 +420,7 @@ try {
       false,
       ['deriveBits']
     );
-
+    
     const hashBuffer = await crypto.subtle.deriveBits(
       {
         name: 'PBKDF2',
@@ -456,9 +431,9 @@ try {
       key,
       256
     );
-
+    
     const hashArray = new Uint8Array(hashBuffer);
-
+    
     if (hashArray.length !== storedHash.length) return false;
 
     let isValid = 0;
@@ -524,7 +499,7 @@ async function createSignature(data, secret) {
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secret);
   const messageData = encoder.encode(data);
-
+  
   const key = await crypto.subtle.importKey(
     'raw',
     keyData,
@@ -532,7 +507,7 @@ async function createSignature(data, secret) {
     false,
     ['sign']
   );
-
+  
   const signature = await crypto.subtle.sign('HMAC', key, messageData);
   return new Uint8Array(signature);
 }
@@ -543,7 +518,7 @@ async function generateJWT(userId, email, roles, secret, expiresInDays = 7) {
     alg: 'HS256',
     typ: 'JWT'
   };
-
+  
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     user_id: userId,
@@ -552,14 +527,14 @@ async function generateJWT(userId, email, roles, secret, expiresInDays = 7) {
     iat: now, // Issued at
     exp: now + (expiresInDays * 24 * 60 * 60) // Expiration
   };
-
+  
   const encodedHeader = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)));
   const encodedPayload = base64urlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   const data = `${encodedHeader}.${encodedPayload}`;
-
+  
   const signature = await createSignature(data, secret);
   const encodedSignature = base64urlEncode(signature);
-
+  
   return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
 }
 
@@ -571,23 +546,23 @@ async function verifyJWT(token, secret) {
     if (parts.length !== 3) {
       return { valid: false, error: 'Invalid token format' };
     }
-
+    
     const [encodedHeader, encodedPayload, encodedSignature] = parts;
-
+    
     // 2. Verify signature
     const data = `${encodedHeader}.${encodedPayload}`;
     const expectedSignature = await createSignature(data, secret);
     const expectedSignatureEncoded = base64urlEncode(expectedSignature);
-
+    
     // So sánh signature (constant-time comparison)
     if (!constantTimeEqual(encodedSignature, expectedSignatureEncoded)) {
       return { valid: false, error: 'Invalid signature' };
     }
-
+    
     // 3. Decode payload
     const payloadJson = base64urlDecode(encodedPayload);
     const payload = JSON.parse(payloadJson);
-
+    
     // 4. Kiểm tra expiration
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp && payload.exp < now) {
@@ -625,13 +600,13 @@ async function authenticateRequest(request, env) {
   if (!secret) {
     return { authenticated: false, error: 'JWT secret not configured' };
   }
-
+  
   const result = await verifyJWT(token, secret);
-
+  
   if (!result.valid) {
     return { authenticated: false, error: result.error };
   }
-
+  
   // 3. Token hợp lệ, trả về user info
   return {
     authenticated: true,
@@ -671,7 +646,7 @@ async function resetDailyTables(env) {
       DELETE FROM user_daily_activity
       WHERE activity_date != ?
     `).bind(today).run();
-
+    
     console.log(`[resetDailyTables] Reset daily tables for ${today}`);
     return { success: true, date: today };
   } 
@@ -692,39 +667,39 @@ export default {
       }
 
       // ==================== AUTHENTICATION ENDPOINTS ====================
-
+      
       // Sign up with email/password
       if (path === '/auth/signup' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { email, password, displayName } = body;
-
+          
           if (!email || !password) {
             return json({ error: 'Email and password are required' }, { status: 400 });
           }
-
+          
           if (password.length < 6) {
             return json({ error: 'Password must be at least 6 characters' }, { status: 400 });
           }
-
+          
           // Check if email already exists
           const existing = await env.DB.prepare(`
             SELECT id FROM users WHERE email = ?
           `).bind(email.toLowerCase()).first();
-
+          
           if (existing) {
             return json({ error: 'Email already registered' }, { status: 409 });
           }
-
+          
           // Hash password
           const passwordHash = await hashPassword(password);
-
+          
           // Generate user ID and verification token
           const userId = generateUserId();
           const verificationToken = generateToken();
           const now = Date.now();
           const tokenExpires = now + (24 * 60 * 60 * 1000); // 24 hours
-
+          
           // Create user
           await env.DB.prepare(`
             INSERT INTO users (
@@ -738,24 +713,24 @@ export default {
             passwordHash, 'email', 0, verificationToken,
             tokenExpires, 1, now, now
           ).run();
-
+          
           // Create default preferences
           await env.DB.prepare(`
             INSERT INTO user_preferences (user_id, created_at, updated_at)
             VALUES (?, ?, ?)
           `).bind(userId, now, now).run();
-
+          
           // Auto-assign default 'user' role
           await env.DB.prepare(`
             INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
             VALUES (?, 'user', 'system', ?)
           `).bind(userId, now).run();
-
+          
           // Update last_login_at for immediate login after signup
           await env.DB.prepare(`
             UPDATE users SET last_login_at = ? WHERE id = ?
           `).bind(now, userId).run();
-
+          
           // Get user with roles
           const userWithRoles = await env.DB.prepare(`
             SELECT u.*, GROUP_CONCAT(ur.role_name) as roles
@@ -764,15 +739,15 @@ export default {
             WHERE u.id = ?
             GROUP BY u.id
           `).bind(userId).first();
-
+          
           const roleNames = userWithRoles.roles ? userWithRoles.roles.split(',') : [];
-
+          
           // Generate JWT token
           const jwtSecret = env.JWT_SECRET;
           if (!jwtSecret) {
             return json({ error: 'JWT secret not configured' }, { status: 500 });
           }
-
+          
           const token = await generateJWT(
             userId,
             email.toLowerCase(),
@@ -780,7 +755,7 @@ export default {
             jwtSecret,
             7 // 7 days expiration
           );
-
+          
           return json({
             success: true,
             token: token,
@@ -797,59 +772,59 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Google OAuth login
       if (path === '/auth/google' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { id_token } = body;
-
+          
           if (!id_token) {
             return json({ error: 'Google ID token is required' }, { status: 400 });
           }
-
+          
           const clientId = env.GOOGLE_CLIENT_ID;
           const clientSecret = env.GOOGLE_CLIENT_SECRET;
-
+          
           if (!clientId || !clientSecret) {
             return json({ error: 'Google OAuth not configured' }, { status: 500 });
           }
-
+          
           // Verify token with Google
           const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${id_token}`;
           const verifyRes = await fetch(verifyUrl);
-
+          
           if (!verifyRes.ok) {
             return json({ error: 'Invalid Google token' }, { status: 401 });
           }
-
+          
           const tokenInfo = await verifyRes.json();
-
+          
           // Verify audience matches our client ID
           if (tokenInfo.aud !== clientId) {
             return json({ error: 'Token audience mismatch' }, { status: 401 });
           }
-
+          
           // Extract user info
           const googleId = tokenInfo.sub;
           const email = tokenInfo.email;
           const displayName = tokenInfo.name || email?.split('@')[0];
           const photoUrl = tokenInfo.picture;
           const emailVerified = tokenInfo.email_verified === 'true';
-
+          
           if (!email) {
             return json({ error: 'Email not provided by Google' }, { status: 400 });
           }
-
+          
           // Generate user ID from Google ID (consistent with Firebase approach)
           const userId = googleId;
-
+          
           const now = Date.now();
-
+          
           // Check if user exists
           const existingUser = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`).bind(userId).first();
           const isNewUser = !existingUser;
-
+          
           // Upsert user
           await env.DB.prepare(`
             INSERT INTO users (id, email, display_name, photo_url, auth_provider, email_verified, last_login_at, updated_at)
@@ -865,7 +840,7 @@ export default {
             userId, email, displayName, photoUrl, 'google', emailVerified ? 1 : 0, now, now,
             email, displayName, photoUrl, emailVerified ? 1 : 0, now, now
           ).run();
-
+          
           // Assign role based on email whitelist
           if (email) {
             const adminEmails = [
@@ -874,14 +849,14 @@ export default {
               'nhungngth03@gmail.com'
             ];
             const superAdminEmail = 'tranminhquoc0711@gmail.com';
-
+            
             let assignedRole = 'user'; // default
             if (email === superAdminEmail) {
               assignedRole = 'superadmin';
             } else if (adminEmails.includes(email)) {
               assignedRole = 'admin';
             }
-
+            
             // Insert or update user role
             await env.DB.prepare(`
               INSERT INTO user_roles (user_id, role_name, granted_by, granted_at)
@@ -895,7 +870,7 @@ export default {
               VALUES (?, 'user', 'system', ?)
             `).bind(userId, now).run();
           }
-
+          
           // Get user with preferences and roles
           const user = await env.DB.prepare(`
             SELECT u.*, up.main_language, up.subtitle_languages, up.require_all_languages,
@@ -906,16 +881,16 @@ export default {
             WHERE u.id = ?
             GROUP BY u.id
           `).bind(userId).first();
-
+          
           // Parse roles from comma-separated string
           const roleNames = user.roles ? user.roles.split(',') : [];
-
+          
           // Generate JWT token
           const jwtSecret = env.JWT_SECRET;
           if (!jwtSecret) {
             return json({ error: 'JWT secret not configured' }, { status: 500 });
           }
-
+          
           const token = await generateJWT(
             userId,
             email,
@@ -923,7 +898,7 @@ export default {
             jwtSecret,
             7 // 7 days expiration
           );
-
+          
           return json({
             success: true,
             token: token,
@@ -941,32 +916,32 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Login with email/password
       if (path === '/auth/login' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { email, password } = body;
-
+          
           if (!email || !password) {
             return json({ error: 'Email and password are required' }, { status: 400 });
           }
-
+          
           // Find user by email or phone
           const user = await env.DB.prepare(`
             SELECT * FROM users 
             WHERE (email = ? OR phone_number = ?) 
             AND auth_provider = 'email'
           `).bind(email.toLowerCase(), email).first();
-
+          
           if (!user) {
             return json({ error: 'Invalid credentials' }, { status: 401 });
           }
-
+          
           if (!user.is_active) {
             return json({ error: 'Account is deactivated' }, { status: 403 });
           }
-
+          
           if (user.account_locked) {
             const now = Date.now();
             if (user.lockout_until && user.lockout_until > now) {
@@ -978,15 +953,15 @@ export default {
               WHERE id = ?
             `).bind(user.id).run();
           }
-
+          
           // Verify password
           const isValid = await verifyPassword(password, user.password_hash);
-
+          
           if (!isValid) {
             // Increment failed attempts
             const failedAttempts = (user.failed_login_attempts || 0) + 1;
             const now = Date.now();
-
+            
             if (failedAttempts >= 5) {
               // Lock account for 30 minutes
               const lockoutUntil = now + (30 * 60 * 1000);
@@ -995,17 +970,17 @@ export default {
                 SET failed_login_attempts = ?, account_locked = 1, lockout_until = ?
                 WHERE id = ?
               `).bind(failedAttempts, lockoutUntil, user.id).run();
-
+              
               return json({ error: 'Too many failed attempts. Account locked for 30 minutes.' }, { status: 429 });
             } else {
               await env.DB.prepare(`
                 UPDATE users SET failed_login_attempts = ? WHERE id = ?
               `).bind(failedAttempts, user.id).run();
-
+              
               return json({ error: 'Invalid credentials' }, { status: 401 });
             }
           }
-
+          
           // Success - reset failed attempts and update last login
           const now = Date.now();
           await env.DB.prepare(`
@@ -1013,26 +988,26 @@ export default {
             SET failed_login_attempts = 0, last_login_at = ?, updated_at = ?
             WHERE id = ?
           `).bind(now, now, user.id).run();
-
+          
           // Log login
           await env.DB.prepare(`
             INSERT INTO user_logins (user_id, login_method, success, created_at)
             VALUES (?, ?, ?, ?)
           `).bind(user.id, 'email', 1, now).run();
-
+          
           // Get user roles
           const rolesResult = await env.DB.prepare(`
             SELECT role_name FROM user_roles WHERE user_id = ?
           `).bind(user.id).all();
-
+          
           const roleNames = (rolesResult.results || []).map(r => r.role_name);
-
+          
           // Generate JWT token
           const jwtSecret = env.JWT_SECRET;
           if (!jwtSecret) {
             return json({ error: 'JWT secret not configured' }, { status: 500 });
           }
-
+          
           const token = await generateJWT(
             user.id,
             user.email,
@@ -1040,7 +1015,7 @@ export default {
             jwtSecret,
             7 // 7 days expiration
           );
-
+          
           return json({
             success: true,
             token: token,
@@ -1063,28 +1038,28 @@ export default {
         const startTime = Date.now();
         const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         console.log(`[PERF /api/search] [${requestId}] Request start: ${url.searchParams.toString()}`);
-
-        // Build cache key from query params
-        const cacheKey = `search:${url.searchParams.toString()}`;
-        const CACHE_TTL = 300; // 5 minutes cache - search results are relatively stable
-
-        try {
-          // Check KV cache first
-          if (env.SEARCH_CACHE) {
-            const cached = await env.SEARCH_CACHE.get(cacheKey, { type: 'json' });
-            if (cached && cached.data && cached.timestamp) {
-              const age = (Date.now() - cached.timestamp) / 1000;
-              if (age < CACHE_TTL) {
-                console.log(`[CACHE HIT /api/search] Age: ${age.toFixed(1)}s`);
-                return json(cached.data, {
-                  headers: {
-                    'X-Cache': 'HIT',
-                    'X-Cache-Age': Math.round(age).toString(),
-                  }
-                });
+        
+          // Build cache key from query params
+          const cacheKey = `search:${url.searchParams.toString()}`;
+          const CACHE_TTL = 300; // 5 minutes cache - search results are relatively stable
+          
+          try {
+            // Check KV cache first
+            if (env.SEARCH_CACHE) {
+              const cached = await env.SEARCH_CACHE.get(cacheKey, { type: 'json' });
+              if (cached && cached.data && cached.timestamp) {
+                const age = (Date.now() - cached.timestamp) / 1000;
+                if (age < CACHE_TTL) {
+                  console.log(`[CACHE HIT /api/search] Age: ${age.toFixed(1)}s`);
+                  return json(cached.data, {
+                    headers: {
+                      'X-Cache': 'HIT',
+                      'X-Cache-Age': Math.round(age).toString(),
+                    }
+                  });
+                }
               }
             }
-          }
           const q = url.searchParams.get('q') || '';
           const mainLanguage = url.searchParams.get('main_language');
           const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
@@ -1100,7 +1075,7 @@ export default {
           };
 
           // Parse subtitle languages into array
-          const subtitleLangsArr = subtitleLanguagesCsv
+          const subtitleLangsArr = subtitleLanguagesCsv 
             ? Array.from(new Set(subtitleLanguagesCsv.split(',').map(s => s.trim()).filter(Boolean)))
             : [];
           const subtitleLangsCount = subtitleLangsArr.length;
@@ -1156,12 +1131,12 @@ export default {
             const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
             const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
             const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
+            
             let levelOrder = [];
             if (framework === 'CEFR') levelOrder = CEFR;
             else if (framework === 'JLPT') levelOrder = JLPT;
             else if (framework === 'HSK') levelOrder = HSK;
-
+            
             if (levelOrder.length > 0) {
               const minIdx = levelMin ? levelOrder.indexOf(levelMin.toUpperCase()) : 0;
               const maxIdx = levelMax ? levelOrder.indexOf(levelMax.toUpperCase()) : levelOrder.length - 1;
@@ -1173,12 +1148,13 @@ export default {
 
           // Enable text search - but keep it lightweight
           const hasTextQuery = q.trim().length >= 2;
-          let ftsQuery = '';
-
+          let likeQuery = '';
+          
           if (hasTextQuery) {
-            // Use FTS5 with trigram tokenizer for ALL languages including CJK
-            const langForFts = (mainLanguage || '').toLowerCase() || null;
-            ftsQuery = buildFtsQuery(q, langForFts);
+            // Use LIKE search on card_subtitles (FTS5 removed to save 6GB)
+            // Autocomplete ensures users only search when selecting suggestions
+            const langForSearch = (mainLanguage || '').toLowerCase() || null;
+            likeQuery = buildLikeQuery(q, langForSearch);
           }
 
           let items = [];
@@ -1188,31 +1164,31 @@ export default {
 
           // Build WHERE clause with content_ids filter and text search
           // Use positional placeholders (?) and bind in order
-          const contentIdsPlaceholders = contentIdsCount > 0
+          const contentIdsPlaceholders = contentIdsCount > 0 
             ? contentIdsArr.map(() => '?').join(',')
             : '';
 
-          // Build query with FTS5 search (using trigram tokenizer for CJK support)
+          // Build query with LIKE search on card_subtitles (FTS5 removed)
           let textSearchCondition = '';
-          if (hasTextQuery && ftsQuery) {
-            // FTS5 search with trigram tokenizer - works for all languages including CJK
-            // Restrict by subtitle language to reduce search space and CPU
+          if (hasTextQuery && likeQuery) {
+            // LIKE search on card_subtitles - acceptable since users only search after autocomplete
+            // Restrict by subtitle language to reduce search space
             if (mainLanguage) {
               textSearchCondition = `
                 AND EXISTS (
-                  SELECT 1 FROM card_subtitles_fts
-                  WHERE card_subtitles_fts.card_id = c.id
-                    AND card_subtitles_fts.language = ?
-                    AND card_subtitles_fts MATCH ?
+                  SELECT 1 FROM card_subtitles cs
+                  WHERE cs.card_id = c.id
+                    AND cs.language = ?
+                    AND cs.text LIKE ?
                 )
               `;
             } else {
               // No language filter - search all languages
               textSearchCondition = `
                 AND EXISTS (
-                  SELECT 1 FROM card_subtitles_fts
-                  WHERE card_subtitles_fts.card_id = c.id
-                    AND card_subtitles_fts MATCH ?
+                  SELECT 1 FROM card_subtitles cs
+                  WHERE cs.card_id = c.id
+                    AND cs.text LIKE ?
                 )
               `;
             }
@@ -1222,31 +1198,29 @@ export default {
           // Use JOIN when subtitle languages are selected (need to filter by subtitle languages)
           let stmt;
           let useSummaryTable = false; // Declare at outer scope for params binding
-
+          
           if (subtitleLangsCount > 0) {
             // OPTIMIZED: Use normalized mapping table with EXISTS - ultra-fast with index
             // Check if mapping table exists and has sufficient data
             // TEMPORARILY: Always use fallback until mapping table is fully populated
             // This ensures queries work correctly while mapping table is being populated in background
             useSummaryTable = false; // Force fallback until mapping table is ready
-
+            
             try {
               const mapCheck = await env.DB.prepare('SELECT COUNT(*) as cnt FROM card_subtitle_language_map LIMIT 1').first();
               const mapCount = mapCheck?.cnt || 0;
-
+              
               // Check if we have enough cards to estimate coverage
               const totalCardsCheck = await env.DB.prepare('SELECT COUNT(*) as cnt FROM cards WHERE is_available = 1 LIMIT 1').first();
               const totalCards = totalCardsCheck?.cnt || 0;
-
-              // Use mapping table if it has ANY meaningful data (> 100 rows)
-              // The background population job will fill it up, but even partial coverage is better than full table scans if we assume populated data is representative
-              // However, since incorrect coverage would miss cards, we stick to a reasonable coverage check or just trust the process if specific criteria met
-              // IMPROVED: Lower threshold to 100 to enable optimization on smaller/dev databases immediately
-              useSummaryTable = mapCount > 100;
-
-
+              
+              // Use mapping table only if it has coverage for at least 50% of available cards
+              // Estimate: if mapping table has N rows, it covers approximately N/2 cards (each card has ~2 languages)
+              const estimatedCoverage = totalCards > 0 ? (mapCount / 2) / totalCards : 0;
+              useSummaryTable = estimatedCoverage > 0.5 && mapCount > 5000;
+              
               console.log(`[PERF /api/search] Mapping table: ${mapCount} rows | Total cards: ${totalCards} | Coverage: ${(estimatedCoverage * 100).toFixed(1)}% | Using: ${useSummaryTable ? 'mapping table' : 'fallback'}`);
-
+              
               // If low coverage, trigger async population (don't wait)
               if (!useSummaryTable) {
                 populateMappingTableAsync(env).catch(err => {
@@ -1258,9 +1232,9 @@ export default {
               console.log(`[PERF /api/search] Mapping table error, using fallback:`, e.message);
               useSummaryTable = false;
             }
-
+            
             console.log(`[PERF /api/search] Using ${useSummaryTable ? 'mapping table' : 'fallback (card_subtitles)'} path | SubtitleLangs: ${subtitleLangsArr.join(',')}`);
-
+            
             if (useSummaryTable) {
               // OPTIMIZED: Filter by main_language and available cards early, use mapping table with EXISTS
               // This avoids GROUP BY overhead and reduces intermediate result sets
@@ -1393,15 +1367,15 @@ export default {
                   )`;
             }
           }
-
+          
           if (contentIdsCount > 0) {
             stmt += ` AND ci.slug IN (${contentIdsPlaceholders})`;
           }
-
+          
           if (hasDifficultyFilter) {
             stmt += ` AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?`;
           }
-
+          
           // Optimize level filter: use JOIN instead of EXISTS for better performance
           if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
             stmt += ` AND EXISTS (
@@ -1411,7 +1385,7 @@ export default {
                 AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
             )`;
           }
-
+          
           // Length filter: count words in main language subtitle
           // For languages with spaces (en, es, fr, etc.): count spaces + 1
           // For CJK languages (ja, zh, ko): count characters (each character is roughly a word)
@@ -1460,12 +1434,12 @@ export default {
               stmt += '              )';
             }
           }
-
+          
           // Duration filter: filter by audio duration
           if (hasDurationFilter) {
             stmt += ` AND c.duration IS NOT NULL AND c.duration <= ?`;
           }
-
+          
           // Review filter: filter by review_count from user_card_states
           if (hasReviewFilter) {
             const conditions = [];
@@ -1481,7 +1455,7 @@ export default {
             }
             stmt += '            )';
           }
-
+          
           stmt += ` ${textSearchCondition}
             ORDER BY c.id ASC
             LIMIT ? OFFSET ?;
@@ -1493,7 +1467,7 @@ export default {
           // Build optimized count query with JOIN
           // OPTIMIZED: Use same structure as main query for consistency and better performance
           let countStmt = '';
-
+          
           if (subtitleLangsCount > 0) {
             // Use same logic as main query: check if mapping table has data
             // Reuse useSummaryTable variable from main query check
@@ -1545,16 +1519,16 @@ export default {
                   ) >= ?
               `;
             }
-
+            
             // Add other filters
             if (contentIdsCount > 0) {
               countStmt += ` AND ci.slug IN (${contentIdsPlaceholders})`;
             }
-
+            
             if (hasDifficultyFilter) {
               countStmt += ` AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?`;
             }
-
+            
             if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
               countStmt += ` AND EXISTS (
                   SELECT 1 FROM card_difficulty_levels cdl
@@ -1563,7 +1537,7 @@ export default {
                     AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
               )`;
             }
-
+            
             // Length filter for count query
             if (hasLengthFilter && mainLanguage) {
               const isCJK = ['ja', 'zh', 'ko'].includes(mainLanguage.toLowerCase());
@@ -1607,12 +1581,12 @@ export default {
                 countStmt += '                )';
               }
             }
-
+            
             // Duration filter for count query
             if (hasDurationFilter) {
               countStmt += ` AND c.duration IS NOT NULL AND c.duration <= ?`;
             }
-
+            
             // Review filter for count query
             if (hasReviewFilter) {
               const conditions = [];
@@ -1628,7 +1602,7 @@ export default {
               }
               countStmt += '              )';
             }
-
+            
             countStmt += ` ${textSearchCondition}`;
           } else {
             // No subtitle languages: simpler query
@@ -1666,15 +1640,15 @@ export default {
                   )
               `;
             }
-
+            
             if (contentIdsCount > 0) {
               countStmt += ` AND ci.slug IN (${contentIdsPlaceholders})`;
             }
-
+            
             if (hasDifficultyFilter) {
               countStmt += ` AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?`;
             }
-
+            
             if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
               countStmt += ` AND EXISTS (
                   SELECT 1 FROM card_difficulty_levels cdl
@@ -1683,7 +1657,7 @@ export default {
                     AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
               )`;
             }
-
+            
             // Length filter for count query (no subtitle languages path)
             if (hasLengthFilter && mainLanguage) {
               const isCJK = ['ja', 'zh', 'ko'].includes(mainLanguage.toLowerCase());
@@ -1727,12 +1701,12 @@ export default {
                 countStmt += '                )';
               }
             }
-
+            
             // Duration filter for count query
             if (hasDurationFilter) {
               countStmt += ` AND c.duration IS NOT NULL AND c.duration <= ?`;
             }
-
+            
             // Review filter for count query
             if (hasReviewFilter) {
               const conditions = [];
@@ -1748,17 +1722,17 @@ export default {
               }
               countStmt += '              )';
             }
-
+            
             countStmt += ` ${textSearchCondition}`;
           }
-
+          
           countStmt += `;`;
 
           // Build params array in order to match SQL structure
           // Note: useSummaryTable variable is already set above when building query
           let params = [];
           let countParams = [];
-
+          
           // 1. Add mainLanguage params FIRST (in WHERE clause)
           if (subtitleLangsCount === 0 && mainLanguage) {
             // When no subtitle languages and mainLanguage is specified:
@@ -1774,7 +1748,7 @@ export default {
             countParams.push(mainLanguage);
           }
           // If mainLanguage is null, don't add any params (no filter)
-
+          
           // 2. Add subtitle language params (for IN clause in JOIN)
           if (subtitleLangsCount > 0) {
             // Both paths use JOIN with IN: languages in IN clause, then count in HAVING
@@ -1783,13 +1757,13 @@ export default {
             countParams.push(...subtitleLangsArr);
             countParams.push(subtitleLangsCount); // For HAVING COUNT(DISTINCT ...) = ?
           }
-
+          
           // 4. Add content IDs if needed
           if (contentIdsCount > 0) {
             params.push(...contentIdsArr);
             countParams.push(...contentIdsArr);
           }
-
+          
           // 5. Add difficulty filters if needed
           if (hasDifficultyFilter) {
             params.push(difficultyMin !== null ? difficultyMin : 0);
@@ -1797,7 +1771,7 @@ export default {
             countParams.push(difficultyMin !== null ? difficultyMin : 0);
             countParams.push(difficultyMax !== null ? difficultyMax : 100);
           }
-
+          
           // 6. Add level filters if needed
           if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
             params.push(framework);
@@ -1805,7 +1779,7 @@ export default {
             countParams.push(framework);
             countParams.push(...allowedLevels);
           }
-
+          
           // 6.5. Add length filters if needed
           if (hasLengthFilter && mainLanguage) {
             const isCJK = ['ja', 'zh', 'ko'].includes(mainLanguage.toLowerCase());
@@ -1821,13 +1795,13 @@ export default {
               countParams.push(lengthMax);
             }
           }
-
+          
           // 6.6. Add duration filter if needed
           if (hasDurationFilter) {
             params.push(durationMax);
             countParams.push(durationMax);
           }
-
+          
           // 6.7. Add review filters if needed
           if (hasReviewFilter) {
             params.push(userId);
@@ -1842,23 +1816,23 @@ export default {
               countParams.push(reviewMax);
             }
           }
-
+          
           // 7. Add text search query if needed
-          if (hasTextQuery && ftsQuery) {
-            // FTS search: use built FTS query (works for all languages including CJK)
+          if (hasTextQuery && likeQuery) {
+            // LIKE search: use built LIKE query (FTS5 removed to save 6GB)
             if (mainLanguage) {
-              // Add language filter first, then FTS query
+              // Add language filter first, then LIKE query (with % wildcards)
               params.push(mainLanguage);
-              params.push(ftsQuery);
+              params.push(`%${likeQuery}%`);
               countParams.push(mainLanguage);
-              countParams.push(ftsQuery);
+              countParams.push(`%${likeQuery}%`);
             } else {
-              // No language filter - just FTS query
-              params.push(ftsQuery);
-              countParams.push(ftsQuery);
+              // No language filter - just LIKE query (with % wildcards)
+              params.push(`%${likeQuery}%`);
+              countParams.push(`%${likeQuery}%`);
             }
           }
-
+          
           // 8. Add pagination params (only for main query, not count)
           // Use fetchLimit (1.5x size) to ensure we have enough cards from different content_items
           // Reduced to avoid "too many SQL variables" error in batch fetching
@@ -1868,7 +1842,7 @@ export default {
 
           const pageNum = Math.floor(offset / size) + 1;
           const skipCount = true; // Always skip count for maximum speed
-
+          
           // Execute main query only
           // Log params count for debugging "too many SQL variables" error
           const totalParams = params.length;
@@ -1882,11 +1856,11 @@ export default {
               hasTextQuery
             });
           }
-
+          
           const queryStart = Date.now();
           console.log(`[PERF /api/search] Query start | Params: ${params.length} | SubtitleLangs: ${subtitleLangsCount} | MainLang: ${mainLanguage || 'none'}`);
           console.log(`[PERF /api/search] Query params:`, JSON.stringify(params.slice(0, 10))); // Log first 10 params for debugging
-
+          
           // Debug: Log a simplified test query to see if data exists
           if (subtitleLangsCount > 0 && useSummaryTable) {
             try {
@@ -1911,7 +1885,7 @@ export default {
               console.error(`[PERF /api/search] Test query error:`, e.message);
             }
           }
-
+          
           let cardsResult;
           try {
             // Debug: Log params count and SQL placeholders count
@@ -1930,11 +1904,11 @@ export default {
             console.error(`[PERF /api/search] Params:`, JSON.stringify(params.slice(0, 20))); // Log first 20 params
             return json({ error: queryError.message || 'Database query failed', items: [], total: 0, page, size }, { status: 500 });
           }
-
+          
           const queryTime = Date.now() - queryStart;
           const totalStart = Date.now();
           console.log(`[PERF /api/search] [${requestId}] Main query completed: ${queryTime}ms | Rows: ${(cardsResult.results || []).length}`);
-
+          
           // Debug: If 0 rows, log more details
           if ((cardsResult.results || []).length === 0 && subtitleLangsCount > 0) {
             console.log(`[PERF /api/search] DEBUG: 0 rows returned. Checking mapping table coverage...`);
@@ -1957,7 +1931,7 @@ export default {
               console.error(`[PERF /api/search] DEBUG query error:`, e.message);
             }
           }
-
+          
           // Use placeholder total - frontend can fetch separately if needed
           total = -1; // Signal that total is not available
           const cardRows = cardsResult.results || [];
@@ -1969,15 +1943,15 @@ export default {
             const subsMap = new Map();
             const cefrLevelMap = new Map();
             const levelsMap = new Map(); // Full levels map for all frameworks - declared outside block
-
+            
             // Only fetch additional subtitle languages (not main language - already have it)
             const additionalSubLangs = subtitleLangsArr.filter(lang => lang !== mainLanguage);
             const needsAdditionalSubs = additionalSubLangs.length > 0;
-
+            
             // OPTIMIZED: Combine all data fetching into fewer, larger batches
             // Fetch main subtitles, additional subtitles, and levels together per batch
             const batchSize = 50; // Reduced batch size for faster individual queries
-
+            
             // Group cards by main language for efficient fetching
             const cardsByLang = new Map();
             for (const r of cardRows) {
@@ -1987,19 +1961,19 @@ export default {
               }
               cardsByLang.get(lang).push(r.card_id);
             }
-
+            
             const allPromises = [];
-
+            
             // Process each language group
             for (const [mainLang, langCardIds] of cardsByLang.entries()) {
               // Process cards in batches
               for (let i = 0; i < langCardIds.length; i += batchSize) {
                 const batch = langCardIds.slice(i, i + batchSize);
                 const placeholders = batch.map(() => '?').join(',');
-
+                
                 // Build queries for this batch: main subtitle + additional subtitles + levels
                 const batchQueries = [];
-
+                
                 // 1. Main language subtitle (always needed)
                 batchQueries.push(
                   env.DB.prepare(`
@@ -2011,13 +1985,13 @@ export default {
                       AND LENGTH(text) > 0
                   `).bind(...batch, mainLang).all()
                 );
-
+                
                 // 2. Additional subtitle languages (if needed)
                 if (needsAdditionalSubs) {
                   const maxVarsForSubs = 800; // Safety margin
                   const safeBatchSizeForSubs = Math.max(1, maxVarsForSubs - additionalSubLangs.length);
                   const actualSubBatchSize = Math.min(batchSize, safeBatchSizeForSubs);
-
+                  
                   // Split batch if needed for additional subs to stay under SQL variable limit
                   for (let j = 0; j < batch.length; j += actualSubBatchSize) {
                     const subBatch = batch.slice(j, j + actualSubBatchSize);
@@ -2032,7 +2006,7 @@ export default {
                     );
                   }
                 }
-
+                
                 // 3. Full levels array (all frameworks)
                 batchQueries.push(
                   env.DB.prepare(`
@@ -2041,7 +2015,7 @@ export default {
                     WHERE card_id IN (${placeholders})
                   `).bind(...batch).all()
                 );
-
+                
                 // Execute all queries for this batch and process results
                 allPromises.push(
                   Promise.all(batchQueries).then((results) => {
@@ -2055,7 +2029,7 @@ export default {
                         subsMap.get(row.card_id)[mainLang] = row.text;
                       }
                     }
-
+                    
                     // Process additional subtitles (results 1 to N-1, excluding last which is levels)
                     const additionalSubsStart = 1;
                     const levelsResultIndex = results.length - 1;
@@ -2070,7 +2044,7 @@ export default {
                         }
                       }
                     }
-
+                    
                     // Process levels (last result)
                     const levelsResult = results[levelsResultIndex];
                     if (levelsResult && levelsResult.results) {
@@ -2093,7 +2067,7 @@ export default {
                 );
               }
             }
-
+            
             // Execute batches with increased concurrency for better performance
             const maxConcurrentBatchQueries = 20; // Increased for better parallelism
             const batchExecuteStart = Date.now();
@@ -2125,7 +2099,7 @@ export default {
               cefr_level: cefrLevelMap.get(r.card_id) || null,
               levels: levelsMap.get(r.card_id) || [] // Full levels array for level badges display
             }));
-
+            
             // Optimized content distribution: ensure no duplicate content_items in first N cards
             // Goal: Each of the first 50 cards should be from a different content_item if possible
             if (allMappedCards.length <= size) {
@@ -2134,7 +2108,7 @@ export default {
             } else {
               // Quick check: count unique content_items
               const uniqueContents = new Set(allMappedCards.map(c => c.content_slug));
-
+              
               if (uniqueContents.size <= 1) {
                 // Only one content_item: return first N cards (already sorted)
                 items = allMappedCards.slice(0, size);
@@ -2149,7 +2123,7 @@ export default {
                   }
                   cardsByContent.get(slug).push(card);
                 }
-
+                
                 // Smart distribution: ensure each card from different content_item (round-robin)
                 // Strategy: Take 1 card from each content_item per round, repeat until we have enough
                 // This ensures maximum diversity: if we have 10 content_items, first 10 cards are all different
@@ -2158,10 +2132,10 @@ export default {
                 let round = 0;
                 let iterations = 0;
                 const maxIterations = size * 3; // Safety limit
-
+                
                 while (distributedCards.length < size && iterations < maxIterations) {
                   let cardsAddedThisRound = 0;
-
+                  
                   // One round: take 1 card from each content_item (if available)
                   for (let i = 0; i < contentArrays.length && distributedCards.length < size; i++) {
                     const currentArray = contentArrays[i];
@@ -2170,14 +2144,14 @@ export default {
                       cardsAddedThisRound++;
                     }
                   }
-
+                  
                   // If no cards were added this round, we're done
                   if (cardsAddedThisRound === 0) break;
-
+                  
                   round++;
                   iterations++;
                 }
-
+                
                 items = distributedCards;
               }
             }
@@ -2188,7 +2162,7 @@ export default {
           console.log(`[PERF /api/search] [${requestId}] Total: ${totalTime}ms | Query: ${queryTime}ms | Batch: ${batchTime}ms | Cards: ${items.length} | Page: ${page} | SubtitleLangs: ${subtitleLangsCount}`);
 
           const responseData = { items, total, page, size };
-
+          
           // Save to KV cache (async, don't wait)
           if (env.SEARCH_CACHE) {
             env.SEARCH_CACHE.put(cacheKey, JSON.stringify({
@@ -2279,7 +2253,7 @@ export default {
         // Build cache key from query params
         const countsCacheKey = `search_counts:${url.searchParams.toString()}`;
         const COUNTS_CACHE_TTL = 600; // 10 minutes cache for counts (less frequently updated)
-
+        
         try {
           // Check KV cache first
           if (env.SEARCH_CACHE) {
@@ -2297,7 +2271,7 @@ export default {
               }
             }
           }
-
+          
           const mainLanguage = url.searchParams.get('main_language');
           const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
           const contentIdsCsv = url.searchParams.get('content_ids') || '';
@@ -2305,7 +2279,7 @@ export default {
           const q = qRaw.trim();
 
           // Parse subtitle languages into array
-          const subtitleLangsArr = subtitleLanguagesCsv
+          const subtitleLangsArr = subtitleLanguagesCsv 
             ? Array.from(new Set(subtitleLanguagesCsv.split(',').map(s => s.trim()).filter(Boolean)))
             : [];
           const subtitleLangsCount = subtitleLangsArr.length;
@@ -2337,12 +2311,12 @@ export default {
             const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
             const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
             const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
+            
             let levelOrder = [];
             if (framework === 'CEFR') levelOrder = CEFR;
             else if (framework === 'JLPT') levelOrder = JLPT;
             else if (framework === 'HSK') levelOrder = HSK;
-
+            
             if (levelOrder.length > 0) {
               const minIdx = levelMin ? levelOrder.indexOf(levelMin.toUpperCase()) : 0;
               const maxIdx = levelMax ? levelOrder.indexOf(levelMax.toUpperCase()) : levelOrder.length - 1;
@@ -2352,22 +2326,22 @@ export default {
             }
           }
 
-          // If there is a text query, use FTS5 with trigram tokenizer to compute counts
+          // If there is a text query, use LIKE search on card_subtitles (FTS5 removed)
           if (q) {
             const mainCanon = mainLanguage ? String(mainLanguage).toLowerCase() : null;
-            const ftsQuery = buildFtsQuery(q, mainLanguage || '');
+            const likePattern = buildLikeQuery(q, mainLanguage || '');
 
-            // Use FTS5 for all queries including CJK (trigram tokenizer handles CJK efficiently)
-            if (ftsQuery) {
+            // Use LIKE search for all queries (FTS5 removed to save 6GB)
+            if (likePattern) {
               let sql = `
                 SELECT 
                   ci.slug AS content_id,
                   COUNT(DISTINCT c.id) AS count
-                FROM card_subtitles_fts
-                JOIN cards c ON c.id = card_subtitles_fts.card_id
+                FROM cards c
                 JOIN episodes e ON e.id = c.episode_id
                 JOIN content_items ci ON ci.id = e.content_item_id
-                WHERE card_subtitles_fts MATCH ?
+                JOIN card_subtitles cs ON cs.card_id = c.id
+                WHERE cs.text LIKE ?
                   AND c.is_available = 1
                   AND EXISTS (
                     SELECT 1 FROM card_subtitles cs_main
@@ -2376,11 +2350,11 @@ export default {
                       AND cs_main.text IS NOT NULL
                       AND TRIM(cs_main.text) != ''
                   )`;
-              const params = [ftsQuery];
+              const params = [`%${likePattern}%`];
 
               if (mainCanon) {
                 // Search only in main language subtitles and main_language content
-                sql += ' AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)';
+                sql += ' AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)';
                 params.push(mainCanon, mainCanon);
               }
               if (subtitleLangsCount > 0) {
@@ -2406,7 +2380,7 @@ export default {
               }
               return json({ counts: countsMap });
             } else {
-              // No valid FTS query: no matches
+              // No valid LIKE query: no matches
               return json({ counts: {} });
             }
           }
@@ -2415,18 +2389,18 @@ export default {
           // Use positional placeholders for easier binding
           const countsWhere = [];
           const countsParams = []; // Initialize early, will be rebuilt after countsStmt is built
-
+          
           // Main language filter - handled differently based on subtitleLangsCount
           // When no subtitle languages and mainLanguage exists, it's handled in JOIN/WHERE of countsStmt
           // Otherwise, use standard NULL check
           if (subtitleLangsCount === 0 && mainLanguage) {
             // Will be handled in countsStmt WHERE clause, don't add here
           } else {
-            countsWhere.push('(? IS NULL OR ci.main_language = ?)');
-            countsParams.push(mainLanguage || null);
-            countsParams.push(mainLanguage || null);
+          countsWhere.push('(? IS NULL OR ci.main_language = ?)');
+          countsParams.push(mainLanguage || null);
+          countsParams.push(mainLanguage || null);
           }
-
+          
           // Content IDs filter
           if (contentIdsCount > 0) {
             if (contentIdsCount > 300) {
@@ -2437,18 +2411,18 @@ export default {
               )`);
               countsParams.push(...contentIdsArr);
             } else {
-              countsWhere.push(`ci.slug IN (${contentIdsArr.map(() => '?').join(',')})`);
-              countsParams.push(...contentIdsArr);
+            countsWhere.push(`ci.slug IN (${contentIdsArr.map(() => '?').join(',')})`);
+            countsParams.push(...contentIdsArr);
             }
           }
-
+          
           // Difficulty filter
           if (hasDifficultyFilter) {
             countsWhere.push('c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?');
             countsParams.push(difficultyMin !== null ? difficultyMin : 0);
             countsParams.push(difficultyMax !== null ? difficultyMax : 100);
           }
-
+          
           // Level filter
           if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
             countsWhere.push(`EXISTS (
@@ -2463,12 +2437,12 @@ export default {
 
           // Add is_available filter
           countsWhere.push('c.is_available = 1');
-
+          
           // Build optimized counts query with JOIN for subtitle filter
           // Use JOIN instead of EXISTS for better performance
           // When no subtitle languages, use simpler query without GROUP BY for better performance
           let countsStmt;
-
+          
           if (subtitleLangsCount > 0) {
             // OPTIMIZED: Use EXISTS instead of JOIN + GROUP BY + HAVING for much better performance
             // This avoids expensive nested GROUP BY operations
@@ -2559,12 +2533,12 @@ export default {
               `;
             }
           }
-
+          
           // Rebuild countsParams AFTER building countsStmt to ensure correct order (if not already built)
           if (subtitleLangsCount === 0) {
             // Only rebuild if not already built (for subtitleLangsCount > 0 case, it's built above)
             countsParams.length = 0; // Clear and rebuild
-
+            
             // Add params based on query structure
             if (mainLanguage) {
               // When no subtitle languages and mainLanguage is specified:
@@ -2610,10 +2584,10 @@ export default {
           // Frontend can calculate approximate counts from search results or use cached counts
           const countsStart = Date.now();
           let countsMap = {};
-
+          
           // Only run count query if explicitly requested via ?include_counts=true (for admin pages)
           const includeCounts = url.searchParams.get('include_counts') === 'true';
-
+          
           if (includeCounts) {
             // Admin pages can wait for accurate counts
             const countsResult = await env.DB.prepare(countsStmt).bind(...countsParams).all();
@@ -2621,7 +2595,7 @@ export default {
               countsMap[row.content_id] = row.count || 0;
             }
             const countsTime = Date.now() - countsStart;
-            console.log('[WORKER /api/search/counts] Query time:', countsTime, 'ms | Result:', {
+            console.log('[WORKER /api/search/counts] Query time:', countsTime, 'ms | Result:', { 
               rowCount: countsResult.results?.length || 0,
               sampleKeys: Object.keys(countsMap).slice(0, 5),
               totalParams: countsParams.length,
@@ -2632,9 +2606,9 @@ export default {
             // This reduces response time from 40-50s to <100ms
             console.log('[WORKER /api/search/counts] Skipped count query for performance | Returning empty counts');
           }
-
+          
           const responseData = { counts: countsMap };
-
+          
           // Save to KV cache (async, don't wait)
           if (env.SEARCH_CACHE) {
             env.SEARCH_CACHE.put(countsCacheKey, JSON.stringify({
@@ -2644,7 +2618,7 @@ export default {
               console.error('[CACHE ERROR /api/search/counts] Failed to save cache:', err);
             });
           }
-
+          
           return json(responseData, {
             headers: {
               'X-Cache': 'MISS',
@@ -2806,18 +2780,18 @@ export default {
             const name = key.replace(/^.*\//, '').replace(/\/$/, '') || key;
             return { key, name, type: 'directory' };
           });
-          const files = (res.objects || []).map((o) => ({
-            key: o.key,
-            name: o.key.replace(/^.*\//, ''),
-            type: 'file',
-            size: o.size,
-            modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
-            url: makeUrl(o.key),
-          }));
+            const files = (res.objects || []).map((o) => ({
+              key: o.key,
+              name: o.key.replace(/^.*\//, ''),
+              type: 'file',
+              size: o.size,
+              modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+              url: makeUrl(o.key),
+            }));
           if (paged) {
             return json({ items: [...dirs, ...files], cursor: res.cursor || null, truncated: !!res.truncated });
           }
-          return json([...dirs, ...files]);
+          return json([ ...dirs, ...files ]);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
@@ -2903,10 +2877,10 @@ export default {
               ORDER BY c.name ASC
             `).all()
           ]);
-
+          
           const base = env.R2_PUBLIC_BASE || '';
           const map = new Map();
-
+          
           // Build language map first for faster lookup
           const langMap = new Map();
           for (const r of (langsResult.results || [])) {
@@ -2917,7 +2891,7 @@ export default {
               langMap.get(r.content_item_id).push(r.language);
             }
           }
-
+          
           // Build categories map
           const categoriesMap = new Map();
           for (const r of (categoriesResult.results || [])) {
@@ -2926,48 +2900,48 @@ export default {
             }
             categoriesMap.get(r.content_item_id).push({ id: r.id, name: r.name });
           }
-
+          
           // Process items
           for (const r of (itemsResult.results || [])) {
-            // Parse level_framework_stats from JSON string to object
-            let levelStats = null;
-            if (r.level_framework_stats) {
-              try {
-                levelStats = JSON.parse(r.level_framework_stats);
-              } catch { }
-            }
-
-            // Build cover_url from cover_key
-            let cover_url = null;
-            if (r.cover_key) {
-              cover_url = base ? `${base}/${r.cover_key}` : `/${r.cover_key}`;
-            }
-
-            // Build cover_landscape_url from cover_landscape_key
-            let cover_landscape_url = null;
-            if (r.cover_landscape_key) {
-              cover_landscape_url = base ? `${base}/${r.cover_landscape_key}` : `/${r.cover_landscape_key}`;
-            }
-
+              // Parse level_framework_stats from JSON string to object
+              let levelStats = null;
+              if (r.level_framework_stats) {
+                try {
+                  levelStats = JSON.parse(r.level_framework_stats);
+                } catch {}
+              }
+              
+              // Build cover_url from cover_key
+              let cover_url = null;
+              if (r.cover_key) {
+                cover_url = base ? `${base}/${r.cover_key}` : `/${r.cover_key}`;
+              }
+              
+              // Build cover_landscape_url from cover_landscape_key
+              let cover_landscape_url = null;
+              if (r.cover_landscape_key) {
+                cover_landscape_url = base ? `${base}/${r.cover_landscape_key}` : `/${r.cover_landscape_key}`;
+              }
+              
             const it = {
-              id: r.id,
-              title: r.title,
-              main_language: r.main_language,
-              type: r.type,
-              release_year: r.release_year,
-              description: r.description,
-              episodes: r.episodes,
-              is_original: r.is_original,
-              level_framework_stats: levelStats,
+                id: r.id,
+                title: r.title,
+                main_language: r.main_language,
+                type: r.type,
+                release_year: r.release_year,
+                description: r.description,
+                episodes: r.episodes,
+                is_original: r.is_original,
+                level_framework_stats: levelStats,
               available_subs: langMap.get(r.internal_id) || [],
-              cover_url,
-              cover_landscape_url,
-              is_available: r.is_available ?? 1,
-              categories: categoriesMap.get(r.internal_id) || [],
-            };
+                cover_url,
+                cover_landscape_url,
+                is_available: r.is_available ?? 1,
+                categories: categoriesMap.get(r.internal_id) || [],
+              };
             map.set(r.id, it);
-          }
-
+            }
+          
           const out = Array.from(map.values());
           // Add cache headers for better performance (5 minutes cache)
           return json(out, {
@@ -2982,8 +2956,8 @@ export default {
 
       // 4) Item detail (lookup by slug) - return slug as id and include episodes count + cover_url (stable)
       const filmMatch = path.match(/^\/items\/([^/]+)$/);
-      // 4) Item detail (lookup by slug) - return slug as id and include episodes count + cover_url (stable)
-      if (filmMatch && request.method === 'GET') {
+        // 4) Item detail (lookup by slug) - return slug as id and include episodes count + cover_url (stable)
+  if (filmMatch && request.method === 'GET') {
         const filmSlug = decodeURIComponent(filmMatch[1]);
         try {
           // Case-insensitive slug matching for stability
@@ -2998,11 +2972,11 @@ export default {
           let episodes = 0;
           try {
             langs = await env.DB.prepare('SELECT language FROM content_item_languages WHERE content_item_id=?').bind(film.id).all();
-          } catch { }
+          } catch {}
           try {
             const epCountRow = await env.DB.prepare('SELECT COUNT(*) as cnt FROM episodes WHERE content_item_id=?').bind(film.id).first();
             episodes = epCountRow ? epCountRow.cnt : 0;
-          } catch { }
+          } catch {}
           let cover_url = null;
           let cover_landscape_url = null;
           // Prefer explicit cover_key when present
@@ -3024,7 +2998,7 @@ export default {
                 } else {
                   const headNew = await env.MEDIA_BUCKET.head(newDefaultKey);
                   if (headNew) {
-                    const base = env.R2_PUBLIC_BASE || '';
+                  const base = env.R2_PUBLIC_BASE || '';
                     cover_url = base ? `${base}/${newDefaultKey}` : `/${newDefaultKey}`;
                   } else {
                     const headOld = await env.MEDIA_BUCKET.head(oldDefaultKey);
@@ -3052,15 +3026,15 @@ export default {
           const episodesMeta = (Number.isFinite(episodesMetaRaw) && episodesMetaRaw > 0) ? episodesMetaRaw : null;
           const episodesOut = episodesMeta !== null ? episodesMeta : episodes;
           const isOriginal = (film.is_original == null) ? 1 : film.is_original; // default true when absent
-
+          
           // Parse level_framework_stats from JSON string to object
           let levelStats = null;
           if (film.level_framework_stats) {
             try {
               levelStats = JSON.parse(film.level_framework_stats);
-            } catch { }
+            } catch {}
           }
-
+          
           // Get categories for this content item
           let categories = [];
           try {
@@ -3072,8 +3046,8 @@ export default {
               ORDER BY c.name ASC
             `).bind(film.id).all();
             categories = (catRows.results || []).map(c => ({ id: c.id, name: c.name }));
-          } catch { }
-
+          } catch {}
+          
           return json({ id: film.slug, title: film.title, main_language: film.main_language, type: film.type, release_year: film.release_year, description: film.description, available_subs: (langs.results || []).map(r => r.language), episodes: episodesOut, total_episodes: episodesMeta !== null ? episodesMeta : episodesOut, cover_url, cover_landscape_url, is_original: !!Number(isOriginal), num_cards: film.num_cards ?? null, avg_difficulty_score: film.avg_difficulty_score ?? null, level_framework_stats: levelStats, is_available: film.is_available ?? 1, video_has_images: film.video_has_images === 1 || film.video_has_images === true, imdb_score: film.imdb_score ?? null, categories });
         } catch (e) {
           return new Response('Not found', { status: 404, headers: withCors() });
@@ -3244,7 +3218,7 @@ export default {
             if (filmRow) {
               // Remove all existing category associations
               await env.DB.prepare('DELETE FROM content_item_categories WHERE content_item_id=?').bind(filmRow.id).run();
-
+              
               // Add new category associations if provided
               if (Array.isArray(body.category_ids) && body.category_ids.length) {
                 try {
@@ -3335,7 +3309,7 @@ export default {
           for (const ep of episodesResults) {
             const epNum = ep.episode_number || 0;
             const epFolderLegacy = `${filmRow.slug}_${epNum}`;
-            const epFolderPadded = `${filmRow.slug}_${String(epNum).padStart(3, '0')}`;
+            const epFolderPadded = `${filmRow.slug}_${String(epNum).padStart(3,'0')}`;
             if (ep.cover_key) mediaKeys.add(normalizeKey(ep.cover_key));
             // Conventional episode-level paths
             mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover.jpg`);
@@ -3350,7 +3324,7 @@ export default {
           }
 
           // Begin transaction for DB deletions
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           try {
             // Collect episode ids
             const eps = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=?').bind(filmRow.id).all();
@@ -3363,28 +3337,28 @@ export default {
               if (cardIds.length) {
                 const cardPh = cardIds.map(() => '?').join(',');
                 // Delete subtitles and difficulty levels
-                try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch { }
-                try { await env.DB.prepare(`DELETE FROM card_subtitles_fts WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch { }
-                try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch { }
+                try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch {}
+                // FTS5 removed - no longer needed
+                try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch {}
                 // Update mapping table (async, don't block)
                 updateCardSubtitleLanguageMapBatch(env, cardIds).catch(err => {
                   console.error('[delete cards] Failed to update mapping table:', err.message);
                 });
               }
               // Delete cards
-              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id IN (${placeholders})`).bind(...epIds).run(); } catch { }
+              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id IN (${placeholders})`).bind(...epIds).run(); } catch {}
             }
             // Delete episodes
-            try { await env.DB.prepare('DELETE FROM episodes WHERE content_item_id=?').bind(filmRow.id).run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM episodes WHERE content_item_id=?').bind(filmRow.id).run(); } catch {}
             // Delete language rows
-            try { await env.DB.prepare('DELETE FROM content_item_languages WHERE content_item_id=?').bind(filmRow.id).run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM content_item_languages WHERE content_item_id=?').bind(filmRow.id).run(); } catch {}
             // Delete category associations
-            try { await env.DB.prepare('DELETE FROM content_item_categories WHERE content_item_id=?').bind(filmRow.id).run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM content_item_categories WHERE content_item_id=?').bind(filmRow.id).run(); } catch {}
             // Finally delete the content item
             await env.DB.prepare('DELETE FROM content_items WHERE id=?').bind(filmRow.id).run();
-            try { await env.DB.prepare('COMMIT').run(); } catch { }
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
           } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch { }
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
             throw e;
           }
 
@@ -3438,7 +3412,7 @@ export default {
           try {
             episode = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
           } catch (e) {
-            try { episode = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch { }
+            try { episode = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch {}
           }
           if (!episode) return json({ error: 'Not found' }, { status: 404 });
 
@@ -3477,7 +3451,7 @@ export default {
                          JOIN cards c ON cdl.card_id=c.id
                          WHERE c.episode_id=?`;
             epLevelRows = await env.DB.prepare(sql).bind(episode.id).all();
-          } catch { }
+          } catch {}
           const epStatsJson = JSON.stringify(buildLevelStats(epLevelRows.results || []));
           const epNumCards = Number(epCountAvg?.c || 0);
           const epAvg = epCountAvg && epCountAvg.avg != null ? Number(epCountAvg.avg) : null;
@@ -3495,27 +3469,27 @@ export default {
                           JOIN episodes e ON c.episode_id=e.id
                           WHERE e.content_item_id=?`;
             itemLevelRows = await env.DB.prepare(sql2).bind(filmRow.id).all();
-          } catch { }
+          } catch {}
           const itemStatsJson = JSON.stringify(buildLevelStats(itemLevelRows.results || []));
           const itemNumCards = Number(itemCountAvg?.c || 0);
           const itemAvg = itemCountAvg && itemCountAvg.avg != null ? Number(itemCountAvg.avg) : null;
 
           // Persist inside a transaction where available
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           try {
             try {
               await env.DB.prepare(`UPDATE episodes
                                     SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, updated_at=strftime('%s','now')
                                     WHERE id=?`).bind(epNumCards, epAvg, epStatsJson, episode.id).run();
-            } catch { }
+            } catch {}
             try {
               await env.DB.prepare(`UPDATE content_items
                                     SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, updated_at=strftime('%s','now')
                                     WHERE id=?`).bind(itemNumCards, itemAvg, itemStatsJson, filmRow.id).run();
-            } catch { }
-            try { await env.DB.prepare('COMMIT').run(); } catch { }
+            } catch {}
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
           } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch { }
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
             throw e;
           }
 
@@ -3526,7 +3500,7 @@ export default {
       }
 
       // 5) Cards for film/episode (lookup by film slug and episode slug like e1)
-      const filmCardsMatch = path.match(/^\/items\/([^/]+)\/episodes\/([^/]+)\/cards$/);
+  const filmCardsMatch = path.match(/^\/items\/([^/]+)\/episodes\/([^/]+)\/cards$/);
       // 4c) Episode meta
       const episodeMetaMatch = path.match(/^\/items\/([^/]+)\/episodes\/([^/]+)$/);
       // DELETE episode: remove episode, its cards, subtitles, difficulties, and media
@@ -3546,7 +3520,7 @@ export default {
           try {
             episode = await env.DB.prepare('SELECT id, episode_number, slug, cover_key FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
           } catch (e) {
-            try { episode = await env.DB.prepare('SELECT id, episode_num AS episode_number, slug, cover_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch { }
+            try { episode = await env.DB.prepare('SELECT id, episode_num AS episode_number, slug, cover_key FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first(); } catch {}
           }
           if (!episode) return json({ error: 'Not found' }, { status: 404 });
           const epId = episode.id;
@@ -3556,20 +3530,20 @@ export default {
             try {
               minRow = await env.DB.prepare('SELECT MIN(episode_number) AS mn FROM episodes WHERE content_item_id=?').bind(filmRow.id).first();
             } catch (e) {
-              try { minRow = await env.DB.prepare('SELECT MIN(episode_num) AS mn FROM episodes WHERE content_item_id=?').bind(filmRow.id).first(); } catch { }
+              try { minRow = await env.DB.prepare('SELECT MIN(episode_num) AS mn FROM episodes WHERE content_item_id=?').bind(filmRow.id).first(); } catch {}
             }
             const minEp = minRow ? Number(minRow.mn) : 1;
             if (epNum === minEp) {
               return json({ error: 'Cannot delete the first episode' }, { status: 400 });
             }
-          } catch { }
+          } catch {}
           // Collect related cards and media keys
           const mediaKeys = new Set();
           const mediaErrors = [];
           const normalizeKey = (k) => (k ? String(k).replace(/^https?:\/\/[^/]+\//, '').replace(/^\//, '') : null);
           if (episode.cover_key) mediaKeys.add(normalizeKey(episode.cover_key));
           // Add conventional episode media locations (both legacy and padded)
-          const epPadded = String(epNum).padStart(3, '0');
+          const epPadded = String(epNum).padStart(3,'0');
           const epFolderLegacy = `${filmRow.slug}_${epNum}`;
           const epFolderPadded = `${filmRow.slug}_${epPadded}`;
           mediaKeys.add(`items/${filmRow.slug}/episodes/${epFolderLegacy}/cover/cover.jpg`);
@@ -3578,7 +3552,7 @@ export default {
           let cardsRows = { results: [] };
           try {
             cardsRows = await env.DB.prepare('SELECT id, image_key, audio_key FROM cards WHERE episode_id=?').bind(epId).all();
-          } catch { }
+          } catch {}
           const cardIds = [];
           for (const c of (cardsRows.results || [])) {
             cardIds.push(c.id);
@@ -3586,25 +3560,25 @@ export default {
             if (c.audio_key) mediaKeys.add(normalizeKey(c.audio_key));
           }
           // Delete DB rows in a transaction
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           try {
             if (cardIds.length) {
               const ph = cardIds.map(() => '?').join(',');
-              try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch { }
-              try { await env.DB.prepare(`DELETE FROM card_subtitles_fts WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch { }
-              try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch { }
+              try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
+              // FTS5 removed - no longer needed
+              try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...cardIds).run(); } catch {}
               // Update summary table (async, don't block)
               updateCardSubtitleLanguagesBatch(env, cardIds).catch(err => {
                 console.error('[delete cards] Failed to update summary table:', err.message);
               });
-              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id=?`).bind(epId).run(); } catch { }
+              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id=?`).bind(epId).run(); } catch {}
             } else {
-              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id=?`).bind(epId).run(); } catch { }
+              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id=?`).bind(epId).run(); } catch {}
             }
-            try { await env.DB.prepare('DELETE FROM episodes WHERE id=?').bind(epId).run(); } catch { }
-            try { await env.DB.prepare('COMMIT').run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM episodes WHERE id=?').bind(epId).run(); } catch {}
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
           } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch { }
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
             throw e;
           }
           // Best-effort media deletion
@@ -3639,13 +3613,13 @@ export default {
             // Fallback older schema
             try {
               episode = await env.DB.prepare('SELECT id, title, slug, cover_key, is_available FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
-            } catch { }
+            } catch {}
           }
           if (!episode) return json({ error: 'Not found' }, { status: 404 });
           if (request.method === 'GET') {
             // Return episode details with derived URLs
             const base = env.R2_PUBLIC_BASE || '';
-            const padded = String(epNum).padStart(3, '0');
+            const padded = String(epNum).padStart(3,'0');
             const out = {
               episode_number: epNum,
               title: episode.title || null,
@@ -3714,9 +3688,9 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-      if (filmCardsMatch && request.method === 'GET') {
-        const filmSlug = decodeURIComponent(filmCardsMatch[1]);
-        const episodeSlug = decodeURIComponent(filmCardsMatch[2]);
+        if (filmCardsMatch && request.method === 'GET') {
+      const filmSlug = decodeURIComponent(filmCardsMatch[1]);
+      const episodeSlug = decodeURIComponent(filmCardsMatch[2]);
         // Allow higher limits for admin pages, but cap at 5000 to prevent overload
         const limitRaw = Number(url.searchParams.get('limit') || '50');
         const limit = Math.min(5000, Math.max(1, limitRaw));
@@ -3738,18 +3712,18 @@ export default {
           try {
             ep = await env.DB.prepare('SELECT id,slug,episode_number FROM episodes WHERE content_item_id=? AND slug=?').bind(filmRow.id, episodeSlug).first();
           } catch (e) {
-            try {
+            try { 
               ep = await env.DB.prepare('SELECT id,slug,episode_num AS episode_number FROM episodes WHERE content_item_id=? AND slug=?').bind(filmRow.id, episodeSlug).first();
-            } catch { }
+            } catch {}
           }
           // Priority 2: Fallback to episode_number if slug match failed
           if (!ep) {
             try {
               ep = await env.DB.prepare('SELECT id,slug,episode_number FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
             } catch (e) {
-              try {
+              try { 
                 ep = await env.DB.prepare('SELECT id,slug,episode_num AS episode_number FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, epNum).first();
-              } catch { }
+              } catch {}
             }
           }
           if (!ep) return json([]);
@@ -3760,7 +3734,7 @@ export default {
             WHERE ucs.user_id = ? AND ucs.card_id = c.id AND ucs.srs_state != 'none'
           )` : '';
           const excludeSavedBind = userId ? [userId] : [];
-
+          
           try {
             if (startFrom != null && Number.isFinite(startFrom)) {
               const sql = `SELECT c.card_number,
@@ -3894,25 +3868,25 @@ export default {
             // Fetch subtitles and difficulty levels in parallel batches for better performance
             const subtitleBatches = [];
             const levelsBatches = [];
-
-            for (let i = 0; i < cardIds.length; i += batchSize) {
-              const batch = cardIds.slice(i, i + batchSize);
-              const ph = batch.map(() => '?').join(',');
-
+            
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const ph = batch.map(() => '?').join(',');
+              
               // Prepare subtitle batch query
               subtitleBatches.push(
                 env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...batch).all()
                   .then(result => {
                     (result.results || []).forEach(s => {
-                      if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
-                      subsMap.get(s.card_id)[s.language] = s.text;
-                    });
+                  if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                  subsMap.get(s.card_id)[s.language] = s.text;
+                });
                   })
                   .catch(e => {
                     console.error('[WORKER] Error fetching subtitles batch:', e);
                   })
               );
-
+              
               // Prepare difficulty levels batch query (all frameworks, not just CEFR)
               levelsBatches.push(
                 env.DB.prepare(`SELECT card_id, framework, level, language FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...batch).all()
@@ -3930,8 +3904,8 @@ export default {
                     console.error('[WORKER] Error fetching difficulty levels batch:', e);
                   })
               );
-            }
-
+              }
+            
             // Execute all batches in parallel (but limit concurrency)
             try {
               await Promise.all([...subtitleBatches, ...levelsBatches]);
@@ -3977,17 +3951,17 @@ export default {
             if (!k) return null;
             return basePublic ? `${basePublic}/${k}` : `${url.origin}/media/${k}`;
           };
-
+          
           const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(filmSlug).first();
           if (!filmRow) return json({ error: 'Not found' }, { status: 404 });
-
+          
           // Parse episode number
           let epNum = Number(String(episodeSlug).replace(/^e/i, ''));
           if (!epNum || Number.isNaN(epNum)) {
             const m = String(episodeSlug).match(/_(\d+)$/);
             epNum = m ? Number(m[1]) : 1;
           }
-
+          
           // Find episode
           let ep;
           try {
@@ -3995,15 +3969,15 @@ export default {
           } catch (e) {
             try {
               ep = await env.DB.prepare('SELECT id, slug FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
-            } catch { }
+            } catch {}
           }
           if (!ep) return json({ error: 'Not found' }, { status: 404 });
-
+          
           // Find card by UUID (internal id) or card_number
           // Check if cardId looks like a UUID (contains hyphens)
           const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cardId);
           let cardRow;
-
+          
           if (isUUID) {
             // Try UUID first (most common case from search API)
             // Must check episode_id to ensure card belongs to the correct episode
@@ -4023,7 +3997,7 @@ export default {
               console.error('[WORKER /cards] Error fetching by UUID:', e);
             }
           }
-
+          
           // If not found by UUID or not a UUID, try by card_number
           if (!cardRow) {
             const cardNumberPadded = String(cardId).padStart(3, '0');
@@ -4046,7 +4020,7 @@ export default {
               }
             }
           }
-
+          
           // Final fallback: try UUID without episode_id check (in case episode_id doesn't match)
           // This handles edge cases where episode slug might be different but card exists
           if (!cardRow && isUUID) {
@@ -4066,20 +4040,20 @@ export default {
               console.error('[WORKER /cards] Error fetching by UUID (no episode check):', e);
             }
           }
-
+          
           if (!cardRow) return json({ error: 'Not found' }, { status: 404 });
-
+          
           // Fetch subtitles and levels for this card
           const [subsResult, levelsResult] = await Promise.all([
             env.DB.prepare('SELECT language, text FROM card_subtitles WHERE card_id=?').bind(cardRow.id).all(),
             env.DB.prepare('SELECT framework, level, language FROM card_difficulty_levels WHERE card_id=?').bind(cardRow.id).all()
           ]);
-
+          
           const subtitle = {};
           (subsResult.results || []).forEach(s => {
             subtitle[s.language] = s.text;
           });
-
+          
           const levels = [];
           (levelsResult.results || []).forEach(l => {
             levels.push({
@@ -4088,7 +4062,7 @@ export default {
               language: l.language || null
             });
           });
-
+          
           const displayId = String(cardRow.card_number ?? '').padStart(3, '0');
           const out = {
             id: displayId,
@@ -4115,7 +4089,7 @@ export default {
             content_title: cardRow.content_title,
             content_main_language: cardRow.main_language
           };
-
+          
           return json(out);
         } catch (e) {
           console.error('[WORKER /cards/{filmSlug}/{episodeSlug}/{cardId}] Error:', e);
@@ -4124,7 +4098,7 @@ export default {
       }
 
       // 5b) Cards for a given item across all parts (optional episode filter omitted)
-      const filmAllCardsMatch = path.match(/^\/items\/([^/]+)\/cards$/);
+  const filmAllCardsMatch = path.match(/^\/items\/([^/]+)\/cards$/);
       if (filmAllCardsMatch && request.method === 'GET') {
         const filmSlug = filmAllCardsMatch[1];
         // Allow higher limits for admin pages, but cap at 5000 to prevent overload
@@ -4202,22 +4176,22 @@ export default {
             // Fetch in parallel batches for better performance
             const subtitleBatches = [];
             const cefrBatches = [];
-
-            for (let i = 0; i < cardIds.length; i += batchSize) {
-              const batch = cardIds.slice(i, i + batchSize);
-              const ph = batch.map(() => '?').join(',');
-
+            
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const ph = batch.map(() => '?').join(',');
+              
               subtitleBatches.push(
                 env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...batch).all()
                   .then(result => {
                     (result.results || []).forEach(s => {
-                      if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
-                      subsMap.get(s.card_id)[s.language] = s.text;
-                    });
+                  if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                  subsMap.get(s.card_id)[s.language] = s.text;
+                });
                   })
                   .catch(e => console.error('[WORKER /items/cards] Error fetching subtitles batch:', e))
               );
-
+              
               cefrBatches.push(
                 env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...batch).all()
                   .then(result => {
@@ -4226,7 +4200,7 @@ export default {
                   .catch(e => console.error('[WORKER /items/cards] Error fetching CEFR levels batch:', e))
               );
             }
-
+            
             try {
               await Promise.all([...subtitleBatches, ...cefrBatches]);
             } catch (e) {
@@ -4249,7 +4223,7 @@ export default {
       }
 
       // 6) Global cards (return film slug, display id, and episode slug e{N} instead of UUID)
-      if (path === '/cards' && request.method === 'GET') {
+  if (path === '/cards' && request.method === 'GET') {
         // Allow higher limits for admin pages, but cap at 5000 to prevent overload
         const limitRaw = Number(url.searchParams.get('limit') || '100');
         const limit = Math.min(5000, Math.max(1, limitRaw));
@@ -4288,22 +4262,22 @@ export default {
             // Fetch in parallel batches for better performance
             const subtitleBatches = [];
             const cefrBatches = [];
-
-            for (let i = 0; i < cardIds.length; i += batchSize) {
-              const batch = cardIds.slice(i, i + batchSize);
-              const ph = batch.map(() => '?').join(',');
-
+            
+              for (let i = 0; i < cardIds.length; i += batchSize) {
+                const batch = cardIds.slice(i, i + batchSize);
+                const ph = batch.map(() => '?').join(',');
+              
               subtitleBatches.push(
                 env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph})`).bind(...batch).all()
                   .then(result => {
                     (result.results || []).forEach(s => {
-                      if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
-                      subsMap.get(s.card_id)[s.language] = s.text;
-                    });
+                  if (!subsMap.has(s.card_id)) subsMap.set(s.card_id, {});
+                  subsMap.get(s.card_id)[s.language] = s.text;
+                });
                   })
                   .catch(e => console.error('[WORKER /cards] Error fetching subtitles batch:', e))
               );
-
+              
               cefrBatches.push(
                 env.DB.prepare(`SELECT card_id, level FROM card_difficulty_levels WHERE card_id IN (${ph}) AND framework='CEFR'`).bind(...batch).all()
                   .then(result => {
@@ -4312,7 +4286,7 @@ export default {
                   .catch(e => console.error('[WORKER /cards] Error fetching CEFR levels batch:', e))
               );
             }
-
+            
             try {
               await Promise.all([...subtitleBatches, ...cefrBatches]);
             } catch (e) {
@@ -4329,7 +4303,7 @@ export default {
                 const batch = filmIds.slice(i, i + batchSize);
                 const phFilm = batch.map(() => '?').join(',');
                 const allFilms = await env.DB.prepare(`SELECT id, slug FROM content_items WHERE id IN (${phFilm})`).bind(...batch).all();
-                (allFilms.results || []).forEach(f => filmSlugMap.set(f.id, f.slug));
+              (allFilms.results || []).forEach(f => filmSlugMap.set(f.id, f.slug));
               }
             } catch (e) {
               console.error('[WORKER /cards] Error fetching film slugs:', e);
@@ -4367,17 +4341,6 @@ export default {
         try {
           const mainCanon = mainLang ? String(mainLang).toLowerCase() : null;
 
-          // STRICT MODE: Only allow searching for terms that exist in search_terms table
-          // This enforces the "Inverted Index Only" approach requested by the user.
-          // If the term is not in the index (no suggestions would be shown), strictly return empty.
-          if (q) {
-            const termExists = await env.DB.prepare('SELECT 1 FROM search_terms WHERE LOWER(term) = LOWER(?)').bind(q).first();
-            if (!termExists) {
-              console.log(`[api/search] Term not found in index: "${q}" - returning empty`);
-              return json([]);
-            }
-          }
-
           // Parse subtitle languages into array
           const subtitleLangsArr = subtitleLanguagesCsv
             ? Array.from(new Set(subtitleLanguagesCsv.split(',').map(s => s.trim()).filter(Boolean)))
@@ -4401,22 +4364,15 @@ export default {
           const hasLevelFilter = levelMin !== null || levelMax !== null;
           const framework = getFrameworkFromLanguage(mainLang);
 
-          // ---------- 1) Try FTS5 search on card_subtitles_fts (exact token / phrase, no substring) ----------
+          // ---------- 1) Try LIKE search on card_subtitles (FTS5 removed to save 6GB) ----------
           let rows = [];
           try {
-            // Build a MATCH query.
-            //  - Single token: exact token match (no substring/prefix) → \"he\" matches only token \"he\", not \"there\".
-            //  - Multi-word: exact phrase match → \"this is\" matches only that phrase.
-            // FTS5 is case-insensitive by default but requires lowercase tokens.
-            const tokens = q.toLowerCase().split(/\s+/).slice(0, 6).map(s => s.replace(/["'*]/g, ''));
-            let match;
-            if (tokens.length === 1) {
-              const t = tokens[0];
-              // Exact token match (quoted). No wildcard to avoid substring hits like \"he\" → \"there\".
-              match = `"${t}"`;
-            } else {
-              // Multi-word: exact phrase match
-              match = `"${tokens.join(' ')}"`;
+            // Build a LIKE query for card_subtitles
+            // Since users only search after selecting from autocomplete, LIKE is acceptable
+            const langForSearch = mainCanon || null;
+            const likePattern = buildLikeQuery(q, langForSearch);
+            if (!likePattern) {
+              return json({ items: [], total: 0, page: 0, size: 0 });
             }
 
             // Build allowed levels list for level filter
@@ -4425,12 +4381,12 @@ export default {
               const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
               const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
               const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
+              
               let levelOrder = [];
               if (framework === 'CEFR') levelOrder = CEFR;
               else if (framework === 'JLPT') levelOrder = JLPT;
               else if (framework === 'HSK') levelOrder = HSK;
-
+              
               if (levelOrder.length > 0) {
                 const minIdx = levelMin ? levelOrder.indexOf(levelMin.toUpperCase()) : 0;
                 const maxIdx = levelMax ? levelOrder.indexOf(levelMax.toUpperCase()) : levelOrder.length - 1;
@@ -4440,7 +4396,7 @@ export default {
               }
             }
 
-            const sqlFts = `
+            const sqlLike = `
               SELECT DISTINCT c.card_number,
                      c.start_time AS start_time,
                      c.end_time AS end_time,
@@ -4456,29 +4412,30 @@ export default {
                      e.slug as episode_slug,
                      ci.slug as film_slug,
                      c.id as internal_id
-              FROM card_subtitles_fts
-              JOIN cards c ON c.id = card_subtitles_fts.card_id
+              FROM cards c
               JOIN episodes e ON e.id = c.episode_id
               JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE card_subtitles_fts MATCH ?
+              JOIN card_subtitles cs ON cs.card_id = c.id
+              WHERE cs.text LIKE ?
                 AND c.is_available = 1
                 AND EXISTS (
-                  SELECT 1 FROM card_subtitles cs
-                  WHERE cs.card_id = c.id
-                    AND cs.language = ci.main_language
-                    AND cs.text IS NOT NULL
-                    AND TRIM(cs.text) != ''
+                  SELECT 1 FROM card_subtitles cs_main
+                  WHERE cs_main.card_id = c.id
+                    AND cs_main.language = ci.main_language
+                    AND cs_main.text IS NOT NULL
+                    AND TRIM(cs_main.text) != ''
                 )
-              ${mainCanon ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
+              ${mainCanon ? 'AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
               ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
-              ${subtitleLangsCount > 0
-                ? `AND (
+              ${
+                subtitleLangsCount > 0
+                  ? `AND (
                        SELECT COUNT(DISTINCT cs.language)
                        FROM card_subtitles cs
                        WHERE cs.card_id = c.id
                          AND cs.language IN (${subtitleLangsArr.map(() => '?').join(',')})
                      ) = ?`
-                : ''
+                  : ''
               }
               ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
               ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
@@ -4489,45 +4446,49 @@ export default {
               )` : ''}
               LIMIT ?`;
 
-            const bindFts = [match];
+            // Build LIKE pattern with % wildcards (buildLikeQuery already escapes special chars)
+            const likePatternWithWildcards = `%${likePattern}%`;
+            
+            const bindLike = [likePatternWithWildcards];
             if (mainCanon) {
               // language to search in subtitles (main audio language) AND content_items.main_language
-              bindFts.push(mainCanon);
-              bindFts.push(mainCanon);
+              bindLike.push(mainCanon);
+              bindLike.push(mainCanon);
             }
             if (contentIdsCount > 0) {
-              bindFts.push(...contentIdsArr);
+              bindLike.push(...contentIdsArr);
             }
             if (subtitleLangsCount > 0) {
-              bindFts.push(...subtitleLangsArr);
-              bindFts.push(subtitleLangsCount);
+              bindLike.push(...subtitleLangsArr);
+              bindLike.push(subtitleLangsCount);
             }
             if (hasDifficultyFilter) {
-              bindFts.push(difficultyMin !== null ? difficultyMin : 0);
-              bindFts.push(difficultyMax !== null ? difficultyMax : 100);
+              bindLike.push(difficultyMin !== null ? difficultyMin : 0);
+              bindLike.push(difficultyMax !== null ? difficultyMax : 100);
             }
             if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
-              bindFts.push(framework);
-              bindFts.push(...allowedLevels);
+              bindLike.push(framework);
+              bindLike.push(...allowedLevels);
             }
-            bindFts.push(limit);
-            const detFts = await env.DB.prepare(sqlFts).bind(...bindFts).all();
-            rows = detFts.results || [];
-          } catch {
-            // ignore FTS errors and fall back to LIKE
+            bindLike.push(limit);
+            const detLike = await env.DB.prepare(sqlLike).bind(...bindLike).all();
+            rows = detLike.results || [];
+          } catch (e) {
+            // Log error and return empty results
+            console.error('[WORKER /search] LIKE search error:', e);
             rows = [];
           }
 
-          // ---------- 2) Fallback: LIKE search on card_subtitles.text if FTS returned nothing ----------
+          // ---------- 2) Fallback: LIKE search on card_subtitles.text if primary search returned nothing ----------
           // Only use LIKE for CJK languages; for Latin queries this causes many false positives.
           const isCjkQuery = /[\u3040-\u30FF\u3400-\u9FFF]/u.test(q);
           // Check if this is a Chinese query (zh, zh_trad, zh_hans)
           const isChineseQuery = mainCanon && (mainCanon === 'zh' || mainCanon === 'zh_trad' || mainCanon === 'zh_hans' || mainCanon === 'zh-cn' || mainCanon === 'zh-tw' || mainCanon === 'chinese') || /[\u4E00-\u9FFF]/.test(q);
-
+          
           if (!rows.length && isCjkQuery) {
             // For Chinese, normalize query by removing any brackets (user might search with brackets)
             const normalizedQuery = isChineseQuery ? normalizeChineseTextForSearch(q) : q;
-
+            
             // For Chinese text with pinyin brackets, we need to match the normalized version
             // Since SQLite doesn't support regex, we'll build a pattern that allows optional brackets
             // between each character. For "请问", we want to match "请[qǐng]问[wèn]"
@@ -4548,7 +4509,7 @@ export default {
             } else {
               likePattern = `%${normalizedQuery}%`;
             }
-
+            
             const sqlLike = `
               SELECT DISTINCT c.card_number,
                      c.start_time AS start_time,
@@ -4580,14 +4541,15 @@ export default {
                 )
               ${mainCanon ? 'AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
               ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
-              ${subtitleLangsCount > 0
-                ? `AND (
+              ${
+                subtitleLangsCount > 0
+                  ? `AND (
                        SELECT COUNT(DISTINCT cs2.language)
                        FROM card_subtitles cs2
                        WHERE cs2.card_id = c.id
                          AND cs2.language IN (${subtitleLangsArr.map(() => '?').join(',')})
                      ) = ?`
-                : ''
+                  : ''
               }
               ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
               ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
@@ -4624,11 +4586,11 @@ export default {
           }
 
           if (!rows.length) return json([]);
-
+          
           // --- OPTIMIZED BATCH FETCHING: Fix N+1 Query Problem ---
           // Extract all card IDs from search results
           const cardIds = rows.map(r => r.internal_id).filter(Boolean);
-
+          
           // Batch fetch ALL subtitles for all cards in ONE query
           let allSubtitles = [];
           if (cardIds.length > 0) {
@@ -4640,9 +4602,9 @@ export default {
                 WHERE card_id IN (${placeholders})
               `).bind(...cardIds).all();
               allSubtitles = subtitlesQuery.results || [];
-            } catch { }
+            } catch {}
           }
-
+          
           // Group subtitles by card_id using Map (JavaScript is fast & free)
           const subtitlesMap = new Map();
           for (const sub of allSubtitles) {
@@ -4651,7 +4613,7 @@ export default {
             }
             subtitlesMap.get(sub.card_id)[sub.language] = sub.text;
           }
-
+          
           // Batch fetch ALL difficulty levels for all cards in ONE query
           let allLevels = [];
           if (cardIds.length > 0) {
@@ -4663,9 +4625,9 @@ export default {
                 WHERE card_id IN (${placeholders})
               `).bind(...cardIds).all();
               allLevels = levelsQuery.results || [];
-            } catch { }
+            } catch {}
           }
-
+          
           // Group difficulty levels by card_id
           const levelsMap = new Map();
           const cefrMap = new Map();
@@ -4678,20 +4640,20 @@ export default {
               level: level.level,
               language: level.language || null
             });
-
+            
             // Track CEFR level for backward compatibility
             if (level.framework === 'CEFR' && !cefrMap.has(level.card_id)) {
               cefrMap.set(level.card_id, level.level);
             }
           }
-
+          
           // Now build output array by attaching pre-fetched data
           const out = [];
           for (const r of rows) {
             const subtitle = subtitlesMap.get(r.internal_id) || {};
             const levels = levelsMap.get(r.internal_id) || [];
             const cefr = cefrMap.get(r.internal_id) || null;
-
+            
             const displayId = String(r.card_number ?? '').padStart(3, '0');
             const episodeSlug = r.episode_slug || `${r.film_slug || 'item'}_${Number(r.episode_number) || 1}`;
             const startS = (r.start_time != null) ? r.start_time : 0;
@@ -4723,7 +4685,7 @@ export default {
           try {
             ep = await env.DB.prepare('SELECT id,slug FROM episodes WHERE content_item_id=? AND episode_number=?').bind(film.id, epNum).first();
           } catch (e) {
-            try { ep = await env.DB.prepare('SELECT id,slug FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch { }
+            try { ep = await env.DB.prepare('SELECT id,slug FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch {}
           }
           if (!ep) return new Response('Not found', { status: 404, headers: withCors() });
           const cardNum = Number(cardDisplay);
@@ -4740,10 +4702,10 @@ export default {
           try {
             const lvl = await env.DB.prepare('SELECT level FROM card_difficulty_levels WHERE card_id=? AND framework=?').bind(row.internal_id, 'CEFR').first();
             cefr = lvl ? lvl.level : null;
-          } catch { }
+          } catch {}
           const displayId = String(row.card_number ?? '').padStart(3, '0');
           const outEpisodeId = ep.slug || `${filmSlug}_${epNum}`;
-          const displayPadded = `e${String(epNum).padStart(3, '0')}`;
+          const displayPadded = `e${String(epNum).padStart(3,'0')}`;
           const startS = (row.start_time != null) ? row.start_time : Math.round((row.start_time_ms || 0) / 1000);
           const endS = (row.end_time != null) ? row.end_time : Math.round((row.end_time_ms || 0) / 1000);
           const dur = (row.duration != null) ? row.duration : Math.max(0, endS - startS);
@@ -4768,25 +4730,22 @@ export default {
           try {
             ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_number=?').bind(film.id, epNum).first();
           } catch (e) {
-            try { ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch { }
+            try { ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch {}
           }
           if (!ep) return json({ error: 'Not found' }, { status: 404 });
           const cardNum = Number(cardDisplay);
           const row = await env.DB.prepare('SELECT id FROM cards WHERE episode_id=? AND card_number=?').bind(ep.id, cardNum).first();
           if (!row) return json({ error: 'Not found' }, { status: 404 });
-
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
+          
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           try {
             // Update subtitle if provided
             if (body.subtitle && typeof body.subtitle === 'object') {
-              // Replace existing subtitles and mirror into FTS
+              // Replace existing subtitles (FTS5 removed - no longer needed)
               await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run();
-              await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE card_id=?').bind(row.id).run();
               for (const [lang, text] of Object.entries(body.subtitle)) {
                 if (text && String(text).trim()) {
                   await env.DB.prepare('INSERT INTO card_subtitles (card_id, language, text) VALUES (?, ?, ?)').bind(row.id, lang, text).run();
-                  const idxText = (String(lang).toLowerCase() === 'ja') ? expandJaIndexText(String(text)) : String(text);
-                  await env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(idxText, lang, row.id).run();
                 }
               }
               // Update mapping table
@@ -4809,9 +4768,9 @@ export default {
               const isAvail = body.is_available ? 1 : 0;
               await env.DB.prepare('UPDATE cards SET is_available=? WHERE id=?').bind(isAvail, row.id).run();
             }
-            try { await env.DB.prepare('COMMIT').run(); } catch { }
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
           } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch { }
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
             throw e;
           }
           return json({ ok: true, updated: String(cardNum).padStart(4, '0') });
@@ -4835,7 +4794,7 @@ export default {
           try {
             ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_number=?').bind(film.id, epNum).first();
           } catch (e) {
-            try { ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch { }
+            try { ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(film.id, epNum).first(); } catch {}
           }
           if (!ep) return json({ error: 'Not found' }, { status: 404 });
           const cardNum = Number(cardDisplay);
@@ -4852,17 +4811,17 @@ export default {
           if (row.image_key) mediaKeys.add(normalizeKey(row.image_key));
           if (row.audio_key) mediaKeys.add(normalizeKey(row.audio_key));
           // Delete DB rows
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
+            try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
           try {
-            try { await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run(); } catch { }
-            try { await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE card_id=?').bind(row.id).run(); } catch { }
-            try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id=?').bind(row.id).run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id=?').bind(row.id).run(); } catch {}
+            // FTS5 removed - no longer needed
+            try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id=?').bind(row.id).run(); } catch {}
             // Update summary table
             await updateCardSubtitleLanguages(env, row.id);
-            try { await env.DB.prepare('DELETE FROM cards WHERE id=?').bind(row.id).run(); } catch { }
-            try { await env.DB.prepare('COMMIT').run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM cards WHERE id=?').bind(row.id).run(); } catch {}
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
           } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch { }
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
             throw e;
           }
           // Delete media
@@ -4874,7 +4833,7 @@ export default {
               catch { mediaErrors.push(`fail:${k}`); }
             }
           }
-          return json({ ok: true, deleted: String(cardNum).padStart(4, '0'), media_deleted: mediaDeletedCount, media_errors: mediaErrors });
+          return json({ ok: true, deleted: String(cardNum).padStart(4,'0'), media_deleted: mediaDeletedCount, media_errors: mediaErrors });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
@@ -4907,7 +4866,7 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Create a new category
       if (path === '/categories' && request.method === 'POST') {
         try {
@@ -4930,7 +4889,7 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Update a category
       if (path.startsWith('/categories/') && request.method === 'PATCH') {
         try {
@@ -4952,7 +4911,7 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Check category usage (how many content items use this category)
       if (path.startsWith('/categories/') && path.endsWith('/usage') && request.method === 'GET') {
         try {
@@ -4964,7 +4923,7 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Delete a category
       if (path.startsWith('/categories/') && request.method === 'DELETE') {
         try {
@@ -4982,7 +4941,7 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Get categories for a specific content item
       if (path.startsWith('/items/') && path.endsWith('/categories') && request.method === 'GET') {
         try {
@@ -5007,7 +4966,7 @@ export default {
       // 9) Import bulk (server generates UUIDs; client provides slug and numbers)
       if (path === '/import' && request.method === 'POST') {
         const body = await request.json();
-        const film = body.film || {};
+          const film = body.film || {};
         const cards = body.cards || [];
         const episodeNumber = Number(body.episodeNumber ?? String(body.episodeId || '').replace(/^e/i, '')) || 1;
         const filmSlug = film.slug || film.id; // backward compatibility: treat provided id as slug
@@ -5060,7 +5019,7 @@ export default {
           }
           if (Array.isArray(film.available_subs) && film.available_subs.length) {
             const subLangStmts = film.available_subs.map((lang) => env.DB.prepare('INSERT OR IGNORE INTO content_item_languages (content_item_id,language) VALUES (?,?)').bind(filmRow.id, lang));
-            try { await env.DB.batch(subLangStmts); } catch { }
+            try { await env.DB.batch(subLangStmts); } catch {}
           }
           // Handle categories: create if needed and assign to content_item
           if (Array.isArray(film.category_ids) && film.category_ids.length) {
@@ -5084,7 +5043,7 @@ export default {
                 }
               }
               if (categoryStmts.length) await env.DB.batch(categoryStmts);
-
+              
               // Now assign categories to content_item
               const assignStmts = [];
               for (const catNameOrId of film.category_ids) {
@@ -5111,7 +5070,7 @@ export default {
           try {
             episode = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, episodeNumber).first();
           } catch (e) {
-            try { episode = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, episodeNumber).first(); } catch { }
+            try { episode = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_num=?').bind(filmRow.id, episodeNumber).first(); } catch {}
           }
           if (!episode) {
             const epUuid = crypto.randomUUID();
@@ -5158,24 +5117,24 @@ export default {
             try {
               maxRow = await env.DB.prepare('SELECT IFNULL(MAX(episode_number),0) as mx FROM episodes WHERE content_item_id=?').bind(filmRow.id).first();
             } catch (e) {
-              try { maxRow = await env.DB.prepare('SELECT IFNULL(MAX(episode_num),0) as mx FROM episodes WHERE content_item_id=?').bind(filmRow.id).first(); } catch { }
+              try { maxRow = await env.DB.prepare('SELECT IFNULL(MAX(episode_num),0) as mx FROM episodes WHERE content_item_id=?').bind(filmRow.id).first(); } catch {}
             }
             const maxUploaded = maxRow ? Number(maxRow.mx) : 0;
             const totalEpisodes = Number(film.total_episodes || 0);
             if (totalEpisodes && totalEpisodes < maxUploaded) {
               return json({ error: `Total Episodes (${totalEpisodes}) cannot be less than highest uploaded episode (${maxUploaded}).` }, { status: 400 });
             }
-          } catch { }
+          } catch {}
           // If mode is replace, delete existing cards and subtitles for this episode before inserting new ones
           if (mode === 'replace') {
             try {
               await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run();
-            } catch { }
+            } catch {}
             try {
-              await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run();
-            } catch { }
-            try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run(); } catch { }
-            try { await env.DB.prepare('DELETE FROM cards WHERE episode_id=?').bind(episode.id).run(); } catch { }
+              // FTS5 removed - no longer needed
+            } catch {}
+            try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run(); } catch {}
+            try { await env.DB.prepare('DELETE FROM cards WHERE episode_id=?').bind(episode.id).run(); } catch {}
           }
 
           // Helper: run an array of prepared statements in batches to minimize API calls
@@ -5190,7 +5149,7 @@ export default {
           const cardsNewSchema = [];
           const cardsLegacySchema = [];
           const subStmts = [];
-          const ftsStmts = [];
+          // FTS5 removed - no longer needed
           const diffStmts = [];
           const cardIdsForSummaryUpdate = new Set(); // Track cards that need summary table update
 
@@ -5210,7 +5169,7 @@ export default {
             try {
               const contentInfo = await env.DB.prepare('SELECT type FROM content_items WHERE id = (SELECT content_item_id FROM episodes WHERE id = ?)').bind(episode.id).first();
               if (contentInfo) contentType = contentInfo.type;
-            } catch { }
+            } catch {}
           }
 
           const cardIds = []; // keep generated uuids in order for debugging if needed
@@ -5254,8 +5213,7 @@ export default {
               for (const [lang, text] of Object.entries(c.subtitle)) {
                 if (!text) continue;
                 subStmts.push(env.DB.prepare('INSERT OR IGNORE INTO card_subtitles (card_id,language,text) VALUES (?,?,?)').bind(cardUuid, lang, text));
-                const idxText = (String(lang).toLowerCase() === 'ja') ? expandJaIndexText(String(text)) : String(text);
-                ftsStmts.push(env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(idxText, lang, cardUuid));
+                // FTS5 removed - no longer needed
               }
             }
             if (Array.isArray(c.difficulty_levels)) {
@@ -5271,24 +5229,24 @@ export default {
 
           // Execute in a transaction; try new schema first, fallback to legacy once
           const runImport = async (useLegacy) => {
-            try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
+            try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
             try {
               await runStmtBatches(useLegacy ? cardsLegacySchema : cardsNewSchema, 200);
               await runStmtBatches(subStmts, 400);
-              await runStmtBatches(ftsStmts, 400);
+              // FTS5 removed - no longer needed
               await runStmtBatches(diffStmts, 400);
-              try { await env.DB.prepare('COMMIT').run(); } catch { }
-
+              try { await env.DB.prepare('COMMIT').run(); } catch {}
+              
               // Update mapping table after transaction commits (async, don't block)
               if (cardIdsForSummaryUpdate.size > 0) {
                 updateCardSubtitleLanguageMapBatch(env, Array.from(cardIdsForSummaryUpdate)).catch(err => {
                   console.error('[ingestion] Failed to update mapping table:', err.message);
                 });
               }
-
+              
               return true;
             } catch (e) {
-              try { await env.DB.prepare('ROLLBACK').run(); } catch { }
+              try { await env.DB.prepare('ROLLBACK').run(); } catch {}
               throw e;
             }
           };
@@ -5323,119 +5281,119 @@ export default {
         try {
           const body = await request.json();
           const { table, slug, field, newPath, episodeFolder, episodeNum, cardNumber, cardId } = body;
-
+          
           if (!table || !newPath) {
             return json({ error: 'Missing required fields (table, newPath)' }, { status: 400 });
           }
-
+          
           if (table === 'content_items') {
             // Update content-level cover
             if (!slug) {
               return json({ error: 'slug required for content_items' }, { status: 400 });
             }
-
+            
             const validFields = ['cover_key', 'cover_landscape_key'];
             if (!validFields.includes(field)) {
               return json({ error: 'Invalid field for content_items table' }, { status: 400 });
             }
-
+            
             await env.DB.prepare(`
               UPDATE content_items SET ${field} = ? WHERE slug = ?
             `).bind(newPath, slug).run();
-
+            
             return json({
               success: true,
               message: `Updated ${field} for content ${slug}`,
               newPath
             });
-
+            
           } else if (table === 'episodes') {
             // Update episode-level cover
             if (!slug || !episodeFolder) {
               return json({ error: 'slug and episodeFolder required for episodes' }, { status: 400 });
             }
-
+            
             const validFields = ['cover_key', 'cover_landscape_key'];
             if (!validFields.includes(field)) {
               return json({ error: 'Invalid field for episodes table' }, { status: 400 });
             }
-
+            
             // Find episode by content slug and episode number pattern
             // episodeFolder is like "e1", "e2", etc.
             const episodeNum = episodeFolder.match(/e?(\d+)/i)?.[1];
             if (!episodeNum) {
               return json({ error: 'Invalid episodeFolder format' }, { status: 400 });
             }
-
+            
             const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(slug).first();
             if (!filmRow) {
               return json({ error: `Content not found: ${slug}` }, { status: 404 });
             }
-
+            
             const episodeResult = await env.DB.prepare(`
               SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
             `).bind(filmRow.id, parseInt(episodeNum)).first();
-
+            
             if (!episodeResult) {
               return json({ error: `Episode not found for ${slug}/e${episodeNum}` }, { status: 404 });
             }
-
+            
             await env.DB.prepare(`
               UPDATE episodes SET ${field} = ? WHERE id = ?
             `).bind(newPath, episodeResult.id).run();
-
+            
             return json({
               success: true,
               message: `Updated ${field} for episode ${slug}/e${episodeNum}`,
               newPath
             });
-
+            
           } else if (table === 'cards') {
             // Update card-level image or audio
             // Support both old format (episodeFolder + cardNumber) and new format (episodeNum + cardId)
             const epNum = episodeNum !== undefined ? parseInt(episodeNum) : (episodeFolder ? parseInt(episodeFolder.match(/e?(\d+)/i)?.[1]) : null);
             const cNum = cardNumber !== undefined ? parseInt(cardNumber) : (cardId !== undefined ? parseInt(cardId) : null);
-
+            
             if (!slug || epNum === null || cNum === null) {
               return json({ error: 'slug and (episodeNum or episodeFolder) and (cardNumber or cardId) required for cards' }, { status: 400 });
             }
-
+            
             const validFields = ['image_key', 'audio_key'];
             if (!validFields.includes(field)) {
               return json({ error: 'Invalid field for cards table. Must be "image_key" or "audio_key"' }, { status: 400 });
             }
-
+            
             const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(slug).first();
             if (!filmRow) {
               return json({ error: `Content not found: ${slug}` }, { status: 404 });
             }
-
+            
             const episodeResult = await env.DB.prepare(`
               SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
             `).bind(filmRow.id, epNum).first();
-
+            
             if (!episodeResult) {
               return json({ error: `Episode not found for ${slug}/e${epNum}` }, { status: 404 });
             }
-
+            
             const cardResult = await env.DB.prepare(`
               SELECT id FROM cards WHERE episode_id = ? AND card_number = ?
             `).bind(episodeResult.id, cNum).first();
-
+            
             if (!cardResult) {
               return json({ error: `Card not found: ${slug}/e${epNum}/card ${cNum}` }, { status: 404 });
             }
-
+            
             await env.DB.prepare(`
               UPDATE cards SET ${field} = ? WHERE id = ?
             `).bind(newPath, cardResult.id).run();
-
+            
             return json({
               success: true,
               message: `Updated ${field} for card ${slug}/e${epNum}/${cNum}`,
               newPath
             });
-
+            
           } else {
             return json({ error: 'Invalid table. Must be "content_items", "episodes", or "cards"' }, { status: 400 });
           }
@@ -5449,45 +5407,45 @@ export default {
         try {
           const body = await request.json();
           const { slug, episodeFolder, field, newPath } = body;
-
+          
           if (!slug || !episodeFolder || !field || !newPath) {
             return json({ error: 'Missing required fields (slug, episodeFolder, field, newPath)' }, { status: 400 });
           }
-
+          
           // Validate field
           if (field !== 'preview_audio_key') {
             return json({ error: 'Invalid field for audio update. Must be "preview_audio_key"' }, { status: 400 });
           }
-
+          
           // Find episode by content slug and episode folder
           const episodeNum = episodeFolder.match(/e?(\d+)/i)?.[1];
           if (!episodeNum) {
             return json({ error: 'Invalid episodeFolder format' }, { status: 400 });
           }
-
+          
           const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug=?').bind(slug).first();
           if (!filmRow) {
             return json({ error: `Content not found: ${slug}` }, { status: 404 });
           }
-
+          
           const episodeResult = await env.DB.prepare(`
             SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
           `).bind(filmRow.id, parseInt(episodeNum)).first();
-
+          
           if (!episodeResult) {
             return json({ error: `Episode not found for ${slug}/e${episodeNum}` }, { status: 404 });
           }
-
+          
           await env.DB.prepare(`
             UPDATE episodes SET ${field} = ? WHERE id = ?
           `).bind(newPath, episodeResult.id).run();
-
+          
           return json({
             success: true,
             message: `Updated ${field} for episode ${slug}/e${episodeNum}`,
             newPath
           });
-
+          
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
@@ -5498,7 +5456,7 @@ export default {
         try {
           const body = await request.json();
           const { dryRun = true, imageExtension = 'avif', audioExtension = 'opus' } = body;
-
+          
           const stats = {
             contentCovers: 0,
             contentLandscapes: 0,
@@ -5518,42 +5476,42 @@ export default {
 
           if (dryRun) {
             // DRY RUN: Count what would be updated
-
+            
             // Count content_items covers (.jpg, .jpeg, .webp)
             const contentCovers = await env.DB.prepare(
               `SELECT COUNT(*) as count FROM content_items WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'`
             ).first();
             stats.contentCovers = contentCovers?.count || 0;
-
+            
             const contentLandscapes = await env.DB.prepare(
               `SELECT COUNT(*) as count FROM content_items WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg' OR cover_landscape_key LIKE '%.webp'`
             ).first();
             stats.contentLandscapes = contentLandscapes?.count || 0;
-
+            
             // Count episodes covers (.jpg, .jpeg, .webp)
             const episodeCovers = await env.DB.prepare(
               `SELECT COUNT(*) as count FROM episodes WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'`
             ).first();
             stats.episodeCovers = episodeCovers?.count || 0;
-
+            
             // Note: episodes.cover_landscape_key column has been removed
             stats.episodeLandscapes = 0;
-
+            
             // Count cards images (.jpg, .jpeg, .webp)
             const cardImages = await env.DB.prepare(
               `SELECT COUNT(*) as count FROM cards WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg' OR image_key LIKE '%.webp'`
             ).first();
             stats.cardImages = cardImages?.count || 0;
-
+            
             // Count cards audios
             const cardAudios = await env.DB.prepare(
               `SELECT COUNT(*) as count FROM cards WHERE audio_key LIKE '%.mp3'`
             ).first();
             stats.cardAudios = cardAudios?.count || 0;
-
-            stats.total = stats.contentCovers + stats.contentLandscapes + stats.episodeCovers +
-              stats.episodeLandscapes + stats.cardImages + stats.cardAudios;
-
+            
+            stats.total = stats.contentCovers + stats.contentLandscapes + stats.episodeCovers + 
+                         stats.episodeLandscapes + stats.cardImages + stats.cardAudios;
+            
             return json({
               success: true,
               dryRun: true,
@@ -5563,8 +5521,8 @@ export default {
           }
 
           // LIVE MODE: Actually update the database
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
-
+          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch {}
+          
           try {
             // Update content_items.cover_key (.jpg/.jpeg/.webp -> .avif)
             const r1 = await env.DB.prepare(`
@@ -5573,7 +5531,7 @@ export default {
               WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'
             `).run();
             stats.contentCovers = r1.meta?.changes || 0;
-
+            
             // Update content_items.cover_landscape_key (.jpg/.jpeg/.webp -> .avif)
             const r2 = await env.DB.prepare(`
               UPDATE content_items 
@@ -5581,7 +5539,7 @@ export default {
               WHERE cover_landscape_key LIKE '%.jpg' OR cover_landscape_key LIKE '%.jpeg' OR cover_landscape_key LIKE '%.webp'
             `).run();
             stats.contentLandscapes = r2.meta?.changes || 0;
-
+            
             // Update episodes.cover_key (.jpg/.jpeg/.webp -> .avif)
             const r3 = await env.DB.prepare(`
               UPDATE episodes 
@@ -5589,10 +5547,10 @@ export default {
               WHERE cover_key LIKE '%.jpg' OR cover_key LIKE '%.jpeg' OR cover_key LIKE '%.webp'
             `).run();
             stats.episodeCovers = r3.meta?.changes || 0;
-
+            
             // Note: episodes.cover_landscape_key column has been removed
             stats.episodeLandscapes = 0;
-
+            
             // Update cards.image_key (.jpg/.jpeg/.webp -> .avif)
             const r5 = await env.DB.prepare(`
               UPDATE cards 
@@ -5600,7 +5558,7 @@ export default {
               WHERE image_key LIKE '%.jpg' OR image_key LIKE '%.jpeg' OR image_key LIKE '%.webp'
             `).run();
             stats.cardImages = r5.meta?.changes || 0;
-
+            
             // Update cards.audio_key (.mp3 -> .opus)
             const r6 = await env.DB.prepare(`
               UPDATE cards 
@@ -5608,187 +5566,50 @@ export default {
               WHERE audio_key LIKE '%.mp3'
             `).run();
             stats.cardAudios = r6.meta?.changes || 0;
-
-            stats.total = stats.contentCovers + stats.contentLandscapes + stats.episodeCovers +
-              stats.episodeLandscapes + stats.cardImages + stats.cardAudios;
-
-            try { await env.DB.prepare('COMMIT').run(); } catch { }
-
+            
+            stats.total = stats.contentCovers + stats.contentLandscapes + stats.episodeCovers + 
+                         stats.episodeLandscapes + stats.cardImages + stats.cardAudios;
+            
+            try { await env.DB.prepare('COMMIT').run(); } catch {}
+            
             return json({
               success: true,
               dryRun: false,
               message: `Updated ${stats.total} paths successfully`,
               stats
             });
-
+            
           } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch { }
+            try { await env.DB.prepare('ROLLBACK').run(); } catch {}
             throw e;
           }
-
+          
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
 
-      // Admin: Populate FTS table with all subtitles (batch processing)
-      if (path === '/admin/populate-fts' && request.method === 'POST') {
-        try {
-          const body = await request.json();
-          const { offset = 0, batchSize = 1000 } = body;
+      // Admin: Populate FTS table - REMOVED (FTS5 table dropped to save 6GB)
+      // Search now uses LIKE queries on card_subtitles table
+      // Endpoint completely removed - no longer needed
 
-          // Get total count
-          const totalCount = await env.DB.prepare('SELECT COUNT(*) as count FROM card_subtitles').first();
-          const total = totalCount?.count || 0;
-
-          // Get current FTS count
-          const ftsCount = await env.DB.prepare('SELECT COUNT(*) as count FROM card_subtitles_fts').first();
-          const currentFtsCount = ftsCount?.count || 0;
-
-          // Fetch batch of subtitles
-          const rows = await env.DB.prepare(`
-            SELECT id, card_id, language, text 
-            FROM card_subtitles 
-            ORDER BY id 
-            LIMIT ? OFFSET ?
-          `).bind(batchSize, offset).all();
-
-          const items = rows.results || [];
-          if (items.length === 0) {
-            return json({
-              ok: true,
-              done: true,
-              message: 'All subtitles have been populated',
-              stats: {
-                total,
-                processed: offset, // Current offset is the processed count
-                inserted: currentFtsCount, // Total in FTS table
-                remaining: 0
-              }
-            });
-          }
-
-          // OPTIMIZED: Prepare batch inserts with smart Japanese expansion
-          // Only expand Japanese text if it contains brackets (furigana) - skip expensive regex for most cases
-          const stmts = [];
-          const hasBracketsRe = /\[[^\]]+\]/; // Quick check for brackets
-
-          // Pre-process all items to prepare statements
-          for (const r of items) {
-            let idxText;
-            const lang = String(r.language).toLowerCase();
-            const text = String(r.text);
-
-            if (lang === 'ja') {
-              // OPTIMIZATION: Only call expandJaIndexText if text has brackets (furigana)
-              // Most subtitles don't have brackets, so this saves significant processing time
-              if (hasBracketsRe.test(text)) {
-                idxText = expandJaIndexText(text);
-              } else {
-                // No brackets - just normalize whitespace (much faster)
-                idxText = text.replace(/\s+/g, '');
-              }
-            } else {
-              // For non-Japanese: use text as-is
-              idxText = text;
-            }
-
-            // Use INSERT OR IGNORE to avoid duplicates
-            stmts.push(env.DB.prepare(`
-              INSERT OR IGNORE INTO card_subtitles_fts (text, language, card_id) 
-              VALUES (?, ?, ?)
-            `).bind(idxText, r.language, r.card_id));
-          }
-
-          // OPTIMIZED: Execute in larger batches (1000 instead of 300) for maximum performance
-          // D1's batch() automatically runs in a transaction, no need for BEGIN/COMMIT
-          let inserted = 0;
-          const BATCH_SIZE = 1000; // Increased from 300 to 1000 for better throughput
-
-          // Process in batches to avoid statement limits
-          // Each batch() call is automatically transactional
-          for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
-            const slice = stmts.slice(i, i + BATCH_SIZE);
-            if (slice.length) {
-              const results = await env.DB.batch(slice);
-              inserted += results.reduce((sum, r) => sum + (r.meta?.changes || 0), 0);
-            }
-          }
-
-          const nextOffset = offset + items.length;
-          const remaining = Math.max(0, total - nextOffset);
-
-          // Get cumulative inserted count from FTS table
-          const cumulativeInserted = await env.DB.prepare('SELECT COUNT(*) as count FROM card_subtitles_fts').first();
-          const totalInserted = cumulativeInserted?.count || 0;
-
-          return json({
-            ok: true,
-            done: remaining === 0,
-            message: `Processed ${items.length} subtitles, inserted ${inserted} new entries`,
-            stats: {
-              total,
-              processed: nextOffset,
-              inserted: totalInserted, // Cumulative total from FTS table
-              remaining
-            },
-            nextOffset: remaining > 0 ? nextOffset : null
-          });
-        } catch (e) {
-          return json({ error: String(e) }, { status: 500 });
-        }
-      }
-
-      // Admin: Reindex FTS (ja) with mixed kanji/kana expansions from stored subtitles
-      if (path === '/admin/reindex-fts-ja' && request.method === 'POST') {
-        // Lightweight guard: require explicit confirm=1 query param
-        if (url.searchParams.get('confirm') !== '1') {
-          return json({ error: 'confirm=1 required' }, { status: 400 });
-        }
-        try {
-          // Fetch all JA subtitles and rebuild corresponding FTS rows
-          const rows = await env.DB.prepare('SELECT card_id, language, text FROM card_subtitles WHERE LOWER(language)=?').bind('ja').all();
-          const items = rows.results || [];
-          try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
-          try {
-            // Clear existing JA entries in FTS
-            try { await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE LOWER(language)=?').bind('ja').run(); } catch { }
-            // Insert rebuilt entries in batches
-            const stmts = [];
-            for (const r of items) {
-              const idxText = expandJaIndexText(r.text);
-              stmts.push(env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(idxText, r.language, r.card_id));
-            }
-            // Batch inserts to avoid exceeding limits
-            for (let i = 0; i < stmts.length; i += 300) {
-              const slice = stmts.slice(i, i + 300);
-              if (slice.length) await env.DB.batch(slice);
-            }
-            try { await env.DB.prepare('COMMIT').run(); } catch { }
-          } catch (e) {
-            try { await env.DB.prepare('ROLLBACK').run(); } catch { }
-            throw e;
-          }
-          return json({ ok: true, rebuilt: items.length });
-        } catch (e) {
-          return json({ error: String(e) }, { status: 500 });
-        }
-      }
+      // Admin: Reindex FTS (ja) - REMOVED (FTS5 table dropped to save 6GB)
+      // Endpoint completely removed - no longer needed
 
       // ==================== USER PROGRESS TRACKING ====================
-
+      
       // Mark a card as completed
       if (path === '/api/progress/complete' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { user_id, film_id, episode_slug, card_id, card_index, total_cards } = body;
-
+          
           if (!user_id || !film_id || !episode_slug || !card_id || card_index === undefined) {
             return json({ error: 'Missing required fields' }, { status: 400 });
           }
 
           const now = Date.now();
-
+          
           // Insert or update card progress (upsert using ON CONFLICT)
           await env.DB.prepare(`
             INSERT INTO user_progress (user_id, film_id, episode_slug, card_id, card_index, completed_at, updated_at)
@@ -5796,17 +5617,17 @@ export default {
             ON CONFLICT(user_id, film_id, episode_slug, card_id) 
             DO UPDATE SET completed_at = ?, updated_at = ?
           `).bind(user_id, film_id, episode_slug, card_id, card_index, now, now, now, now).run();
-
+          
           // Update episode stats
           const completedCount = await env.DB.prepare(`
             SELECT COUNT(*) as count FROM user_progress 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ?
           `).bind(user_id, film_id, episode_slug).first();
-
+          
           const completed = completedCount?.count || 0;
           const total = total_cards || completed; // Use provided total or fall back to completed count
           const percentage = total > 0 ? (completed / total) * 100 : 0;
-
+          
           await env.DB.prepare(`
             INSERT INTO user_episode_stats 
               (user_id, film_id, episode_slug, total_cards, completed_cards, last_card_index, completion_percentage, last_completed_at, updated_at)
@@ -5823,8 +5644,8 @@ export default {
             user_id, film_id, episode_slug, total, completed, card_index, percentage, now, now,
             total, completed, card_index, percentage, now, now
           ).run();
-
-          return json({
+          
+          return json({ 
             success: true,
             completed_cards: completed,
             total_cards: total,
@@ -5834,44 +5655,44 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Delete progress for a specific card (mark as incomplete)
       if (path === '/api/progress/complete' && request.method === 'DELETE') {
         try {
           const body = await request.json();
           const { user_id, film_id, episode_slug, card_id, total_cards } = body;
-
+          
           if (!user_id || !film_id || !episode_slug || !card_id) {
             return json({ error: 'Missing required fields' }, { status: 400 });
           }
 
           const now = Date.now();
-
+          
           // Delete card progress
           await env.DB.prepare(`
             DELETE FROM user_progress 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ? AND card_id = ?
           `).bind(user_id, film_id, episode_slug, card_id).run();
-
+          
           // Update episode stats
           const completedCount = await env.DB.prepare(`
             SELECT COUNT(*) as count FROM user_progress 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ?
           `).bind(user_id, film_id, episode_slug).first();
-
+          
           const completed = completedCount?.count || 0;
           const total = total_cards || completed; // Use provided total or fall back to completed count
           const percentage = total > 0 ? (completed / total) * 100 : 0;
-
+          
           // Get last card index if any cards remain
           const lastCard = await env.DB.prepare(`
             SELECT card_index FROM user_progress 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ?
             ORDER BY card_index DESC LIMIT 1
           `).bind(user_id, film_id, episode_slug).first();
-
+          
           const lastCardIndex = lastCard?.card_index ?? 0;
-
+          
           await env.DB.prepare(`
             INSERT INTO user_episode_stats 
               (user_id, film_id, episode_slug, total_cards, completed_cards, last_card_index, completion_percentage, last_completed_at, updated_at)
@@ -5887,8 +5708,8 @@ export default {
             user_id, film_id, episode_slug, total, completed, lastCardIndex, percentage, now, now,
             total, completed, lastCardIndex, percentage, now
           ).run();
-
-          return json({
+          
+          return json({ 
             success: true,
             completed_cards: completed,
             total_cards: total,
@@ -5898,35 +5719,35 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Get progress for a specific episode
       if (path === '/api/progress/episode' && request.method === 'GET') {
         try {
           const userId = url.searchParams.get('user_id');
           const filmId = url.searchParams.get('film_id');
           const episodeSlug = url.searchParams.get('episode_slug');
-
+          
           if (!userId || !filmId || !episodeSlug) {
             return json({ error: 'Missing required parameters' }, { status: 400 });
           }
-
+          
           // Get episode stats
           const stats = await env.DB.prepare(`
             SELECT * FROM user_episode_stats 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ?
           `).bind(userId, filmId, episodeSlug).first();
-
+          
           // Get all completed cards for this episode
           const cards = await env.DB.prepare(`
             SELECT * FROM user_progress 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ?
             ORDER BY card_index ASC
           `).bind(userId, filmId, episodeSlug).all();
-
+          
           const completed = cards.results || [];
           const completedCardIds = completed.map(c => c.card_id);
           const completedIndices = completed.map(c => c.card_index);
-
+          
           return json({
             episode_stats: stats || null,
             completed_cards: completed,
@@ -5937,51 +5758,51 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Get all progress for a film (all episodes)
       if (path === '/api/progress/film' && request.method === 'GET') {
         try {
           const userId = url.searchParams.get('user_id');
           const filmId = url.searchParams.get('film_id');
-
+          
           if (!userId || !filmId) {
             return json({ error: 'Missing required parameters' }, { status: 400 });
           }
-
+          
           const stats = await env.DB.prepare(`
             SELECT * FROM user_episode_stats 
             WHERE user_id = ? AND film_id = ?
             ORDER BY episode_slug ASC
           `).bind(userId, filmId).all();
-
+          
           return json(stats.results || []);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Reset progress for an episode
       if (path === '/api/progress/reset' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { user_id, film_id, episode_slug } = body;
-
+          
           if (!user_id || !film_id || !episode_slug) {
             return json({ error: 'Missing required fields' }, { status: 400 });
           }
-
+          
           // Delete all card progress for this episode
           await env.DB.prepare(`
             DELETE FROM user_progress 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ?
           `).bind(user_id, film_id, episode_slug).run();
-
+          
           // Delete episode stats
           await env.DB.prepare(`
             DELETE FROM user_episode_stats 
             WHERE user_id = ? AND film_id = ? AND episode_slug = ?
           `).bind(user_id, film_id, episode_slug).run();
-
+          
           return json({ success: true });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -5993,18 +5814,18 @@ export default {
         try {
           const userId = url.searchParams.get('user_id');
           const filmId = url.searchParams.get('film_id');
-
+          
           if (!userId || !filmId) {
             return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
           }
-
+          
           // Get total number of cards in this film
           const filmRow = await env.DB.prepare(`
             SELECT num_cards FROM content_items WHERE slug = ?
           `).bind(filmId).first();
-
+          
           const totalCards = filmRow?.num_cards || 0;
-
+          
           // Get SRS state distribution from user_card_states
           const srsStats = await env.DB.prepare(`
             SELECT srs_state, COUNT(*) as count
@@ -6012,10 +5833,10 @@ export default {
             WHERE user_id = ? AND film_id = ?
             GROUP BY srs_state
           `).bind(userId, filmId).all();
-
+          
           const stats = srsStats.results || [];
           const savedCards = stats.reduce((sum, row) => sum + (row.count || 0), 0);
-
+          
           // Calculate distribution
           const distribution = {
             none: 0,
@@ -6025,7 +5846,7 @@ export default {
             good: 0,
             easy: 0
           };
-
+          
           if (totalCards === 0) {
             // No cards in film, all none
             distribution.none = 100;
@@ -6041,11 +5862,11 @@ export default {
                 distribution[state] = Math.round((count / totalCards) * 100);
               }
             });
-
+            
             // Calculate none percentage (cards not saved)
             const noneCount = totalCards - savedCards;
             distribution.none = Math.round((noneCount / totalCards) * 100);
-
+            
             // Normalize to ensure total is 100%
             const total = Object.values(distribution).reduce((a, b) => a + b, 0);
             if (total !== 100) {
@@ -6063,7 +5884,7 @@ export default {
               distribution[maxState] += diff;
             }
           }
-
+          
           return json(distribution);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -6071,264 +5892,264 @@ export default {
       }
 
       // ==================== CARD STATE MANAGEMENT ====================
-
+      
       // Helper function to get card UUID from display ID
       // ==================== GAMIFICATION HELPER FUNCTIONS ====================
 
-      // Get or create user_scores record
-      async function getOrCreateUserScores(env, userId) {
-        let scores = await env.DB.prepare(`
+// Get or create user_scores record
+async function getOrCreateUserScores(env, userId) {
+  let scores = await env.DB.prepare(`
     SELECT * FROM user_scores WHERE user_id = ?
   `).bind(userId).first();
-
-        if (!scores) {
-          const scoreId = crypto.randomUUID();
-          await env.DB.prepare(`
+  
+  if (!scores) {
+    const scoreId = crypto.randomUUID();
+    await env.DB.prepare(`
       INSERT INTO user_scores (id, user_id, created_at, updated_at)
       VALUES (?, ?, unixepoch() * 1000, unixepoch() * 1000)
     `).bind(scoreId, userId).run();
-          scores = await env.DB.prepare(`
+    scores = await env.DB.prepare(`
       SELECT * FROM user_scores WHERE user_id = ?
     `).bind(userId).first();
-        }
+  }
+  
+  return scores;
+}
 
-        return scores;
-      }
-
-      // Get or create user_daily_activity record for today
-      async function getOrCreateDailyActivity(env, userId) {
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        let activity = await env.DB.prepare(`
+// Get or create user_daily_activity record for today
+async function getOrCreateDailyActivity(env, userId) {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  let activity = await env.DB.prepare(`
     SELECT * FROM user_daily_activity WHERE user_id = ? AND activity_date = ?
   `).bind(userId, today).first();
-
-        if (!activity) {
-          const activityId = crypto.randomUUID();
-          await env.DB.prepare(`
+  
+  if (!activity) {
+    const activityId = crypto.randomUUID();
+    await env.DB.prepare(`
       INSERT INTO user_daily_activity (id, user_id, activity_date, created_at, updated_at)
       VALUES (?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
     `).bind(activityId, userId, today).run();
-          activity = await env.DB.prepare(`
+    activity = await env.DB.prepare(`
       SELECT * FROM user_daily_activity WHERE user_id = ? AND activity_date = ?
     `).bind(userId, today).first();
-        }
+  }
+  
+  return activity;
+}
 
-        return activity;
-      }
-
-      // Get reward config by ID (preferred method)
-      async function getRewardConfigById(env, rewardConfigId) {
-        return await env.DB.prepare(`
+// Get reward config by ID (preferred method)
+async function getRewardConfigById(env, rewardConfigId) {
+  return await env.DB.prepare(`
     SELECT * FROM rewards_config WHERE id = ?
   `).bind(rewardConfigId).first();
-      }
+}
 
-      // Get reward config by action_type (backward compatibility)
-      async function getRewardConfig(env, actionType) {
-        return await env.DB.prepare(`
+// Get reward config by action_type (backward compatibility)
+async function getRewardConfig(env, actionType) {
+  return await env.DB.prepare(`
     SELECT * FROM rewards_config WHERE action_type = ?
   `).bind(actionType).first();
-      }
+}
 
-      // Calculate Production Factor based on speaking_attempt and writing_attempt
-      // Production Factor = 1 + min(0.28, 0.01 * speaking_attempt + 0.005 * writing_attempt)
-      function calculateProductionFactor(speakingAttempt = 0, writingAttempt = 0) {
-        const factor = 0.01 * speakingAttempt + 0.005 * writingAttempt;
-        return 1 + Math.min(0.28, factor);
-      }
+// Calculate Production Factor based on speaking_attempt and writing_attempt
+// Production Factor = 1 + min(0.28, 0.01 * speaking_attempt + 0.005 * writing_attempt)
+function calculateProductionFactor(speakingAttempt = 0, writingAttempt = 0) {
+  const factor = 0.01 * speakingAttempt + 0.005 * writingAttempt;
+  return 1 + Math.min(0.28, factor);
+}
 
-      // Calculate SRS Interval based on state, srs_count, and production factor
-      // Returns interval in hours
-      async function calculateSRSInterval(env, srsState, srsCount, speakingAttempt = 0, writingAttempt = 0) {
-        // Get base interval from srs_base_intervals
-        const baseInterval = await env.DB.prepare(`
+// Calculate SRS Interval based on state, srs_count, and production factor
+// Returns interval in hours
+async function calculateSRSInterval(env, srsState, srsCount, speakingAttempt = 0, writingAttempt = 0) {
+  // Get base interval from srs_base_intervals
+  const baseInterval = await env.DB.prepare(`
     SELECT base_interval_hours, interval_multiplier 
     FROM srs_base_intervals 
     WHERE srs_state = ?
   `).bind(srsState).first();
+  
+  if (!baseInterval) {
+    // Default to 0 if state not found
+    return 0;
+  }
+  
+  const baseHours = baseInterval.base_interval_hours || 0;
+  const multiplier = baseInterval.interval_multiplier || 1.0;
+  
+  // Calculate interval based on state-specific formula
+  let intervalHours = 0;
+  
+  if (srsState === 'again') {
+    // Again -> Base Interval = 1 hrs
+    intervalHours = 1;
+  } else if (srsState === 'hard') {
+    // Hard -> Base Interval = 6 × (1.3 ^ SRS Count) hrs
+    intervalHours = 6 * Math.pow(1.3, srsCount);
+  } else if (srsState === 'good') {
+    // Good -> Base Interval = 24 × (2.0 ^ SRS Count) hours
+    intervalHours = 24 * Math.pow(2.0, srsCount);
+  } else if (srsState === 'easy') {
+    // Easy -> Base Interval = 48 × (2.5 ^ SRS Count) hrs
+    intervalHours = 48 * Math.pow(2.5, srsCount);
+  } else {
+    // 'new' or other states - use base_interval_hours
+    intervalHours = baseHours;
+  }
+  
+  // Apply Production Factor
+  const productionFactor = calculateProductionFactor(speakingAttempt, writingAttempt);
+  intervalHours = intervalHours * productionFactor;
+  
+  return intervalHours;
+}
 
-        if (!baseInterval) {
-          // Default to 0 if state not found
-          return 0;
-        }
+// Determine if srs_count should be incremented based on state transition
+// Returns true if srs_count should increment, false otherwise
+function shouldIncrementSRSCount(oldState, newState) {
+  // State hierarchy: again < hard < good < easy
+  // Note: 'new' and 'none' are not in the hierarchy (they are initial states)
+  const stateOrder = { 'again': 0, 'hard': 1, 'good': 2, 'easy': 3 };
+  
+  // Only process states that are in the hierarchy (again, hard, good, easy)
+  // Ignore 'none' and 'new' states
+  if (!stateOrder.hasOwnProperty(oldState) || !stateOrder.hasOwnProperty(newState)) {
+    return false;
+  }
+  
+  const oldOrder = stateOrder[oldState];
+  const newOrder = stateOrder[newState];
+  
+  // Increment if:
+  // 1. Upgrade (again->hard, hard->good, good->easy, etc.)
+  // 2. Re-affirm good or easy (good->good, easy->easy)
+  if (newOrder > oldOrder) {
+    // Upgrade
+    return true;
+  } else if ((newState === 'good' || newState === 'easy') && newState === oldState) {
+    // Re-affirm good or easy
+    return true;
+  }
+  
+  // Don't increment if:
+  // - Downgrade (good->hard, easy->good, etc.)
+  // - Re-affirm again or hard
+  // - Any transition to/from 'none' or 'new'
+  return false;
+}
 
-        const baseHours = baseInterval.base_interval_hours || 0;
-        const multiplier = baseInterval.interval_multiplier || 1.0;
-
-        // Calculate interval based on state-specific formula
-        let intervalHours = 0;
-
-        if (srsState === 'again') {
-          // Again -> Base Interval = 1 hrs
-          intervalHours = 1;
-        } else if (srsState === 'hard') {
-          // Hard -> Base Interval = 6 × (1.3 ^ SRS Count) hrs
-          intervalHours = 6 * Math.pow(1.3, srsCount);
-        } else if (srsState === 'good') {
-          // Good -> Base Interval = 24 × (2.0 ^ SRS Count) hours
-          intervalHours = 24 * Math.pow(2.0, srsCount);
-        } else if (srsState === 'easy') {
-          // Easy -> Base Interval = 48 × (2.5 ^ SRS Count) hrs
-          intervalHours = 48 * Math.pow(2.5, srsCount);
-        } else {
-          // 'new' or other states - use base_interval_hours
-          intervalHours = baseHours;
-        }
-
-        // Apply Production Factor
-        const productionFactor = calculateProductionFactor(speakingAttempt, writingAttempt);
-        intervalHours = intervalHours * productionFactor;
-
-        return intervalHours;
-      }
-
-      // Determine if srs_count should be incremented based on state transition
-      // Returns true if srs_count should increment, false otherwise
-      function shouldIncrementSRSCount(oldState, newState) {
-        // State hierarchy: again < hard < good < easy
-        // Note: 'new' and 'none' are not in the hierarchy (they are initial states)
-        const stateOrder = { 'again': 0, 'hard': 1, 'good': 2, 'easy': 3 };
-
-        // Only process states that are in the hierarchy (again, hard, good, easy)
-        // Ignore 'none' and 'new' states
-        if (!stateOrder.hasOwnProperty(oldState) || !stateOrder.hasOwnProperty(newState)) {
-          return false;
-        }
-
-        const oldOrder = stateOrder[oldState];
-        const newOrder = stateOrder[newState];
-
-        // Increment if:
-        // 1. Upgrade (again->hard, hard->good, good->easy, etc.)
-        // 2. Re-affirm good or easy (good->good, easy->easy)
-        if (newOrder > oldOrder) {
-          // Upgrade
-          return true;
-        } else if ((newState === 'good' || newState === 'easy') && newState === oldState) {
-          // Re-affirm good or easy
-          return true;
-        }
-
-        // Don't increment if:
-        // - Downgrade (good->hard, easy->good, etc.)
-        // - Re-affirm again or hard
-        // - Any transition to/from 'none' or 'new'
-        return false;
-      }
-
-      // Award XP and record transaction
-      async function awardXP(env, userId, xpAmount, rewardConfigId, description, cardId, filmId) {
-        if (xpAmount <= 0) return;
-
-        // Get or create user_scores
-        await getOrCreateUserScores(env, userId);
-
-        // Update total_xp in user_scores
-        await env.DB.prepare(`
+// Award XP and record transaction
+async function awardXP(env, userId, xpAmount, rewardConfigId, description, cardId, filmId) {
+  if (xpAmount <= 0) return;
+  
+  // Get or create user_scores
+  await getOrCreateUserScores(env, userId);
+  
+  // Update total_xp in user_scores
+  await env.DB.prepare(`
     UPDATE user_scores
     SET total_xp = total_xp + ?,
         level = CAST((total_xp + ?) / 100 AS INTEGER) + 1,
         updated_at = unixepoch() * 1000
     WHERE user_id = ?
   `).bind(xpAmount, xpAmount, userId).run();
-
-        // Record XP transaction
-        const transactionId = crypto.randomUUID();
-        await env.DB.prepare(`
+  
+  // Record XP transaction
+  const transactionId = crypto.randomUUID();
+  await env.DB.prepare(`
     INSERT INTO xp_transactions (id, user_id, reward_config_id, xp_amount, card_id, film_id, description, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000)
   `).bind(transactionId, userId, rewardConfigId, xpAmount, cardId || null, filmId || null, description || null).run();
-
-        // Update daily activity
-        const today = new Date().toISOString().split('T')[0];
-        await getOrCreateDailyActivity(env, userId);
-        await env.DB.prepare(`
+  
+  // Update daily activity
+  const today = new Date().toISOString().split('T')[0];
+  await getOrCreateDailyActivity(env, userId);
+  await env.DB.prepare(`
     UPDATE user_daily_activity
     SET daily_xp = daily_xp + ?,
         updated_at = unixepoch() * 1000
     WHERE user_id = ? AND activity_date = ?
   `).bind(xpAmount, userId, today).run();
-
-        // Update user_daily_stats (historical record) - update xp_earned
-        const statsExisting = await env.DB.prepare(`
+  
+  // Update user_daily_stats (historical record) - update xp_earned
+  const statsExisting = await env.DB.prepare(`
     SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
   `).bind(userId, today).first();
-
-        if (statsExisting) {
-          await env.DB.prepare(`
+  
+  if (statsExisting) {
+    await env.DB.prepare(`
       UPDATE user_daily_stats
       SET xp_earned = xp_earned + ?,
           updated_at = unixepoch() * 1000
       WHERE user_id = ? AND stats_date = ?
     `).bind(xpAmount, userId, today).run();
-        } else {
-          // Record doesn't exist, create new one with xp_earned
-          // Initialize listening_time and reading_time to 0 in case trackTime hasn't run yet
-          const statsId = crypto.randomUUID();
-          await env.DB.prepare(`
+  } else {
+    // Record doesn't exist, create new one with xp_earned
+    // Initialize listening_time and reading_time to 0 in case trackTime hasn't run yet
+    const statsId = crypto.randomUUID();
+    await env.DB.prepare(`
       INSERT INTO user_daily_stats (id, user_id, stats_date, xp_earned, listening_time, reading_time, created_at, updated_at)
       VALUES (?, ?, ?, ?, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
     `).bind(statsId, userId, today, xpAmount).run();
-        }
+  }
+  
+  // Check and update daily streak (if daily_xp >= 20)
+  await checkAndUpdateStreak(env, userId);
+}
 
-        // Check and update daily streak (if daily_xp >= 20)
-        await checkAndUpdateStreak(env, userId);
-      }
-
-      // Award coins and record transaction
-      async function awardCoins(env, userId, coinAmount, rewardConfigId, description) {
-        if (coinAmount <= 0) return;
-
-        // Get or create user_scores
-        await getOrCreateUserScores(env, userId);
-
-        // Update coins in user_scores
-        await env.DB.prepare(`
+// Award coins and record transaction
+async function awardCoins(env, userId, coinAmount, rewardConfigId, description) {
+  if (coinAmount <= 0) return;
+  
+  // Get or create user_scores
+  await getOrCreateUserScores(env, userId);
+  
+  // Update coins in user_scores
+  await env.DB.prepare(`
     UPDATE user_scores
     SET coins = coins + ?,
         total_coins_earned = total_coins_earned + ?,
         updated_at = unixepoch() * 1000
     WHERE user_id = ?
   `).bind(coinAmount, coinAmount, userId).run();
-
-        // Record coin transaction
-        const transactionId = crypto.randomUUID();
-        await env.DB.prepare(`
+  
+  // Record coin transaction
+  const transactionId = crypto.randomUUID();
+  await env.DB.prepare(`
     INSERT INTO coin_transactions (id, user_id, reward_config_id, coin_amount, transaction_type, description, created_at)
     VALUES (?, ?, ?, ?, 'earn', ?, unixepoch() * 1000)
   `).bind(transactionId, userId, rewardConfigId, coinAmount, description || null).run();
+}
+
+// Check and update daily streak (if daily_xp >= 20, increment streak)
+async function checkAndUpdateStreak(env, userId) {
+  const today = new Date().toISOString().split('T')[0];
+  const activity = await getOrCreateDailyActivity(env, userId);
+  
+  // Only update streak if daily_xp >= 20 and we haven't already updated today
+  if (activity.daily_xp >= 20) {
+    const scores = await getOrCreateUserScores(env, userId);
+    const lastStudyDate = scores.last_study_date;
+    
+    // Check if this is a new day (streak continuation or new streak)
+    if (lastStudyDate !== today) {
+      let newStreak = 1;
+      
+      if (lastStudyDate) {
+        // Check if yesterday was studied (streak continuation)
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        if (lastStudyDate === yesterdayStr) {
+          // Continue streak
+          newStreak = (scores.current_streak || 0) + 1;
+        }
+        // Otherwise, new streak (already set to 1)
       }
-
-      // Check and update daily streak (if daily_xp >= 20, increment streak)
-      async function checkAndUpdateStreak(env, userId) {
-        const today = new Date().toISOString().split('T')[0];
-        const activity = await getOrCreateDailyActivity(env, userId);
-
-        // Only update streak if daily_xp >= 20 and we haven't already updated today
-        if (activity.daily_xp >= 20) {
-          const scores = await getOrCreateUserScores(env, userId);
-          const lastStudyDate = scores.last_study_date;
-
-          // Check if this is a new day (streak continuation or new streak)
-          if (lastStudyDate !== today) {
-            let newStreak = 1;
-
-            if (lastStudyDate) {
-              // Check if yesterday was studied (streak continuation)
-              const yesterday = new Date();
-              yesterday.setDate(yesterday.getDate() - 1);
-              const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-              if (lastStudyDate === yesterdayStr) {
-                // Continue streak
-                newStreak = (scores.current_streak || 0) + 1;
-              }
-              // Otherwise, new streak (already set to 1)
-            }
-
-            // Update streak
-            const longestStreak = Math.max(scores.longest_streak || 0, newStreak);
-            await env.DB.prepare(`
+      
+      // Update streak
+      const longestStreak = Math.max(scores.longest_streak || 0, newStreak);
+      await env.DB.prepare(`
         UPDATE user_scores
         SET current_streak = ?,
             longest_streak = ?,
@@ -6336,299 +6157,299 @@ export default {
             updated_at = unixepoch() * 1000
         WHERE user_id = ?
       `).bind(newStreak, longestStreak, today, userId).run();
-
-            // Record streak history
-            const historyId = crypto.randomUUID();
-            await env.DB.prepare(`
+      
+      // Record streak history
+      const historyId = crypto.randomUUID();
+      await env.DB.prepare(`
         INSERT OR REPLACE INTO user_streak_history (id, user_id, streak_date, streak_achieved, streak_count, created_at)
         VALUES (?, ?, ?, 1, ?, unixepoch() * 1000)
       `).bind(historyId, userId, today, newStreak).run();
-          }
-        }
-      }
+    }
+  }
+}
 
-      // Track listening or reading time and award XP based on checkpoints
-      async function trackTime(env, userId, timeSeconds, type) {
-        if (timeSeconds <= 0) return { xpAwarded: 0 };
-
-        const today = new Date().toISOString().split('T')[0];
-        await getOrCreateDailyActivity(env, userId);
-        await getOrCreateUserScores(env, userId);
-
-        // Get reward config by ID
-        const rewardConfigId = type === 'listening' ? REWARD_CONFIG_IDS.LISTENING_5S : REWARD_CONFIG_IDS.READING_8S;
-        const rewardConfig = await getRewardConfigById(env, rewardConfigId);
-        if (!rewardConfig) return { xpAwarded: 0 };
-
-        // Use interval_seconds from config, fallback to defaults if not set
-        const intervalSeconds = rewardConfig.interval_seconds || (type === 'listening' ? 5 : 8);
-        const checkpointField = type === 'listening' ? 'daily_listening_checkpoint' : 'daily_reading_checkpoint';
-        const timeField = type === 'listening' ? 'daily_listening_time' : 'daily_reading_time';
-        const totalTimeField = type === 'listening' ? 'total_listening_time' : 'total_reading_time';
-
-        // Get current checkpoint - use separate queries for listening vs reading
-        let activity;
-        if (type === 'listening') {
-          activity = await env.DB.prepare(`
+// Track listening or reading time and award XP based on checkpoints
+async function trackTime(env, userId, timeSeconds, type) {
+  if (timeSeconds <= 0) return { xpAwarded: 0 };
+  
+  const today = new Date().toISOString().split('T')[0];
+  await getOrCreateDailyActivity(env, userId);
+  await getOrCreateUserScores(env, userId);
+  
+  // Get reward config by ID
+  const rewardConfigId = type === 'listening' ? REWARD_CONFIG_IDS.LISTENING_5S : REWARD_CONFIG_IDS.READING_8S;
+  const rewardConfig = await getRewardConfigById(env, rewardConfigId);
+  if (!rewardConfig) return { xpAwarded: 0 };
+  
+  // Use interval_seconds from config, fallback to defaults if not set
+  const intervalSeconds = rewardConfig.interval_seconds || (type === 'listening' ? 5 : 8);
+  const checkpointField = type === 'listening' ? 'daily_listening_checkpoint' : 'daily_reading_checkpoint';
+  const timeField = type === 'listening' ? 'daily_listening_time' : 'daily_reading_time';
+  const totalTimeField = type === 'listening' ? 'total_listening_time' : 'total_reading_time';
+  
+  // Get current checkpoint - use separate queries for listening vs reading
+  let activity;
+  if (type === 'listening') {
+    activity = await env.DB.prepare(`
       SELECT daily_listening_checkpoint, daily_listening_time FROM user_daily_activity
       WHERE user_id = ? AND activity_date = ?
     `).bind(userId, today).first();
-        } else {
-          activity = await env.DB.prepare(`
+  } else {
+    activity = await env.DB.prepare(`
       SELECT daily_reading_checkpoint, daily_reading_time FROM user_daily_activity
       WHERE user_id = ? AND activity_date = ?
     `).bind(userId, today).first();
-        }
-
-        const currentCheckpoint = (type === 'listening' ? activity?.daily_listening_checkpoint : activity?.daily_reading_checkpoint) || 0;
-        const currentTime = (type === 'listening' ? activity?.daily_listening_time : activity?.daily_reading_time) || 0;
-
-        // Calculate new total time
-        const newTime = currentTime + timeSeconds;
-
-        // Calculate how many intervals we've completed (beyond checkpoint)
-        const newCheckpoint = Math.floor(newTime / intervalSeconds) * intervalSeconds;
-        const intervalsCompleted = Math.floor((newCheckpoint - currentCheckpoint) / intervalSeconds);
-
-        // Award XP for completed intervals
-        let totalXPAwarded = 0;
-        if (intervalsCompleted > 0 && rewardConfig.xp_amount > 0) {
-          const xpToAward = intervalsCompleted * rewardConfig.xp_amount;
-          await awardXP(env, userId, xpToAward, rewardConfig.id, `${type} time tracking`, null, null);
-          totalXPAwarded = xpToAward;
-        }
-
-        // Update daily activity - use separate queries for listening vs reading
-        if (type === 'listening') {
-          await env.DB.prepare(`
+  }
+  
+  const currentCheckpoint = (type === 'listening' ? activity?.daily_listening_checkpoint : activity?.daily_reading_checkpoint) || 0;
+  const currentTime = (type === 'listening' ? activity?.daily_listening_time : activity?.daily_reading_time) || 0;
+  
+  // Calculate new total time
+  const newTime = currentTime + timeSeconds;
+  
+  // Calculate how many intervals we've completed (beyond checkpoint)
+  const newCheckpoint = Math.floor(newTime / intervalSeconds) * intervalSeconds;
+  const intervalsCompleted = Math.floor((newCheckpoint - currentCheckpoint) / intervalSeconds);
+  
+  // Award XP for completed intervals
+  let totalXPAwarded = 0;
+  if (intervalsCompleted > 0 && rewardConfig.xp_amount > 0) {
+    const xpToAward = intervalsCompleted * rewardConfig.xp_amount;
+    await awardXP(env, userId, xpToAward, rewardConfig.id, `${type} time tracking`, null, null);
+    totalXPAwarded = xpToAward;
+  }
+  
+  // Update daily activity - use separate queries for listening vs reading
+  if (type === 'listening') {
+    await env.DB.prepare(`
       UPDATE user_daily_activity
       SET daily_listening_time = ?,
           daily_listening_checkpoint = ?,
           updated_at = unixepoch() * 1000
       WHERE user_id = ? AND activity_date = ?
     `).bind(newTime, newCheckpoint, userId, today).run();
-        } else {
-          await env.DB.prepare(`
+  } else {
+    await env.DB.prepare(`
       UPDATE user_daily_activity
       SET daily_reading_time = ?,
           daily_reading_checkpoint = ?,
           updated_at = unixepoch() * 1000
       WHERE user_id = ? AND activity_date = ?
     `).bind(newTime, newCheckpoint, userId, today).run();
-        }
-
-        // Update total time in user_scores
-        if (type === 'listening') {
-          await env.DB.prepare(`
+  }
+  
+  // Update total time in user_scores
+  if (type === 'listening') {
+    await env.DB.prepare(`
       UPDATE user_scores
       SET total_listening_time = total_listening_time + ?,
           updated_at = unixepoch() * 1000
       WHERE user_id = ?
     `).bind(timeSeconds, userId).run();
-        } else {
-          await env.DB.prepare(`
+  } else {
+    await env.DB.prepare(`
       UPDATE user_scores
       SET total_reading_time = total_reading_time + ?,
           updated_at = unixepoch() * 1000
       WHERE user_id = ?
     `).bind(timeSeconds, userId).run();
-        }
-
-        // Update user_daily_stats (historical record)
-        // Note: awardXP() already updated xp_earned above if XP was awarded
-        // We just need to update listening_time or reading_time here
-        if (type === 'listening') {
-          // Use INSERT OR REPLACE to handle case where record might exist from awardXP
-          // Or use ON CONFLICT DO UPDATE for better control
-          const existing = await env.DB.prepare(`
+  }
+  
+  // Update user_daily_stats (historical record)
+  // Note: awardXP() already updated xp_earned above if XP was awarded
+  // We just need to update listening_time or reading_time here
+  if (type === 'listening') {
+    // Use INSERT OR REPLACE to handle case where record might exist from awardXP
+    // Or use ON CONFLICT DO UPDATE for better control
+    const existing = await env.DB.prepare(`
       SELECT id, xp_earned FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
     `).bind(userId, today).first();
-
-          if (existing) {
-            // Record exists (might have been created by awardXP), just update listening_time
-            await env.DB.prepare(`
+    
+    if (existing) {
+      // Record exists (might have been created by awardXP), just update listening_time
+      await env.DB.prepare(`
         UPDATE user_daily_stats
         SET listening_time = COALESCE(listening_time, 0) + ?,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
       `).bind(timeSeconds, userId, today).run();
-          } else {
-            // Record doesn't exist, create new one with listening_time and xp_earned = 0 (or NULL, default will be 0)
-            const statsId = crypto.randomUUID();
-            await env.DB.prepare(`
+    } else {
+      // Record doesn't exist, create new one with listening_time and xp_earned = 0 (or NULL, default will be 0)
+      const statsId = crypto.randomUUID();
+      await env.DB.prepare(`
         INSERT INTO user_daily_stats (id, user_id, stats_date, listening_time, xp_earned, created_at, updated_at)
         VALUES (?, ?, ?, ?, 0, unixepoch() * 1000, unixepoch() * 1000)
       `).bind(statsId, userId, today, timeSeconds).run();
-          }
-        } else {
-          // Reading time - same logic
-          const existing = await env.DB.prepare(`
+    }
+  } else {
+    // Reading time - same logic
+    const existing = await env.DB.prepare(`
       SELECT id, xp_earned FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
     `).bind(userId, today).first();
-
-          if (existing) {
-            // Record exists (might have been created by awardXP), just update reading_time
-            await env.DB.prepare(`
+    
+    if (existing) {
+      // Record exists (might have been created by awardXP), just update reading_time
+      await env.DB.prepare(`
         UPDATE user_daily_stats
         SET reading_time = COALESCE(reading_time, 0) + ?,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
       `).bind(timeSeconds, userId, today).run();
-          } else {
-            // Record doesn't exist, create new one with reading_time and xp_earned = 0
-            const statsId = crypto.randomUUID();
-            await env.DB.prepare(`
+    } else {
+      // Record doesn't exist, create new one with reading_time and xp_earned = 0
+      const statsId = crypto.randomUUID();
+      await env.DB.prepare(`
         INSERT INTO user_daily_stats (id, user_id, stats_date, reading_time, xp_earned, created_at, updated_at)
         VALUES (?, ?, ?, ?, 0, unixepoch() * 1000, unixepoch() * 1000)
       `).bind(statsId, userId, today, timeSeconds).run();
-          }
-        }
+    }
+  }
+  
+  return { xpAwarded: totalXPAwarded };
+}
 
-        return { xpAwarded: totalXPAwarded };
-      }
-
-      // Track speaking or writing attempt and award XP
-      async function trackAttempt(env, userId, type, cardId, filmId) {
-        // Get reward config by ID
-        const rewardConfigId = type === 'speaking' ? REWARD_CONFIG_IDS.SPEAKING_ATTEMPT : REWARD_CONFIG_IDS.WRITING_ATTEMPT;
-        const rewardConfig = await getRewardConfigById(env, rewardConfigId);
-        if (!rewardConfig) return { xpAwarded: 0 };
-
-        const today = new Date().toISOString().split('T')[0];
-        await getOrCreateUserScores(env, userId);
-        await getOrCreateDailyActivity(env, userId);
-
-        // Award XP (will handle transaction, daily stats, and streak)
-        if (rewardConfig.xp_amount > 0) {
-          await awardXP(env, userId, rewardConfig.xp_amount, rewardConfig.id, `${type} attempt`, cardId || null, filmId || null);
-        }
-
-        // Update speaking_attempt or writing_attempt in user_card_states if card_id is provided
-        if (cardId) {
-          if (type === 'speaking') {
-            await env.DB.prepare(`
+// Track speaking or writing attempt and award XP
+async function trackAttempt(env, userId, type, cardId, filmId) {
+  // Get reward config by ID
+  const rewardConfigId = type === 'speaking' ? REWARD_CONFIG_IDS.SPEAKING_ATTEMPT : REWARD_CONFIG_IDS.WRITING_ATTEMPT;
+  const rewardConfig = await getRewardConfigById(env, rewardConfigId);
+  if (!rewardConfig) return { xpAwarded: 0 };
+  
+  const today = new Date().toISOString().split('T')[0];
+  await getOrCreateUserScores(env, userId);
+  await getOrCreateDailyActivity(env, userId);
+  
+  // Award XP (will handle transaction, daily stats, and streak)
+  if (rewardConfig.xp_amount > 0) {
+    await awardXP(env, userId, rewardConfig.xp_amount, rewardConfig.id, `${type} attempt`, cardId || null, filmId || null);
+  }
+  
+  // Update speaking_attempt or writing_attempt in user_card_states if card_id is provided
+  if (cardId) {
+    if (type === 'speaking') {
+      await env.DB.prepare(`
         UPDATE user_card_states
         SET speaking_attempt = speaking_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND card_id = ?
       `).bind(userId, cardId).run();
-          } else {
-            await env.DB.prepare(`
+    } else {
+      await env.DB.prepare(`
         UPDATE user_card_states
         SET writing_attempt = writing_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND card_id = ?
       `).bind(userId, cardId).run();
-          }
-        }
-
-        // Update user_scores (lifetime totals)
-        if (type === 'speaking') {
-          await env.DB.prepare(`
+    }
+  }
+  
+  // Update user_scores (lifetime totals)
+  if (type === 'speaking') {
+    await env.DB.prepare(`
       UPDATE user_scores
       SET total_speaking_attempt = total_speaking_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ?
     `).bind(userId).run();
-        } else {
-          await env.DB.prepare(`
+  } else {
+    await env.DB.prepare(`
       UPDATE user_scores
       SET total_writing_attempt = total_writing_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ?
     `).bind(userId).run();
-        }
-
-        // Update user_daily_activity (reset daily)
-        if (type === 'speaking') {
-          await env.DB.prepare(`
+  }
+  
+  // Update user_daily_activity (reset daily)
+  if (type === 'speaking') {
+    await env.DB.prepare(`
       UPDATE user_daily_activity
       SET speaking_attempt = speaking_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ? AND activity_date = ?
     `).bind(userId, today).run();
-        } else {
-          await env.DB.prepare(`
+  } else {
+    await env.DB.prepare(`
       UPDATE user_daily_activity
       SET writing_attempt = writing_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ? AND activity_date = ?
     `).bind(userId, today).run();
-        }
-
-        // Update user_daily_stats (historical record)
-        const statsExisting = await env.DB.prepare(`
+  }
+  
+  // Update user_daily_stats (historical record)
+  const statsExisting = await env.DB.prepare(`
     SELECT id FROM user_daily_stats WHERE user_id = ? AND stats_date = ?
   `).bind(userId, today).first();
-
-        if (statsExisting) {
-          if (type === 'speaking') {
-            await env.DB.prepare(`
+  
+  if (statsExisting) {
+    if (type === 'speaking') {
+      await env.DB.prepare(`
         UPDATE user_daily_stats
         SET speaking_attempt = speaking_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
       `).bind(userId, today).run();
-          } else {
-            await env.DB.prepare(`
+    } else {
+      await env.DB.prepare(`
         UPDATE user_daily_stats
         SET writing_attempt = writing_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
       `).bind(userId, today).run();
-          }
-        } else {
-          // Record doesn't exist, create new one
-          const statsId = crypto.randomUUID();
-          if (type === 'speaking') {
-            await env.DB.prepare(`
+    }
+  } else {
+    // Record doesn't exist, create new one
+    const statsId = crypto.randomUUID();
+    if (type === 'speaking') {
+      await env.DB.prepare(`
         INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
         VALUES (?, ?, ?, 1, 0, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
       `).bind(statsId, userId, today).run();
-          } else {
-            await env.DB.prepare(`
+    } else {
+      await env.DB.prepare(`
         INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
         VALUES (?, ?, ?, 0, 1, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
       `).bind(statsId, userId, today).run();
-          }
-        }
+    }
+  }
+  
+  return { xpAwarded: rewardConfig.xp_amount || 0 };
+}
 
-        return { xpAwarded: rewardConfig.xp_amount || 0 };
-      }
-
-      async function getCardUUID(filmId, episodeId, cardDisplayId) {
+async function getCardUUID(filmId, episodeId, cardDisplayId) {
         if (!filmId || !episodeId || !cardDisplayId) return null;
-
+        
         // Try to parse card number from display ID (e.g., "000" -> 0)
         const cardNum = parseInt(cardDisplayId);
         if (isNaN(cardNum)) return null;
-
+        
         // Get film internal ID
         const film = await env.DB.prepare(`
           SELECT id FROM content_items WHERE slug = ?
         `).bind(filmId).first();
-
+        
         if (!film) return null;
-
+        
         // Parse episode number from episode ID (e.g., "e1" -> 1)
         let epNum = parseInt(String(episodeId).replace(/^e/i, ''));
         if (isNaN(epNum)) {
           const m = String(episodeId).match(/_(\d+)$/);
           epNum = m ? parseInt(m[1]) : 1;
         }
-
+        
         // Get episode internal ID
         const ep = await env.DB.prepare(`
           SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
         `).bind(film.id, epNum).first();
-
+        
         if (!ep) return null;
-
+        
         // Get card UUID
         const card = await env.DB.prepare(`
           SELECT id FROM cards WHERE episode_id = ? AND card_number = ?
         `).bind(ep.id, cardNum).first();
-
+        
         return card?.id || null;
       }
 
@@ -6637,21 +6458,21 @@ export default {
         try {
           const body = await request.json();
           const { user_id, card_id, film_id, episode_id } = body;
-
+          
           if (!user_id || !card_id) {
             return json({ error: 'Missing required parameters (user_id, card_id)' }, { status: 400 });
           }
-
+          
           // Get card UUID from display ID
           const cardUUID = await getCardUUID(film_id, episode_id, card_id);
           if (!cardUUID) {
             return json({ error: 'Card not found' }, { status: 404 });
           }
-
+          
           // Get film_id and episode_id from card if not provided
           let finalFilmId = film_id;
           let finalEpisodeId = episode_id;
-
+          
           if (!finalFilmId || !finalEpisodeId) {
             const cardInfo = await env.DB.prepare(`
               SELECT e.content_item_id, e.id as episode_id
@@ -6659,27 +6480,27 @@ export default {
               JOIN episodes e ON c.episode_id = e.id
               WHERE c.id = ?
             `).bind(cardUUID).first();
-
+            
             if (cardInfo) {
               // Get film slug from content_item_id
               const filmInfo = await env.DB.prepare(`
                 SELECT slug FROM content_items WHERE id = ?
               `).bind(cardInfo.content_item_id).first();
-
+              
               finalFilmId = filmInfo?.slug || film_id;
               finalEpisodeId = cardInfo.episode_id || episode_id;
             }
           }
-
+          
           // Check if card state already exists
           const existing = await env.DB.prepare(`
             SELECT id, srs_state FROM user_card_states
             WHERE user_id = ? AND card_id = ?
             LIMIT 1
           `).bind(user_id, cardUUID).first();
-
+          
           let saved = false;
-
+          
           if (existing) {
             if (existing.srs_state === 'none') {
               // Change from 'none' to 'new' (save)
@@ -6716,7 +6537,7 @@ export default {
             `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId).run();
             saved = true;
           }
-
+          
           return json({ saved });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -6730,15 +6551,15 @@ export default {
           const body = await request.json();
           const userId = body.user_id;
           const cards = body.cards || []; // Array of {card_id, film_id, episode_id}
-
+          
           if (!userId || !Array.isArray(cards) || cards.length === 0) {
             return json({ error: 'Missing required parameters (user_id, cards array)' }, { status: 400 });
           }
-
+          
           // Limit batch size to prevent timeout
           const MAX_BATCH_SIZE = 100;
           const cardsToProcess = cards.slice(0, MAX_BATCH_SIZE);
-
+          
           // Group cards by film_id and episode_id for batch lookup
           const filmEpisodeMap = new Map();
           cardsToProcess.forEach(card => {
@@ -6749,7 +6570,7 @@ export default {
             }
             filmEpisodeMap.get(key).cards.push(card);
           });
-
+          
           // Batch get card UUIDs by film/episode groups
           const cardUUIDPromises = Array.from(filmEpisodeMap.values()).map(async (group) => {
             // Parse episode number
@@ -6758,28 +6579,28 @@ export default {
               const m = String(group.episode_id).match(/_(\d+)$/);
               epNum = m ? parseInt(m[1]) : 1;
             }
-
+            
             // Get film and episode IDs once per group
             const film = await env.DB.prepare(`SELECT id FROM content_items WHERE slug = ?`).bind(group.film_id).first();
             if (!film) return [];
-
+            
             const ep = await env.DB.prepare(`SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?`).bind(film.id, epNum).first();
             if (!ep) return [];
-
+            
             // Get all card UUIDs for this episode in one query
             const cardNumbers = group.cards.map(c => {
               const num = parseInt(c.card_id);
               return isNaN(num) ? null : num;
             }).filter(n => n !== null);
-
+            
             if (cardNumbers.length === 0) return [];
-
+            
             const placeholders = cardNumbers.map(() => '?').join(',');
             const cardRows = await env.DB.prepare(`
               SELECT card_number, id FROM cards 
               WHERE episode_id = ? AND card_number IN (${placeholders})
             `).bind(ep.id, ...cardNumbers).all();
-
+            
             // Map card_number to card_id
             const numberToUUID = new Map();
             if (cardRows.results) {
@@ -6787,7 +6608,7 @@ export default {
                 numberToUUID.set(row.card_number, row.id);
               });
             }
-
+            
             // Return mappings for all cards in this group
             return group.cards.map(card => {
               const num = parseInt(card.card_id);
@@ -6795,11 +6616,11 @@ export default {
               return { card_id: card.card_id, uuid };
             });
           });
-
+          
           const cardUUIDArrays = await Promise.all(cardUUIDPromises);
           const cardUUIDs = cardUUIDArrays.flat();
           const validUUIDs = cardUUIDs.filter(c => c.uuid !== null);
-
+          
           if (validUUIDs.length === 0) {
             // Return default values for all cards
             const result = {};
@@ -6808,7 +6629,7 @@ export default {
             });
             return json(result);
           }
-
+          
           // Batch query all save statuses in one query
           const uuids = validUUIDs.map(c => c.uuid);
           const placeholders = uuids.map(() => '?').join(',');
@@ -6817,20 +6638,20 @@ export default {
             FROM user_card_states
             WHERE user_id = ? AND card_id IN (${placeholders})
           `;
-
+          
           const results = await env.DB.prepare(query)
             .bind(userId, ...uuids)
             .all();
-
+          
           // Build result map
           const resultMap = {};
           const uuidToCardId = new Map(validUUIDs.map(c => [c.uuid, c.card_id]));
-
+          
           // Initialize all cards with default values
           cardsToProcess.forEach(card => {
             resultMap[card.card_id] = { saved: false, srs_state: 'none', review_count: 0 };
           });
-
+          
           // Update with actual results
           if (results.results) {
             for (const row of results.results) {
@@ -6845,7 +6666,7 @@ export default {
               }
             }
           }
-
+          
           return json(resultMap);
         } catch (e) {
           console.error('[save-status-batch] Error:', e);
@@ -6869,38 +6690,38 @@ export default {
           const cardId = url.searchParams.get('card_id');
           const filmId = url.searchParams.get('film_id');
           const episodeId = url.searchParams.get('episode_id');
-
+          
           if (!userId || !cardId) {
             return json({ error: 'Missing required parameters (user_id, card_id)' }, { status: 400 });
           }
-
+          
           // Get card UUID from display ID (filmId and episodeId are required)
           if (!filmId || !episodeId) {
             return json({ saved: false, srs_state: 'none', review_count: 0 });
           }
-
+          
           const cardUUID = await getCardUUID(filmId, episodeId, cardId);
           if (!cardUUID) {
             return json({ saved: false, srs_state: 'none', review_count: 0 });
           }
-
+          
           const result = await env.DB.prepare(`
             SELECT srs_state, review_count FROM user_card_states
             WHERE user_id = ? AND card_id = ?
             LIMIT 1
           `).bind(userId, cardUUID).first();
-
+          
           const saved = result && result.srs_state && result.srs_state !== 'none';
-
-          return json({
-            saved,
+          
+          return json({ 
+            saved, 
             srs_state: result?.srs_state || 'none',
             review_count: result?.review_count || 0
           });
         } catch (e) {
           console.error('[save-status] Error:', e);
           // Return proper JSON error response with fallback values
-          return json({
+          return json({ 
             error: e.message || 'Internal server error',
             saved: false,
             srs_state: 'none',
@@ -6914,25 +6735,25 @@ export default {
         try {
           const body = await request.json();
           const { user_id, card_id, film_id, episode_id } = body;
-
+          
           if (!user_id || !card_id) {
             return json({ error: 'Missing required parameters (user_id, card_id)' }, { status: 400 });
           }
-
+          
           let cardUUID = null;
-
+          
           // Try to get card UUID from display ID if film_id and episode_id are provided
           if (film_id && episode_id) {
             cardUUID = await getCardUUID(film_id, episode_id, card_id);
           }
-
+          
           // If getCardUUID failed or film_id/episode_id not provided, try alternative methods
           if (!cardUUID) {
             // First, try if card_id is already a UUID (direct lookup)
             const directCard = await env.DB.prepare(`
               SELECT id FROM cards WHERE id = ?
             `).bind(card_id).first();
-
+            
             if (directCard) {
               cardUUID = directCard.id;
             } else if (film_id && episode_id) {
@@ -6940,19 +6761,19 @@ export default {
               const film = await env.DB.prepare(`
                 SELECT id FROM content_items WHERE slug = ?
               `).bind(film_id).first();
-
+              
               if (film) {
                 let epNum = parseInt(String(episode_id).replace(/^e/i, ''));
                 if (isNaN(epNum)) {
                   const m = String(episode_id).match(/_(\d+)$/);
                   epNum = m ? parseInt(m[1]) : null;
                 }
-
+                
                 if (epNum !== null && !isNaN(epNum)) {
                   const ep = await env.DB.prepare(`
                     SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?
                   `).bind(film.id, epNum).first();
-
+                  
                   if (ep) {
                     const cardNum = parseInt(card_id);
                     if (!isNaN(cardNum)) {
@@ -6968,20 +6789,20 @@ export default {
               }
             }
           }
-
+          
           if (!cardUUID) {
             return json({ error: 'Card not found. Please provide film_id and episode_id.' }, { status: 404 });
           }
-
+          
           // Check if card state exists, if not create it
           const existing = await env.DB.prepare(`
             SELECT id, review_count FROM user_card_states
             WHERE user_id = ? AND card_id = ?
             LIMIT 1
           `).bind(user_id, cardUUID).first();
-
+          
           let reviewCount = 0;
-
+          
           if (existing) {
             // Increment existing review count
             await env.DB.prepare(`
@@ -6990,14 +6811,14 @@ export default {
                   updated_at = unixepoch() * 1000
               WHERE user_id = ? AND card_id = ?
             `).bind(user_id, cardUUID).run();
-
+            
             reviewCount = (existing.review_count || 0) + 1;
           } else {
             // Create new state with review_count = 1
             // Get film_id and episode_id from card if not provided
             let finalFilmId = film_id;
             let finalEpisodeId = episode_id;
-
+            
             if (!finalFilmId || !finalEpisodeId) {
               const cardInfo = await env.DB.prepare(`
                 SELECT e.content_item_id, e.id as episode_id
@@ -7005,17 +6826,17 @@ export default {
                 JOIN episodes e ON c.episode_id = e.id
                 WHERE c.id = ?
               `).bind(cardUUID).first();
-
+              
               if (cardInfo) {
                 const filmInfo = await env.DB.prepare(`
                   SELECT slug FROM content_items WHERE id = ?
                 `).bind(cardInfo.content_item_id).first();
-
+                
                 finalFilmId = filmInfo?.slug || film_id;
                 finalEpisodeId = cardInfo.episode_id || episode_id;
               }
             }
-
+            
             // Use INSERT OR IGNORE to handle race conditions
             // If record already exists, we'll update it instead
             const stateId = crypto.randomUUID();
@@ -7037,7 +6858,7 @@ export default {
                 WHERE user_id = ? AND card_id = ?
                 LIMIT 1
               `).bind(user_id, cardUUID).first();
-
+              
               if (recheck) {
                 await env.DB.prepare(`
                   UPDATE user_card_states
@@ -7052,7 +6873,7 @@ export default {
               }
             }
           }
-
+          
           return json({ review_count: reviewCount });
         } catch (e) {
           console.error('[increment-review] Error:', e);
@@ -7065,27 +6886,27 @@ export default {
         try {
           const body = await request.json();
           const { user_id, card_id, film_id, episode_id, srs_state } = body;
-
+          
           if (!user_id || !card_id || !srs_state) {
             return json({ error: 'Missing required parameters (user_id, card_id, srs_state)' }, { status: 400 });
           }
-
+          
           // Validate srs_state
           const validStates = ['none', 'new', 'again', 'hard', 'good', 'easy'];
           if (!validStates.includes(srs_state)) {
             return json({ error: 'Invalid srs_state' }, { status: 400 });
           }
-
+          
           // Get card UUID from display ID
           const cardUUID = await getCardUUID(film_id, episode_id, card_id);
           if (!cardUUID) {
             return json({ error: 'Card not found' }, { status: 404 });
           }
-
+          
           // Initialize finalFilmId and finalEpisodeId from request params
           let finalFilmId = film_id || null;
           let finalEpisodeId = episode_id || null;
-
+          
           // If not provided, get from existing state or card info
           if (!finalFilmId || !finalEpisodeId) {
             const existingState = await env.DB.prepare(`
@@ -7093,12 +6914,12 @@ export default {
               WHERE user_id = ? AND card_id = ?
               LIMIT 1
             `).bind(user_id, cardUUID).first();
-
+            
             if (existingState) {
               finalFilmId = finalFilmId || existingState.film_id || null;
               finalEpisodeId = finalEpisodeId || existingState.episode_id || null;
             }
-
+            
             // If still not found, get from card info
             if (!finalFilmId || !finalEpisodeId) {
               const cardInfo = await env.DB.prepare(`
@@ -7107,7 +6928,7 @@ export default {
                 JOIN episodes e ON c.episode_id = e.id
                 WHERE c.id = ?
               `).bind(cardUUID).first();
-
+              
               if (cardInfo) {
                 if (!finalFilmId) {
                   const filmInfo = await env.DB.prepare(`
@@ -7121,7 +6942,7 @@ export default {
               }
             }
           }
-
+          
           // Check if card state exists and get current values
           const existing = await env.DB.prepare(`
             SELECT id, srs_state, srs_count, speaking_attempt, writing_attempt, state_created_at
@@ -7129,13 +6950,13 @@ export default {
             WHERE user_id = ? AND card_id = ?
             LIMIT 1
           `).bind(user_id, cardUUID).first();
-
+          
           // Get old state to check if it's a change (not from 'none' to 'none')
           const oldState = existing?.srs_state || 'none';
           const oldSRSCount = existing?.srs_count || 0;
           const speakingAttempt = existing?.speaking_attempt || 0;
           const writingAttempt = existing?.writing_attempt || 0;
-
+          
           // Calculate new srs_count based on state transition
           let newSRSCount = oldSRSCount;
           if (oldState !== srs_state && oldState !== 'none' && srs_state !== 'none') {
@@ -7150,17 +6971,17 @@ export default {
             // First time setting state (from 'none' to any state) - start with 0
             newSRSCount = 0;
           }
-
+          
           // Calculate SRS interval and next_review_at
           const now = Date.now();
           let srsInterval = 0;
           let nextReviewAt = null;
           let lastReviewedAt = null;
-
+          
           if (srs_state !== 'none') {
             // Calculate interval in hours
             srsInterval = await calculateSRSInterval(env, srs_state, newSRSCount, speakingAttempt, writingAttempt);
-
+            
             // Set last_reviewed_at when state changes (not when setting to 'none')
             if (oldState !== srs_state) {
               lastReviewedAt = now;
@@ -7176,7 +6997,7 @@ export default {
               nextReviewAt = existingState?.next_review_at || null;
             }
           }
-
+          
           if (existing) {
             // Update existing state
             await env.DB.prepare(`
@@ -7199,10 +7020,10 @@ export default {
               JOIN episodes e ON c.episode_id = e.id
               WHERE c.id = ?
             `).bind(cardUUID).first();
-
+            
             let finalFilmId = film_id || null;
             let finalEpisodeId = episode_id || null;
-
+            
             if (cardInfo) {
               if (!finalFilmId) {
                 const filmInfo = await env.DB.prepare(`
@@ -7214,23 +7035,23 @@ export default {
                 finalEpisodeId = cardInfo.episode_id || null;
               }
             }
-
+            
             // Calculate SRS interval and next_review_at for new state
             let srsInterval = 0;
             let nextReviewAt = null;
             let lastReviewedAt = null;
             let newSRSCount = 0;
-
+            
             if (srs_state !== 'none') {
               // Calculate interval in hours
               srsInterval = await calculateSRSInterval(env, srs_state, newSRSCount, 0, 0);
-
+              
               // Set timestamps for new state
               const now = Date.now();
               lastReviewedAt = now;
               nextReviewAt = now + (srsInterval * 60 * 60 * 1000);
             }
-
+            
             const stateId = crypto.randomUUID();
             await env.DB.prepare(`
               INSERT INTO user_card_states (
@@ -7242,7 +7063,7 @@ export default {
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000, unixepoch() * 1000)
             `).bind(stateId, user_id, cardUUID, finalFilmId, finalEpisodeId, srs_state, newSRSCount, srsInterval, nextReviewAt, lastReviewedAt).run();
           }
-
+          
           // Award XP for SRS state change (whenever state changes and new state is not 'none')
           // This includes: 'none' -> any state, or any state -> any other state
           if (oldState !== srs_state && srs_state !== 'none') {
@@ -7251,7 +7072,7 @@ export default {
               await awardXP(env, user_id, rewardConfig.xp_amount, rewardConfig.id, 'SRS state change', cardUUID, finalFilmId);
             }
           }
-
+          
           return json({ success: true, srs_state });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -7265,11 +7086,11 @@ export default {
           const page = parseInt(url.searchParams.get('page') || '1');
           const limit = parseInt(url.searchParams.get('limit') || '50');
           const offset = (page - 1) * limit;
-
+          
           if (!userId) {
             return json({ error: 'Missing required parameter (user_id)' }, { status: 400 });
           }
-
+          
           // Get saved cards with card details
           const cards = await env.DB.prepare(`
             SELECT 
@@ -7305,33 +7126,33 @@ export default {
             ORDER BY ucs.state_updated_at DESC
             LIMIT ? OFFSET ?
           `).bind(userId, limit, offset).all();
-
+          
           // Get total count
           const countResult = await env.DB.prepare(`
             SELECT COUNT(*) as total
             FROM user_card_states
             WHERE user_id = ? AND srs_state != 'none'
           `).bind(userId).first();
-
+          
           const total = countResult?.total || 0;
-
+          
           // Format cards similar to CardDoc - load subtitles and XP data for each card
           const formattedCards = await Promise.all((cards.results || []).map(async (row) => {
             const filmSlug = row.film_slug || row.film_id;
             const epSlug = row.episode_slug || row.episode_id;
             const cardDisplayId = String(row.card_number || '').padStart(3, '0');
-
+            
             // Load subtitles for this card
             const cardDbId = row.card_db_id || row.card_id; // Use card_db_id (unique ID) if available
             const subs = await env.DB.prepare(`
               SELECT language, text FROM card_subtitles WHERE card_id = ?
             `).bind(cardDbId).all();
-
+            
             const subtitle = {};
             (subs.results || []).forEach((s) => {
               subtitle[s.language] = s.text;
             });
-
+            
             // Calculate XP for this card by reward config ID
             const xpData = await env.DB.prepare(`
               SELECT 
@@ -7341,20 +7162,20 @@ export default {
               WHERE xt.user_id = ? AND xt.card_id = ?
               GROUP BY xt.reward_config_id
             `).bind(userId, cardDbId).all();
-
+            
             // Initialize XP counts
             let totalXP = 0;
             let readingXP = 0;
             let listeningXP = 0;
             let speakingXP = 0;
             let writingXP = 0;
-
+            
             (xpData.results || []).forEach((xpRow) => {
               const xp = xpRow.total_xp || 0;
               const rewardConfigId = xpRow.reward_config_id;
-
+              
               totalXP += xp; // Include ALL XP types in total (including srs_state_change)
-
+              
               // Match by reward_config_id instead of action_type string
               if (rewardConfigId === REWARD_CONFIG_IDS.READING_8S) {
                 readingXP = xp;
@@ -7367,7 +7188,7 @@ export default {
               }
               // Note: SRS_STATE_CHANGE XP is included in totalXP but not tracked separately
             });
-
+            
             // Build image and audio URLs from stored keys (do not reconstruct the path)
             const basePublic = (env.R2_PUBLIC_BASE || '').replace(/\/$/, '');
             const imageUrl = row.image_key
@@ -7376,7 +7197,7 @@ export default {
             const audioUrl = row.audio_key
               ? (basePublic ? `${basePublic}/${row.audio_key}` : `/${row.audio_key}`)
               : '';
-
+            
             return {
               id: cardDbId || cardDisplayId,  // Use unique card ID from database, fallback to display ID
               card_number: row.card_number || null,  // Card number in episode (for display purposes)
@@ -7406,7 +7227,7 @@ export default {
               xp_writing: writingXP,
             };
           }));
-
+          
           return json({
             cards: formattedCards,
             total,
@@ -7423,14 +7244,14 @@ export default {
       if (path === '/api/user/portfolio' && request.method === 'GET') {
         try {
           const userId = url.searchParams.get('user_id');
-
+          
           if (!userId) {
             return json({ error: 'Missing required parameter (user_id)' }, { status: 400 });
           }
-
+          
           // Ensure user_scores exists (create if not exists)
           await getOrCreateUserScores(env, userId);
-
+          
           // Get user scores
           const scores = await env.DB.prepare(`
             SELECT 
@@ -7446,21 +7267,21 @@ export default {
             FROM user_scores
             WHERE user_id = ?
           `).bind(userId).first();
-
+          
           // Get total cards saved (with srs_state != 'none')
           const savedCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total
             FROM user_card_states
             WHERE user_id = ? AND srs_state != 'none'
           `).bind(userId).first();
-
+          
           // Get total cards reviewed (sum of review_count)
           const reviewedCardsResult = await env.DB.prepare(`
             SELECT SUM(review_count) as total
             FROM user_card_states
             WHERE user_id = ?
           `).bind(userId).first();
-
+          
           // Get count of cards due for review (next_review_at <= now or is null for 'new' state)
           const dueCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total
@@ -7472,7 +7293,7 @@ export default {
                 OR next_review_at <= (unixepoch() * 1000)
               )
           `).bind(userId).first();
-
+          
           return json({
             user_id: userId,
             total_xp: scores?.total_xp || 0,
@@ -7502,23 +7323,23 @@ export default {
           } catch (parseError) {
             return json({ error: 'Failed to parse body as JSON', details: String(parseError) }, { status: 400 });
           }
-
+          
           const { user_id, time_seconds, type } = body;
-
+          
           if (!user_id || time_seconds === undefined || !type) {
             return json({ error: 'Missing required parameters (user_id, time_seconds, type)' }, { status: 400 });
           }
-
+          
           if (type !== 'listening' && type !== 'reading') {
             return json({ error: 'Invalid type. Must be "listening" or "reading"' }, { status: 400 });
           }
-
+          
           if (time_seconds <= 0) {
             return json({ error: 'time_seconds must be positive' }, { status: 400 });
           }
-
+          
           const result = await trackTime(env, user_id, time_seconds, type);
-
+          
           return json({ success: true, xp_awarded: result.xpAwarded });
         } catch (e) {
           const errorMessage = e?.message || String(e) || 'Unknown error';
@@ -7540,20 +7361,20 @@ export default {
           } catch (parseError) {
             return json({ error: 'Failed to parse body as JSON', details: String(parseError) }, { status: 400 });
           }
-
+          
           const { user_id, type, card_id, film_id } = body;
           const userId = auth.userId || user_id;
-
+          
           if (!userId || !type) {
             return json({ error: 'Missing required parameters (user_id, type)' }, { status: 400 });
           }
-
+          
           if (type !== 'speaking' && type !== 'writing') {
             return json({ error: 'Invalid type. Must be "speaking" or "writing"' }, { status: 400 });
           }
-
+          
           const result = await trackAttempt(env, userId, type, card_id || null, film_id || null);
-
+          
           return json({ success: true, xp_awarded: result.xpAwarded });
         } catch (e) {
           const errorMessage = e?.message || String(e) || 'Unknown error';
@@ -7565,11 +7386,11 @@ export default {
       if (path === '/api/user/streak-history' && request.method === 'GET') {
         try {
           const userId = url.searchParams.get('user_id');
-
+          
           if (!userId) {
             return json({ error: 'Missing required parameter (user_id)' }, { status: 400 });
           }
-
+          
           // Get streak history (last 210 days to cover ~7 months for heatmap)
           const history = await env.DB.prepare(`
             SELECT streak_date, streak_achieved, streak_count
@@ -7578,7 +7399,7 @@ export default {
             ORDER BY streak_date DESC
             LIMIT 210
           `).bind(userId).all();
-
+          
           return json(history.results || []);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -7592,35 +7413,35 @@ export default {
           if (!auth.authenticated) {
             return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
           }
-
+          
           const userId = auth.userId;
-
+          
           // SRS Metrics
           const newCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total FROM user_card_states
             WHERE user_id = ? AND srs_state = 'new'
           `).bind(userId).first();
-
+          
           const againCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total FROM user_card_states
             WHERE user_id = ? AND srs_state = 'again'
           `).bind(userId).first();
-
+          
           const hardCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total FROM user_card_states
             WHERE user_id = ? AND srs_state = 'hard'
           `).bind(userId).first();
-
+          
           const goodCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total FROM user_card_states
             WHERE user_id = ? AND srs_state = 'good'
           `).bind(userId).first();
-
+          
           const easyCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total FROM user_card_states
             WHERE user_id = ? AND srs_state = 'easy'
           `).bind(userId).first();
-
+          
           const dueCardsResult = await env.DB.prepare(`
             SELECT COUNT(*) as total FROM user_card_states
             WHERE user_id = ? 
@@ -7630,7 +7451,7 @@ export default {
                 OR next_review_at <= (unixepoch() * 1000)
               )
           `).bind(userId).first();
-
+          
           // Average interval (in days) - only for cards with srs_state != 'none' and srs_interval > 0
           const avgIntervalResult = await env.DB.prepare(`
             SELECT AVG(srs_interval) as avg_interval
@@ -7639,16 +7460,16 @@ export default {
               AND srs_state != 'none'
               AND srs_interval > 0
           `).bind(userId).first();
-
+          
           const avgIntervalDays = avgIntervalResult?.avg_interval ? (avgIntervalResult.avg_interval / 24) : 0;
-
+          
           // Get user_scores first (needed for listening_sessions_count and time metrics)
           const scores = await getOrCreateUserScores(env, userId);
-
+          
           // Get reward_config by IDs for listening and reading
           const listeningRewardConfig = await getRewardConfigById(env, REWARD_CONFIG_IDS.LISTENING_5S);
           const readingRewardConfig = await getRewardConfigById(env, REWARD_CONFIG_IDS.READING_8S);
-
+          
           // Listening Metrics - Count XP transactions using reward_config_id (more precise than description)
           let listeningXPResult = { total_xp: 0 };
           if (listeningRewardConfig?.id) {
@@ -7658,7 +7479,7 @@ export default {
               WHERE user_id = ? AND reward_config_id = ?
             `).bind(userId, listeningRewardConfig.id).first();
           }
-
+          
           // Listening Count - use listening_sessions_count from user_scores if available, otherwise count XP transactions
           // Note: listening_sessions_count counts actual play events, while XP transactions count completed intervals
           const listeningCount = scores?.listening_sessions_count || 0;
@@ -7672,7 +7493,7 @@ export default {
             `).bind(userId, listeningRewardConfig.id).first();
             listeningCountValue = listeningCountResult?.total || 0;
           }
-
+          
           // Reading Metrics - Count XP transactions using reward_config_id (more precise than description)
           let readingXPResult = { total_xp: 0 };
           if (readingRewardConfig?.id) {
@@ -7682,14 +7503,14 @@ export default {
               WHERE user_id = ? AND reward_config_id = ?
             `).bind(userId, readingRewardConfig.id).first();
           }
-
+          
           // Review Count - sum of review_count from user_card_states (pointer hover > 2s)
           const reviewCountResult = await env.DB.prepare(`
             SELECT COALESCE(SUM(review_count), 0) as total
             FROM user_card_states
             WHERE user_id = ?
           `).bind(userId).first();
-
+          
           return json({
             srs_metrics: {
               new_cards: newCardsResult?.total || 0,
@@ -7724,12 +7545,12 @@ export default {
           if (!auth.authenticated) {
             return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
           }
-
+          
           const userId = auth.userId;
-
+          
           // Ensure user_scores exists
           await getOrCreateUserScores(env, userId);
-
+          
           // Increment listening_sessions_count
           await env.DB.prepare(`
             UPDATE user_scores
@@ -7737,15 +7558,15 @@ export default {
                 updated_at = unixepoch() * 1000
             WHERE user_id = ?
           `).bind(userId).run();
-
+          
           // Get updated count
           const updated = await env.DB.prepare(`
             SELECT listening_sessions_count FROM user_scores WHERE user_id = ?
           `).bind(userId).first();
-
-          return json({
-            success: true,
-            listening_sessions_count: updated?.listening_sessions_count || 0
+          
+          return json({ 
+            success: true, 
+            listening_sessions_count: updated?.listening_sessions_count || 0 
           });
         } catch (e) {
           console.error('Increment listening session error:', e);
@@ -7759,15 +7580,15 @@ export default {
           const userId = url.searchParams.get('user_id');
           const year = parseInt(url.searchParams.get('year') || '0');
           const month = parseInt(url.searchParams.get('month') || '0');
-
+          
           if (!userId || !year || !month || month < 1 || month > 12) {
             return json({ error: 'Missing or invalid parameters (user_id, year, month)' }, { status: 400 });
           }
-
+          
           // Calculate first and last day of month
           const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
           const lastDay = new Date(year, month, 0).toISOString().split('T')[0]; // Last day of month
-
+          
           // Get daily XP data for the month
           const stats = await env.DB.prepare(`
             SELECT stats_date, xp_earned
@@ -7777,13 +7598,13 @@ export default {
               AND stats_date <= ?
             ORDER BY stats_date ASC
           `).bind(userId, firstDay, lastDay).all();
-
+          
           // Create a map for quick lookup
           const statsMap = new Map();
           (stats.results || []).forEach((row) => {
             statsMap.set(row.stats_date, row.xp_earned || 0);
           });
-
+          
           // Generate all days in the month with XP data
           const daysInMonth = new Date(year, month, 0).getDate();
           const monthlyData = [];
@@ -7794,7 +7615,7 @@ export default {
               xp_earned: statsMap.get(dateStr) || 0
             });
           }
-
+          
           return json(monthlyData);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -7802,24 +7623,24 @@ export default {
       }
 
       // ==================== CONTENT STATS & LIKES ====================
-
+      
       // Get saved cards count for a user and film
       if (path === '/api/content/saved-cards-count' && request.method === 'GET') {
         try {
           const userId = url.searchParams.get('user_id');
           const filmId = url.searchParams.get('film_id');
-
+          
           if (!userId || !filmId) {
             return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
           }
-
+          
           // Count saved cards (cards with any SRS state except 'none')
           const result = await env.DB.prepare(`
             SELECT COUNT(*) as count
             FROM user_card_states
             WHERE user_id = ? AND film_id = ? AND srs_state != 'none'
           `).bind(userId, filmId).first();
-
+          
           return json({ count: result?.count || 0 });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -7830,18 +7651,18 @@ export default {
       if (path === '/api/content/like-count' && request.method === 'GET') {
         try {
           const filmId = url.searchParams.get('film_id');
-
+          
           if (!filmId) {
             return json({ error: 'Missing required parameter (film_id)' }, { status: 400 });
           }
-
+          
           // Get like count from denormalized table
           const result = await env.DB.prepare(`
             SELECT like_count
             FROM content_like_counts
             WHERE content_item_id = (SELECT id FROM content_items WHERE slug = ?)
           `).bind(filmId).first();
-
+          
           return json({ count: result?.like_count || 0 });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -7853,18 +7674,18 @@ export default {
         try {
           const userId = url.searchParams.get('user_id');
           const filmId = url.searchParams.get('film_id');
-
+          
           if (!userId || !filmId) {
             return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
           }
-
+          
           const result = await env.DB.prepare(`
             SELECT 1
             FROM content_likes
             WHERE user_id = ? AND content_item_id = (SELECT id FROM content_items WHERE slug = ?)
             LIMIT 1
           `).bind(userId, filmId).first();
-
+          
           return json({ liked: !!result });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -7876,31 +7697,31 @@ export default {
         try {
           const body = await request.json();
           const { user_id, film_id } = body;
-
+          
           if (!user_id || !film_id) {
             return json({ error: 'Missing required parameters (user_id, film_id)' }, { status: 400 });
           }
-
+          
           // Get content_item_id from slug
           const contentItem = await env.DB.prepare(`
             SELECT id FROM content_items WHERE slug = ?
           `).bind(film_id).first();
-
+          
           if (!contentItem) {
             return json({ error: 'Content not found' }, { status: 404 });
           }
-
+          
           const contentItemId = contentItem.id;
-
+          
           // Check if already liked
           const existing = await env.DB.prepare(`
             SELECT id FROM content_likes
             WHERE user_id = ? AND content_item_id = ?
             LIMIT 1
           `).bind(user_id, contentItemId).first();
-
+          
           let liked = false;
-
+          
           if (existing) {
             // Unlike: delete the like
             await env.DB.prepare(`
@@ -7908,7 +7729,7 @@ export default {
               WHERE user_id = ? AND content_item_id = ?
             `).bind(user_id, contentItemId).run();
             liked = false;
-
+            
             // Manually update like count (decrement)
             await env.DB.prepare(`
               UPDATE content_like_counts 
@@ -7923,7 +7744,7 @@ export default {
               VALUES (?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
             `).bind(likeId, user_id, contentItemId).run();
             liked = true;
-
+            
             // Manually update like count (increment)
             // First try to update existing row
             const updateResult = await env.DB.prepare(`
@@ -7931,7 +7752,7 @@ export default {
               SET like_count = like_count + 1, updated_at = unixepoch() * 1000
               WHERE content_item_id = ?
             `).bind(contentItemId).run();
-
+            
             // If no row was updated, insert a new one
             if (updateResult.changes === 0) {
               await env.DB.prepare(`
@@ -7940,13 +7761,13 @@ export default {
               `).bind(contentItemId).run();
             }
           }
-
+          
           // Get updated like count
           const countResult = await env.DB.prepare(`
             SELECT like_count FROM content_like_counts WHERE content_item_id = ?
           `).bind(contentItemId).first();
-
-          return json({
+          
+          return json({ 
             liked,
             like_count: countResult?.like_count || 0
           });
@@ -7956,36 +7777,36 @@ export default {
       }
 
       // ==================== EPISODE COMMENTS ====================
-
+      
       // Get comments for an episode
       if (path === '/api/episodes/comments' && request.method === 'GET') {
         try {
           const episodeSlug = url.searchParams.get('episode_slug');
           const filmSlug = url.searchParams.get('film_slug');
-
+          
           if (!episodeSlug || !filmSlug) {
             return json({ error: 'Missing required parameters: episode_slug, film_slug' }, { status: 400 });
           }
-
+          
           // Get content_item_id from film slug
           const filmRow = await env.DB.prepare(`
             SELECT id FROM content_items WHERE LOWER(slug) = LOWER(?)
           `).bind(filmSlug).first();
-
+          
           if (!filmRow) {
             return json({ error: 'Content not found' }, { status: 404 });
           }
-
+          
           // Get episode ID from slug and content_item_id
           const episodeRow = await env.DB.prepare(`
             SELECT id FROM episodes 
             WHERE slug = ? AND content_item_id = ?
           `).bind(episodeSlug, filmRow.id).first();
-
+          
           if (!episodeRow) {
             return json({ error: 'Episode not found' }, { status: 404 });
           }
-
+          
           // Get comments with user info, sorted by score (desc) then created_at (desc)
           const comments = await env.DB.prepare(`
             SELECT 
@@ -8004,49 +7825,49 @@ export default {
             WHERE ec.episode_id = ?
             ORDER BY ec.score DESC, ec.created_at DESC
           `).bind(episodeRow.id).all();
-
+          
           return json(comments.results || []);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Create a new comment
       if (path === '/api/episodes/comments' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { user_id, episode_slug, film_slug, text } = body;
-
+          
           if (!user_id || !episode_slug || !film_slug || !text) {
             return json({ error: 'Missing required parameters (user_id, episode_slug, film_slug, text)' }, { status: 400 });
           }
-
+          
           if (text.trim().length === 0 || text.length > 5000) {
             return json({ error: 'Comment text must be between 1 and 5000 characters' }, { status: 400 });
           }
-
+          
           // Get content_item_id from film slug
           const filmRow = await env.DB.prepare(`
             SELECT id FROM content_items WHERE LOWER(slug) = LOWER(?)
           `).bind(film_slug).first();
-
+          
           if (!filmRow) {
             return json({ error: 'Content not found' }, { status: 404 });
           }
-
+          
           // Get episode ID from slug and content_item_id
           const episode = await env.DB.prepare(`
             SELECT id FROM episodes WHERE slug = ? AND content_item_id = ?
           `).bind(episode_slug, filmRow.id).first();
-
+          
           if (!episode) {
             return json({ error: 'Episode not found' }, { status: 404 });
           }
-
+          
           // Create comment
           const commentId = crypto.randomUUID();
           const now = Date.now();
-
+          
           await env.DB.prepare(`
             INSERT INTO episode_comments (
               id, user_id, episode_id, content_item_id, text,
@@ -8054,7 +7875,7 @@ export default {
             )
             VALUES (?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
           `).bind(commentId, user_id, episode.id, filmRow.id, text.trim(), now, now).run();
-
+          
           // Get the created comment with user info
           const comment = await env.DB.prepare(`
             SELECT 
@@ -8072,46 +7893,46 @@ export default {
             JOIN users u ON ec.user_id = u.id
             WHERE ec.id = ?
           `).bind(commentId).first();
-
+          
           return json(comment);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Vote on a comment (upvote or downvote)
       if (path === '/api/episodes/comments/vote' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { user_id, comment_id, vote_type } = body;
-
+          
           if (!user_id || !comment_id || vote_type === undefined) {
             return json({ error: 'Missing required parameters (user_id, comment_id, vote_type)' }, { status: 400 });
           }
-
+          
           if (vote_type !== 1 && vote_type !== -1) {
             return json({ error: 'vote_type must be 1 (upvote) or -1 (downvote)' }, { status: 400 });
           }
-
+          
           // Check if comment exists
           const comment = await env.DB.prepare(`
             SELECT id, upvotes, downvotes FROM episode_comments WHERE id = ?
           `).bind(comment_id).first();
-
+          
           if (!comment) {
             return json({ error: 'Comment not found' }, { status: 404 });
           }
-
+          
           // Check if user already voted
           const existingVote = await env.DB.prepare(`
             SELECT id, vote_type FROM episode_comment_votes
             WHERE user_id = ? AND comment_id = ?
           `).bind(user_id, comment_id).first();
-
+          
           const now = Date.now();
           let newUpvotes = comment.upvotes || 0;
           let newDownvotes = comment.downvotes || 0;
-
+          
           if (existingVote) {
             // User already voted - update or remove vote
             if (existingVote.vote_type === vote_type) {
@@ -8120,7 +7941,7 @@ export default {
                 DELETE FROM episode_comment_votes
                 WHERE user_id = ? AND comment_id = ?
               `).bind(user_id, comment_id).run();
-
+              
               // Decrement the count
               if (vote_type === 1) {
                 newUpvotes = Math.max(0, newUpvotes - 1);
@@ -8134,7 +7955,7 @@ export default {
                 SET vote_type = ?, updated_at = ?
                 WHERE user_id = ? AND comment_id = ?
               `).bind(vote_type, now, user_id, comment_id).run();
-
+              
               // Adjust counts
               if (existingVote.vote_type === 1) {
                 // Was upvote, now downvote
@@ -8153,7 +7974,7 @@ export default {
               INSERT INTO episode_comment_votes (id, user_id, comment_id, vote_type, created_at, updated_at)
               VALUES (?, ?, ?, ?, ?, ?)
             `).bind(voteId, user_id, comment_id, vote_type, now, now).run();
-
+            
             // Increment the count
             if (vote_type === 1) {
               newUpvotes = newUpvotes + 1;
@@ -8161,23 +7982,23 @@ export default {
               newDownvotes = newDownvotes + 1;
             }
           }
-
+          
           // Calculate new score
           const newScore = newUpvotes - newDownvotes;
-
+          
           // Update comment scores
           await env.DB.prepare(`
             UPDATE episode_comments
             SET upvotes = ?, downvotes = ?, score = ?, updated_at = ?
             WHERE id = ?
           `).bind(newUpvotes, newDownvotes, newScore, now, comment_id).run();
-
+          
           // Get user's current vote status
           const userVote = await env.DB.prepare(`
             SELECT vote_type FROM episode_comment_votes
             WHERE user_id = ? AND comment_id = ?
           `).bind(user_id, comment_id).first();
-
+          
           return json({
             success: true,
             upvotes: newUpvotes,
@@ -8189,36 +8010,36 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Get user's vote status for comments
       if (path === '/api/episodes/comments/votes' && request.method === 'GET') {
         try {
           const userId = url.searchParams.get('user_id');
           const commentIds = url.searchParams.get('comment_ids');
-
+          
           if (!userId || !commentIds) {
             return json({ error: 'Missing required parameters (user_id, comment_ids)' }, { status: 400 });
           }
-
+          
           // Parse comment_ids (comma-separated)
           const ids = commentIds.split(',').filter(id => id.trim());
           if (ids.length === 0) {
             return json({});
           }
-
+          
           // Get all votes for these comments by this user
           const votes = await env.DB.prepare(`
             SELECT comment_id, vote_type
             FROM episode_comment_votes
             WHERE user_id = ? AND comment_id IN (${ids.map(() => '?').join(',')})
           `).bind(userId, ...ids).all();
-
+          
           // Convert to object: { comment_id: vote_type }
           const voteMap = {};
           (votes.results || []).forEach(vote => {
             voteMap[vote.comment_id] = vote.vote_type;
           });
-
+          
           return json(voteMap);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8226,23 +8047,23 @@ export default {
       }
 
       // ==================== USER MANAGEMENT ====================
-
+      
       // Register/Create user (upsert)
       if (path === '/api/users/register' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { id, email, display_name, photo_url, auth_provider } = body;
-
+          
           if (!id) {
             return json({ error: 'User ID is required' }, { status: 400 });
           }
-
+          
           const now = Date.now();
-
+          
           // Check if user is new
           const existingUser = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`).bind(id).first();
           const isNewUser = !existingUser;
-
+          
           // Upsert user
           await env.DB.prepare(`
             INSERT INTO users (id, email, display_name, photo_url, auth_provider, last_login_at, updated_at)
@@ -8257,7 +8078,7 @@ export default {
             id, email, display_name, photo_url, auth_provider || 'firebase', now, now,
             email, display_name, photo_url, now, now
           ).run();
-
+          
           // Assign role based on email whitelist
           if (email) {
             const adminEmails = [
@@ -8266,14 +8087,14 @@ export default {
               'nhungngth03@gmail.com'
             ];
             const superAdminEmail = 'tranminhquoc0711@gmail.com';
-
+            
             let assignedRole = 'user'; // default
             if (email === superAdminEmail) {
               assignedRole = 'superadmin';
             } else if (adminEmails.includes(email)) {
               assignedRole = 'admin';
             }
-
+            
             // Insert or update user role
             await env.DB.prepare(`
               INSERT INTO user_roles (user_id, role_name, granted_by, granted_at)
@@ -8287,7 +8108,7 @@ export default {
               VALUES (?, 'user', 'system', ?)
             `).bind(id, now).run();
           }
-
+          
           // Get user with preferences and role
           const user = await env.DB.prepare(`
             SELECT u.*, up.main_language, up.subtitle_languages, up.require_all_languages,
@@ -8298,60 +8119,60 @@ export default {
             WHERE u.id = ?
             GROUP BY u.id
           `).bind(id).first();
-
+          
           return json(user);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Update last login
       if (path === '/api/users/login' && request.method === 'POST') {
         try {
           const body = await request.json();
           const { user_id } = body;
-
+          
           if (!user_id) {
             return json({ error: 'User ID is required' }, { status: 400 });
           }
-
+          
           const now = Date.now();
           await env.DB.prepare(`
             UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?
           `).bind(now, now, user_id).run();
-
+          
           return json({ success: true, last_login_at: now });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Get user profile
       if (path.match(/^\/api\/users\/[^\/]+$/) && request.method === 'GET') {
         try {
           const userId = path.split('/').pop();
-
+          
           const user = await env.DB.prepare(`
             SELECT * FROM v_user_profiles WHERE id = ?
           `).bind(userId).first();
-
+          
           if (!user) {
             return json({ error: 'User not found' }, { status: 404 });
           }
-
+          
           return json(user);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Update user profile
       if (path.match(/^\/api\/users\/[^\/]+$/) && request.method === 'PUT') {
         try {
           const userId = path.split('/').pop();
           const body = await request.json();
           const { email, display_name, photo_url } = body;
-
+          
           const now = Date.now();
           await env.DB.prepare(`
             UPDATE users 
@@ -8361,33 +8182,33 @@ export default {
                 updated_at = ?
             WHERE id = ?
           `).bind(email, display_name, photo_url, now, userId).run();
-
+          
           const user = await env.DB.prepare(`
             SELECT * FROM v_user_profiles WHERE id = ?
           `).bind(userId).first();
-
+          
           return json(user);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Delete user (deactivate only - set is_active to false)
       if (path.match(/^\/api\/users\/[^\/]+$/) && request.method === 'DELETE') {
         try {
           const userId = path.split('/').pop();
-
+          
           const now = Date.now();
-
+          
           // Deactivate user instead of deleting
           const userResult = await env.DB.prepare(`
             UPDATE users SET is_active = 0, updated_at = ? WHERE id = ?
           `).bind(now, userId).run();
-
+          
           if (userResult.meta.changes === 0) {
             return json({ error: 'User not found' }, { status: 404 });
           }
-
+          
           return json({
             success: true,
             message: 'User deactivated successfully',
@@ -8405,16 +8226,16 @@ export default {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Get user preferences
       if (path.match(/^\/api\/users\/[^\/]+\/preferences$/) && request.method === 'GET') {
         try {
           const userId = path.split('/')[3];
-
+          
           let prefs = await env.DB.prepare(`
             SELECT * FROM user_preferences WHERE user_id = ?
           `).bind(userId).first();
-
+          
           // Create default preferences if not exist
           if (!prefs) {
             const now = Date.now();
@@ -8422,35 +8243,35 @@ export default {
               INSERT INTO user_preferences (user_id, created_at, updated_at)
               VALUES (?, ?, ?)
             `).bind(userId, now, now).run();
-
+            
             prefs = await env.DB.prepare(`
               SELECT * FROM user_preferences WHERE user_id = ?
             `).bind(userId).first();
           }
-
+          
           return json(prefs);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Update user preferences
       if (path.match(/^\/api\/users\/[^\/]+\/preferences$/) && request.method === 'PUT') {
         try {
           const userId = path.split('/')[3];
           const body = await request.json();
-
+          
           const now = Date.now();
-
+          
           // Convert array to JSON string if needed
-          const subLangsJson = Array.isArray(body.subtitle_languages)
-            ? JSON.stringify(body.subtitle_languages)
+          const subLangsJson = Array.isArray(body.subtitle_languages) 
+            ? JSON.stringify(body.subtitle_languages) 
             : body.subtitle_languages;
-
+          
           // Build update fields dynamically to avoid undefined values
           const updates = [];
           const updateValues = [];
-
+          
           if (body.main_language !== undefined) {
             updates.push('main_language = ?');
             updateValues.push(body.main_language);
@@ -8487,16 +8308,16 @@ export default {
             updates.push('show_romanization = ?');
             updateValues.push(body.show_romanization);
           }
-
+          
           // Always update timestamp
           updates.push('updated_at = ?');
           updateValues.push(now);
-
+          
           // Check if preferences exist
           const existing = await env.DB.prepare(`
             SELECT id FROM user_preferences WHERE user_id = ?
           `).bind(userId).first();
-
+          
           if (existing) {
             // Update existing preferences
             if (updates.length > 1) { // More than just updated_at
@@ -8513,36 +8334,36 @@ export default {
               )
               VALUES (?, ?, ?, ?, ?, ?, ?)
             `).bind(
-              userId,
+              userId, 
               body.main_language || 'en',
               subLangsJson || '["en"]',
               body.require_all_languages ?? 0,
               body.auto_play ?? 1,
-              now,
+              now, 
               now
             ).run();
           }
-
+          
           const prefs = await env.DB.prepare(`
             SELECT * FROM user_preferences WHERE user_id = ?
           `).bind(userId).first();
-
+          
           return json(prefs);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
-
+      
+      
       // Get user statistics
       if (path.match(/^\/api\/users\/[^\/]+\/stats$/) && request.method === 'GET') {
         try {
           const userId = path.split('/')[3];
-
+          
           const stats = await env.DB.prepare(`
             SELECT * FROM v_user_stats WHERE user_id = ?
           `).bind(userId).first();
-
+          
           return json(stats || {});
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8555,25 +8376,25 @@ export default {
           const users = await env.DB.prepare(`
             SELECT * FROM v_user_profiles ORDER BY created_at DESC
           `).all();
-
+          
           return json(users.results || []);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
       }
-
+      
       // Get user roles
       if (path.match(/^\/api\/users\/[^\/]+\/roles$/) && request.method === 'GET') {
         try {
           const userId = path.split('/')[3];
-
+          
           const roles = await env.DB.prepare(`
             SELECT ur.role_name, r.description, r.permissions
             FROM user_roles ur
             JOIN roles r ON ur.role_name = r.name
             WHERE ur.user_id = ?
           `).bind(userId).all();
-
+          
           return json(roles.results || []);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8584,14 +8405,14 @@ export default {
       if (path.match(/^\/api\/users\/[^\/]+\/progress$/) && request.method === 'GET') {
         try {
           const userId = path.split('/')[3];
-
+          
           // Get all episode stats for this user
           const episodeStats = await env.DB.prepare(`
             SELECT * FROM user_episode_stats 
             WHERE user_id = ? 
             ORDER BY last_completed_at DESC
           `).bind(userId).all();
-
+          
           // Get recent card completions
           const recentCards = await env.DB.prepare(`
             SELECT * FROM user_progress 
@@ -8599,7 +8420,7 @@ export default {
             ORDER BY completed_at DESC 
             LIMIT 100
           `).bind(userId).all();
-
+          
           return json({
             episode_stats: episodeStats.results || [],
             recent_cards: recentCards.results || []
@@ -8623,20 +8444,397 @@ export default {
             'user_preferences',
             'user_study_sessions',
             'user_progress',
-            'user_episode_stats'
+            'user_episode_stats',
+            'content_items',
+            'episodes',
+            'cards',
+            'card_subtitles',
+            // card_subtitles_fts removed - no longer needed
+            'search_terms',
+            'card_difficulty_levels'
           ];
-
+          
           const stats = {};
-
+          
           for (const table of tables) {
-            const result = await env.DB.prepare(`SELECT COUNT(*) as count FROM ${table}`).first();
-            stats[table] = result?.count || 0;
+            try {
+              const result = await env.DB.prepare(`SELECT COUNT(*) as count FROM ${table}`).first();
+              stats[table] = result?.count || 0;
+            } catch (e) {
+              stats[table] = `Error: ${e.message}`;
+            }
           }
-
+          
           return json(stats);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
+      }
+
+      // Get detailed database size and table size analysis (superadmin only)
+      if (path === '/api/admin/database-size-analysis' && request.method === 'GET') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          // Check if user is superadmin
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+
+          // Try to fetch actual database size from Cloudflare GraphQL Analytics API
+          // This requires CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to be set as secrets
+          let actualDatabaseSizeBytes = null;
+          let actualDatabaseSizeGB = null;
+          let actualDatabaseSizeMB = null;
+          
+          try {
+            const apiToken = env.CLOUDFLARE_API_TOKEN;
+            const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+            const databaseId = 'a60ee761-1d16-4dff-9ba0-fa7abdd11320'; // From wrangler.toml
+            
+            if (apiToken && accountId) {
+              // Use Cloudflare GraphQL Analytics API to get actual database size
+              // Reference: https://developers.cloudflare.com/analytics/graphql-api/
+              const graphqlQuery = JSON.stringify({
+                query: `query {
+                  viewer {
+                    accounts(filter: {accountTag: "${accountId}"}) {
+                      d1DatabaseStorageAdaptiveGroups(
+                        filter: {
+                          databaseId: "${databaseId}"
+                        }
+                        limit: 1
+                        orderBy: [datetime_DESC]
+                      ) {
+                        dimensions {
+                          databaseId
+                          datetime
+                        }
+                        sum {
+                          databaseSizeBytes
+                        }
+                      }
+                    }
+                  }
+                }`
+              });
+              
+              const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${apiToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: graphqlQuery
+              });
+              
+              if (response.ok) {
+                const data = await response.json();
+                // Navigate through GraphQL response structure
+                const accounts = data?.data?.viewer?.accounts;
+                if (accounts && accounts.length > 0) {
+                  const groups = accounts[0]?.d1DatabaseStorageAdaptiveGroups;
+                  if (groups && groups.length > 0) {
+                    const latest = groups[0]; // Most recent (DESC order)
+                    actualDatabaseSizeBytes = latest.sum?.databaseSizeBytes;
+                    if (actualDatabaseSizeBytes && typeof actualDatabaseSizeBytes === 'number') {
+                      actualDatabaseSizeMB = actualDatabaseSizeBytes / (1024 * 1024);
+                      actualDatabaseSizeGB = actualDatabaseSizeMB / 1024;
+                      console.log(`[WORKER] Fetched actual DB size from Cloudflare API: ${actualDatabaseSizeGB.toFixed(2)} GB`);
+                    }
+                  }
+                }
+              } else {
+                const errorText = await response.text();
+                console.warn('[WORKER] Failed to fetch from Cloudflare GraphQL API:', response.status, errorText);
+              }
+            } else {
+              console.log('[WORKER] CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not set, using estimation');
+            }
+          } catch (e) {
+            console.warn('[WORKER] Error fetching from Cloudflare GraphQL API:', e.message);
+            // Continue with estimation if API call fails
+          }
+
+          // Note: D1 doesn't support PRAGMA commands, so we'll estimate based on table row counts
+          // We'll calculate total estimated size from all tables
+
+          // Get ALL tables and views from the database separately
+          // Cloudflare D1 counts tables and views separately
+          const allObjectsResult = await env.DB.prepare(`
+            SELECT name, type 
+            FROM sqlite_master 
+            WHERE type IN ('table', 'view')
+            AND name NOT LIKE 'sqlite_%'
+            AND name NOT LIKE '_cf_%'
+            AND name NOT LIKE '%_fts_content'
+            AND name NOT LIKE '%_fts_docsize'
+            AND name NOT LIKE '%_fts_data'
+            AND name NOT LIKE '%_fts_idx'
+            AND name NOT LIKE '%_fts_config'
+            ORDER BY type, name
+          `).all();
+          
+          const allObjects = allObjectsResult.results || [];
+          
+          // Separate tables and views
+          const allTables = allObjects.filter(obj => obj.type === 'table');
+          const allViews = allObjects.filter(obj => obj.type === 'view');
+          
+          // Filter out FTS5 shadow tables and Cloudflare internal tables
+          // Only count actual user tables (not views, not internal tables)
+          const filteredTables = allTables.filter(table => {
+            const name = table.name;
+            // Skip Cloudflare internal tables
+            if (name.startsWith('_cf_')) return false;
+            // Skip FTS5 shadow tables (these are internal to FTS5 virtual tables)
+            if (name.includes('_fts_content') || 
+                name.includes('_fts_docsize') || 
+                name.includes('_fts_data') || 
+                name.includes('_fts_idx') ||
+                name.includes('_fts_config')) {
+              return false;
+            }
+            // Only count actual tables (type = 'table')
+            return table.type === 'table';
+          });
+          
+          // Filter views similarly
+          const filteredViews = allViews.filter(view => {
+            const name = view.name;
+            if (name.startsWith('_cf_')) return false;
+            if (name.includes('_fts_content') || 
+                name.includes('_fts_docsize') || 
+                name.includes('_fts_data') || 
+                name.includes('_fts_idx') ||
+                name.includes('_fts_config')) {
+              return false;
+            }
+            return view.type === 'view';
+          });
+          
+          // Define critical tables and their avg row sizes (more accurate estimates)
+          // FTS5 removed - no longer needed
+          const tableConfig = {
+            'search_terms': { avgRowSize: 50, type: 'Regular', critical: true, multiplier: 1.0 },
+            'card_subtitles': { avgRowSize: 250, type: 'Regular', critical: true, multiplier: 1.0 }, // Increased for accurate size estimation (includes text data)
+            'cards': { avgRowSize: 100, type: 'Regular', critical: true, multiplier: 1.0 },
+            'user_progress': { avgRowSize: 80, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_episode_stats': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'content_items': { avgRowSize: 200, type: 'Regular', critical: false, multiplier: 1.0 },
+            'episodes': { avgRowSize: 150, type: 'Regular', critical: false, multiplier: 1.0 },
+            'users': { avgRowSize: 150, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_preferences': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_favorites': { avgRowSize: 50, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_study_sessions': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_card_states': { avgRowSize: 80, type: 'Regular', critical: false, multiplier: 1.0 },
+            'card_difficulty_levels': { avgRowSize: 60, type: 'Regular', critical: false, multiplier: 1.0 },
+            'content_item_languages': { avgRowSize: 30, type: 'Regular', critical: false, multiplier: 1.0 },
+            'card_subtitle_language_map': { avgRowSize: 40, type: 'Regular', critical: false, multiplier: 1.0 },
+            'card_subtitle_languages': { avgRowSize: 40, type: 'Regular', critical: false, multiplier: 1.0 }, // Alias or variant name
+            'reference_word_frequency': { avgRowSize: 80, type: 'Regular', critical: false, multiplier: 1.0 },
+            'categories': { avgRowSize: 50, type: 'Regular', critical: false, multiplier: 1.0 },
+            'content_item_categories': { avgRowSize: 30, type: 'Regular', critical: false, multiplier: 1.0 },
+            'content_likes': { avgRowSize: 40, type: 'Regular', critical: false, multiplier: 1.0 },
+            'content_like_counts': { avgRowSize: 50, type: 'Regular', critical: false, multiplier: 1.0 },
+            'episode_comments': { avgRowSize: 150, type: 'Regular', critical: false, multiplier: 1.0 },
+            'episode_comment_votes': { avgRowSize: 40, type: 'Regular', critical: false, multiplier: 1.0 },
+            'auth_providers': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_logins': { avgRowSize: 150, type: 'Regular', critical: false, multiplier: 1.0 },
+            'roles': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_roles': { avgRowSize: 40, type: 'Regular', critical: false, multiplier: 1.0 },
+            'srs_base_intervals': { avgRowSize: 50, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_scores': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_daily_activity': { avgRowSize: 80, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_streak_history': { avgRowSize: 60, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_daily_stats': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'rewards_config': { avgRowSize: 150, type: 'Regular', critical: false, multiplier: 1.0 },
+            'xp_transactions': { avgRowSize: 80, type: 'Regular', critical: false, multiplier: 1.0 },
+            'coin_transactions': { avgRowSize: 80, type: 'Regular', critical: false, multiplier: 1.0 },
+            'challenge_types': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'challenges': { avgRowSize: 150, type: 'Regular', critical: false, multiplier: 1.0 },
+            'user_challenge_progress': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 },
+            'system_configs': { avgRowSize: 100, type: 'Regular', critical: false, multiplier: 1.0 }
+          };
+
+          // Get table sizes (approximate using row counts and average row size)
+          const tableAnalysis = [];
+          let totalEstimatedSizeMB = 0;
+          
+          for (const tableRow of filteredTables) {
+            const tableName = tableRow.name;
+            // Use higher default avgRowSize for unknown tables to avoid underestimation
+            // Default assumes average table has some text/data columns
+            const config = tableConfig[tableName] || { avgRowSize: 120, type: 'Regular', critical: false, multiplier: 1.0 };
+            
+            try {
+              const countResult = await env.DB.prepare(`SELECT COUNT(*) as count FROM ${tableName}`).first();
+              const count = countResult?.count || 0;
+              
+              // Calculate estimated size with multiplier
+              const estimatedSize = count * config.avgRowSize * config.multiplier;
+              const estimatedSizeMB = estimatedSize / (1024 * 1024);
+              const estimatedSizeGB = estimatedSizeMB / 1024;
+              
+              totalEstimatedSizeMB += estimatedSizeMB;
+              
+              tableAnalysis.push({
+                name: tableName,
+                type: config.type,
+                critical: config.critical,
+                rowCount: count,
+                estimatedSizeMB: Math.round(estimatedSizeMB * 100) / 100,
+                estimatedSizeGB: Math.round(estimatedSizeGB * 100) / 100
+              });
+            } catch (e) {
+              // Skip views or tables we can't query, but still include them in the list
+              if (!e.message.includes('no such table') && !e.message.includes('no such view')) {
+                tableAnalysis.push({
+                  name: tableName,
+                  type: config.type,
+                  critical: config.critical,
+                  error: e.message,
+                  rowCount: 0,
+                  estimatedSizeMB: 0,
+                  estimatedSizeGB: 0
+                });
+              }
+            }
+          }
+
+          // Calculate total database size from table estimates
+          // Add 90% overhead (1.9x multiplier) for indexes, metadata, fragmentation, etc.
+          // D1 databases have significant overhead beyond raw table data
+          // Cloudflare reports actual storage used, which includes all overhead
+          // This overhead accounts for:
+          // - Indexes on all tables (PRIMARY KEY, FOREIGN KEY, UNIQUE indexes)
+          // - SQLite internal metadata and schema information
+          // - Page fragmentation and free space
+          // - WAL (Write-Ahead Logging) overhead
+          const totalEstimatedSizeGB = (totalEstimatedSizeMB / 1024) * 1.9;
+
+          // Check for potential duplicates in search_terms
+          let duplicateInfo = null;
+          try {
+            const duplicateCheck = await env.DB.prepare(`
+              SELECT 
+                COUNT(*) as total_rows,
+                COUNT(DISTINCT term || '|' || language) as unique_rows,
+                COUNT(*) - COUNT(DISTINCT term || '|' || language) as duplicates
+              FROM search_terms
+            `).first();
+            duplicateInfo = {
+              totalRows: duplicateCheck?.total_rows || 0,
+              uniqueRows: duplicateCheck?.unique_rows || 0,
+              duplicates: duplicateCheck?.duplicates || 0
+            };
+          } catch (e) {
+            duplicateInfo = { error: e.message };
+          }
+
+          // FTS5 removed - no longer needed
+
+          // Use actual size from Cloudflare API if available, otherwise use estimation
+          const finalSizeGB = actualDatabaseSizeGB !== null ? actualDatabaseSizeGB : totalEstimatedSizeGB;
+          const finalSizeMB = actualDatabaseSizeMB !== null ? actualDatabaseSizeMB : (totalEstimatedSizeMB * 1.9);
+          const isActualSize = actualDatabaseSizeBytes !== null;
+          
+          return json({
+            database: {
+              pageCount: null, // Not available in D1
+              pageSizeBytes: null, // Not available in D1
+              actualSizeBytes: actualDatabaseSizeBytes, // Actual size from Cloudflare API (if available)
+              actualSizeMB: actualDatabaseSizeMB, // Actual size in MB (if available)
+              actualSizeGB: actualDatabaseSizeGB, // Actual size in GB (if available)
+              estimatedSizeMB: Math.round(totalEstimatedSizeMB * 1.9 * 100) / 100, // Estimated size with overhead
+              estimatedSizeGB: Math.round(totalEstimatedSizeGB * 100) / 100, // Estimated size with overhead
+              sizeMB: Math.round(finalSizeMB * 100) / 100, // Final size to display (actual or estimated)
+              sizeGB: Math.round(finalSizeGB * 100) / 100, // Final size to display (actual or estimated)
+              isActualSize: isActualSize, // Flag to indicate if this is actual size from Cloudflare API
+              maxSizeGB: 10,
+              usagePercent: Math.round((finalSizeGB / 10) * 100 * 100) / 100,
+              totalTables: filteredTables.length, // Include total table count (only actual tables, not views)
+              totalViews: filteredViews.length, // Include total view count
+              rawDataSizeMB: Math.round(totalEstimatedSizeMB * 100) / 100, // Raw data size without overhead (estimated)
+              overheadMB: actualDatabaseSizeMB !== null 
+                ? Math.round((actualDatabaseSizeMB - totalEstimatedSizeMB) * 100) / 100 // Actual overhead if we have actual size
+                : Math.round(totalEstimatedSizeMB * 0.9 * 100) / 100 // Estimated overhead (90% of raw data)
+            },
+            tables: tableAnalysis.sort((a, b) => (b.estimatedSizeMB || 0) - (a.estimatedSizeMB || 0)),
+            analysis: {
+              search_terms: duplicateInfo
+            },
+            recommendations: generateOptimizationRecommendations(tableAnalysis, duplicateInfo, totalEstimatedSizeGB)
+          });
+        } catch (e) {
+          console.error('[WORKER /api/admin/database-size-analysis] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Helper function to generate optimization recommendations
+      function generateOptimizationRecommendations(tables, duplicateInfo, dbSizeGB) {
+        const recommendations = [];
+        
+        // Check if search_terms has duplicates
+        if (duplicateInfo && duplicateInfo.duplicates > 0) {
+          recommendations.push({
+            priority: 'HIGH',
+            action: 'Clean duplicate search_terms',
+            description: `Found ${duplicateInfo.duplicates.toLocaleString()} duplicate rows in search_terms table. Run cleanup to remove duplicates.`,
+            estimatedSavingsMB: Math.round((duplicateInfo.duplicates * 50 / (1024 * 1024)) * 100) / 100
+          });
+        }
+
+        // Check search_terms size - always show if database is over limit or search_terms > 0.2GB
+        const searchTermsTable = tables.find(t => t.name === 'search_terms');
+        if (searchTermsTable) {
+          const shouldOptimize = dbSizeGB > 10 || searchTermsTable.estimatedSizeGB > 0.2;
+          if (shouldOptimize) {
+            const priority = dbSizeGB > 10 ? 'CRITICAL' : 'MEDIUM';
+            recommendations.push({
+              priority: priority,
+              action: 'Optimize search_terms',
+              description: `search_terms table is ${searchTermsTable.estimatedSizeGB.toFixed(2)}GB with ${searchTermsTable.rowCount.toLocaleString()} rows. Remove low-frequency terms (frequency < 2 or 3) to reduce size.`,
+              estimatedSavingsMB: Math.round(searchTermsTable.estimatedSizeGB * 0.3 * 1024)
+            });
+          }
+        }
+
+        // FTS5 removed - no longer needed
+
+        // Check user_progress size
+        const userProgressTable = tables.find(t => t.name === 'user_progress');
+        if (userProgressTable && userProgressTable.estimatedSizeGB > 0.5) {
+          recommendations.push({
+            priority: 'LOW',
+            action: 'Archive old user_progress',
+            description: `user_progress table is ${userProgressTable.estimatedSizeGB.toFixed(2)}GB. Consider archiving progress older than 1 year.`,
+            estimatedSavingsMB: Math.round(userProgressTable.estimatedSizeGB * 0.5 * 1024)
+          });
+        }
+
+        // Overall database size warning
+        if (dbSizeGB > 10) {
+          recommendations.push({
+            priority: 'CRITICAL',
+            action: 'Database exceeded limit',
+            description: `Database is ${dbSizeGB.toFixed(2)}GB (${Math.round((dbSizeGB / 10) * 100)}% of 10GB limit). IMMEDIATE ACTION REQUIRED! Optimize search_terms and other tables below.`,
+            estimatedSavingsMB: 0
+          });
+        } else if (dbSizeGB > 8) {
+          recommendations.push({
+            priority: 'CRITICAL',
+            action: 'Database approaching limit',
+            description: `Database is ${dbSizeGB.toFixed(2)}GB (${Math.round((dbSizeGB / 10) * 100)}% of 10GB limit). Immediate action required.`,
+            estimatedSavingsMB: 0
+          });
+        }
+
+        return recommendations;
       }
 
       // Get table data (superadmin only)
@@ -8645,22 +8843,22 @@ export default {
           const tableName = path.split('/')[4];
           const url = new URL(request.url);
           const limit = parseInt(url.searchParams.get('limit') || '100', 10);
-
+          
           // Whitelist of allowed tables
           const allowedTables = [
             'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
             'user_preferences', 'user_study_sessions',
             'user_progress', 'user_episode_stats'
           ];
-
+          
           if (!allowedTables.includes(tableName)) {
             return json({ error: 'Invalid table name' }, { status: 400 });
           }
-
+          
           const result = await env.DB.prepare(
             `SELECT * FROM ${tableName} LIMIT ?`
           ).bind(limit).all();
-
+          
           return json(result.results || []);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8674,50 +8872,50 @@ export default {
           const tableName = parts[4];
           const recordId = parts[5];
           const body = await request.json();
-
+          
           // Whitelist of allowed tables
           const allowedTables = [
             'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
             'user_preferences', 'user_study_sessions',
             'user_progress', 'user_episode_stats'
           ];
-
+          
           if (!allowedTables.includes(tableName)) {
             return json({ error: 'Invalid table name' }, { status: 400 });
           }
-
+          
           // Build UPDATE query dynamically
-          const fieldsToUpdate = Object.keys(body).filter(key =>
+          const fieldsToUpdate = Object.keys(body).filter(key => 
             key !== 'id' && key !== 'uid' && key !== 'created_at' // Don't update primary keys or created_at
           );
-
+          
           if (fieldsToUpdate.length === 0) {
             return json({ error: 'No fields to update' }, { status: 400 });
           }
-
+          
           const setClause = fieldsToUpdate.map(key => `${key} = ?`).join(', ');
           const values = fieldsToUpdate.map(key => body[key]);
-
+          
           // Determine primary key column (id or uid)
           let primaryKeyColumn = 'id';
-          if (tableName === 'users' || tableName === 'user_logins' || tableName === 'user_roles' ||
-            tableName === 'user_preferences' || tableName === 'user_study_sessions' ||
-            tableName === 'user_progress' || tableName === 'user_episode_stats') {
+          if (tableName === 'users' || tableName === 'user_logins' || tableName === 'user_roles' || 
+              tableName === 'user_preferences' || tableName === 'user_study_sessions' || 
+              tableName === 'user_progress' || tableName === 'user_episode_stats') {
             // Check if uid exists for this table
-            const hasUid = ['users', 'user_logins', 'user_roles', 'user_preferences',
-              'user_study_sessions', 'user_progress',
-              'user_episode_stats'].includes(tableName);
+            const hasUid = ['users', 'user_logins', 'user_roles', 'user_preferences', 
+                           'user_study_sessions', 'user_progress', 
+                           'user_episode_stats'].includes(tableName);
             if (hasUid && body.uid) {
               primaryKeyColumn = 'uid';
             }
           }
-
+          
           const updateQuery = `UPDATE ${tableName} SET ${setClause}, updated_at = ? WHERE ${primaryKeyColumn} = ?`;
           values.push(Date.now());
           values.push(recordId);
-
+          
           await env.DB.prepare(updateQuery).bind(...values).run();
-
+          
           return json({ success: true });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8730,29 +8928,29 @@ export default {
           const parts = path.split('/');
           const tableName = parts[4];
           const recordId = parts[5];
-
+          
           // Whitelist of allowed tables
           const allowedTables = [
             'users', 'auth_providers', 'user_logins', 'roles', 'user_roles',
             'user_preferences', 'user_study_sessions',
             'user_progress', 'user_episode_stats'
           ];
-
+          
           if (!allowedTables.includes(tableName)) {
             return json({ error: 'Invalid table name' }, { status: 400 });
           }
-
+          
           // Determine primary key column (id or uid)
           let primaryKeyColumn = 'id';
-          if (['users', 'user_logins', 'user_roles', 'user_preferences',
-            'user_study_sessions', 'user_progress',
-            'user_episode_stats'].includes(tableName)) {
+          if (['users', 'user_logins', 'user_roles', 'user_preferences', 
+               'user_study_sessions', 'user_progress', 
+               'user_episode_stats'].includes(tableName)) {
             primaryKeyColumn = 'uid';
           }
-
+          
           const deleteQuery = `DELETE FROM ${tableName} WHERE ${primaryKeyColumn} = ?`;
           await env.DB.prepare(deleteQuery).bind(recordId).run();
-
+          
           return json({ success: true });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8764,48 +8962,48 @@ export default {
         try {
           const body = await request.json();
           const { adminEmails, requesterId } = body;
-
+          
           if (!adminEmails || !Array.isArray(adminEmails)) {
             return json({ error: 'adminEmails array is required' }, { status: 400 });
           }
-
+          
           // Check if requester is already an admin
           const requester = await env.DB.prepare(`
             SELECT is_admin, role FROM users WHERE id = ?
           `).bind(requesterId).first();
-
+          
           if (!requester || (!requester.is_admin && requester.role !== 'admin')) {
             return json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
           }
-
+          
           const now = Date.now();
           let syncedCount = 0;
           let skippedCount = 0;
-
+          
           for (const email of adminEmails) {
             // Find user by email
             const user = await env.DB.prepare(`
               SELECT id, is_admin, role FROM users WHERE email = ?
             `).bind(email).first();
-
+            
             if (user) {
               // Update user to admin
               await env.DB.prepare(`
                 UPDATE users SET is_admin = 1, role = 'admin', updated_at = ? WHERE id = ?
               `).bind(now, user.id).run();
-
+              
               // Add admin role to user_roles if not exists
               await env.DB.prepare(`
                 INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
                 VALUES (?, 'admin', ?, ?)
               `).bind(user.id, requesterId, now).run();
-
+              
               syncedCount++;
             } else {
               skippedCount++;
             }
           }
-
+          
           return json({
             success: true,
             synced: syncedCount,
@@ -8821,7 +9019,7 @@ export default {
       if (path.match(/^\/api\/users\/[^\/]+\/roles$/) && request.method === 'GET') {
         try {
           const userId = path.split('/')[3];
-
+          
           const roles = await env.DB.prepare(`
             SELECT ur.*, r.description, r.permissions
             FROM user_roles ur
@@ -8830,7 +9028,7 @@ export default {
             AND (ur.expires_at IS NULL OR ur.expires_at > ?)
             ORDER BY ur.granted_at DESC
           `).bind(userId, Date.now()).all();
-
+          
           return json(roles.results || []);
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8841,13 +9039,13 @@ export default {
       if (path.match(/^\/api\/admin\/user-roles\/[^\/]+$/) && request.method === 'GET') {
         try {
           const userId = path.split('/')[4];
-
+          
           const roles = await env.DB.prepare(`
             SELECT role_name FROM user_roles WHERE user_id = ?
           `).bind(userId).all();
-
+          
           const roleNames = roles.results?.map(r => r.role_name) || [];
-
+          
           return json({ roles: roleNames });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
@@ -8861,17 +9059,17 @@ export default {
           if (!auth.authenticated) {
             return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
           }
-
+          
           // Check if user is superadmin
           if (!auth.roles.includes('superadmin')) {
             return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
           }
-
+          
           const configs = await env.DB.prepare(`
             SELECT * FROM rewards_config
             ORDER BY action_type ASC
           `).all();
-
+          
           return json({ configs: configs.results || [] });
         } catch (e) {
           console.error('Get rewards config error:', e);
@@ -8886,7 +9084,7 @@ export default {
           if (!auth.authenticated) {
             return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
           }
-
+          
           // Check if user is superadmin
           if (!auth.roles.includes('superadmin')) {
             return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
@@ -8918,7 +9116,7 @@ export default {
           `).bind(batchSize, offset).all();
 
           if (!subtitles.results || subtitles.results.length === 0) {
-            return json({
+            return json({ 
               message: 'No more subtitles to process',
               processed: 0,
               total: total || offset, // Use total if available, otherwise use offset as fallback
@@ -8943,7 +9141,7 @@ export default {
           // D1's batch() automatically runs in a transaction, no need for BEGIN/COMMIT
           let inserted = 0;
           const insertStmts = [];
-
+          
           for (const [key, frequency] of termMap.entries()) {
             const [term, language] = key.split(':');
             insertStmts.push(env.DB.prepare(`
@@ -8966,7 +9164,7 @@ export default {
 
           const newOffset = offset + subtitles.results.length;
           const hasMore = subtitles.results.length === batchSize;
-
+          
           return json({
             message: 'Batch processed successfully',
             processed: subtitles.results.length,
@@ -8981,6 +9179,97 @@ export default {
         }
       }
 
+      // Cleanup duplicate search_terms (SuperAdmin only)
+      if (path === '/api/admin/cleanup-search-terms' && request.method === 'POST') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+
+          const body = await request.json().catch(() => ({}));
+          const minFrequency = parseInt(body.minFrequency || '1', 10);
+
+          // Step 1: Remove duplicates by keeping only the highest frequency entry
+          const dedupeResult = await env.DB.prepare(`
+            DELETE FROM search_terms
+            WHERE id NOT IN (
+              SELECT MIN(id)
+              FROM search_terms
+              GROUP BY term, language
+            )
+          `).run();
+
+          // Step 2: Optionally remove low-frequency terms
+          let lowFreqRemoved = 0;
+          if (minFrequency > 1) {
+            const removeResult = await env.DB.prepare(`
+              DELETE FROM search_terms
+              WHERE frequency < ?
+            `).bind(minFrequency).run();
+            lowFreqRemoved = removeResult.meta?.changes || 0;
+          }
+
+          // Get final count
+          const finalCount = await env.DB.prepare('SELECT COUNT(*) as count FROM search_terms').first();
+
+          return json({
+            message: 'Cleanup completed successfully',
+            duplicatesRemoved: dedupeResult.meta?.changes || 0,
+            lowFrequencyRemoved: lowFreqRemoved,
+            remainingRows: finalCount?.count || 0
+          });
+        } catch (e) {
+          console.error('[WORKER /api/admin/cleanup-search-terms] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Optimize search_terms by removing low-frequency terms (SuperAdmin only)
+      if (path === '/api/admin/optimize-search-terms' && request.method === 'POST') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+          
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+
+          const body = await request.json().catch(() => ({}));
+          const minFrequency = Math.max(parseInt(body.minFrequency || '2', 10), 1);
+
+          // Remove terms with frequency below threshold
+          const result = await env.DB.prepare(`
+            DELETE FROM search_terms
+            WHERE frequency < ?
+          `).bind(minFrequency).run();
+
+          const removed = result.meta?.changes || 0;
+
+          // Get final count
+          const finalCount = await env.DB.prepare('SELECT COUNT(*) as count FROM search_terms').first();
+
+          return json({
+            message: 'Optimization completed successfully',
+            removedRows: removed,
+            remainingRows: finalCount?.count || 0,
+            minFrequency
+          });
+        } catch (e) {
+          console.error('[WORKER /api/admin/optimize-search-terms] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // FTS5 endpoints completely removed - FTS5 table dropped to save 6GB
+      // Search now uses LIKE queries on card_subtitles table with autocomplete from search_terms
+
       // Update rewards config - SuperAdmin only
       if (path === '/api/admin/rewards-config' && request.method === 'PUT') {
         try {
@@ -8988,73 +9277,73 @@ export default {
           if (!auth.authenticated) {
             return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
           }
-
+          
           // Check if user is superadmin
           if (!auth.roles.includes('superadmin')) {
             return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
           }
-
+          
           const body = await request.json();
           const { id, xp_amount, coin_amount, interval_seconds, description } = body;
-
+          
           if (!id) {
             return json({ error: 'id is required' }, { status: 400 });
           }
-
+          
           // Validate numeric fields
           if (xp_amount !== undefined && (typeof xp_amount !== 'number' || xp_amount < 0)) {
             return json({ error: 'xp_amount must be a non-negative number' }, { status: 400 });
           }
-
+          
           if (coin_amount !== undefined && (typeof coin_amount !== 'number' || coin_amount < 0)) {
             return json({ error: 'coin_amount must be a non-negative number' }, { status: 400 });
           }
-
+          
           if (interval_seconds !== undefined && interval_seconds !== null && (typeof interval_seconds !== 'number' || interval_seconds < 1)) {
             return json({ error: 'interval_seconds must be a positive number or null' }, { status: 400 });
           }
-
+          
           // Update config
           const updateFields = [];
           const updateValues = [];
-
+          
           if (xp_amount !== undefined) {
             updateFields.push('xp_amount = ?');
             updateValues.push(xp_amount);
           }
-
+          
           if (coin_amount !== undefined) {
             updateFields.push('coin_amount = ?');
             updateValues.push(coin_amount);
           }
-
+          
           if (interval_seconds !== undefined) {
             updateFields.push('interval_seconds = ?');
             updateValues.push(interval_seconds);
           }
-
+          
           if (description !== undefined) {
             updateFields.push('description = ?');
             updateValues.push(description);
           }
-
+          
           if (updateFields.length === 0) {
             return json({ error: 'No fields to update' }, { status: 400 });
           }
-
+          
           updateValues.push(id);
-
+          
           await env.DB.prepare(`
             UPDATE rewards_config
             SET ${updateFields.join(', ')}, updated_at = unixepoch() * 1000
             WHERE id = ?
           `).bind(...updateValues).run();
-
+          
           // Return updated config
           const updated = await env.DB.prepare(`
             SELECT * FROM rewards_config WHERE id = ?
           `).bind(id).first();
-
+          
           return json({ success: true, config: updated });
         } catch (e) {
           console.error('Update rewards config error:', e);
@@ -9068,26 +9357,26 @@ export default {
           const userId = path.split('/')[4];
           const body = await request.json();
           const { roles, requesterId } = body;
-
+          
           if (!roles || !Array.isArray(roles)) {
             return json({ error: 'roles array is required' }, { status: 400 });
           }
-
+          
           if (!requesterId) {
             return json({ error: 'requesterId is required' }, { status: 400 });
           }
-
+          
           // Check if requester is superadmin
           const requesterRoles = await env.DB.prepare(`
             SELECT role_name FROM user_roles WHERE user_id = ?
           `).bind(requesterId).all();
-
+          
           const isSuperAdmin = requesterRoles.results?.some(r => r.role_name === 'superadmin');
-
+          
           if (!isSuperAdmin) {
             return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
           }
-
+          
           // Validate roles
           const validRoles = ['user', 'admin', 'superadmin'];
           for (const role of roles) {
@@ -9095,14 +9384,14 @@ export default {
               return json({ error: `Invalid role: ${role}` }, { status: 400 });
             }
           }
-
+          
           const now = Date.now();
-
+          
           // Remove all existing roles for this user
           await env.DB.prepare(`
             DELETE FROM user_roles WHERE user_id = ?
           `).bind(userId).run();
-
+          
           // Insert new roles
           for (const role of roles) {
             await env.DB.prepare(`
@@ -9110,7 +9399,7 @@ export default {
               VALUES (?, ?, ?, ?)
             `).bind(userId, role, requesterId, now).run();
           }
-
+          
           return json({
             success: true,
             message: `Updated roles for user ${userId}`,
@@ -9123,105 +9412,71 @@ export default {
 
       // ==================== Level Assessment Endpoints ====================
 
-      // Import reference data (CEFR list or word frequency) - SuperAdmin only
+      // Import frequency data from JSON file - SuperAdmin only
+      // JSON format: { "word1": rank1, "word2": rank2, ... }
       if (path === '/admin/import-reference' && request.method === 'POST') {
         try {
           const body = await request.json();
-          const { type, data, framework } = body;
+          const { data, framework } = body;
 
-          if (!type || (type !== 'cefr' && type !== 'frequency')) {
-            return json({ error: 'Invalid type. Must be "cefr" or "frequency"' }, { status: 400 });
-          }
-
-          if (!data || !Array.isArray(data) || data.length === 0) {
-            return json({ error: 'data array is required and must not be empty' }, { status: 400 });
+          if (!data || typeof data !== 'object') {
+            return json({ error: 'data object (JSON frequency lookup) is required' }, { status: 400 });
           }
 
           // Check authentication - require superadmin (check via user_roles)
           // For now, allow if request has proper auth - in production, add proper auth check
-
+          
           const errors = [];
           const batchSize = 500; // D1 batch limit is ~1000, use 500 for safety
 
-          // Clear old data before importing (optional - could be made configurable)
-          // Only clear data for the specific framework if framework is provided
-          if (type === 'cefr') {
-            try {
-              if (framework) {
-                await env.DB.prepare('DELETE FROM reference_cefr_list WHERE framework = ?').bind(framework).run();
-              } else {
-                await env.DB.prepare('DELETE FROM reference_cefr_list').run();
-              }
-            } catch (e) {
-              console.error('Failed to clear reference data:', e);
-            }
-          } else if (type === 'frequency') {
-            try {
+          // Clear old frequency data before importing
+          try {
+            if (framework) {
+              await env.DB.prepare('DELETE FROM reference_word_frequency WHERE framework = ? OR framework IS NULL').bind(framework).run();
+            } else {
               await env.DB.prepare('DELETE FROM reference_word_frequency').run();
-            } catch (e) {
-              console.error('Failed to clear frequency data:', e);
             }
+          } catch (e) {
+            console.error('Failed to clear frequency data:', e);
+          }
+
+          // Convert JSON object to array of {word, rank} entries
+          const entries = Object.entries(data);
+          if (entries.length === 0) {
+            return json({ error: 'JSON object is empty' }, { status: 400 });
           }
 
           // Process in batches
-          for (let i = 0; i < data.length; i += batchSize) {
-            const batch = data.slice(i, i + batchSize);
+          for (let i = 0; i < entries.length; i += batchSize) {
+            const batch = entries.slice(i, i + batchSize);
             const stmts = [];
 
-            for (const row of batch) {
+            for (const [word, rankValue] of batch) {
               try {
-                if (type === 'cefr') {
-                  const headword = String(row.headword || '').trim();
-                  const pos = row.pos ? String(row.pos).trim() : null;
-                  // Support both 'level' and 'cefr_level' for backward compatibility
-                  const level = String(row.level || row.cefr_level || '').trim().toUpperCase();
-                  const fw = framework || 'CEFR';
+                const wordStr = String(word || '').trim().toLowerCase();
+                const rank = parseInt(rankValue, 10);
 
-                  if (!headword || !level) {
-                    errors.push(`Row ${i + batch.indexOf(row) + 1}: Missing headword or level`);
-                    continue;
-                  }
+                if (!wordStr || isNaN(rank) || rank < 0) {
+                  errors.push(`Entry "${word}": Invalid word or rank`);
+                  continue;
+                }
 
-                  // Check if framework column exists (for migration 026+)
-                  try {
-                    stmts.push(env.DB.prepare(`
-                      INSERT OR REPLACE INTO reference_cefr_list (headword, pos, cefr_level, framework)
-                      VALUES (?, ?, ?, ?)
-                    `).bind(headword, pos, level, fw));
-                  } catch (e) {
-                    // Fallback for older schema without framework column
-                    stmts.push(env.DB.prepare(`
-                      INSERT OR REPLACE INTO reference_cefr_list (headword, pos, cefr_level)
-                      VALUES (?, ?, ?)
-                    `).bind(headword, pos, level));
-                  }
-                } else if (type === 'frequency') {
-                  const word = String(row.word || '').trim();
-                  const rank = parseInt(row.rank, 10);
-                  const stem = row.stem ? String(row.stem).trim() : null;
-
-                  if (!word || isNaN(rank) || rank < 0) {
-                    errors.push(`Row ${i + batch.indexOf(row) + 1}: Invalid word or rank`);
-                    continue;
-                  }
-
-                  // Support framework column if provided (optional for backward compatibility)
-                  const fw = framework || null;
-                  try {
-                    stmts.push(env.DB.prepare(`
-                      INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem, framework)
-                      VALUES (?, ?, ?, ?)
-                    `).bind(word, rank, stem, fw));
-                  } catch (e) {
-                    // Fallback for older schema without framework column
-                    stmts.push(env.DB.prepare(`
-                      INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem)
-                      VALUES (?, ?, ?)
-                    `).bind(word, rank, stem));
-                  }
+                // Store frequency data (framework is optional, can be null for language-agnostic)
+                const fw = framework || null;
+                try {
+                  stmts.push(env.DB.prepare(`
+                    INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem, framework)
+                    VALUES (?, ?, ?, ?)
+                  `).bind(wordStr, rank, null, fw));
+                } catch (e) {
+                  // Fallback for older schema without framework column
+                  stmts.push(env.DB.prepare(`
+                    INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem)
+                    VALUES (?, ?, ?)
+                  `).bind(wordStr, rank, null));
                 }
               } catch (e) {
-                errors.push(`Row ${i + batch.indexOf(row) + 1}: ${e.message}`);
+                errors.push(`Entry "${word}": ${e.message}`);
               }
             }
 
@@ -9234,7 +9489,7 @@ export default {
             }
           }
 
-          return json({ success: true, errors: errors.length > 0 ? errors : undefined });
+          return json({ success: true, processed: entries.length, errors: errors.length > 0 ? errors : undefined });
         } catch (e) {
           return json({ error: e.message }, { status: 500 });
         }
@@ -9245,7 +9500,7 @@ export default {
         try {
           const key = path.split('/')[3];
           const row = await env.DB.prepare('SELECT value FROM system_configs WHERE key = ?').bind(key).first();
-
+          
           if (!row) {
             return json({ error: 'Not found' }, { status: 404 });
           }
@@ -9309,7 +9564,7 @@ export default {
 
           // Determine framework from content language
           const framework = getFrameworkFromLanguage(contentItem.main_language);
-
+          
           // Get cutoff ranks from config (supports multi-framework structure)
           const configRow = await env.DB.prepare('SELECT value FROM system_configs WHERE key = ?').bind('CUTOFF_RANKS').first();
           let allCutoffs = configRow ? JSON.parse(configRow.value) : {};
@@ -9325,19 +9580,21 @@ export default {
             }
           }
           const frameworkCutoffs = allCutoffs[framework] || {};
-
+          
           // Define level orders and difficulty maps for each framework
           const levelOrders = {
             CEFR: { 'A1': 1, 'A2': 2, 'B1': 3, 'B2': 4, 'C1': 5, 'C2': 6 },
             JLPT: { 'N5': 1, 'N4': 2, 'N3': 3, 'N2': 4, 'N1': 5 },
-            HSK: { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9 }
+            HSK: { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9 },
+            TOPIK: { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6 }
           };
           const difficultyMaps = {
             CEFR: { 'A1': 10, 'A2': 25, 'B1': 45, 'B2': 65, 'C1': 80, 'C2': 95 },
             JLPT: { 'N5': 10, 'N4': 25, 'N3': 45, 'N2': 70, 'N1': 90 },
-            HSK: { '1': 5, '2': 15, '3': 30, '4': 50, '5': 70, '6': 85, '7': 92, '8': 96, '9': 98 }
+            HSK: { '1': 5, '2': 15, '3': 30, '4': 50, '5': 70, '6': 85, '7': 92, '8': 96, '9': 98 },
+            TOPIK: { '1': 10, '2': 25, '3': 45, '4': 65, '5': 80, '6': 95 }
           };
-
+          
           const levelOrder = levelOrders[framework] || levelOrders.CEFR;
           const difficultyMap = difficultyMaps[framework] || difficultyMaps.CEFR;
 
@@ -9350,23 +9607,18 @@ export default {
               .filter(t => t.length > 0);
           }
 
-          // Helper: Get level for a word based on framework
+          // Helper: Get level for a word based on frequency rank and framework cutoffs
           async function getWordLevel(word) {
-            // Try reference list first (with framework filter if column exists)
-            let refRow;
+            // Look up word frequency rank (try with framework filter first, then fallback to language-agnostic)
+            let freqRow;
             try {
-              // Try with framework column (migration 026+)
-              refRow = await env.DB.prepare('SELECT cefr_level FROM reference_cefr_list WHERE headword = ? AND framework = ? LIMIT 1').bind(word, framework).first();
+              // Try with framework filter (if framework column exists)
+              freqRow = await env.DB.prepare('SELECT rank FROM reference_word_frequency WHERE word = ? AND (framework = ? OR framework IS NULL) ORDER BY framework DESC LIMIT 1').bind(word, framework).first();
             } catch (e) {
               // Fallback: try without framework column (backward compatibility)
-              refRow = await env.DB.prepare('SELECT cefr_level FROM reference_cefr_list WHERE headword = ? LIMIT 1').bind(word).first();
+              freqRow = await env.DB.prepare('SELECT rank FROM reference_word_frequency WHERE word = ? LIMIT 1').bind(word).first();
             }
-            if (refRow) {
-              return refRow.cefr_level;
-            }
-
-            // Fallback to frequency with framework-specific cutoffs
-            const freqRow = await env.DB.prepare('SELECT rank FROM reference_word_frequency WHERE word = ? OR stem = ? LIMIT 1').bind(word, word).first();
+            
             if (freqRow && Object.keys(frameworkCutoffs).length > 0) {
               const rank = freqRow.rank;
               // Map rank to level using framework-specific cutoffs
@@ -9514,22 +9766,18 @@ export default {
         try {
           const url = new URL(request.url);
           const framework = url.searchParams.get('framework');
-
+          
           if (!framework) {
             return json({ error: 'framework parameter is required' }, { status: 400 });
           }
-
-          // Check if reference list exists for this framework
-          const refListCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM reference_cefr_list WHERE framework = ?').bind(framework).first();
-          const hasReferenceList = (refListCount?.count || 0) > 0;
 
           // Check if frequency data exists for this framework (or null for language-agnostic)
           const freqCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM reference_word_frequency WHERE framework = ? OR framework IS NULL').bind(framework).first();
           const hasFrequencyData = (freqCount?.count || 0) > 0;
 
           return json({
-            exists: hasReferenceList || hasFrequencyData,
-            hasReferenceList,
+            exists: hasFrequencyData,
+            hasReferenceList: false, // No longer used - kept for backward compatibility
             hasFrequencyData
           });
         } catch (e) {
@@ -9542,7 +9790,7 @@ export default {
       return json({ error: e.message }, { status: 500 });
     }
   },
-
+  
   // Scheduled event handler (runs daily at midnight UTC)
   async scheduled(event, env, ctx) {
     ctx.waitUntil(resetDailyTables(env));

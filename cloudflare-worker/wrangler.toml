@@ -1,0 +1,37 @@
+name = "glassygaia-worker"
+main = "src/worker.js"
+compatibility_date = "2025-11-09"
+
+[vars]
+# Public R2 base used to build absolute cover URLs
+R2_PUBLIC_BASE = "https://pub-3567da72191244fbbde455e3800854f2.r2.dev"
+# Note: All secrets (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, JWT_SECRET, 
+# CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID) are stored as Cloudflare Secrets
+# Manage them with: wrangler secret put <SECRET_NAME>
+# For local dev, use .dev.vars file (gitignored)
+# DO NOT put secrets in [vars] - they will be committed to git!
+
+[[d1_databases]]
+binding = "DB"
+database_id = "a60ee761-1d16-4dff-9ba0-fa7abdd11320"
+database_name = "glassygaia-db"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "glassygaia-media"
+
+[[kv_namespaces]]
+binding = "SEARCH_CACHE"
+id = "f1e2884e657e4cadbb9a4b1216498c2d"
+# preview_id is used only for local development (wrangler dev)
+# Uncomment the line below when running `wrangler dev` locally to avoid KV warnings
+# preview_id = "e19b33acc9e54bd1810a21308fb21a72"
+
+[observability]
+enabled = true
+
+# Scheduled event (runs daily at midnight UTC)
+# Format: "cron <minute> <hour> <day-of-month> <month> <day-of-week>"
+# This runs at 00:00 UTC every day
+[triggers]
+crons = ["0 0 * * *"]
