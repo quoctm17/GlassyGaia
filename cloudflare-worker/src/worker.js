@@ -16,117 +16,111 @@ const REWARD_CONFIG_IDS = {
   WRITING_ATTEMPT: 7,
 };
 
-// FTS_CONFIG Registry
-// Manages Regex and Headers using Lazy Initialization to reduce Cold Start time.
-const FTS_CONFIG = {
-  _cache: new Map(),
-  
-  getRE(key, pattern, flags = 'u') {
-    if (!this._cache.has(key)) {
-      this._cache.set(key, new RegExp(pattern, flags));
-    }
-    return this._cache.get(key);
-  },
+// =====================
+// Global compiled regex
+// =====================
+const RE_JA = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
+const RE_BRACKETS = /\[[^\]]+\]/g;
+const RE_NON_ALPHANUM = /[^\p{L}\p{N}\s]+/gu;
+const RE_WHITESPACE = /\s+/g;
+const RE_QUOTES = /["']/g;
 
-  // Language Detection & Cleaning Patterns
-  get JA() { return this.getRE('ja', '[\\u3040-\\u309F\\u30A0-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF]'); },
-  get BRACKETS() { return this.getRE('brackets', '\\[[^\\]]+\\]', 'g'); },
-  get WS() { return this.getRE('ws', '\\s+', 'g'); },
-  get NON_ALNUM() { return this.getRE('nonAlnum', '[^\\p{L}\\p{N}\\s]+', 'gu'); },
-  get QUOTE_CLEAN() { return this.getRE('quoteClean', '["\']', 'g'); },
-  get KATA() { return this.getRE('kata', '[\\u30A1-\\u30F6]', 'g'); },
-  get KANA_ONLY() { return this.getRE('kanaOnly', '[^\\p{Script=Hiragana}\\p{Script=Katakana}\\p{L}\\p{N}\\s]', 'gu'); },
-  get HAS_HAN() { return this.getRE('hasHan', '\\p{Script=Han}', 'u'); },
-  get HAS_KANA() { return this.getRE('hasKana', '[\\p{Script=Hiragana}\\p{Script=Katakana}]', 'u'); },
-  get CJK_CLEAN() { return this.getRE('cjkClean', '\\[[^\\]]+\\]|\\s+', 'g'); },
-  get NON_ALNUM_UNICODE() { return this.getRE('nonAlnumUnicode', '[^\\p{L}\\p{N}\\s]+', 'gu'); },
-  get ALNUM_ONLY() { return this.getRE('alnumOnly', '[a-zA-Z0-9]'); },
-  // Matches Kanji followed by [Reading]
-  get JA_EXTRACT() { 
-    return this.getRE('jaExtract', '(\\p{Script=Han}+[\\p{Script=Han}・・]*)\\[([\\p{Script=Hiragana}\\p{Script=Katakana}]+)\\]', 'gu'); 
-  },
-  get PINYIN_BRACKETS() { 
-    return this.getRE('pinyinBrackets', '\\[[^\\]]+\\]', 'g'); 
-  },
-
-  // Static CORS headers to avoid object re-creation on every request
-  CORS_HEADERS: {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Max-Age': '86400', // 24-hour cache for preflight requests
-    'Cross-Origin-Opener-Policy': 'unsafe-none',
-    'Cross-Origin-Embedder-Policy': 'unsafe-none',
-  }
+// =====================
+// CORS headers (fast)
+// =====================
+const DEFAULT_CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Max-Age': '86400',
+  'Cross-Origin-Opener-Policy': 'unsafe-none',
+  'Cross-Origin-Embedder-Policy': 'unsafe-none',
 };
 
-function withCors(headers = {}) {
-  // Merge static headers with any request-specific overrides
-  return { ...FTS_CONFIG.CORS_HEADERS, ...headers };
+function withCors(headers) {
+  return headers ? { ...DEFAULT_CORS_HEADERS, ...headers } : DEFAULT_CORS_HEADERS;
 }
 
-// Build LIKE query for card_subtitles search
-// Since we use autocomplete, users only search when selecting a suggestion
-// This makes LIKE search acceptable for the reduced search volume
-function buildLikeQuery(q, language) {
-  const cleaned = (q || '').trim();
-  if (!cleaned) return '';
-  
-// Language Detection
-  const isJa = language === 'ja' || FTS_CONFIG.JA.test(cleaned);
-  let normalized = cleaned;
+// Build FTS query
+function buildFtsQuery(q, language) {
+  const raw = (q ?? '').trim();
+  if (!raw) return '';
 
-  if (isJa) {
-    // Japanese Optimization: Strip spaces and furigana brackets
-    // This allows matching base Kanji even if DB has "Kanji[reading]"
-    normalized = normalized
-      .replace(FTS_CONFIG.WS, '')
-      .replace(FTS_CONFIG.BRACKETS, '');
-      
-    // Return immediately for Japanese using Trigram phrase search
-    const sanitized = normalized.replace(/"/g, '""');
-    return sanitized ? `"${sanitized}"` : '';
-  }
+  const isJapanese = language === 'ja' || RE_JA.test(raw);
 
-  // Handle Explicit Phrase Search (User input inside quotes)
-  if (normalized.startsWith('"') && normalized.endsWith('"')) {
-    const phrase = normalized
-      .slice(1, -1)
-      .replace(FTS_CONFIG.QUOTE_CLEAN, '')
-      .replace(FTS_CONFIG.NON_ALNUM, ' ')
+  // Quoted phrase: "...." 
+  // Optimized: Faster than RE_QUOTED.exec(raw)
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    let phrase = raw.slice(1, -1);
+
+    if (isJapanese) {
+      // JA: remove furigana + remove whitespace
+      phrase = phrase.replace(RE_BRACKETS, '').replace(RE_WHITESPACE, '');
+      phrase = escapeFtsToken(phrase);
+      return phrase ? `"${phrase}"` : '';
+    }
+
+    // Non-JA: normalize punctuation + spaces
+    phrase = phrase
+      .replace(RE_QUOTES, '')
+      .replace(RE_NON_ALPHANUM, ' ')
       .trim()
-      .replace(FTS_CONFIG.WS, ' ');
+      .replace(RE_WHITESPACE, ' ');
+
+    phrase = escapeFtsToken(phrase);
     return phrase ? `"${phrase}"` : '';
   }
 
-  // Tokenization for Non-Japanese languages
-  const tokens = normalized
-    .replace(FTS_CONFIG.NON_ALNUM, ' ')
-    .trim()
-    .split(FTS_CONFIG.WS)
-    .filter(Boolean)
-    .slice(0, 8); // Limit tokens to prevent D1 execution timeouts
-
-  if (tokens.length === 0) return '';
-
-  // Inline Token Processing (Replaces escapeFtsToken function)
-  // Using a for-loop is more memory-efficient than .map().join() in large scripts
-  let resultPhrase = "";
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i].replace(FTS_CONFIG.QUOTE_CLEAN, '');
-    if (t) {
-      resultPhrase += (resultPhrase ? " " : "") + t;
-    }
+  // Japanese: trigram phrase match
+  if (isJapanese) {
+    const normalized = raw.replace(RE_BRACKETS, '').replace(RE_WHITESPACE, '');
+    const sanitized = escapeFtsToken(normalized);
+    return sanitized ? `"${sanitized}"` : '';
   }
 
-  // Final result is wrapped in quotes to force strict trigram sequence matching
-  return resultPhrase ? `"${resultPhrase}"` : '';
+  // Non-Japanese: tokenize (max 8 tokens)
+  const cleaned = raw.replace(RE_NON_ALPHANUM, ' ').trim();
+  if (!cleaned) return '';
+
+  const parts = cleaned.split(/\s+/);
+  const limit = parts.length > 8 ? 8 : parts.length;
+
+  if (limit === 1) {
+    const t = escapeFtsToken(parts[0]);
+    return t ? `"${t}"` : '';
+  }
+
+  // Multi-word phrase match
+  let phrase = '';
+  for (let i = 0; i < limit; i++) {
+    const t = escapeFtsToken(parts[i]);
+    if (!t) continue;
+    phrase += phrase ? ` ${t}` : t;
+  }
+
+  return phrase ? `"${phrase}"` : '';
 }
+
+// escapeFtsToken
+function escapeFtsToken(t) {
+  // Remove quotes and stray punctuation
+  // + escape double quotes for FTS5 quoted query safety
+  return String(t)
+    .replace(/"/g, '""') // FTS5 escaping
+    .replace(/["'.,;:!?()\[\]{}]/g, '')
+    .trim();
+}
+
+// Pre-compiled Unicode property escapes for maximum performance
+const RE_KATA = /[\u30A1-\u30F6]/g;
+const RE_HAS_HAN = /\p{Script=Han}/u;
+const RE_HAS_KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
+const RE_KANA_ONLY = /[^\p{Script=Hiragana}\p{Script=Katakana}\p{L}\p{N}\s]/gu;
 
 // Japanese helpers: normalize Katakana to Hiragana and full-width forms
 function kataToHira(s) {
   if (!s) return '';
-  return s.replace(FTS_CONFIG.KATA, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+  return s.replace(RE_KATA, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
 }
 
 function normalizeJaInput(s) {
@@ -137,13 +131,17 @@ function normalizeJaInput(s) {
 
 function hasHanAndKana(s) {
   if (!s) return false;
-  return FTS_CONFIG.HAS_HAN.test(s) && FTS_CONFIG.HAS_KANA.test(s);
+  return RE_HAS_HAN.test(s) && RE_HAS_KANA.test(s);
 }
 
 function kanaOnlyString(s) {
   if (!s) return '';
-  return s.replace(FTS_CONFIG.KANA_ONLY, '').trim();
+  return s.replace(RE_KANA_ONLY, '').trim();
 }
+
+const RE_CJK_CLEAN = /\[[^\]]+\]|\s+/g;
+const RE_NON_ALNUM_UNICODE = /[^\p{L}\p{N}\s]+/gu;
+const RE_ALNUM_CHECK = /[a-zA-Z0-9]/;
 
 // Helper function to extract searchable terms from text
 function extractSearchTerms(text, language) {
@@ -152,13 +150,14 @@ function extractSearchTerms(text, language) {
   const trimmed = text.trim();
   if (!trimmed) return [];
 
-  const isCJK = ['ja', 'zh', 'ko'].some(lang => language?.startsWith(lang));
+  const cjkLangs = new Set(['ja', 'zh', 'ko', 'zh-CN', 'zh-TW']);
+  const isCJK = cjkLangs.has(language);
   
   if (isCJK) {
     // For CJK: Extract character sequences (2-6 characters)
     // Remove furigana brackets first
-    const normalized = trimmed.replace(FTS_CONFIG.CJK_CLEAN, '');
-    const nLen = normalized.length;
+    const normalized = trimmed.replace(RE_CJK_CLEAN, '');
+    const nLen = normalized.length;;
     
     // Optimized sliding window (N-grams)
     // We limit max length to 6 characters to prevent index bloat
@@ -172,17 +171,18 @@ function extractSearchTerms(text, language) {
   } else {
     // For non-CJK: Extract words (2+ characters, alphanumeric)
     const words = trimmed.toLowerCase()
-      .replace(FTS_CONFIG.NON_ALNUM_UNICODE, ' ')
-      .split(FTS_CONFIG.WS);
+      .replace(RE_NON_ALNUM_UNICODE, ' ')
+      .split(/\s+/);
 
     for (let i = 0; i < words.length; i++) {
       const w = words[i];
-      // Inline length and alphanumeric check
-      if (w.length >= 2 && FTS_CONFIG.ALNUM_ONLY.test(w)) {
+      // Inline length and alphanumeric check to avoid extra function calls
+      if (w.length >= 2 && RE_ALNUM_CHECK.test(w)) {
         terms.add(w);
       }
     }
   }
+
   return Array.from(terms);
 }
 
@@ -190,17 +190,19 @@ function extractSearchTerms(text, language) {
 // Also normalizes whitespace for consistent FTS matching
 // IMPORTANT: Indexes BOTH the base text (without brackets) AND the reading separately
 // e.g., "番線[ばんせん]" -> indexes: "番線" (base) + "ばんせん" (reading) + mixed variants
+// Pre-compiled global patterns for Japanese index expansion
+const RE_JA_EXTRACT = /(\p{Script=Han}+[\p{Script=Han}・・]*)\[([\p{Script=Hiragana}\p{Script=Katakana}]+)\]/gu;
+
 function expandJaIndexText(text) {
   if (!text) return '';
   // First, normalize whitespace (remove all spaces) for consistent FTS matching
-  const src = String(text).replace(FTS_CONFIG.WS, '');
+  const src = String(text).replace(RE_WHITESPACE, '');
   const extra = new Set();
   
-  const re = FTS_CONFIG.JA_EXTRACT;
-  re.lastIndex = 0; // Reset regex state for global matching
+  RE_JA_EXTRACT.lastIndex = 0
   
   let m;  
-  while ((m = re.exec(src)) !== null) {
+  while ((m = RE_JA_EXTRACT.exec(src)) !== null) {
     const kan = m[1];
     const hira = normalizeJaInput(m[2]); // Standardizes to Hiragana
     
@@ -221,7 +223,7 @@ function expandJaIndexText(text) {
   }
   
   // Remove all brackets from base text so "番線[ばんせん]" becomes "番線"
-  const baseText = src.replace(FTS_CONFIG.BRACKETS, '');
+  const baseText = src.replace(RE_BRACKETS, '');
   
   if (extra.size === 0) return baseText;
   // Join final string - faster than multiple array operations
@@ -229,21 +231,34 @@ function expandJaIndexText(text) {
 }
 
 function json(data, init = {}) {
-  return new Response(JSON.stringify(data), { 
-    ...init, 
-    headers: withCors({ 'Content-Type': 'application/json', ...(init.headers || {}) }) 
+  // Pre-stringify data to keep memory usage predictable
+  const body = JSON.stringify(data);
+  
+  // Merge headers efficiently: 
+  // withCors already provides a flat object, so we only spread if init.headers exists
+  const headers = withCors(
+    init.headers 
+      ? { 'Content-Type': 'application/json', ...init.headers } 
+      : { 'Content-Type': 'application/json' }
+  );
+
+  return new Response(body, {
+    ...init,
+    headers
   });
 }
 
 
 // Normalize Chinese text by removing pinyin brackets [pinyin] for search
 // Example: "请[qǐng]问[wèn]" -> "请问"
+const RE_PINYIN_BRACKETS = /\[[^\]]+\]/g;
+
 function normalizeChineseTextForSearch(text) {
   // Faster check: if it's not a string or it's empty, return it immediately
   if (typeof text !== 'string' || !text) return text;
 
   // Uses the cached global regex for near-instant execution
-  return text.replace(FTS_CONFIG.PINYIN_BRACKETS, '');
+  return text.replace(RE_PINYIN_BRACKETS, '');
 }
 
 // Global constant defined outside the function to ensure it's initialized only once in memory.
