@@ -243,8 +243,6 @@ function getLevelIndex(level, language) {
  * Returns: -1 if level1 < level2, 0 if equal, 1 if level1 > level2.
  */
 function compareLevels(level1, level2, framework) {
-// Calls the helper function below
-  const framework = getFrameworkFromLanguage(language);
   const map = LEVEL_MAPS[framework];
   if (!map) return 0; //prevent "cannot read property of undefined"
 
@@ -260,6 +258,40 @@ function compareLevels(level1, level2, framework) {
   // 5. Final Comparison: Use Math.sign to ensure the result is exactly {-1, 0, 1}
   // This solves the issue where (0 - 4) returned -4.
   return Math.sign(idx1 - idx2);
+}
+
+// ==================== DATABASE HELPERS ====================
+
+/**
+ * Retry D1 database query with exponential backoff
+ * Handles D1 overload errors by retrying with delays
+ */
+async function retryD1Query(queryFn, maxRetries = 3, initialDelay = 100) {
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await queryFn();
+    } catch (error) {
+      lastError = error;
+      const errorMsg = error?.message || String(error);
+      
+      // Only retry on D1 overload errors
+      if (errorMsg.includes('D1_ERROR') || 
+          errorMsg.includes('overloaded') || 
+          errorMsg.includes('queued for too long') ||
+          errorMsg.includes('D1_DATABASE_ERROR')) {
+        if (attempt < maxRetries - 1) {
+          // Exponential backoff: 100ms, 200ms, 400ms
+          const delay = initialDelay * Math.pow(2, attempt);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+      // For other errors, throw immediately
+      throw error;
+    }
+  }
+  throw lastError;
 }
 
 // ==================== AUTHENTICATION HELPERS ====================
@@ -521,20 +553,21 @@ function constantTimeEqual(a, b) {
 
 // Create HMAC-SHA256 signature
 async function createSignature(data, secret) {
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const messageData = encoder.encode(data);
+  try {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const messageData = encoder.encode(data);
 
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
 
-  const signature = await crypto.subtle.sign('HMAC', key, messageData);
-  return new Uint8Array(signature);
+    const signature = await crypto.subtle.sign('HMAC', key, messageData);
+    return new Uint8Array(signature);
   } catch (err) {
     console.error('[createSignature] Crypto error:', err.message);
     throw new Error('Signature generation failed');
@@ -639,17 +672,17 @@ async function authenticateRequest(request, env) {
   // 3. Token hợp lệ, trả về user info
   const { user_id, email, roles, exp } = result.payload;
 
+  const userRoles = roles || [];
   return {
     authenticated: true,
     userId: user_id,
     email: email,
-    roles: roles || [],
-    expiresAt: exp, // Useful for debugging or frontend sync
-    
-    // Helper function: makes checking permissions much cleaner
-    isAdmin: (roles || []).includes('admin'),
-    isPremium: (roles || []).includes('premium')
+    roles: userRoles,
+    expiresAt: exp,
+    isAdmin: userRoles.includes('admin'),
+    isPremium: userRoles.includes('premium')
   };
+}
 
 // Reset daily activity tables (called by scheduled event)
 async function resetDailyTables(env) {
@@ -858,66 +891,61 @@ export default {
 
           const now = Date.now();
 
-          // Check if user exists
-          const existingUser = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`).bind(userId).first();
-          const isNewUser = !existingUser;
+          // Determine role based on email whitelist (before database operations)
+          const adminEmails = [
+            'phungnguyeniufintechclub@gmail.com',
+            'trang.vtae@gmail.com',
+            'nhungngth03@gmail.com'
+          ];
+          const superAdminEmail = 'tranminhquoc0711@gmail.com';
 
-          // Upsert user
-          await env.DB.prepare(`
-            INSERT INTO users (id, email, display_name, photo_url, auth_provider, email_verified, last_login_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-              email = COALESCE(?, email),
-              display_name = COALESCE(?, display_name),
-              photo_url = COALESCE(?, photo_url),
-              email_verified = ?,
-              last_login_at = ?,
-              updated_at = ?
-          `).bind(
-            userId, email, displayName, photoUrl, 'google', emailVerified ? 1 : 0, now, now,
-            email, displayName, photoUrl, emailVerified ? 1 : 0, now, now
-          ).run();
+          let assignedRole = 'user'; // default
+          if (email === superAdminEmail) {
+            assignedRole = 'superadmin';
+          } else if (adminEmails.includes(email)) {
+            assignedRole = 'admin';
+          }
 
-          // Assign role based on email whitelist
-          if (email) {
-            const adminEmails = [
-              'phungnguyeniufintechclub@gmail.com',
-              'trang.vtae@gmail.com',
-              'nhungngth03@gmail.com'
-            ];
-            const superAdminEmail = 'tranminhquoc0711@gmail.com';
+          // Optimized: Use retry logic for all database operations
+          // Upsert user with retry
+          await retryD1Query(async () => {
+            return await env.DB.prepare(`
+              INSERT INTO users (id, email, display_name, photo_url, auth_provider, email_verified, last_login_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET
+                email = COALESCE(?, email),
+                display_name = COALESCE(?, display_name),
+                photo_url = COALESCE(?, photo_url),
+                email_verified = ?,
+                last_login_at = ?,
+                updated_at = ?
+            `).bind(
+              userId, email, displayName, photoUrl, 'google', emailVerified ? 1 : 0, now, now,
+              email, displayName, photoUrl, emailVerified ? 1 : 0, now, now
+            ).run();
+          });
 
-            let assignedRole = 'user'; // default
-            if (email === superAdminEmail) {
-              assignedRole = 'superadmin';
-            } else if (adminEmails.includes(email)) {
-              assignedRole = 'admin';
-            }
-
-            // Insert or update user role
-            await env.DB.prepare(`
+          // Insert or update user role with retry
+          await retryD1Query(async () => {
+            return await env.DB.prepare(`
               INSERT INTO user_roles (user_id, role_name, granted_by, granted_at)
               VALUES (?, ?, 'system', ?)
               ON CONFLICT(user_id, role_name) DO UPDATE SET granted_at = ?
             `).bind(userId, assignedRole, now, now).run();
-          } else if (isNewUser) {
-            // Assign default 'user' role
-            await env.DB.prepare(`
-              INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
-              VALUES (?, 'user', 'system', ?)
-            `).bind(userId, now).run();
-          }
+          });
 
-          // Get user with preferences and roles
-          const user = await env.DB.prepare(`
-            SELECT u.*, up.main_language, up.subtitle_languages, up.require_all_languages,
-                   GROUP_CONCAT(ur.role_name) as roles
-            FROM users u
-            LEFT JOIN user_preferences up ON u.id = up.user_id
-            LEFT JOIN user_roles ur ON u.id = ur.user_id
-            WHERE u.id = ?
-            GROUP BY u.id
-          `).bind(userId).first();
+          // Get user with preferences and roles (optimized single query) with retry
+          const user = await retryD1Query(async () => {
+            return await env.DB.prepare(`
+              SELECT u.*, up.main_language, up.subtitle_languages, up.require_all_languages,
+                     GROUP_CONCAT(ur.role_name) as roles
+              FROM users u
+              LEFT JOIN user_preferences up ON u.id = up.user_id
+              LEFT JOIN user_roles ur ON u.id = ur.user_id
+              WHERE u.id = ?
+              GROUP BY u.id
+            `).bind(userId).first();
+          });
 
           // Parse roles from comma-separated string
           const roleNames = user.roles ? user.roles.split(',') : [];
@@ -950,7 +978,20 @@ export default {
           });
         } catch (e) {
           console.error('Google OAuth error:', e);
-          return json({ error: e.message }, { status: 500 });
+          const errorMsg = e?.message || String(e);
+          
+          // Provide more helpful error messages
+          if (errorMsg.includes('D1_ERROR') || errorMsg.includes('overloaded') || errorMsg.includes('queued for too long')) {
+            return json({ 
+              error: 'Database temporarily unavailable. Please try again in a few moments.',
+              details: 'D1 database is experiencing high load. Retrying...'
+            }, { status: 503 }); // 503 Service Unavailable
+          }
+          
+          return json({ 
+            error: errorMsg || 'Authentication failed',
+            details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+          }, { status: 500 });
         }
       }
 
