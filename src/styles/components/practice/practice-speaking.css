@@ -255,8 +255,6 @@
 }
 
 .practice-speaking-answer-text.correct {
-  background-color: var(--practice-success-input-bg);
-  border: 2px solid var(--practice-success-input-border);
   color: var(--practice-success-input-text);
 }
 
@@ -264,6 +262,46 @@
   background-color: var(--practice-error-input-bg);
   border: 2px solid var(--practice-error-input-border);
   color: var(--practice-error-input-text);
+}
+
+/* Word-by-word feedback styles */
+.practice-speaking-word-feedback {
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 500;
+  min-height: 44px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  line-height: 1.6;
+}
+
+.practice-speaking-word {
+  display: inline-block;
+}
+
+/* Match - Green */
+.practice-speaking-word-match {
+  color: #33CC5E;
+}
+
+/* Wrong - Red */
+.practice-speaking-word-wrong {
+  color: #FF4D4D;
+}
+
+/* Missing - Yellow */
+.practice-speaking-word-missing {
+  color: #FFBE1A;
+}
+
+/* Score display */
+.practice-speaking-score {
+  text-align: center;
+  margin-bottom: 12px;
 }
 
 /* Responsive */
@@ -285,5 +323,15 @@
   .practice-speaking-transcript {
     font-size: 14px;
     padding: 10px 12px;
+  }
+
+  .practice-speaking-word-feedback {
+    font-size: 14px;
+    padding: 10px 12px;
+  }
+
+  .practice-speaking-word {
+    padding: 1px 4px;
+    margin: 0 1px;
   }
 }

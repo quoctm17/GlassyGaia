@@ -14,6 +14,13 @@ interface PracticeWritingProps {
   onCheck: () => void;
 }
 
+// Word matching result types
+interface WordMatchResult {
+  type: 'match' | 'wrong' | 'missing';
+  word: string;
+  expected?: string; // For wrong words, show what was expected
+}
+
 export default function PracticeWriting({ card, onCheck }: PracticeWritingProps) {
   const { user } = useUser();
   const [userInput, setUserInput] = useState('');
@@ -21,6 +28,7 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
   const [imageError, setImageError] = useState(false);
   const [checkResult, setCheckResult] = useState<'correct' | 'incorrect' | null>(null);
   const [hasChecked, setHasChecked] = useState(false);
+  const [wordMatchResults, setWordMatchResults] = useState<WordMatchResult[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const correctAnswer = card.card_type || ''; // card_type contains the correct answer
   
@@ -86,6 +94,7 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
     setUserInput('');
     setCheckResult(null);
     setHasChecked(false);
+    setWordMatchResults([]);
   }, [card.id]);
   
   // Normalize text for comparison
@@ -114,6 +123,51 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
     
     return normalized;
   };
+
+  // Word-by-word matching algorithm (same as Speaking)
+  const compareWords = (targetStr: string, userStr: string): WordMatchResult[] => {
+    const target = targetStr.split(' ').filter(w => w.length > 0);
+    const user = userStr.split(' ').filter(w => w.length > 0);
+    
+    let tIndex = 0; // Target Index
+    let uIndex = 0; // User Index
+    const result: WordMatchResult[] = [];
+
+    while (tIndex < target.length || uIndex < user.length) {
+      const tWord = target[tIndex] || "";
+      const uWord = user[uIndex] || "";
+
+      if (tWord === uWord) {
+        // Scenario A: Perfect Match
+        result.push({ type: 'match', word: tWord });
+        tIndex++;
+        uIndex++;
+      } else {
+        // Mismatch: Is it a wrong word or a skipped word?
+        // Look ahead: Did the user say the *next* target word? (Means they skipped current)
+        const nextTWord = target[tIndex + 1] || "";
+        
+        if (uWord === nextTWord) {
+          // Scenario B: User skipped a word (Missing)
+          result.push({ type: 'missing', word: tWord });
+          tIndex++; // Move target forward, keep user same to catch the match next loop
+        } else {
+          // Scenario C: User said something else (Wrong)
+          // If we run out of target words but user keeps talking, mark as wrong/extra
+          if (tWord) {
+            result.push({ type: 'wrong', word: uWord, expected: tWord });
+            tIndex++;
+            uIndex++;
+          } else {
+            // User said extra words at the end
+            result.push({ type: 'wrong', word: uWord, expected: "" });
+            uIndex++;
+          }
+        }
+      }
+    }
+    return result;
+  };
   
   const handleCheck = async () => {
     if (hasChecked) {
@@ -125,6 +179,10 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
     // Normalize user input and correct answer for comparison
     const normalizedInput = normalizeText(userInput);
     const normalizedAnswer = normalizeText(correctAnswer);
+    
+    // Run word-by-word comparison
+    const wordResults = compareWords(normalizedAnswer, normalizedInput);
+    setWordMatchResults(wordResults);
     
     // Check if answer is correct
     const isCorrect = normalizedInput === normalizedAnswer;
@@ -215,14 +273,32 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
           <div className="practice-input-section">
             <div className="practice-writing-result-content">
               <div className="practice-writing-answer">
-                <div className="practice-writing-answer-label">Your answer:</div>
-                <div className={`practice-writing-answer-text ${checkResult}`}>
-                  {userInput || '(empty)'}
-                </div>
-                <div className="practice-writing-answer-label">Correct answer:</div>
-                <div className="practice-writing-answer-text correct">
-                  {card.card_type || '(not available)'}
-                </div>
+                {/* Word-by-word feedback display - showing correct answer with colors */}
+                {wordMatchResults.length > 0 ? (
+                  <div className="practice-writing-word-feedback">
+                    {wordMatchResults
+                      .filter(item => item.type !== 'wrong' || item.expected) // Filter out extra words at the end
+                      .map((item, index, array) => {
+                        const displayWord = item.type === 'wrong' && item.expected 
+                          ? item.expected 
+                          : item.word;
+                        return (
+                          <span
+                            key={index}
+                            className={`practice-writing-word practice-writing-word-${item.type}`}
+                            title={item.type === 'wrong' && item.expected ? `You said: ${item.word}` : ''}
+                          >
+                            {displayWord}
+                            {index < array.length - 1 && ' '}
+                          </span>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <div className="practice-writing-word-feedback">
+                    {card.card_type || '(not available)'}
+                  </div>
+                )}
               </div>
             </div>
             <button 

@@ -216,19 +216,23 @@ export async function signInWithGoogle(): Promise<{
         }
         if (!resolved) {
           resolved = true;
-          const errorMsg = (error as Error).message;
+          const errorMsg = (error as Error).message || String(error);
           const currentOrigin = window.location.origin;
           let helpfulMsg = errorMsg;
           
-          if (errorMsg.includes('origin') || errorMsg.includes('403') || errorMsg.includes('not allowed') || errorMsg.includes('GSI_LOGGER')) {
-            helpfulMsg = `Origin "${currentOrigin}" is not authorized.\n\n` +
-              `Please add it to Google Cloud Console:\n` +
+          if (errorMsg.includes('origin') || errorMsg.includes('403') || errorMsg.includes('not allowed') || errorMsg.includes('GSI_LOGGER') || errorMsg.includes('The given origin is not allowed')) {
+            helpfulMsg = `Google Sign-In Configuration Error\n\n` +
+              `Your origin "${currentOrigin}" is not authorized for this Google OAuth client.\n\n` +
+              `To fix this:\n` +
               `1. Go to: https://console.cloud.google.com/apis/credentials\n` +
-              `2. Click your OAuth 2.0 Client ID\n` +
-              `3. Add "${currentOrigin}" to "Authorized JavaScript origins"\n` +
-              `4. Save and wait a few minutes`;
+              `2. Select your project and click your OAuth 2.0 Client ID\n` +
+              `3. Under "Authorized JavaScript origins", click "ADD URI"\n` +
+              `4. Add: ${currentOrigin}\n` +
+              `5. Click "SAVE" and wait 2-5 minutes for changes to propagate\n\n` +
+              `Note: For local development, also add http://localhost:5173 and http://localhost:3000`;
           } else {
-            helpfulMsg = `Failed to initialize Google Sign-In: ${errorMsg}. Please check that your origin (${currentOrigin}) is authorized in Google Cloud Console.`;
+            helpfulMsg = `Failed to initialize Google Sign-In: ${errorMsg}\n\n` +
+              `Please verify that your origin (${currentOrigin}) is authorized in Google Cloud Console.`;
           }
           
           resolve({ 
@@ -244,12 +248,16 @@ export async function signInWithGoogle(): Promise<{
     
     // Provide helpful error message for common issues
     let helpfulMsg = errorMsg;
-    if (errorMsg.includes('origin') || errorMsg.includes('403') || errorMsg.includes('not allowed')) {
-      helpfulMsg = `Origin not authorized. Please add "${currentOrigin}" to Authorized JavaScript origins in Google Cloud Console:\n\n` +
+    if (errorMsg.includes('origin') || errorMsg.includes('403') || errorMsg.includes('not allowed') || errorMsg.includes('GSI_LOGGER') || errorMsg.includes('The given origin is not allowed')) {
+      helpfulMsg = `Google Sign-In Configuration Error\n\n` +
+        `Your origin "${currentOrigin}" is not authorized for this Google OAuth client.\n\n` +
+        `To fix this:\n` +
         `1. Go to: https://console.cloud.google.com/apis/credentials\n` +
-        `2. Click your OAuth 2.0 Client ID\n` +
-        `3. Add "${currentOrigin}" to "Authorized JavaScript origins"\n` +
-        `4. Save and wait a few minutes for changes to propagate`;
+        `2. Select your project and click your OAuth 2.0 Client ID\n` +
+        `3. Under "Authorized JavaScript origins", click "ADD URI"\n` +
+        `4. Add: ${currentOrigin}\n` +
+        `5. Click "SAVE" and wait 2-5 minutes for changes to propagate\n\n` +
+        `Note: For local development, also add http://localhost:5173 and http://localhost:3000`;
     }
     
     return { 
@@ -288,8 +296,20 @@ export async function signInWithGoogleIdToken(idToken: string): Promise<{
     });
 
     if (!res.ok) {
-      const error = await res.json().catch(() => ({ error: 'Request failed' }));
-      return { success: false, error: error.error || 'Authentication failed' };
+      const errorData = await res.json().catch(() => ({ error: 'Request failed' }));
+      let errorMsg = errorData.error || 'Authentication failed';
+      
+      // Provide more helpful error messages
+      if (res.status === 503 && errorMsg.includes('Database')) {
+        errorMsg = 'Database temporarily unavailable. Please try again in a few moments.';
+      } else if (res.status === 500 && errorData.details) {
+        // In development, show more details
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Backend error details:', errorData.details);
+        }
+      }
+      
+      return { success: false, error: errorMsg };
     }
 
     const data = await res.json();

@@ -332,7 +332,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       } else {
         const errorMsg = result.error || 'Google sign-in failed';
         console.error('Google sign-in failed:', errorMsg);
-        toast.error(errorMsg);
+        
+        // Show error message - if it's multi-line, show first line in toast and full message in console
+        const errorLines = errorMsg.split('\n');
+        const shortError = errorLines[0] || errorMsg;
+        toast.error(shortError);
+        
+        // If error contains configuration instructions, log full message
+        if (errorMsg.includes('Google Cloud Console') || errorMsg.includes('Authorized JavaScript origins')) {
+          console.error('Full error message:', errorMsg);
+        }
+        
         throw new Error(errorMsg);
       }
     } catch (error) {

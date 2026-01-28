@@ -74,6 +74,13 @@ interface PracticeSpeakingProps {
   onNext: () => void;
 }
 
+// Word matching result types
+interface WordMatchResult {
+  type: 'match' | 'wrong' | 'missing';
+  word: string;
+  expected?: string; // For wrong words, show what was expected
+}
+
 // Map language codes to SpeechRecognition language codes
 // Based on supported languages in Web Speech API and lang.ts
 const getSpeechRecognitionLang = (lang: string): string => {
@@ -181,6 +188,8 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
   const [userTranscript, setUserTranscript] = useState('');
   const [checkResult, setCheckResult] = useState<'correct' | 'incorrect' | null>(null);
   const [hasChecked, setHasChecked] = useState(false);
+  const [wordMatchResults, setWordMatchResults] = useState<WordMatchResult[]>([]);
+  const [score, setScore] = useState<number | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -269,6 +278,8 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
     setUserTranscript('');
     setCheckResult(null);
     setHasChecked(false);
+    setWordMatchResults([]);
+    setScore(null);
   }, [card.id]);
 
   // Cleanup recognition on unmount
@@ -309,6 +320,51 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
   
   // Normalize correct answer for comparison (card_type is already normalized, but normalize user input)
   const correctAnswer = normalizeText(correctAnswerRaw);
+
+  // Word-by-word matching algorithm (from HTML example)
+  const compareWords = (targetStr: string, userStr: string): WordMatchResult[] => {
+    const target = targetStr.split(' ').filter(w => w.length > 0);
+    const user = userStr.split(' ').filter(w => w.length > 0);
+    
+    let tIndex = 0; // Target Index
+    let uIndex = 0; // User Index
+    const result: WordMatchResult[] = [];
+
+    while (tIndex < target.length || uIndex < user.length) {
+      const tWord = target[tIndex] || "";
+      const uWord = user[uIndex] || "";
+
+      if (tWord === uWord) {
+        // Scenario A: Perfect Match
+        result.push({ type: 'match', word: tWord });
+        tIndex++;
+        uIndex++;
+      } else {
+        // Mismatch: Is it a wrong word or a skipped word?
+        // Look ahead: Did the user say the *next* target word? (Means they skipped current)
+        const nextTWord = target[tIndex + 1] || "";
+        
+        if (uWord === nextTWord) {
+          // Scenario B: User skipped a word (Missing)
+          result.push({ type: 'missing', word: tWord });
+          tIndex++; // Move target forward, keep user same to catch the match next loop
+        } else {
+          // Scenario C: User said something else (Wrong)
+          // If we run out of target words but user keeps talking, mark as wrong/extra
+          if (tWord) {
+            result.push({ type: 'wrong', word: uWord, expected: tWord });
+            tIndex++;
+            uIndex++;
+          } else {
+            // User said extra words at the end
+            result.push({ type: 'wrong', word: uWord, expected: "" });
+            uIndex++;
+          }
+        }
+      }
+    }
+    return result;
+  };
   
   // Ruby Text processing functions (from SearchResultCard)
   const escapeHtml = (s: string): string => {
@@ -421,7 +477,25 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
     // Normalize user transcript for comparison (correctAnswer is already normalized from card_type)
     const normalizedTranscript = normalizeText(userTranscript);
     
-    // Check if answer is correct
+    // Run word-by-word comparison
+    const wordResults = compareWords(correctAnswer, normalizedTranscript);
+    setWordMatchResults(wordResults);
+    
+    // Calculate score
+    let correctCount = 0;
+    let totalCount = 0;
+    wordResults.forEach(item => {
+      if (item.type === 'match') {
+        correctCount++;
+        totalCount++;
+      } else if (item.type === 'missing' || item.type === 'wrong') {
+        totalCount++;
+      }
+    });
+    const calculatedScore = totalCount === 0 ? 0 : Math.round((correctCount / totalCount) * 100);
+    setScore(calculatedScore);
+    
+    // Check if answer is correct (100% match)
     const isCorrect = normalizedTranscript === correctAnswer;
     setCheckResult(isCorrect ? 'correct' : 'incorrect');
     setHasChecked(true);
@@ -447,16 +521,29 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     analyserRef.current.getByteFrequencyData(dataArray);
     
-    // Calculate average volume level (0-255 scale)
-    const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-    const normalizedLevel = Math.min(average / 255, 1); // Normalize to 0-1
+    // Get time domain data for better visualization
+    const timeDataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    analyserRef.current.getByteTimeDomainData(timeDataArray);
     
-    // Update levels for visualization (10 bars)
+    // Calculate RMS (Root Mean Square) for volume level
+    let sum = 0;
+    for (let i = 0; i < timeDataArray.length; i++) {
+      const normalized = (timeDataArray[i] - 128) / 128;
+      sum += normalized * normalized;
+    }
+    const rms = Math.sqrt(sum / timeDataArray.length);
+    const normalizedLevel = Math.min(rms * 2, 1); // Scale and clamp to 0-1
+    
+    // Update levels for visualization (10 bars) - create wave effect based on real audio
     const levels = new Array(10).fill(0).map((_, i) => {
-      // Create wave pattern based on position and volume
-      const position = i / 10;
-      const wave = Math.sin(position * Math.PI * 4 + Date.now() * 0.01) * 0.5 + 0.5;
-      return Math.max(0.1, normalizedLevel * wave);
+      // Use frequency data for each bar position
+      const freqIndex = Math.floor((i / 10) * dataArray.length);
+      const freqLevel = dataArray[freqIndex] / 255;
+      // Combine with overall volume for more dynamic visualization
+      const combinedLevel = (normalizedLevel * 0.5 + freqLevel * 0.5);
+      // Add some wave animation based on position
+      const wave = Math.sin((i / 10) * Math.PI * 2 + Date.now() * 0.005) * 0.3 + 0.7;
+      return Math.max(0.1, combinedLevel * wave);
     });
     
     setAudioLevels(levels);
@@ -539,13 +626,15 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
         const recognitionLang = getSpeechRecognitionLang(speechRecognitionLang);
         recognition.lang = recognitionLang;
         recognition.continuous = false; // Stop after first result
-        recognition.interimResults = false; // Only final results
+        recognition.interimResults = true; // Enable interim results to show text while speaking
         
         recognition.onstart = () => {
           setIsRecording(true);
           setUserTranscript('');
           setCheckResult(null);
           setHasChecked(false);
+          setWordMatchResults([]);
+          setScore(null);
           setRecordedAudioUrl(null);
           // Clean up old URL
           if (recordedAudioUrlRef.current) {
@@ -557,11 +646,19 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
         };
         
         recognition.onresult = (event) => {
-          const transcript = event.results[0][0].transcript;
+          // Get the latest result (could be interim or final)
+          const resultIndex = event.resultIndex;
+          const transcript = event.results[resultIndex][0].transcript;
+          const isFinal = event.results[resultIndex].isFinal;
+          
           // Normalize transcript for display
           const normalizedTranscript = normalizeText(transcript);
           setUserTranscript(normalizedTranscript);
-          setIsRecording(false);
+          
+          // If it's final, stop recording
+          if (isFinal) {
+            setIsRecording(false);
+          }
           
           // Stop MediaRecorder
           if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -576,7 +673,25 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
             if (transcript.trim()) {
               // Normalize user transcript for comparison (correctAnswer is already normalized from card_type)
               
-              // Check if answer is correct
+              // Run word-by-word comparison
+              const wordResults = compareWords(correctAnswer, normalizedTranscript);
+              setWordMatchResults(wordResults);
+              
+              // Calculate score
+              let correctCount = 0;
+              let totalCount = 0;
+              wordResults.forEach(item => {
+                if (item.type === 'match') {
+                  correctCount++;
+                  totalCount++;
+                } else if (item.type === 'missing' || item.type === 'wrong') {
+                  totalCount++;
+                }
+              });
+              const calculatedScore = totalCount === 0 ? 0 : Math.round((correctCount / totalCount) * 100);
+              setScore(calculatedScore);
+              
+              // Check if answer is correct (100% match)
               const isCorrect = normalizedTranscript === correctAnswer;
               setCheckResult(isCorrect ? 'correct' : 'incorrect');
               setHasChecked(true);
@@ -761,9 +876,12 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
                 </div>
               )}
             </button>
-            {userTranscript && !isRecording && (
-              <div className="practice-speaking-transcript">
-                You said: {userTranscript}
+            {(userTranscript || isRecording) && (
+              <div className="practice-speaking-transcript" style={{
+                opacity: isRecording && userTranscript ? 0.7 : 1,
+                fontStyle: isRecording && userTranscript ? 'italic' : 'normal'
+              }}>
+                {isRecording && userTranscript ? `Listening: ${userTranscript}...` : userTranscript ? `You said: ${userTranscript}` : 'Listening...'}
               </div>
             )}
           </div>
@@ -790,16 +908,20 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
           <div className="practice-input-section">
             <div className="practice-speaking-result-content">
               <div className="practice-speaking-answer">
-                <div className="practice-speaking-answer-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>Your answer:</span>
-                  {recordedAudioUrl && (
+                {/* Replay button - top right */}
+                {recordedAudioUrl && (
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'flex-end', 
+                    marginBottom: '12px' 
+                  }}>
                     <button
                       onClick={handleReplayAudio}
                       style={{
                         background: 'transparent',
                         border: 'none',
                         cursor: 'pointer',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
                         padding: '4px 8px',
@@ -811,16 +933,49 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
                       <Headphones size={16} />
                       <span>Listen</span>
                     </button>
-                  )}
-                </div>
-                <div className={`practice-speaking-answer-text ${checkResult}`}>
-                  {userTranscript || '(no speech detected)'}
-                </div>
-                <div className="practice-speaking-answer-label">Correct answer:</div>
-                <div className="practice-speaking-answer-text correct">
-                  {correctAnswerRaw || '(not available)'}
-                </div>
+                  </div>
+                )}
+                
+                {/* Word-by-word feedback display - showing correct answer with colors */}
+                {wordMatchResults.length > 0 ? (
+                  <div className="practice-speaking-word-feedback">
+                    {wordMatchResults
+                      .filter(item => item.type !== 'wrong' || item.expected) // Filter out extra words at the end
+                      .map((item, index, array) => {
+                        const displayWord = item.type === 'wrong' && item.expected 
+                          ? item.expected 
+                          : item.word;
+                        return (
+                          <span
+                            key={index}
+                            className={`practice-speaking-word practice-speaking-word-${item.type}`}
+                            title={item.type === 'wrong' && item.expected ? `You said: ${item.word}` : ''}
+                          >
+                            {displayWord}
+                            {index < array.length - 1 && ' '}
+                          </span>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <div className="practice-speaking-word-feedback">
+                    {correctAnswerRaw || '(not available)'}
+                  </div>
+                )}
               </div>
+              
+              {/* Score Display - bottom center */}
+              {score !== null && (
+                <div className="practice-speaking-score" style={{
+                  fontSize: '18px',
+                  fontWeight: 'bold',
+                  color: score > 80 ? '#33CC5E' : '#FF4D4D',
+                  marginTop: '16px',
+                  textAlign: 'center'
+                }}>
+                  Score: {score}%
+                </div>
+              )}
             </div>
             <button 
               className="practice-next-btn"
