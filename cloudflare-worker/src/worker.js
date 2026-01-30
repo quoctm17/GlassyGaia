@@ -2276,56 +2276,30 @@ export default {
         }
       }
 
-      // Autocomplete API: Fast suggestions from search_terms table
-      if (path === '/api/search/autocomplete' && request.method === 'GET') {
-        try {
-          const query = (url.searchParams.get('q') || '').trim();
-          const language = url.searchParams.get('language') || null;
-          const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '10', 10), 1), 50);
+      // API Search gợi ý (Autocomplete) - Giữ nguyên path cũ để Frontend không lỗi
+if (path === '/api/search/autocomplete' && request.method === 'GET') {
+  const url = new URL(request.url);
+  // Hỗ trợ cả tham số 'q' hoặc 'query', 'lang' hoặc 'language'
+  const query = (url.searchParams.get('q') || url.searchParams.get('query') || '').toLowerCase().trim();
+  const lang = url.searchParams.get('lang') || url.searchParams.get('language') || 'en';
 
-          if (!query || query.length < 1) {
-            return json({ suggestions: [] });
-          }
+  if (query.length < 1) return json({ suggestions: [] });
 
-          // Build query: prefix match on term, optionally filter by language
-          // Order by frequency (desc) then term (asc) for best matches first
-          let stmt;
-          let params;
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT term, frequency 
+      FROM search_terms 
+      WHERE language = ? AND term LIKE ? 
+      ORDER BY frequency DESC 
+      LIMIT 10
+    `).bind(lang, `${query}%`).all();
 
-          if (language) {
-            stmt = `
-              SELECT term, frequency
-              FROM search_terms
-              WHERE language = ?
-                AND term LIKE ? || '%'
-              ORDER BY frequency DESC, term ASC
-              LIMIT ?
-            `;
-            params = [language, query, limit];
-          } else {
-            stmt = `
-              SELECT term, frequency, language
-              FROM search_terms
-              WHERE term LIKE ? || '%'
-              ORDER BY frequency DESC, term ASC
-              LIMIT ?
-            `;
-            params = [query, limit];
-          }
-
-          const result = await env.DB.prepare(stmt).bind(...params).all();
-          const suggestions = (result.results || []).map(row => ({
-            term: row.term,
-            frequency: row.frequency || 0,
-            language: row.language || null
-          }));
-
-          return json({ suggestions });
-        } catch (e) {
-          console.error('[WORKER /api/search/autocomplete] Error:', e);
-          return json({ error: 'autocomplete_failed', message: String(e), suggestions: [] }, { status: 500 });
-        }
-      }
+    return json({ suggestions: results || [] });
+  } catch (e) {
+    console.error('Search Error:', e);
+    return json({ error: e.message, suggestions: [] }, { status: 500 });
+  }
+}
 
       // Get card counts per content item (for ContentSelector)
       if (path === '/api/search/counts' && request.method === 'GET') {
