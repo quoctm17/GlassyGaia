@@ -309,8 +309,10 @@ function SearchPage() {
     }
 
     if (!query || query.trim().length < 2) {
-      setSuggestions([]); // Hoặc set results rỗng
+      setCards([]);
+      setTotal(0);
       setLoading(false);
+      setFirstLoading(false);
       return;
     }
     
