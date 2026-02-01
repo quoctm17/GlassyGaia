@@ -605,7 +605,7 @@ function SearchPage() {
                 loading={loading || firstLoading}
                 enableAutocomplete={true}
                 autocompleteLanguage={preferences.main_language || null}
-                debounceMs={0}
+                debounceMs={300}
               />
               <button
                 className="filter-panel-toggle-btn"
