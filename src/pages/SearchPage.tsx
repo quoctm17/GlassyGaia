@@ -307,6 +307,12 @@ function SearchPage() {
       console.log('[SearchPage] Skipping fetch - filter modal is open');
       return;
     }
+
+    if (!query || query.trim().length < 2) {
+      setSuggestions([]); // Hoặc set results rỗng
+      setLoading(false);
+      return;
+    }
     
     // Track when filter change started
     if (!firstLoading) {
