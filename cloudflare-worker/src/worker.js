@@ -736,6 +736,36 @@ export default {
         return new Response(null, { status: 204, headers: withCors() });
       }
 
+      // API Search gợi ý (Autocomplete) - Giữ nguyên path cũ để Frontend không lỗi
+      if (path === '/api/search/autocomplete' && request.method === 'GET') {
+        const url = new URL(request.url);
+        // Hỗ trợ cả tham số 'q' hoặc 'query', 'lang' hoặc 'language'
+        const query = (url.searchParams.get('q') || url.searchParams.get('query') || "").trim().toLowerCase();
+        const rawLang = url.searchParams.get('language') || url.searchParams.get('lang') || "en";
+        const lang = rawLang.split('-')[0].toLowerCase();
+
+        if (query.length < 2) return json({ suggestions: [] }, { headers: withCors() });
+
+        try {
+          const { results } = await env.DB.prepare(`
+            SELECT term 
+            FROM search_terms 
+            WHERE language = ? AND term LIKE ? || '%' 
+            ORDER BY frequency DESC 
+            LIMIT 10
+          `)
+          .bind(lang, query)
+          .all();
+
+          const suggestions = (results || []).map(i => i.term);
+          return json({ suggestions }, { headers: withCors() });
+        } catch (e) {
+          // Log lỗi chi tiết để kiểm tra trong Cloudflare Logs
+          console.error("Search Error:", e.message);
+          return json({ suggestions: [], error: "db_busy" }, { headers: withCors() });
+        }
+      }
+      
       // ==================== AUTHENTICATION ENDPOINTS ====================
 
       // Sign up with email/password
@@ -2275,31 +2305,6 @@ export default {
           return json({ error: 'search_failed', message: String(e) }, { status: 500 });
         }
       }
-
-      // API Search gợi ý (Autocomplete) - Giữ nguyên path cũ để Frontend không lỗi
-if (path === '/api/search/autocomplete' && request.method === 'GET') {
-  const url = new URL(request.url);
-  // Hỗ trợ cả tham số 'q' hoặc 'query', 'lang' hoặc 'language'
-  const query = (url.searchParams.get('q') || url.searchParams.get('query') || '').toLowerCase().trim();
-  const lang = url.searchParams.get('lang') || url.searchParams.get('language') || 'en';
-
-  if (query.length < 1) return json({ suggestions: [] });
-
-  try {
-    const { results } = await env.DB.prepare(`
-      SELECT term, frequency 
-      FROM search_terms 
-      WHERE language = ? AND term LIKE ? 
-      ORDER BY frequency DESC 
-      LIMIT 10
-    `).bind(lang, `${query}%`).all();
-
-    return json({ suggestions: results || [] });
-  } catch (e) {
-    console.error('Search Error:', e);
-    return json({ error: e.message, suggestions: [] }, { status: 500 });
-  }
-}
 
       // Get card counts per content item (for ContentSelector)
       if (path === '/api/search/counts' && request.method === 'GET') {
