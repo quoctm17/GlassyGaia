@@ -738,31 +738,35 @@ export default {
 
       // API Search gợi ý (Autocomplete) - Giữ nguyên path cũ để Frontend không lỗi
       if (path === '/api/search/autocomplete' && request.method === 'GET') {
-        const url = new URL(request.url);
-        // Hỗ trợ cả tham số 'q' hoặc 'query', 'lang' hoặc 'language'
-        const query = (url.searchParams.get('q') || url.searchParams.get('query') || "").trim().toLowerCase();
-        const rawLang = url.searchParams.get('language') || url.searchParams.get('lang') || "en";
-        const lang = rawLang.split('-')[0].toLowerCase();
-
-        if (query.length < 2) return json({ suggestions: [] }, { headers: withCors() });
-
         try {
+          const url = new URL(request.url);
+        // Hỗ trợ cả tham số 'q' hoặc 'query', 'lang' hoặc 'language'
+          const q = url.searchParams.get('q') || '';
+          const lang = url.searchParams.get('lang') || 'en';
+
+          if (q.trim().length < 2) {
+            return json({ suggestions: [] }, { headers: withCors() });
+          }
+
+          const ftsQuery = buildFtsQuery(q);
+
           const { results } = await env.DB.prepare(`
             SELECT term 
-            FROM search_terms 
-            WHERE language = ? AND term LIKE ? || '%' 
-            ORDER BY frequency DESC 
+            FROM search_terms_fts 
+            WHERE term MATCH ? 
+            AND (language = ? OR language IS NULL)
+            ORDER BY rank
             LIMIT 10
-          `)
-          .bind(lang, query)
-          .all();
+          `).bind(ftsQuery, lang).all();
 
-          const suggestions = (results || []).map(i => i.term);
-          return json({ suggestions }, { headers: withCors() });
+          return json({ 
+            suggestions: results || [],
+            query: q 
+          }, { headers: withCors() });
+      
         } catch (e) {
-          // Log lỗi chi tiết để kiểm tra trong Cloudflare Logs
-          console.error("Search Error:", e.message);
-          return json({ suggestions: [], error: "db_busy" }, { headers: withCors() });
+          console.error("Search API Error:", e.message);
+          return json({ error: "Internal Server Error", suggestions: [] }, { status: 500, headers: withCors() });
         }
       }
       
