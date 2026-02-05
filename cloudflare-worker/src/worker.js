@@ -111,40 +111,6 @@ function kanaOnlyString(s) {
   return String(s).replace(/[^\p{Script=Hiragana}\p{Script=Katakana}\p{L}\p{N}\s]/gu, '').trim();
 }
 
-// Helper function to extract searchable terms from text
-function extractSearchTerms(text, language) {
-  if (!text || typeof text !== 'string') return [];
-  const terms = new Set();
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-
-  const isCJK = ['ja', 'zh', 'ko', 'zh-CN', 'zh-TW'].includes(language);
-
-  if (isCJK) {
-    // For CJK: Extract character sequences (2-6 characters)
-    // Remove furigana brackets first
-    const normalized = trimmed.replace(/\[[^\]]+\]/g, '').replace(/\s+/g, '');
-    for (let len = 2; len <= Math.min(6, normalized.length); len++) {
-      for (let i = 0; i <= normalized.length - len; i++) {
-        const seq = normalized.substring(i, i + len);
-        if (seq && !seq.includes(' ')) {
-          terms.add(seq);
-        }
-      }
-    }
-  } else {
-    // For non-CJK: Extract words (2+ characters, alphanumeric)
-    const words = trimmed
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-      .split(/\s+/)
-      .filter(w => w.length >= 2 && /[a-zA-Z0-9]/.test(w));
-    words.forEach(w => terms.add(w));
-  }
-
-  return Array.from(terms);
-}
-
 // Expand Japanese index text by adding mixed kanji/kana tokens from bracketed furigana: 例) 黒川[くろかわ]
 // Also normalizes whitespace for consistent FTS matching
 // IMPORTANT: Indexes BOTH the base text (without brackets) AND the reading separately
@@ -736,10 +702,11 @@ export default {
         return new Response(null, { status: 204, headers: withCors() });
       }
 
-      // API Search gợi ý (Autocomplete) - Giữ nguyên path cũ để Frontend không lỗi
+      // API Search gợi ý (Autocomplete) - Optimized with VIEW + KV Cache
+      // Uses v_search_terms VIEW instead of search_terms table (no populate needed)
+      // Added KV caching to reduce DB reads significantly
       if (path === '/api/search/autocomplete' && request.method === 'GET') {
         const url = new URL(request.url);
-        // Hỗ trợ cả tham số 'q' hoặc 'query', 'lang' hoặc 'language'
         const query = (url.searchParams.get('q') || url.searchParams.get('query') || "").trim().toLowerCase();
         const rawLang = url.searchParams.get('language') || url.searchParams.get('lang') || "en";
         const lang = rawLang.split('-')[0].toLowerCase();
@@ -747,22 +714,69 @@ export default {
         if (query.length < 2) return json({ suggestions: [] }, { headers: withCors() });
 
         try {
+          // OPTIMIZED: Check KV cache first (eliminates DB reads for cached queries)
+          const cacheKey = `autocomplete:${lang}:${query}:v2`;
+          const CACHE_TTL = 3600; // 1 hour cache
+
+          if (env.SEARCH_CACHE) {
+            const cached = await env.SEARCH_CACHE.get(cacheKey);
+            if (cached) {
+              const cachedData = JSON.parse(cached);
+              console.log(`[CACHE HIT /api/search/autocomplete] Key: ${cacheKey}`);
+              return json({ suggestions: cachedData, cached: true }, { headers: withCors() });
+            }
+          }
+
+          // OPTIMIZED: Use v_search_terms VIEW instead of search_terms table
+          // The VIEW computes terms on-demand, no population needed
           const { results } = await env.DB.prepare(`
-            SELECT term 
-            FROM search_terms 
-            WHERE language = ? AND term LIKE ? || '%' 
-            ORDER BY frequency DESC 
+            SELECT term, frequency
+            FROM v_search_terms
+            WHERE language = ?
+              AND term LIKE ? || '%'
+            ORDER BY frequency DESC
             LIMIT 10
           `)
           .bind(lang, query)
           .all();
 
           const suggestions = (results || []).map(i => i.term);
+
+          // OPTIMIZED: Cache results in KV for future requests
+          if (env.SEARCH_CACHE && suggestions.length > 0) {
+            await env.SEARCH_CACHE.put(cacheKey, JSON.stringify(suggestions), { expirationTtl: CACHE_TTL });
+            console.log(`[CACHE MISS /api/search/autocomplete] Key: ${cacheKey}, Cached ${suggestions.length} suggestions`);
+          }
+
           return json({ suggestions }, { headers: withCors() });
         } catch (e) {
-          // Log lỗi chi tiết để kiểm tra trong Cloudflare Logs
-          console.error("Search Error:", e.message);
-          return json({ suggestions: [], error: "db_busy" }, { headers: withCors() });
+          // Fallback to direct query if VIEW doesn't exist yet (during migration)
+          console.warn("[Autocomplete] VIEW not available, using fallback query:", e.message);
+          try {
+            const fallbackQuery = `
+              SELECT LOWER(TRIM(cs.text)) as term, COUNT(*) as frequency
+              FROM card_subtitles cs
+              INNER JOIN cards c ON c.id = cs.card_id
+              INNER JOIN episodes e ON e.id = c.episode_id
+              INNER JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE cs.language = ?
+                AND LOWER(TRIM(cs.text)) LIKE ? || '%'
+                AND c.is_available = 1
+                AND LOWER(ci.main_language) = 'en'
+              GROUP BY LOWER(TRIM(cs.text))
+              ORDER BY COUNT(*) DESC
+              LIMIT 10
+            `;
+            const { results } = await env.DB.prepare(fallbackQuery)
+              .bind(lang, query)
+              .all();
+
+            const suggestions = (results || []).map(i => i.term);
+            return json({ suggestions, fallback: true }, { headers: withCors() });
+          } catch (fallbackError) {
+            console.error("Autocomplete Fallback Error:", fallbackError.message);
+            return json({ suggestions: [], error: "db_busy" }, { headers: withCors() });
+          }
         }
       }
       
@@ -3382,38 +3396,70 @@ export default {
           }
 
           // Begin transaction for DB deletions
+          // OPTIMIZED: Use direct DB operations - no data transfer to JS
+          // Each DELETE uses subquery to find records, avoiding SELECT → DELETE pattern
           try { await env.DB.prepare('BEGIN TRANSACTION').run(); } catch { }
           try {
-            // Collect episode ids
-            const eps = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=?').bind(filmRow.id).all();
-            const epIds = (eps.results || []).map(r => r.id);
-            if (epIds.length) {
-              // Collect card ids for those episodes
-              const placeholders = epIds.map(() => '?').join(',');
-              const cardsRes = await env.DB.prepare(`SELECT id FROM cards WHERE episode_id IN (${placeholders})`).bind(...epIds).all();
-              const cardIds = (cardsRes.results || []).map(r => r.id);
-              if (cardIds.length) {
-                const cardPh = cardIds.map(() => '?').join(',');
-                // Delete subtitles and difficulty levels
-                try { await env.DB.prepare(`DELETE FROM card_subtitles WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch { }
-                try { await env.DB.prepare(`DELETE FROM card_subtitles_fts WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch { }
-                try { await env.DB.prepare(`DELETE FROM card_difficulty_levels WHERE card_id IN (${cardPh})`).bind(...cardIds).run(); } catch { }
-                // Update mapping table (async, don't block)
-                updateCardSubtitleLanguageMapBatch(env, cardIds).catch(err => {
-                  console.error('[delete cards] Failed to update mapping table:', err.message);
-                });
-              }
-              // Delete cards
-              try { await env.DB.prepare(`DELETE FROM cards WHERE episode_id IN (${placeholders})`).bind(...epIds).run(); } catch { }
-            }
+            // Delete card_subtitles (find via cards → episodes → content_item)
+            try { await env.DB.prepare(`
+              DELETE FROM card_subtitles 
+              WHERE card_id IN (
+                SELECT c.id FROM cards c
+                INNER JOIN episodes e ON e.id = c.episode_id
+                WHERE e.content_item_id = ?
+              )
+            `).bind(filmRow.id).run(); } catch { }
+
+            // Delete FTS index entries
+            try { await env.DB.prepare(`
+              DELETE FROM card_subtitles_fts 
+              WHERE card_id IN (
+                SELECT c.id FROM cards c
+                INNER JOIN episodes e ON e.id = c.episode_id
+                WHERE e.content_item_id = ?
+              )
+            `).bind(filmRow.id).run(); } catch { }
+
+            // Delete difficulty levels
+            try { await env.DB.prepare(`
+              DELETE FROM card_difficulty_levels 
+              WHERE card_id IN (
+                SELECT c.id FROM cards c
+                INNER JOIN episodes e ON e.id = c.episode_id
+                WHERE e.content_item_id = ?
+              )
+            `).bind(filmRow.id).run(); } catch { }
+
+            // Delete language map entries
+            try { await env.DB.prepare(`
+              DELETE FROM card_subtitle_language_map 
+              WHERE card_id IN (
+                SELECT c.id FROM cards c
+                INNER JOIN episodes e ON e.id = c.episode_id
+                WHERE e.content_item_id = ?
+              )
+            `).bind(filmRow.id).run(); } catch { }
+
+            // Delete cards
+            try { await env.DB.prepare(`
+              DELETE FROM cards 
+              WHERE episode_id IN (
+                SELECT id FROM episodes WHERE content_item_id = ?
+              )
+            `).bind(filmRow.id).run(); } catch { }
+
             // Delete episodes
-            try { await env.DB.prepare('DELETE FROM episodes WHERE content_item_id=?').bind(filmRow.id).run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM episodes WHERE content_item_id = ?').bind(filmRow.id).run(); } catch { }
+
             // Delete language rows
-            try { await env.DB.prepare('DELETE FROM content_item_languages WHERE content_item_id=?').bind(filmRow.id).run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM content_item_languages WHERE content_item_id = ?').bind(filmRow.id).run(); } catch { }
+
             // Delete category associations
-            try { await env.DB.prepare('DELETE FROM content_item_categories WHERE content_item_id=?').bind(filmRow.id).run(); } catch { }
+            try { await env.DB.prepare('DELETE FROM content_item_categories WHERE content_item_id = ?').bind(filmRow.id).run(); } catch { }
+
             // Finally delete the content item
-            await env.DB.prepare('DELETE FROM content_items WHERE id=?').bind(filmRow.id).run();
+            await env.DB.prepare('DELETE FROM content_items WHERE id = ?').bind(filmRow.id).run();
+
             try { await env.DB.prepare('COMMIT').run(); } catch { }
           } catch (e) {
             try { await env.DB.prepare('ROLLBACK').run(); } catch { }
@@ -4399,16 +4445,16 @@ export default {
         try {
           const mainCanon = mainLang ? String(mainLang).toLowerCase() : null;
 
-          // STRICT MODE: Only allow searching for terms that exist in search_terms table
-          // This enforces the "Inverted Index Only" approach requested by the user.
-          // If the term is not in the index (no suggestions would be shown), strictly return empty.
-          if (q) {
-            const termExists = await env.DB.prepare('SELECT 1 FROM search_terms WHERE LOWER(term) = LOWER(?)').bind(q).first();
-            if (!termExists) {
-              console.log(`[api/search] Term not found in index: "${q}" - returning empty`);
-              return json([]);
-            }
-          }
+          // REMOVED: Strict mode check against search_terms
+          // The search_terms table is used for autocomplete suggestions only
+          // Full search should use FTS5 directly to find all matching cards
+          // if (q) {
+          //   const termExists = await env.DB.prepare('SELECT 1 FROM search_terms WHERE LOWER(term) = LOWER(?)').bind(q).first();
+          //   if (!termExists) {
+          //     console.log(`[api/search] Term not found in index: "${q}" - returning empty`);
+          //     return json([]);
+          //   }
+          // }
 
           // Parse subtitle languages into array
           const subtitleLangsArr = subtitleLanguagesCsv
@@ -8911,106 +8957,21 @@ export default {
         }
       }
 
-      // Populate search_terms table from card_subtitles - SuperAdmin only
+      // DEPRECATED: Populate search_terms endpoint removed
+      // This endpoint is no longer needed because:
+      // 1. Autocomplete now uses v_search_terms VIEW instead of search_terms table
+      // 2. The VIEW computes terms on-demand from card_subtitles (no population needed)
+      // 3. KV caching eliminates the need for pre-computed terms
+      // If accessed, return a helpful message pointing to the new architecture
       if (path === '/api/admin/populate-search-terms' && request.method === 'POST') {
-        try {
-          const auth = await authenticateRequest(request, env);
-          if (!auth.authenticated) {
-            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
-          }
-
-          // Check if user is superadmin
-          if (!auth.roles.includes('superadmin')) {
-            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
-          }
-
-          const body = await request.json().catch(() => ({}));
-          const batchSize = Math.min(Math.max(parseInt(body.batchSize || '100', 10), 10), 10000);
-          const offset = parseInt(body.offset || '0', 10);
-
-          // Get total count of subtitles (always when includeTotal is true, or when offset is 0)
-          // This ensures frontend always has the correct total count
-          let total = 0;
-          if (offset === 0 || body.includeTotal === true) {
-            const totalCount = await env.DB.prepare(`
-              SELECT COUNT(*) as count 
-              FROM card_subtitles
-              WHERE text IS NOT NULL AND LENGTH(text) > 0
-            `).first();
-            total = totalCount?.count || 0;
-          }
-
-          // Fetch a batch of subtitles
-          const subtitles = await env.DB.prepare(`
-            SELECT id, card_id, language, text
-            FROM card_subtitles
-            WHERE text IS NOT NULL AND LENGTH(text) > 0
-            ORDER BY id
-            LIMIT ? OFFSET ?
-          `).bind(batchSize, offset).all();
-
-          if (!subtitles.results || subtitles.results.length === 0) {
-            return json({
-              message: 'No more subtitles to process',
-              processed: 0,
-              total: total || offset, // Use total if available, otherwise use offset as fallback
-              totalProcessed: offset,
-              hasMore: false
-            });
-          }
-
-          // OPTIMIZED: Process all subtitles and batch insert terms
-          const termMap = new Map(); // Map<`${term}:${language}`, frequency>
-
-          // Extract terms from all subtitles
-          for (const sub of subtitles.results) {
-            const terms = extractSearchTerms(sub.text, sub.language);
-            for (const term of terms) {
-              const key = `${term}:${sub.language}`;
-              termMap.set(key, (termMap.get(key) || 0) + 1);
-            }
-          }
-
-          // OPTIMIZED: Batch insert all terms
-          // D1's batch() automatically runs in a transaction, no need for BEGIN/COMMIT
-          let inserted = 0;
-          const insertStmts = [];
-
-          for (const [key, frequency] of termMap.entries()) {
-            const [term, language] = key.split(':');
-            insertStmts.push(env.DB.prepare(`
-              INSERT INTO search_terms (term, language, frequency, created_at, updated_at)
-              VALUES (?, ?, ?, unixepoch() * 1000, unixepoch() * 1000)
-              ON CONFLICT(term, language) DO UPDATE SET
-                frequency = frequency + ?,
-                updated_at = unixepoch() * 1000
-            `).bind(term, language, frequency, frequency));
-          }
-
-          // Execute in batches of 500 - each batch() call is automatically transactional
-          for (let i = 0; i < insertStmts.length; i += 500) {
-            const slice = insertStmts.slice(i, i + 500);
-            if (slice.length) {
-              const results = await env.DB.batch(slice);
-              inserted += results.reduce((sum, r) => sum + (r.meta?.changes || 0), 0);
-            }
-          }
-
-          const newOffset = offset + subtitles.results.length;
-          const hasMore = subtitles.results.length === batchSize;
-
-          return json({
-            message: 'Batch processed successfully',
-            processed: subtitles.results.length,
-            termsInserted: inserted,
-            total: total || 0, // Total count of all subtitles
-            totalProcessed: newOffset,
-            hasMore: hasMore
-          });
-        } catch (e) {
-          console.error('[WORKER /api/admin/populate-search-terms] Error:', e);
-          return json({ error: e.message }, { status: 500 });
-        }
+        return json({
+          deprecated: true,
+          message: 'This endpoint is deprecated. Autocomplete now uses v_search_terms VIEW.',
+          migration_required: [
+            'Run migration 045: Add optimized indexes',
+            'Run migration 046: Replace search_terms with v_search_terms VIEW'
+          ]
+        }, { status: 410 }); // 410 Gone
       }
 
       // Update rewards config - SuperAdmin only

@@ -192,11 +192,12 @@ export default function AdminPopulateSearchTermsPage() {
     setPopulating(true);
     setLogs([]);
     abortControllerRef.current = new AbortController();
-    
+
     // Ensure we have total count before starting
+    // IMPORTANT: Always preserve progress, even when loading total
     if (totalRef.current === 0) {
       addLog('info', '📊 Loading total count...');
-      await loadStats(false); // Load total without preserving progress
+      await loadStats(true); // Use true to preserve currentOffset progress
     }
     
     addLog('info', `🚀 Starting search_terms population (batch size: ${batchSize})...`);
