@@ -232,33 +232,48 @@ function compareLevels(level1, level2, framework) {
  * Retry D1 database query with exponential backoff
  * Handles D1 overload errors by retrying with delays
  */
-async function retryD1Query(queryFn, maxRetries = 3, initialDelay = 100) {
-  let lastError;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await queryFn();
-    } catch (error) {
-      lastError = error;
-      const errorMsg = error?.message || String(error);
+
+const D1Helper = {
+  async execute(queryFn, options = {}) {
+    const { 
+      maxRetries = 3, 
+      initialDelay = 150, 
+      tag = 'DB_OP' // Dùng để debug lỗi dễ hơn
+    } = options;
+    
+    let lastError;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await queryFn();
+      } catch (error) {
+        lastError = error;
+        const errorMsg = error?.message || String(error);
+
+        const shouldRetry = /D1_ERROR|overloaded|queued|D1_DATABASE_ERROR/.test(errorMsg);
       
       // Only retry on D1 overload errors
-      if (errorMsg.includes('D1_ERROR') || 
-          errorMsg.includes('overloaded') || 
-          errorMsg.includes('queued for too long') ||
-          errorMsg.includes('D1_DATABASE_ERROR')) {
-        if (attempt < maxRetries - 1) {
-          // Exponential backoff: 100ms, 200ms, 400ms
-          const delay = initialDelay * Math.pow(2, attempt);
+        if (shouldRetry && attempt < maxRetries - 1) {
+          // Exponential backoff + Jitter
+          const backoff = initialDelay * Math.pow(2, attempt);
+          const jitter = Math.random() * 100; 
+          const delay = backoff + jitter;
+
+          console.warn(`[${tag}] Attempt ${attempt + 1} failed. Retrying in ${Math.round(delay)}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-      }
       // For other errors, throw immediately
-      throw error;
+        throw this.enhanceError(error, tag);
+      }
     }
+    throw lastError;
+  },
+
+  enhanceError(error, tag) {
+    error.message = `[D1_${tag}] ${error.message}`;
+    return error;
   }
-  throw lastError;
-}
+};
 
 // ==================== AUTHENTICATION HELPERS ====================
 
@@ -294,7 +309,7 @@ async function hashPassword(password) {
   combined.set(hashArray, salt.length);
 
   // Modern Base64 conversion (More efficient than btoa + String.fromCharCode)
-  return btoa(String.fromCharCode.apply(null, combined));
+  return btoa(new TextDecoder('latin1').decode(combined));
 }
 
 // Helper function to update card_subtitle_language_map normalized table
@@ -711,7 +726,11 @@ export default {
         const rawLang = url.searchParams.get('language') || url.searchParams.get('lang') || "en";
         const lang = rawLang.split('-')[0].toLowerCase();
 
-        if (query.length < 2) return json({ suggestions: [] }, { headers: withCors() });
+          if (q.trim().length < 2) {
+            return json({ suggestions: [] }, { headers: withCors() });
+          }
+
+          const ftsQuery = buildFtsQuery(q);
 
         try {
           // OPTIMIZED: Check KV cache first (eliminates DB reads for cached queries)
@@ -762,9 +781,7 @@ export default {
             ))
             ORDER BY frequency DESC
             LIMIT 10
-          `)
-          .bind(lang, query)
-          .all();
+          `).bind(ftsQuery, lang).all();
 
           const suggestions = (results || [])
             .filter(i => i.word && i.word.length > 0)
@@ -1038,7 +1055,7 @@ export default {
 
           // Optimized: Use retry logic for all database operations
           // Upsert user with retry
-          await retryD1Query(async () => {
+          await D1Helper.execute(async () => {
             return await env.DB.prepare(`
               INSERT INTO users (id, email, display_name, photo_url, auth_provider, email_verified, last_login_at, updated_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1056,7 +1073,7 @@ export default {
           });
 
           // Insert or update user role with retry
-          await retryD1Query(async () => {
+          await D1Helper.execute(async () => {
             return await env.DB.prepare(`
               INSERT INTO user_roles (user_id, role_name, granted_by, granted_at)
               VALUES (?, ?, 'system', ?)
@@ -1065,7 +1082,7 @@ export default {
           });
 
           // Get user with preferences and roles (optimized single query) with retry
-          const user = await retryD1Query(async () => {
+          const user = await D1Helper.execute(async () => {
             return await env.DB.prepare(`
               SELECT u.*, up.main_language, up.subtitle_languages, up.require_all_languages,
                      GROUP_CONCAT(ur.role_name) as roles
@@ -1075,7 +1092,11 @@ export default {
               WHERE u.id = ?
               GROUP BY u.id
             `).bind(userId).first();
-          });
+          }, { tag: 'GET_USER_DATA' });
+
+          if (user && user.roles) {
+            user.roles = user.roles.split(',');
+          }
 
           // Parse roles from comma-separated string
           const roleNames = user.roles ? user.roles.split(',') : [];
