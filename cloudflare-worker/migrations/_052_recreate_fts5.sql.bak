@@ -1,0 +1,22 @@
+-- Migration 052: Drop and recreate cards_sentence_fts with clean data
+-- This fixes the datatype mismatch issue
+
+-- Drop the existing FTS5 table
+DROP TABLE IF EXISTS cards_sentence_fts;
+
+-- Create FTS5 table with trigram tokenizer
+CREATE VIRTUAL TABLE IF NOT EXISTS cards_sentence_fts USING fts5(
+  sentence,
+  tokenize='trigram'
+);
+
+-- Backfill with ONLY text type data and convert to string explicitly
+INSERT INTO cards_sentence_fts(rowid, sentence)
+SELECT id, CAST(sentence AS TEXT) as sentence
+FROM cards
+WHERE cards.is_available = 1
+  AND cards.sentence IS NOT NULL
+  AND cards.sentence != ''
+  AND typeof(cards.sentence) IN ('text', 'null')
+  AND length(CAST(cards.sentence AS TEXT)) > 0;
+

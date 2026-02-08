@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Loader2 } from "lucide-react";
 import "../styles/components/search-bar.css";
 import searchIcon from "../assets/icons/search.svg";
-import { apiSearchAutocomplete } from "../services/cfApi";
+import { apiContentAutocomplete } from "../services/cfApi";
 
 export interface SearchBarProps {
   value?: string; // controlled value
@@ -14,7 +14,7 @@ export interface SearchBarProps {
   showClear?: boolean; // whether to show clear button when query non-empty
   autoFocus?: boolean;
   loading?: boolean; // show loading indicator
-  debounceMs?: number; // auto-search debounce
+  debounceMs?: number; // Deprecated: kept for backward compat, search now only triggers on button click or Enter
   enableAutocomplete?: boolean; // enable autocomplete suggestions
   autocompleteLanguage?: string | null; // filter suggestions by language
 }
@@ -29,13 +29,13 @@ export default function SearchBar({
   showClear = true,
   autoFocus = false,
   loading = false,
-  debounceMs = 0, // Changed default to 0 - let parent handle debounce
+  // debounceMs is deprecated - kept for backward compat
   enableAutocomplete = true,
   autocompleteLanguage = null,
 }: SearchBarProps) {
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
-  const [suggestions, setSuggestions] = useState<Array<{ term: string; frequency: number; language: string | null }>>([]);
+  const [suggestions, setSuggestions] = useState<Array<{ term: string; slug?: string }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -77,9 +77,8 @@ export default function SearchBar({
 
     const timeoutId = setTimeout(async () => {
       try {
-        const result = await apiSearchAutocomplete({
+        const result = await apiContentAutocomplete({
           q: trimmed,
-          language: autocompleteLanguage || undefined,
           limit: 10,
         });
         
@@ -105,19 +104,7 @@ export default function SearchBar({
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [q, enableAutocomplete, autocompleteLanguage]);
-
-  // Auto-trigger debounced search on input changes (only if debounceMs > 0)
-  useEffect(() => {
-    const ms = Math.max(0, debounceMs || 0);
-    if (ms > 0) {
-      const handle = setTimeout(() => {
-        onSearch?.(q);
-      }, ms);
-      return () => clearTimeout(handle);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, debounceMs]);
+  }, [q, enableAutocomplete]);
 
   const handleChange = (v: string) => {
     if (controlled) {
@@ -296,9 +283,9 @@ export default function SearchBar({
                 }}
               >
                 <div style={{ fontWeight: 500, fontSize: '15px' }}>{suggestion.term}</div>
-                {suggestion.language && (
+                {suggestion.slug && (
                   <div style={{ fontSize: '12px', color: 'var(--neutral)', marginTop: '2px' }}>
-                    {suggestion.language}
+                    {suggestion.slug}
                   </div>
                 )}
               </div>

@@ -1,0 +1,46 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 🧭 Master Orchestrator
+Điều phối toàn bộ workflow gồm 4 mode: *Initializing → Planning → Developing → Documenting*.
+
+## 🌐 Mode Transition Matrix
+| Current | Condition | Next Mode |
+|---------|-----------|-----------|
+| *Any* | Repo chưa scaffold `docs/` hoặc yêu cầu bootstrap | **Initializing** |
+| Initializing | Scaffold hoàn tất | **Planning** |
+| Planning | Blueprint Gate 1 ✅ & tasks approved | **Developing** |
+| Developing | All task AC ✅ & docs chưa sync | **Documenting** |
+| Documenting | Docs sync ✅ & no active tasks | **Planning** |
+
+## 🔄 State Diagram
+```mermaid
+stateDiagram-v2
+    [*] --> Initializing
+    Initializing --> Planning: scaffold done
+    Planning --> Developing: Gate1 + tasks approved
+    Developing --> Documenting: AC passed & docs out-of-sync
+    Documenting --> Planning: docs synced & backlog empty
+```
+
+## 🎯 Trigger Criteria (extract)
+| Trigger | Evaluated By | Action |
+|---------|--------------|--------|
+| Feature mới, chưa có tasks | planning-agent (decomposer) | stay Planning & decompose |
+| Task backlog rỗng | orchestrator | switch → Planning |
+| User override via prompt | user-interaction | force-switch |
+
+## 🛠 Core Workflow (every request)
+1. **Detect Intent**
+2. **Match Mode** dựa trên bảng trên
+3. **Load Context** dùng `context-loader`
+4. **Execute** hành động (tools)
+5. **Update Progress** (`progress-tracking.md`, `task-index.json`)
+6. **Prompt Next Step** nếu cần (Smart Confirmation)
+
+## 🔒 Enforcement
+- Cấm sinh code nếu blueprint chưa Gate 1.
+- Cấm mark task complete nếu thiếu test/docs.
+- Vi phạm ⇒ warn & auto-switch mode phù hợp.

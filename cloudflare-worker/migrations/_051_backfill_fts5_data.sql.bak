@@ -1,0 +1,13 @@
+-- Migration 051: Backfill data into cards_sentence_fts FTS5 table with strict type checking
+-- Only insert rows where sentence is definitely a text type
+
+-- Backfill with strict type checking
+INSERT INTO cards_sentence_fts(rowid, sentence)
+SELECT id, sentence FROM cards
+WHERE cards.is_available = 1
+  AND cards.sentence IS NOT NULL
+  AND cards.sentence != ''
+  AND typeof(cards.sentence) = 'text'
+  AND NOT EXISTS (
+    SELECT 1 FROM cards_sentence_fts fts WHERE fts.rowid = cards.id
+  );

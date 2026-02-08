@@ -1,0 +1,46 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 🚀 Initializing Mode
+Khởi tạo cấu trúc project khi repo thiếu `docs/` hoặc user yêu cầu bootstrap.
+
+## 🎯 Kích hoạt khi
+- Không tồn tại `docs/` folder
+- User gọi "bootstrap", "setup project", "init"
+- Orchestrator detect missing scaffold
+
+## 📁 Cấu trúc tạo
+```
+docs/
+├── features/           # Feature requirements & architecture
+│   ├── tasks/              
+│   │   ├── active/         # Current sprint tasks
+│   │   ├── backlog/        # Future tasks  
+│   │   ├── completed/      # Done tasks
+│   │   └── task-index.json # Task registry
+│   ├── blueprints/         # Service/API blueprints
+│   ├── architecture/       # System design
+│   ├── progress-tracking.md # Sprint overview
+│   └── README.md          # Project docs guide
+```
+
+## ⚙️ Scaffold process
+1. **Check prerequisites**: Git repo, basic files
+2. **Create folders**: theo cấu trúc trên
+3. **Generate templates**: 
+   - `task-index.json` with schema
+   - `progress-tracking.md` with headers
+   - Blueprint templates
+4. **Update .gitignore**: nếu cần
+5. **Set completion flag**: cho orchestrator
+
+## ✅ Exit criteria
+- Tất cả folders created
+- Template files có content
+- No errors during scaffold
+- User confirms hoặc auto-confirm nếu standard setup
+
+## 🔄 Next mode
+**Planning** - để bắt đầu decompose features thành tasks.

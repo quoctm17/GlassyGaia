@@ -88,16 +88,10 @@ const SearchResultCard = memo(function SearchResultCard({
   const listeningIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
 
-  // Resolve image URL with optional R2 base for leading slashes
+  // Resolve image URL - API already returns full URL from image_key/audio_key
   const resolvedImageUrl = useMemo(() => {
     if (imageError) return '';
-
-    const base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
-    let url = card.image_url || '';
-    if (url && url.startsWith('/') && base) {
-      url = `${base}${url}`;
-    }
-    return url;
+    return card.image_url || '';
   // card.image_url intentionally in deps (not card object) to avoid loop
   }, [card.image_url, imageError]);
 
@@ -106,6 +100,8 @@ const SearchResultCard = memo(function SearchResultCard({
     setCard(initialCard);
     // Reset to original when initialCard changes (new search result)
     setOriginalCardIndex(-1);
+    // Reset image error state so new card's image can load properly
+    setImageError(false);
     // Don't clear subtitle override immediately - let the subtitle fetch useEffect handle it
     // This ensures smooth transition when subtitle languages change
   }, [initialCard.id, initialCard.image_url, initialCard.subtitle]);

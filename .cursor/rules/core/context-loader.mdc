@@ -1,0 +1,31 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 📦 Context Loader (v2)
+Mục tiêu: giảm tokens bằng cách nạp **đúng** lượng context cần thiết.
+
+## 🎯 Nguyên tắc cốt lõi
+1. Ưu tiên cao nhất: Task & file đang chỉnh.
+2. Chỉ nạp docs khi mode yêu cầu.
+3. Tránh lặp lại context đã cache.
+
+## 🚀 Bảng ưu tiên (theo Mode)
+| Mode | HIGH | MEDIUM | LOW |
+|------|------|--------|-----|
+| Initializing | scaffold scripts | project README | - |
+| Planning | requirements, blueprints | architecture overview | feature deep-dive |
+| Developing | task file, target src & tests | related blueprint | feature overview |
+| Documenting | docs changed | templates | historic logs |
+
+## 🛠 API
+`context-loader.load(mode, intent)` sẽ:
+1. Xác định file candidates theo bảng.
+2. Kiểm tra cache; chỉ đọc file mới.
+3. Trả về danh sách path + snippet.
+
+## 🚫 Không được nạp
+- Completed tasks.
+- Unrelated modules.
+- Full repo.

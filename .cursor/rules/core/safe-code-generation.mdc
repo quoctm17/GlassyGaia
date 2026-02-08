@@ -1,0 +1,58 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 🔒 Safe Code Generation (v2)
+Đảm bảo **zero data loss** trong mọi thao tác chỉnh sửa file.
+
+## 🔥 Golden Rule: R-M-W-V
+```yaml
+1. READ:   100% context via read_file
+2. MODIFY: chọn strategy (patch vs overwrite)
+3. WRITE:  edit_file với explanation rõ ràng
+4. VERIFY: đọc lại ngay để confirm
+```
+
+## ⚙️ Strategy Selection
+```yaml
+Simple Patch (≤20% file change):
+- Use: // ... existing code ... comments
+- Context: 3-5 lines before/after
+- Good for: single line fixes, imports
+
+Total Overwrite (>20% change):
+- Mandatory for: YAML, JSON, Markdown
+- Create complete new content
+- Good for: config files, multiple sections
+```
+
+## 🚨 High-Risk Files  
+Luôn dùng **Total Overwrite**:
+- `package.json`, `tsconfig.json`
+- `.yml`, `.yaml` files  
+- Markdown với tables/code blocks
+- Files >500 lines
+
+## 🔄 Error Recovery
+```yaml
+Corruption detected:
+1. Stop immediately
+2. Announce issue to user  
+3. Switch to total overwrite
+4. Verify again
+5. Max 2 retry attempts
+```
+
+## ✅ Verification Checklist
+- [ ] Content matches intended changes
+- [ ] No missing sections
+- [ ] Formatting preserved
+- [ ] File structure intact
+- [ ] All imports/references valid
+
+## 📋 Best Practices
+- Prefer overwrite for complex changes
+- Always verify immediately after edit
+- Report issues transparently  
+- Never assume edit success without verification

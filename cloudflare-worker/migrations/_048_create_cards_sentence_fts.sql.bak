@@ -1,0 +1,21 @@
+-- Migration 048: Create FTS5 virtual table for cards.sentence search
+-- This enables fast full-text search on sentence content for autocomplete and search endpoints
+
+-- Create FTS5 table for cards sentence search
+-- Using trigram tokenizer for better prefix matching and CJK support
+CREATE VIRTUAL TABLE IF NOT EXISTS cards_sentence_fts USING fts5(
+  sentence,
+  tokenize='trigram'
+);
+
+-- Initial backfill of sentences into FTS
+-- Only populate sentences that are available
+INSERT INTO cards_sentence_fts(rowid, sentence)
+SELECT id, sentence FROM cards
+WHERE sentence IS NOT NULL
+  AND sentence != ''
+  AND is_available = 1;
+
+-- Create index for fast lookups
+CREATE INDEX IF NOT EXISTS idx_cards_sentence_available ON cards(sentence) WHERE is_available = 1;
+
