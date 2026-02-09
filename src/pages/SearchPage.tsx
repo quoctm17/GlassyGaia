@@ -600,7 +600,6 @@ function SearchPage() {
                 placeholder=""
                 loading={loading || firstLoading}
                 enableAutocomplete={true}
-                autocompleteLanguage={preferences.main_language || null}
                 debounceMs={300}
               />
               <button

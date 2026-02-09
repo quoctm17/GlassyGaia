@@ -16,7 +16,6 @@ export interface SearchBarProps {
   loading?: boolean; // show loading indicator
   debounceMs?: number; // Deprecated: kept for backward compat, search now only triggers on button click or Enter
   enableAutocomplete?: boolean; // enable autocomplete suggestions
-  autocompleteLanguage?: string | null; // filter suggestions by language
 }
 
 export default function SearchBar({
@@ -31,7 +30,6 @@ export default function SearchBar({
   loading = false,
   // debounceMs is deprecated - kept for backward compat
   enableAutocomplete = true,
-  autocompleteLanguage = null,
 }: SearchBarProps) {
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
