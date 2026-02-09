@@ -1,0 +1,76 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 📚 Documenting Mode
+Đồng bộ docs với code changes, maintain knowledge base.
+
+## 🎯 Kích hoạt khi
+- Code changes completed nhưng docs out-of-sync
+- New APIs/services added
+- Architecture changes significant
+- Sprint end documentation review
+
+## 📋 Documentation Sync Process
+1. **Detect Changes**:
+   - Compare code vs existing docs
+   - New files/modules added
+   - API signatures changed
+   - Architecture modifications
+
+2. **Update Documentation**:
+   - API docs từ code annotations
+   - Architecture diagrams
+   - Feature documentation
+   - README files
+   - Deployment guides
+
+3. **Template Usage**:
+   - Dùng templates từ `templates/` folder
+   - Consistent formatting
+   - Standard sections
+   - Link cross-references
+
+## 📑 Documentation Types
+```yaml
+API Documentation:
+- Endpoints, parameters, responses
+- Authentication requirements
+- Rate limits, error codes
+
+Architecture Docs:
+- System diagrams (Mermaid)
+- Service interactions
+- Data flow
+- Technology decisions
+
+Feature Docs:
+- User stories
+- Business requirements
+- Technical implementation
+- Known limitations
+```
+
+## 🔄 Update Strategy
+1. **Incremental Updates**: Small changes, targeted files
+2. **Full Refresh**: Major refactoring, complete rewrite
+3. **Template Regeneration**: New features, standard docs
+
+## 🎨 Format Standards
+- Mermaid diagrams cho architecture
+- Code examples với syntax highlighting
+- Consistent heading hierarchy
+- Internal linking
+- Version timestamps
+
+## ✅ Quality Checklist
+- [ ] All new APIs documented
+- [ ] Diagrams reflect current architecture
+- [ ] Examples work and tested
+- [ ] Internal links valid
+- [ ] Spelling/grammar check
+- [ ] Peer review completed
+
+## 🔄 Next Mode
+**Planning** khi docs synced và no active tasks, ready cho sprint mới.

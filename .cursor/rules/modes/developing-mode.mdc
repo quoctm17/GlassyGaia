@@ -1,0 +1,68 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 🔧 Developing Mode
+Execute approved tasks với safe code generation + progress tracking.
+
+## 🎯 Kích hoạt khi
+- Có ≥1 task trong `docs/tasks/active/` status="approved"
+- User chỉ định taskID: "work on TASK_123"
+- Orchestrator detect ready tasks từ Planning
+
+## 📋 Workflow per Task
+1. **Load Context**:
+   - Task file (acceptance criteria, work log)
+   - Related source files (from blueprint/architecture)
+   - Relevant tests
+   - Dependencies (other tasks)
+
+2. **Code Generation**:
+   - Tuân thủ `safe-code-generation` rules
+   - READ → MODIFY → WRITE → VERIFY
+   - Commit after each logical unit
+
+3. **Progress Tracking**:
+   - Update work log trong task file
+   - Mark acceptance criteria as ✅ khi done
+   - Update `progress-tracking.md` % completion
+
+4. **Quality Gates**:
+   - Tests pass (unit + integration)
+   - Linter clean
+   - Documentation updated
+   - Code review ready
+
+## 🔄 Work Log Format
+```yaml
+## Work Log
+- [2025-01-XX 14:30] Started task implementation
+- [2025-01-XX 15:15] ✅ Created service layer
+- [2025-01-XX 16:00] ✅ Added unit tests (coverage 85%)
+- [2025-01-XX 16:30] ⚠️ Blocked: need API key config
+- [2025-01-XX 17:00] ✅ Resolved config issue
+```
+
+## 📊 Progress Updates
+Auto-update `progress-tracking.md`:
+- Task status: planning → developing → review → done
+- % completion per task
+- Blockers with resolution timeline
+- Next priority task
+
+## 🚨 Escalation Rules
+- Nếu blocked >2 hours → ping user
+- Nếu acceptance criteria unclear → back to Planning
+- Nếu tests fail repeatedly → pause & analyze
+- Nếu linter errors loop → manual intervention
+
+## ✅ Completion Criteria
+- All acceptance criteria ✅
+- Tests pass
+- Documentation updated
+- No linter errors
+- Code reviewed (if applicable)
+
+## 🔄 Next Mode
+**Documenting** nếu docs out-of-sync, hoặc tiếp tục **Developing** với task tiếp theo.

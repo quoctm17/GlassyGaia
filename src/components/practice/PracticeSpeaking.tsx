@@ -212,15 +212,10 @@ export default function PracticeSpeaking({ card, onNext }: PracticeSpeakingProps
     ? card.subtitle[subLang]
     : null;
   
-  // Resolve image URL
+  // Resolve image URL - API already returns full URL from image_key/audio_key
   const resolvedImageUrl = (() => {
     if (imageError) return '';
-    const base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
-    let url = card.image_url || '';
-    if (url && url.startsWith('/') && base) {
-      url = `${base}${url}`;
-    }
-    return url;
+    return card.image_url || '';
   })();
 
   // Handle image/audio click

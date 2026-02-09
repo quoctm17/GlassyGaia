@@ -92,7 +92,7 @@ function SearchPage() {
           // Use FTS endpoint for text search with increasing limit (pseudo-pagination)
           const maxLimit = 200;
           const effectiveLimit = Math.min(pageNum * pageSize, maxLimit);
-          
+
           const apiStart = performance.now();
           const items = await apiSearchCardsFTS({
             q: trimmed,
@@ -113,18 +113,18 @@ function SearchPage() {
           });
           const apiTime = performance.now() - apiStart;
           console.log(`${logLabel}: API call took ${apiTime.toFixed(2)}ms, returned ${items.length} items`);
-          
+
           setCards(items);
           setTotal(items.length);
           setPage(pageNum);
           // If we hit the current limit and haven't reached maxLimit, allow more loads
           setHasMore(items.length === effectiveLimit && effectiveLimit < maxLimit);
-          
+
           // Clear save statuses when starting new search
           if (pageNum === 1) {
             setCardSaveStatuses({});
           }
-          
+
           // Batch load save statuses for all cards (only if user is logged in and cards exist)
           // Load in background with delay to prioritize main content loading
           if (user?.uid && items.length > 0) {
@@ -134,7 +134,7 @@ function SearchPage() {
               film_id: card.film_id,
               episode_id: card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
             }));
-            
+
             // Delay save status loading to prioritize main content (load after 500ms)
             setTimeout(() => {
               apiGetCardSaveStatusBatch(user.uid!, cardsToLoad)
@@ -149,10 +149,11 @@ function SearchPage() {
             }, 500);
           }
         } else {
-          // Browsing mode: use paginated /api/search (supports text search too)
+          // FIX: Browsing mode - use /api/search with empty query to get available cards
+          // This shows cards even when user hasn't searched yet
           const apiStart = performance.now();
           const result = await apiSearch({
-            query: trimmed, // Pass query for text search support
+            query: "", // Empty query = browsing mode, shows available cards
             page: pageNum,
             size: pageSize,
             mainLanguage: preferences.main_language || null,
@@ -171,7 +172,7 @@ function SearchPage() {
             signal: abortControllerRef.current.signal,
           });
           const apiTime = performance.now() - apiStart;
-          console.log(`${logLabel}: API call took ${apiTime.toFixed(2)}ms, returned ${result.items.length} items (total: ${result.total})`);
+          console.log(`${logLabel}: API call (browsing mode) took ${apiTime.toFixed(2)}ms, returned ${result.items.length} items (total: ${result.total})`);
 
           if (pageNum === 1) {
             setCards(result.items);
@@ -187,11 +188,11 @@ function SearchPage() {
             setTotal(result.items.length);
             setHasMore(result.items.length === pageSize);
           } else {
-          setTotal(result.total);
+            setTotal(result.total);
             setHasMore(pageNum * pageSize < result.total);
           }
           setPage(pageNum);
-          
+
           // Batch load save statuses for all cards (only if user is logged in and cards exist)
           // Load in background with delay to prioritize main content loading
           if (user?.uid && result.items.length > 0) {
@@ -201,7 +202,7 @@ function SearchPage() {
               film_id: card.film_id,
               episode_id: card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
             }));
-            
+
             // Delay save status loading to prioritize main content (load after 500ms)
             setTimeout(() => {
               apiGetCardSaveStatusBatch(user.uid!, cardsToLoad)
@@ -308,32 +309,25 @@ function SearchPage() {
       return;
     }
 
-    if (!query || query.trim().length < 2) {
-      setCards([]);
-      setTotal(0);
-      setLoading(false);
-      setFirstLoading(false);
-      return;
-    }
-    
+    // FIX: Always fetch cards (browsing mode) even when query is empty
+    // This ensures new users see cards immediately on first load
+    const trimmed = query.trim();
+
     // Track when filter change started
     if (!firstLoading) {
       setLoading(true);
     }
-    
+
     // Immediate fetch for query/language changes, debounced for filter changes
-    const trimmed = query.trim();
     setPage(1);
     setHasMore(true);
     // Reset shuffle on new search/filter
     setShouldShuffle(false);
     shuffleSeedRef.current = Date.now();
-    
-    if (trimmed.length >= 2) {
-      fetchCards(trimmed, 1);
-    } else {
-      fetchCards("", 1);
-    }
+
+    // FIX: Always call fetchCards - empty query means browsing mode
+    // The API will return available cards when query is empty
+    fetchCards(trimmed, 1);
   }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid, fetchCards, firstLoading, isFilterModalOpenState]);
 
   // No longer filter by mainLanguage - backend handles is_available filtering
@@ -606,7 +600,6 @@ function SearchPage() {
                 placeholder=""
                 loading={loading || firstLoading}
                 enableAutocomplete={true}
-                autocompleteLanguage={preferences.main_language || null}
                 debounceMs={300}
               />
               <button

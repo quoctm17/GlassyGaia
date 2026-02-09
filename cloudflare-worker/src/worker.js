@@ -717,9 +717,9 @@ export default {
         return new Response(null, { status: 204, headers: withCors() });
       }
 
-      // API Search gợi ý (Autocomplete) - Optimized with VIEW + KV Cache
-      // Uses v_search_terms VIEW instead of search_terms table (no populate needed)
-      // Added KV caching to reduce DB reads significantly
+      // API Search gợi ý (Autocomplete) - Direct query from card_subtitles
+      // NO population needed - queries card_subtitles directly with optimized indexes
+      // Returns first words of subtitles for autocomplete suggestions
       if (path === '/api/search/autocomplete' && request.method === 'GET') {
         const url = new URL(request.url);
         const query = (url.searchParams.get('q') || url.searchParams.get('query') || "").trim().toLowerCase();
@@ -734,7 +734,7 @@ export default {
 
         try {
           // OPTIMIZED: Check KV cache first (eliminates DB reads for cached queries)
-          const cacheKey = `autocomplete:${lang}:${query}:v2`;
+          const cacheKey = `autocomplete:${lang}:${query}:v4`;
           const CACHE_TTL = 3600; // 1 hour cache
 
           if (env.SEARCH_CACHE) {
@@ -746,18 +746,46 @@ export default {
             }
           }
 
-          // OPTIMIZED: Use v_search_terms VIEW instead of search_terms table
-          // The VIEW computes terms on-demand, no population needed
+          // DIRECT QUERY: Extract first word from each subtitle
+          // This returns words that START WITH the query (prefix matching)
+          // No table population needed
           const { results } = await env.DB.prepare(`
-            SELECT term, frequency
-            FROM v_search_terms
-            WHERE language = ?
-              AND term LIKE ? || '%'
+            SELECT
+              LOWER(TRIM(
+                CASE
+                  WHEN INSTR(cs.text, ' ') > 0 THEN SUBSTR(cs.text, 1, INSTR(cs.text, ' ') - 1)
+                  ELSE cs.text
+                END
+              )) as word,
+              COUNT(*) as frequency
+            FROM card_subtitles cs
+            INNER JOIN cards c ON c.id = cs.card_id
+            INNER JOIN episodes e ON e.id = c.episode_id
+            INNER JOIN content_items ci ON ci.id = e.content_item_id
+            WHERE cs.language = ?
+              AND cs.text IS NOT NULL
+              AND LENGTH(cs.text) > 0
+              AND LOWER(TRIM(
+                CASE
+                  WHEN INSTR(cs.text, ' ') > 0 THEN SUBSTR(cs.text, 1, INSTR(cs.text, ' ') - 1)
+                  ELSE cs.text
+                END
+              )) LIKE ? || '%'
+              AND c.is_available = 1
+              AND LOWER(ci.main_language) = 'en'
+            GROUP BY LOWER(TRIM(
+              CASE
+                WHEN INSTR(cs.text, ' ') > 0 THEN SUBSTR(cs.text, 1, INSTR(cs.text, ' ') - 1)
+                ELSE cs.text
+              END
+            ))
             ORDER BY frequency DESC
             LIMIT 10
           `).bind(ftsQuery, lang).all();
 
-          const suggestions = (results || []).map(i => i.term);
+          const suggestions = (results || [])
+            .filter(i => i.word && i.word.length > 0)
+            .map(i => i.word);
 
           // OPTIMIZED: Cache results in KV for future requests
           if (env.SEARCH_CACHE && suggestions.length > 0) {
@@ -767,33 +795,91 @@ export default {
 
           return json({ suggestions }, { headers: withCors() });
         } catch (e) {
-          // Fallback to direct query if VIEW doesn't exist yet (during migration)
-          console.warn("[Autocomplete] VIEW not available, using fallback query:", e.message);
-          try {
-            const fallbackQuery = `
-              SELECT LOWER(TRIM(cs.text)) as term, COUNT(*) as frequency
-              FROM card_subtitles cs
-              INNER JOIN cards c ON c.id = cs.card_id
-              INNER JOIN episodes e ON e.id = c.episode_id
-              INNER JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE cs.language = ?
-                AND LOWER(TRIM(cs.text)) LIKE ? || '%'
-                AND c.is_available = 1
-                AND LOWER(ci.main_language) = 'en'
-              GROUP BY LOWER(TRIM(cs.text))
-              ORDER BY COUNT(*) DESC
-              LIMIT 10
-            `;
-            const { results } = await env.DB.prepare(fallbackQuery)
-              .bind(lang, query)
-              .all();
+          console.error("Autocomplete Error:", e.message);
+          return json({ suggestions: [], error: "db_busy" }, { headers: withCors() });
+        }
+      }
 
-            const suggestions = (results || []).map(i => i.term);
-            return json({ suggestions, fallback: true }, { headers: withCors() });
-          } catch (fallbackError) {
-            console.error("Autocomplete Fallback Error:", fallbackError.message);
-            return json({ suggestions: [], error: "db_busy" }, { headers: withCors() });
+      // ==================== CARD SEARCH AUTOCOMPLETE (WORD LEVEL) ====================
+      // Direct autocomplete from card_subtitles WITHOUT populating any tables
+      // Returns individual words that MATCH the search query (not full sentences)
+      // Uses optimized query with proper indexes to avoid D1 timeouts
+      if (path === '/api/content/autocomplete' && request.method === 'GET') {
+        const url = new URL(request.url);
+        const query = (url.searchParams.get('q') || url.searchParams.get('query') || "").trim().toLowerCase();
+        const rawLang = url.searchParams.get('language') || url.searchParams.get('lang') || "en";
+        const lang = rawLang.split('-')[0].toLowerCase();
+        const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || '20')));
+
+        if (query.length < 1) return json({ suggestions: [] }, { headers: withCors() });
+
+        try {
+          // Check KV cache first for performance
+          const cacheKey = `content_autocomplete:${lang}:${query}:v4`;
+          const CACHE_TTL = 3600; // 1 hour cache
+
+          if (env.SEARCH_CACHE) {
+            const cached = await env.SEARCH_CACHE.get(cacheKey);
+            if (cached) {
+              const cachedData = JSON.parse(cached);
+              console.log(`[CACHE HIT /api/content/autocomplete] Key: ${cacheKey}`);
+              return json({ suggestions: cachedData, cached: true }, { headers: withCors() });
+            }
           }
+
+          // DIRECT QUERY: Extract first word from each subtitle text
+          // This avoids populating any table - queries card_subtitles directly
+          // The first word of the subtitle is used as the autocomplete suggestion
+          const { results } = await env.DB.prepare(`
+            SELECT
+              LOWER(TRIM(
+                CASE
+                  WHEN INSTR(cs.text, ' ') > 0 THEN SUBSTR(cs.text, 1, INSTR(cs.text, ' ') - 1)
+                  ELSE cs.text
+                END
+              )) as word,
+              COUNT(*) as frequency
+            FROM card_subtitles cs
+            INNER JOIN cards c ON c.id = cs.card_id
+            INNER JOIN episodes e ON e.id = c.episode_id
+            INNER JOIN content_items ci ON ci.id = e.content_item_id
+            WHERE cs.language = ?
+              AND cs.text IS NOT NULL
+              AND LENGTH(cs.text) > 0
+              AND LOWER(TRIM(
+                CASE
+                  WHEN INSTR(cs.text, ' ') > 0 THEN SUBSTR(cs.text, 1, INSTR(cs.text, ' ') - 1)
+                  ELSE cs.text
+                END
+              )) LIKE '%' || ? || '%'
+              AND c.is_available = 1
+              AND LOWER(ci.main_language) = 'en'
+            GROUP BY LOWER(TRIM(
+              CASE
+                WHEN INSTR(cs.text, ' ') > 0 THEN SUBSTR(cs.text, 1, INSTR(cs.text, ' ') - 1)
+                ELSE cs.text
+              END
+            ))
+            ORDER BY frequency DESC
+            LIMIT ?
+          `).bind(lang, query, limit).all();
+
+          const suggestions = (results || [])
+            .filter(i => i.word && i.word.length > 0)
+            .map(i => ({
+              term: i.word,  // Frontend expects 'term' field
+            }));
+
+          // Cache results in KV for future requests
+          if (env.SEARCH_CACHE && suggestions.length > 0) {
+            await env.SEARCH_CACHE.put(cacheKey, JSON.stringify(suggestions), { expirationTtl: CACHE_TTL });
+            console.log(`[CACHE MISS /api/content/autocomplete] Key: ${cacheKey}, Cached ${suggestions.length} suggestions`);
+          }
+
+          return json({ suggestions }, { headers: withCors() });
+        } catch (e) {
+          console.error("Content Autocomplete Error:", e.message);
+          return json({ suggestions: [], error: "db_busy" }, { headers: withCors() });
         }
       }
       
@@ -1289,8 +1375,10 @@ export default {
             }
           }
 
-          // Enable text search - but keep it lightweight
+          // OPTIMIZED: Quick Browse Mode - use simplified query when no text query
+          // Always enable for empty/short queries since we only support English
           const hasTextQuery = q.trim().length >= 2;
+          const isQuickBrowse = !hasTextQuery;
           let ftsQuery = '';
 
           if (hasTextQuery) {
@@ -1302,51 +1390,199 @@ export default {
           let items = [];
           let total = 0;
 
-          // SQL Implementation
+          if (isQuickBrowse) {
+            console.log(`[PERF /api/search] Quick Browse Mode - using simplified query`);
 
-          // Build WHERE clause with content_ids filter and text search
-          // Use positional placeholders (?) and bind in order
-          const contentIdsPlaceholders = contentIdsCount > 0
-            ? contentIdsArr.map(() => '?').join(',')
-            : '';
+            // Simplified query for browsing: just get available cards with main_language filter
+            const browseStmt = `
+              SELECT
+                c.id AS card_id,
+                c.card_number,
+                c.start_time,
+                c.end_time,
+                c.image_key,
+                c.audio_key,
+                c.difficulty_score,
+                e.slug AS episode_slug,
+                e.episode_number,
+                ci.slug AS content_slug,
+                ci.slug AS film_id,
+                e.slug AS episode_id,
+                ci.main_language AS content_main_language,
+                ci.title AS content_title
+              FROM cards c
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE c.is_available = 1
+                AND ci.main_language = ?
+              ORDER BY c.id ASC
+              LIMIT ? OFFSET ?
+            `;
 
-          // Build query with FTS5 search (using trigram tokenizer for CJK support)
-          let textSearchCondition = '';
-          if (hasTextQuery && ftsQuery) {
-            // FTS5 search with trigram tokenizer - works for all languages including CJK
-            // Restrict by subtitle language to reduce search space and CPU
-            if (mainLanguage) {
-              textSearchCondition = `
-                AND EXISTS (
-                  SELECT 1 FROM card_subtitles_fts
-                  WHERE card_subtitles_fts.card_id = c.id
-                    AND card_subtitles_fts.language = ?
-                    AND card_subtitles_fts MATCH ?
-                )
-              `;
-            } else {
-              // No language filter - search all languages
-              textSearchCondition = `
-                AND EXISTS (
-                  SELECT 1 FROM card_subtitles_fts
-                  WHERE card_subtitles_fts.card_id = c.id
-                    AND card_subtitles_fts MATCH ?
-                )
-              `;
+            // Simplified count query
+            const countStmt = `
+              SELECT COUNT(*) as total
+              FROM cards c
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE c.is_available = 1
+                AND ci.main_language = ?
+            `;
+
+            try {
+              // Execute main query
+              const mainParams = [mainLanguage || 'en', size, offset];
+              const mainResult = await env.DB.prepare(browseStmt).bind(...mainParams).all();
+              
+              // Execute count query
+              const countParams = [mainLanguage || 'en'];
+              const countResult = await env.DB.prepare(countStmt).bind(...countParams).first();
+
+              items = mainResult.results || [];
+              total = countResult?.total || 0;
+
+              console.log(`[PERF /api/search] Quick browse: ${items.length} cards, total: ${total}`);
+
+              // Continue to fetch additional data (subtitles, etc.)
+              // Skip complex query processing since we already have items
+            } catch (e) {
+              console.error(`[PERF /api/search] Quick browse error:`, e.message);
+              // Fall back to complex query if quick browse fails
             }
           }
 
-          // Optimized: Use EXISTS for main subtitle check when no subtitle languages (faster)
-          // Use JOIN when subtitle languages are selected (need to filter by subtitle languages)
-          let stmt;
-          let useSummaryTable = false; // Declare at outer scope for params binding
+          // Build subtitle language condition using EXISTS (faster than JOIN)
+          // Defined outside if blocks so it's available to all code paths
+          const subtitleLangCondition = subtitleLangsCount > 0
+            ? `AND EXISTS (
+                  SELECT 1 FROM card_subtitles cs_sub
+                  WHERE cs_sub.card_id = c.id
+                    AND cs_sub.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+                )`
+            : '';
 
-          if (subtitleLangsCount > 0) {
-            // OPTIMIZED: Use normalized mapping table with EXISTS - ultra-fast with index
-            // Check if mapping table exists and has sufficient data
-            // TEMPORARILY: Always use fallback until mapping table is fully populated
-            // This ensures queries work correctly while mapping table is being populated in background
-            useSummaryTable = false; // Force fallback until mapping table is ready
+          // Build text search condition using LIKE (since FTS5 was dropped)
+          // Defined outside if blocks so it's available to all code paths
+          let textSearchCondition = '';
+          let textSearchParams = [];
+          if (hasTextQuery) {
+            // Use LIKE for substring matching on main language subtitles
+            textSearchCondition = `
+                AND EXISTS (
+                  SELECT 1 FROM card_subtitles cs_search
+                  WHERE cs_search.card_id = c.id
+                    AND cs_search.language = ?
+                    AND cs_search.text LIKE ?
+                )
+              `;
+            textSearchParams = [mainLanguage || 'en', `%${q}%`];
+          }
+
+          // Build content_ids filter
+          // Defined outside if blocks so it's available to all code paths
+          let contentIdsCondition = '';
+          let contentIdsParams = [];
+          if (contentIdsCount > 0) {
+            contentIdsCondition = `AND ci.id IN (${contentIdsArr.map(() => '?').join(',')})`;
+            contentIdsParams = contentIdsArr;
+          }
+
+          // Only use complex query if quick browse didn't work
+          if (items.length === 0) {
+            // Use LIKE-based search since FTS5 table was dropped
+            // Simplified approach for subtitle language filtering
+            
+            let stmt;
+            let params = [];
+            
+            // Build subtitle language condition using EXISTS (faster than JOIN)
+            const subtitleLangCondition = subtitleLangsCount > 0
+              ? `AND EXISTS (
+                    SELECT 1 FROM card_subtitles cs_sub
+                    WHERE cs_sub.card_id = c.id
+                      AND cs_sub.language IN (${subtitleLangsArr.map(() => '?').join(',')})
+                  )`
+              : '';
+
+            // Build content_ids filter
+            let contentIdsCondition = '';
+            let contentIdsParams = [];
+            if (contentIdsCount > 0) {
+              contentIdsCondition = `AND ci.id IN (${contentIdsArr.map(() => '?').join(',')})`;
+              contentIdsParams = contentIdsArr;
+            }
+
+            // Main query
+            const mainQuery = `
+              SELECT
+                c.id AS card_id,
+                c.card_number,
+                c.start_time,
+                c.end_time,
+                c.image_key,
+                c.audio_key,
+                c.difficulty_score,
+                e.slug AS episode_slug,
+                e.episode_number,
+                ci.slug AS content_slug,
+                ci.slug AS film_id,
+                e.slug AS episode_id,
+                ci.main_language AS content_main_language,
+                ci.title AS content_title
+              FROM cards c
+              JOIN episodes e ON e.id = c.episode_id
+              JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE c.is_available = 1
+                AND ci.main_language = ?
+                ${subtitleLangCondition}
+                ${textSearchCondition}
+                ${contentIdsCondition}
+              ORDER BY c.id ASC
+              LIMIT ? OFFSET ?
+            `;
+
+            // Build params: mainLanguage + subtitleLangs + textSearchParams + contentIds + size + offset
+            params = [mainLanguage || 'en', ...subtitleLangsArr, ...textSearchParams, ...contentIdsParams, size, offset];
+
+            console.log(`[PERF /api/search] Fallback query params: ${JSON.stringify(params.slice(0, 5))}...`);
+
+            try {
+              const result = await env.DB.prepare(mainQuery).bind(...params).all();
+              items = result.results || [];
+              
+              // Count query
+              const countQuery = `
+                SELECT COUNT(*) as total
+                FROM cards c
+                JOIN episodes e ON e.id = c.episode_id
+                JOIN content_items ci ON ci.id = e.content_item_id
+                WHERE c.is_available = 1
+                  AND ci.main_language = ?
+                  ${subtitleLangCondition}
+                  ${textSearchCondition}
+                  ${contentIdsCondition}
+              `;
+              const countParams = [mainLanguage || 'en', ...subtitleLangsArr, ...textSearchParams, ...contentIdsParams];
+              const countResult = await env.DB.prepare(countQuery).bind(...countParams).first();
+              total = countResult?.total || 0;
+              
+              console.log(`[PERF /api/search] Fallback: ${items.length} cards, total: ${total}`);
+            } catch (e) {
+              console.error(`[PERF /api/search] Fallback error:`, e.message);
+            }
+          }
+
+            // Optimized: Use EXISTS for main subtitle check when no subtitle languages (faster)
+            // Use JOIN when subtitle languages are selected (need to filter by subtitle languages)
+            let stmt;
+            let useSummaryTable = false; // Declare at outer scope for params binding
+
+            if (subtitleLangsCount > 0) {
+              // OPTIMIZED: Use normalized mapping table with EXISTS - ultra-fast with index
+              // Check if mapping table exists and has sufficient data
+              // TEMPORARILY: Always use fallback until mapping table is fully populated
+              // This ensures queries work correctly while mapping table is being populated in background
+              useSummaryTable = false; // Force fallback until mapping table is ready
 
             try {
               const mapCheck = await env.DB.prepare('SELECT COUNT(*) as cnt FROM card_subtitle_language_map LIMIT 1').first();
@@ -1363,7 +1599,7 @@ export default {
               useSummaryTable = mapCount > 100;
 
 
-              console.log(`[PERF /api/search] Mapping table: ${mapCount} rows | Total cards: ${totalCards} | Coverage: ${(estimatedCoverage * 100).toFixed(1)}% | Using: ${useSummaryTable ? 'mapping table' : 'fallback'}`);
+              console.log(`[PERF /api/search] Mapping table: ${mapCount} rows | Total cards: ${totalCards} | Coverage: ${((mapCount / totalCards) * 100).toFixed(1)}% | Using: ${useSummaryTable ? 'mapping table' : 'fallback'}`);
 
               // If low coverage, trigger async population (don't wait)
               if (!useSummaryTable) {
@@ -1394,6 +1630,8 @@ export default {
                   e.slug AS episode_slug,
                   e.episode_number,
                   ci.slug AS content_slug,
+                  ci.slug AS film_id,
+                  e.slug AS episode_id,
                   ci.main_language AS content_main_language,
                   ci.title AS content_title
                 FROM cards c
@@ -1431,6 +1669,8 @@ export default {
                   e.slug AS episode_slug,
                   e.episode_number,
                   ci.slug AS content_slug,
+                  ci.slug AS film_id,
+                  e.slug AS episode_id,
                   ci.main_language AS content_main_language,
                   ci.title AS content_title
                 FROM cards c
@@ -1456,22 +1696,24 @@ export default {
               // OPTIMIZED: Filter by main_language and available cards early
               // When main_language is specified, use EXISTS for subtitle check to reduce JOIN overhead
               stmt = `
-            SELECT
-              c.id AS card_id,
-              c.card_number,
-              c.start_time,
-              c.end_time,
-              c.image_key,
-              c.audio_key,
-              c.difficulty_score,
-              e.slug AS episode_slug,
-              e.episode_number,
-              ci.slug AS content_slug,
-              ci.main_language AS content_main_language,
-              ci.title AS content_title
+                SELECT
+                  c.id AS card_id,
+                  c.card_number,
+                  c.start_time,
+                  c.end_time,
+                  c.image_key,
+                  c.audio_key,
+                  c.difficulty_score,
+                  e.slug AS episode_slug,
+                  e.episode_number,
+                  ci.slug AS content_slug,
+                  ci.slug AS film_id,
+                  e.slug AS episode_id,
+                  ci.main_language AS content_main_language,
+                  ci.title AS content_title
                 FROM cards c
-            JOIN episodes e ON e.id = c.episode_id
-            JOIN content_items ci ON ci.id = e.content_item_id
+                JOIN episodes e ON e.id = c.episode_id
+                JOIN content_items ci ON ci.id = e.content_item_id
                 WHERE c.is_available = 1
                   AND ci.main_language = ?
                   AND EXISTS (
@@ -1496,6 +1738,8 @@ export default {
                   e.slug AS episode_slug,
                   e.episode_number,
                   ci.slug AS content_slug,
+                  ci.slug AS film_id,
+                  e.slug AS episode_id,
                   ci.main_language AS content_main_language,
                   ci.title AS content_title
                 FROM cards c
@@ -2225,13 +2469,15 @@ export default {
             const batchTime = Date.now() - batchStart;
             console.log(`[PERF /api/search] [${requestId}] Combined batch fetch: ${batchTime}ms for ${cardIds.length} cards (${allPromises.length} queries)`);
 
-            // Map cards to response format - main subtitle already included
+            // Map cards to response format - use makeMediaUrl to build full URLs from image_key/audio_key
             const allMappedCards = cardRows.map(r => ({
               card_id: r.card_id,
               content_slug: r.content_slug,
               content_title: r.content_title,
               episode_slug: r.episode_slug,
               episode_number: r.episode_number,
+              film_id: r.content_slug, // Use content_slug as film_id for media URL construction
+              episode_id: r.episode_slug, // Use episode_slug as episode_id for media URL construction
               card_number: r.card_number,
               start_time: r.start_time,
               end_time: r.end_time,
@@ -2300,6 +2546,8 @@ export default {
               }
             }
           }
+
+          // End of complex query block
 
           const totalTime = Date.now() - startTime;
           const batchTime = batchStart ? (Date.now() - batchStart) : 0;
@@ -4419,20 +4667,27 @@ export default {
             }
           }
           if (filmIds.length > 0) {
-            // Batch film IDs to avoid SQLite parameter limit
-            // Error at offset 248 suggests ~250 params, so use very small batch
-            // Use batch size of 10 to be safe (10 params per batch)
-            const batchSize = 10; // Very small batch to avoid SQLite parameter limit
-            try {
-              for (let i = 0; i < filmIds.length; i += batchSize) {
-                const batch = filmIds.slice(i, i + batchSize);
-                const phFilm = batch.map(() => '?').join(',');
-                const allFilms = await env.DB.prepare(`SELECT id, slug FROM content_items WHERE id IN (${phFilm})`).bind(...batch).all();
-                (allFilms.results || []).forEach(f => filmSlugMap.set(f.id, f.slug));
-              }
-            } catch (e) {
-              console.error('[WORKER /cards] Error fetching film slugs:', e);
+            // OPTIMIZED: Batch film IDs and run queries in parallel
+            // Previously sequential (await inside for loop), now parallel with Promise.all
+            // Error at offset 248 suggests ~250 params, so use small batch of 10
+            const batchSize = 10;
+            const filmPromises = [];
+
+            for (let i = 0; i < filmIds.length; i += batchSize) {
+              const batch = filmIds.slice(i, i + batchSize);
+              const phFilm = batch.map(() => '?').join(',');
+
+              filmPromises.push(
+                env.DB.prepare(`SELECT id, slug FROM content_items WHERE id IN (${phFilm})`).bind(...batch).all()
+                  .then(result => {
+                    (result.results || []).forEach(f => filmSlugMap.set(f.id, f.slug));
+                  })
+                  .catch(e => console.error('[WORKER /cards] Error fetching film slug batch:', e))
+              );
             }
+
+            // Wait for all film batch queries to complete in parallel
+            await Promise.all(filmPromises);
           }
           const out = [];
           for (const r of rows) {
@@ -4450,345 +4705,91 @@ export default {
         } catch { return json([]); }
       }
 
-      // 6b) Full-text search endpoint (FTS5) over subtitles
+      // ==================== CARD SEARCH ====================
+      // Search using LIKE on card_subtitles (FTS5 table removed due to D1 CPU timeouts)
+      // Returns cards where the subtitle text contains the search query
       if (path === '/search' && request.method === 'GET') {
         const qRaw = url.searchParams.get('q') || '';
         const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') || '50')));
-        const mainLang = url.searchParams.get('main'); // filter by content_items.main_language
-        const subtitleLanguagesCsv = url.searchParams.get('subtitle_languages') || '';
-        const contentIdsCsv = url.searchParams.get('content_ids') || '';
-        const difficultyMinRaw = url.searchParams.get('difficulty_min');
-        const difficultyMaxRaw = url.searchParams.get('difficulty_max');
-        const levelMinRaw = url.searchParams.get('level_min');
-        const levelMaxRaw = url.searchParams.get('level_max');
-        const q = qRaw.trim();
+
+        const q = qRaw.trim().toLowerCase();
         if (!q) return json([]);
+
         try {
-          const mainCanon = mainLang ? String(mainLang).toLowerCase() : null;
+          // Use LIKE query on card_subtitles.text instead of FTS5
+          // This is slower but avoids D1 CPU timeout issues
+          const { results } = await env.DB.prepare(`
+            SELECT DISTINCT
+              c.id as internal_id,
+              c.card_number,
+              c.start_time,
+              c.end_time,
+              c.duration,
+              c.image_key,
+              c.audio_key,
+              c.sentence,
+              c.card_type,
+              c.length,
+              c.difficulty_score,
+              c.is_available,
+              e.episode_number,
+              e.slug as episode_slug,
+              ci.slug as film_slug
+            FROM card_subtitles cs
+            JOIN cards c ON c.id = cs.card_id
+            JOIN episodes e ON e.id = c.episode_id
+            JOIN content_items ci ON ci.id = e.content_item_id
+            WHERE cs.text LIKE '%' || ? || '%'
+              AND c.is_available = 1
+            ORDER BY c.id ASC
+            LIMIT ?
+          `).bind(q, limit).all();
 
-          // REMOVED: Strict mode check against search_terms
-          // The search_terms table is used for autocomplete suggestions only
-          // Full search should use FTS5 directly to find all matching cards
-          // if (q) {
-          //   const termExists = await env.DB.prepare('SELECT 1 FROM search_terms WHERE LOWER(term) = LOWER(?)').bind(q).first();
-          //   if (!termExists) {
-          //     console.log(`[api/search] Term not found in index: "${q}" - returning empty`);
-          //     return json([]);
-          //   }
-          // }
+          if (!results || results.length === 0) {
+            return json([]);
+          }
 
-          // Parse subtitle languages into array
-          const subtitleLangsArr = subtitleLanguagesCsv
-            ? Array.from(new Set(subtitleLanguagesCsv.split(',').map(s => s.trim()).filter(Boolean)))
-            : [];
-          const subtitleLangsCount = subtitleLangsArr.length;
+          // Extract card IDs for batch fetching
+          const cardIds = results.map(r => r.internal_id);
+          const placeholders = cardIds.map(() => '?').join(',');
 
-          // Parse content ids into array
-          const contentIdsArr = contentIdsCsv
-            ? Array.from(new Set(contentIdsCsv.split(',').map(s => s.trim()).filter(Boolean)))
-            : [];
-          const contentIdsCount = contentIdsArr.length;
-
-          // Parse difficulty filters
-          const difficultyMin = difficultyMinRaw ? Number(difficultyMinRaw) : null;
-          const difficultyMax = difficultyMaxRaw ? Number(difficultyMaxRaw) : null;
-          const hasDifficultyFilter = (difficultyMin !== null && difficultyMin > 0) || (difficultyMax !== null && difficultyMax < 100);
-
-          // Parse level filters
-          const levelMin = levelMinRaw ? String(levelMinRaw).trim() : null;
-          const levelMax = levelMaxRaw ? String(levelMaxRaw).trim() : null;
-          const hasLevelFilter = levelMin !== null || levelMax !== null;
-          const framework = getFrameworkFromLanguage(mainLang);
-
-          // ---------- 1) Try FTS5 search on card_subtitles_fts (exact token / phrase, no substring) ----------
-          let rows = [];
+          // Batch fetch subtitles
+          let subtitlesMap = new Map();
           try {
-            // Build a MATCH query.
-            //  - Single token: exact token match (no substring/prefix) → \"he\" matches only token \"he\", not \"there\".
-            //  - Multi-word: exact phrase match → \"this is\" matches only that phrase.
-            // FTS5 is case-insensitive by default but requires lowercase tokens.
-            const tokens = q.toLowerCase().split(/\s+/).slice(0, 6).map(s => s.replace(/["'*]/g, ''));
-            let match;
-            if (tokens.length === 1) {
-              const t = tokens[0];
-              // Exact token match (quoted). No wildcard to avoid substring hits like \"he\" → \"there\".
-              match = `"${t}"`;
-            } else {
-              // Multi-word: exact phrase match
-              match = `"${tokens.join(' ')}"`;
+            const subtitlesQuery = await env.DB.prepare(`
+              SELECT card_id, language, text
+              FROM card_subtitles 
+              WHERE card_id IN (${placeholders})
+            `).bind(...cardIds).all();
+            
+            for (const sub of subtitlesQuery.results || []) {
+              if (!subtitlesMap.has(sub.card_id)) {
+                subtitlesMap.set(sub.card_id, {});
+              }
+              subtitlesMap.get(sub.card_id)[sub.language] = sub.text;
             }
+          } catch { }
 
-            // Build allowed levels list for level filter
-            let allowedLevels = null;
-            if (hasLevelFilter) {
-              const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-              const JLPT = ['N5', 'N4', 'N3', 'N2', 'N1'];
-              const HSK = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
-              let levelOrder = [];
-              if (framework === 'CEFR') levelOrder = CEFR;
-              else if (framework === 'JLPT') levelOrder = JLPT;
-              else if (framework === 'HSK') levelOrder = HSK;
-
-              if (levelOrder.length > 0) {
-                const minIdx = levelMin ? levelOrder.indexOf(levelMin.toUpperCase()) : 0;
-                const maxIdx = levelMax ? levelOrder.indexOf(levelMax.toUpperCase()) : levelOrder.length - 1;
-                if (minIdx >= 0 && maxIdx >= 0 && minIdx <= maxIdx) {
-                  allowedLevels = levelOrder.slice(minIdx, maxIdx + 1);
-                }
+          // Batch fetch difficulty levels
+          let cefrMap = new Map();
+          try {
+            const levelsQuery = await env.DB.prepare(`
+              SELECT card_id, framework, level
+              FROM card_difficulty_levels 
+              WHERE card_id IN (${placeholders})
+            `).bind(...cardIds).all();
+            
+            for (const level of levelsQuery.results || []) {
+              if (level.framework === 'CEFR' && !cefrMap.has(level.card_id)) {
+                cefrMap.set(level.card_id, level.level);
               }
             }
+          } catch { }
 
-            const sqlFts = `
-              SELECT DISTINCT c.card_number,
-                     c.start_time AS start_time,
-                     c.end_time AS end_time,
-                     c.duration,
-                     c.image_key,
-                     c.audio_key,
-                     c.sentence,
-                     c.card_type,
-                     c.length,
-                     c.difficulty_score,
-                     c.is_available,
-                     e.episode_number,
-                     e.slug as episode_slug,
-                     ci.slug as film_slug,
-                     c.id as internal_id
-              FROM card_subtitles_fts
-              JOIN cards c ON c.id = card_subtitles_fts.card_id
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE card_subtitles_fts MATCH ?
-                AND c.is_available = 1
-                AND EXISTS (
-                  SELECT 1 FROM card_subtitles cs
-                  WHERE cs.card_id = c.id
-                    AND cs.language = ci.main_language
-                    AND cs.text IS NOT NULL
-                    AND TRIM(cs.text) != ''
-                )
-              ${mainCanon ? 'AND LOWER(card_subtitles_fts.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
-              ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
-              ${subtitleLangsCount > 0
-                ? `AND (
-                       SELECT COUNT(DISTINCT cs.language)
-                       FROM card_subtitles cs
-                       WHERE cs.card_id = c.id
-                         AND cs.language IN (${subtitleLangsArr.map(() => '?').join(',')})
-                     ) = ?`
-                : ''
-              }
-              ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
-              ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
-                SELECT 1 FROM card_difficulty_levels cdl
-                WHERE cdl.card_id = c.id
-                  AND cdl.framework = ?
-                  AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
-              )` : ''}
-              LIMIT ?`;
-
-            const bindFts = [match];
-            if (mainCanon) {
-              // language to search in subtitles (main audio language) AND content_items.main_language
-              bindFts.push(mainCanon);
-              bindFts.push(mainCanon);
-            }
-            if (contentIdsCount > 0) {
-              bindFts.push(...contentIdsArr);
-            }
-            if (subtitleLangsCount > 0) {
-              bindFts.push(...subtitleLangsArr);
-              bindFts.push(subtitleLangsCount);
-            }
-            if (hasDifficultyFilter) {
-              bindFts.push(difficultyMin !== null ? difficultyMin : 0);
-              bindFts.push(difficultyMax !== null ? difficultyMax : 100);
-            }
-            if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
-              bindFts.push(framework);
-              bindFts.push(...allowedLevels);
-            }
-            bindFts.push(limit);
-            const detFts = await env.DB.prepare(sqlFts).bind(...bindFts).all();
-            rows = detFts.results || [];
-          } catch {
-            // ignore FTS errors and fall back to LIKE
-            rows = [];
-          }
-
-          // ---------- 2) Fallback: LIKE search on card_subtitles.text if FTS returned nothing ----------
-          // Only use LIKE for CJK languages; for Latin queries this causes many false positives.
-          const isCjkQuery = /[\u3040-\u30FF\u3400-\u9FFF]/u.test(q);
-          // Check if this is a Chinese query (zh, zh_trad, zh_hans)
-          const isChineseQuery = mainCanon && (mainCanon === 'zh' || mainCanon === 'zh_trad' || mainCanon === 'zh_hans' || mainCanon === 'zh-cn' || mainCanon === 'zh-tw' || mainCanon === 'chinese') || /[\u4E00-\u9FFF]/.test(q);
-
-          if (!rows.length && isCjkQuery) {
-            // For Chinese, normalize query by removing any brackets (user might search with brackets)
-            const normalizedQuery = isChineseQuery ? normalizeChineseTextForSearch(q) : q;
-
-            // For Chinese text with pinyin brackets, we need to match the normalized version
-            // Since SQLite doesn't support regex, we'll build a pattern that allows optional brackets
-            // between each character. For "请问", we want to match "请[qǐng]问[wèn]"
-            // Pattern: each Chinese char can be followed by optional [anything]
-            let likePattern;
-            if (isChineseQuery && normalizedQuery.length > 0) {
-              // Build pattern that matches Chinese characters with optional [pinyin] brackets between them
-              // Example: "请问" -> "%请%[%]%问%[%]%"
-              // This will match: "请[qǐng]问[wèn]" because:
-              // - %请% matches "请"
-              // - [%] matches "[qǐng]" (literal [ + any chars + literal ])
-              // - %问% matches "问"
-              // - [%] matches "[wèn]"
-              const chars = normalizedQuery.split('');
-              // Pattern: char1 + % + [ + % + ] + % + char2 + ...
-              // Use % before and after brackets to allow any characters (including the bracket content)
-              likePattern = '%' + chars.join('%[%]%') + '%';
-            } else {
-              likePattern = `%${normalizedQuery}%`;
-            }
-
-            const sqlLike = `
-              SELECT DISTINCT c.card_number,
-                     c.start_time AS start_time,
-                     c.end_time AS end_time,
-                     c.duration,
-                     c.image_key,
-                     c.audio_key,
-                     c.sentence,
-                     c.card_type,
-                     c.length,
-                     c.difficulty_score,
-                     c.is_available,
-                     e.episode_number,
-                     e.slug as episode_slug,
-                     ci.slug as film_slug,
-                     c.id as internal_id
-              FROM card_subtitles cs
-              JOIN cards c ON c.id = cs.card_id
-              JOIN episodes e ON e.id = c.episode_id
-              JOIN content_items ci ON ci.id = e.content_item_id
-              WHERE cs.text LIKE ?
-                AND c.is_available = 1
-                AND EXISTS (
-                  SELECT 1 FROM card_subtitles cs_main
-                  WHERE cs_main.card_id = c.id
-                    AND cs_main.language = ci.main_language
-                    AND cs_main.text IS NOT NULL
-                    AND cs_main.text != ''
-                )
-              ${mainCanon ? 'AND LOWER(cs.language)=LOWER(?) AND LOWER(ci.main_language)=LOWER(?)' : ''}
-              ${contentIdsCount > 0 ? `AND ci.slug IN (${contentIdsArr.map(() => '?').join(',')})` : ''}
-              ${subtitleLangsCount > 0
-                ? `AND (
-                       SELECT COUNT(DISTINCT cs2.language)
-                       FROM card_subtitles cs2
-                       WHERE cs2.card_id = c.id
-                         AND cs2.language IN (${subtitleLangsArr.map(() => '?').join(',')})
-                     ) = ?`
-                : ''
-              }
-              ${hasDifficultyFilter ? `AND c.difficulty_score IS NOT NULL AND c.difficulty_score >= ? AND c.difficulty_score <= ?` : ''}
-              ${hasLevelFilter && allowedLevels && allowedLevels.length > 0 ? `AND EXISTS (
-                SELECT 1 FROM card_difficulty_levels cdl
-                WHERE cdl.card_id = c.id
-                  AND cdl.framework = ?
-                  AND cdl.level IN (${allowedLevels.map(() => '?').join(',')})
-              )` : ''}
-              LIMIT ?`;
-            const bindLike = [likePattern];
-            if (mainCanon) {
-              // search in main language subtitles only
-              bindLike.push(mainCanon);
-              bindLike.push(mainCanon);
-            }
-            if (contentIdsCount > 0) {
-              bindLike.push(...contentIdsArr);
-            }
-            if (subtitleLangsCount > 0) {
-              bindLike.push(...subtitleLangsArr);
-              bindLike.push(subtitleLangsCount);
-            }
-            if (hasDifficultyFilter) {
-              bindLike.push(difficultyMin !== null ? difficultyMin : 0);
-              bindLike.push(difficultyMax !== null ? difficultyMax : 100);
-            }
-            if (hasLevelFilter && allowedLevels && allowedLevels.length > 0) {
-              bindLike.push(framework);
-              bindLike.push(...allowedLevels);
-            }
-            bindLike.push(limit);
-            const detLike = await env.DB.prepare(sqlLike).bind(...bindLike).all();
-            rows = detLike.results || [];
-          }
-
-          if (!rows.length) return json([]);
-
-          // --- OPTIMIZED BATCH FETCHING: Fix N+1 Query Problem ---
-          // Extract all card IDs from search results
-          const cardIds = rows.map(r => r.internal_id).filter(Boolean);
-
-          // Batch fetch ALL subtitles for all cards in ONE query
-          let allSubtitles = [];
-          if (cardIds.length > 0) {
-            const placeholders = cardIds.map(() => '?').join(',');
-            try {
-              const subtitlesQuery = await env.DB.prepare(`
-                SELECT card_id, language, text
-                FROM card_subtitles 
-                WHERE card_id IN (${placeholders})
-              `).bind(...cardIds).all();
-              allSubtitles = subtitlesQuery.results || [];
-            } catch { }
-          }
-
-          // Group subtitles by card_id using Map (JavaScript is fast & free)
-          const subtitlesMap = new Map();
-          for (const sub of allSubtitles) {
-            if (!subtitlesMap.has(sub.card_id)) {
-              subtitlesMap.set(sub.card_id, {});
-            }
-            subtitlesMap.get(sub.card_id)[sub.language] = sub.text;
-          }
-
-          // Batch fetch ALL difficulty levels for all cards in ONE query
-          let allLevels = [];
-          if (cardIds.length > 0) {
-            const placeholders = cardIds.map(() => '?').join(',');
-            try {
-              const levelsQuery = await env.DB.prepare(`
-                SELECT card_id, framework, level, language
-                FROM card_difficulty_levels 
-                WHERE card_id IN (${placeholders})
-              `).bind(...cardIds).all();
-              allLevels = levelsQuery.results || [];
-            } catch { }
-          }
-
-          // Group difficulty levels by card_id
-          const levelsMap = new Map();
-          const cefrMap = new Map();
-          for (const level of allLevels) {
-            if (!levelsMap.has(level.card_id)) {
-              levelsMap.set(level.card_id, []);
-            }
-            levelsMap.get(level.card_id).push({
-              framework: level.framework,
-              level: level.level,
-              language: level.language || null
-            });
-
-            // Track CEFR level for backward compatibility
-            if (level.framework === 'CEFR' && !cefrMap.has(level.card_id)) {
-              cefrMap.set(level.card_id, level.level);
-            }
-          }
-
-          // Now build output array by attaching pre-fetched data
+          // Build output
           const out = [];
-          for (const r of rows) {
+          for (const r of results) {
             const subtitle = subtitlesMap.get(r.internal_id) || {};
-            const levels = levelsMap.get(r.internal_id) || [];
             const cefr = cefrMap.get(r.internal_id) || null;
 
             const displayId = String(r.card_number ?? '').padStart(3, '0');
@@ -4796,10 +4797,29 @@ export default {
             const startS = (r.start_time != null) ? r.start_time : 0;
             const endS = (r.end_time != null) ? r.end_time : 0;
             const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-            out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, is_available: r.is_available, cefr_level: cefr, levels: levels.length > 0 ? levels : undefined, film_id: r.film_slug, subtitle });
+
+            out.push({ 
+              id: displayId, 
+              episode: episodeSlug, 
+              start: startS, 
+              end: endS, 
+              duration: dur, 
+              image_key: r.image_key, 
+              audio_key: r.audio_key, 
+              sentence: r.sentence, 
+              card_type: r.card_type, 
+              length: r.length, 
+              difficulty_score: r.difficulty_score, 
+              is_available: r.is_available, 
+              cefr_level: cefr, 
+              film_id: r.film_slug, 
+              subtitle 
+            });
           }
+
           return json(out);
         } catch (e) {
+          console.error("Search Error:", e.message);
           return json([]);
         }
       }
@@ -8978,21 +8998,297 @@ export default {
         }
       }
 
-      // DEPRECATED: Populate search_terms endpoint removed
-      // This endpoint is no longer needed because:
-      // 1. Autocomplete now uses v_search_terms VIEW instead of search_terms table
-      // 2. The VIEW computes terms on-demand from card_subtitles (no population needed)
-      // 3. KV caching eliminates the need for pre-computed terms
-      // If accessed, return a helpful message pointing to the new architecture
+      // Populate search_terms table - SuperAdmin only
+      // Extracts complete subtitle texts for phrase-level autocomplete
       if (path === '/api/admin/populate-search-terms' && request.method === 'POST') {
-        return json({
-          deprecated: true,
-          message: 'This endpoint is deprecated. Autocomplete now uses v_search_terms VIEW.',
-          migration_required: [
-            'Run migration 045: Add optimized indexes',
-            'Run migration 046: Replace search_terms with v_search_terms VIEW'
-          ]
-        }, { status: 410 }); // 410 Gone
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+
+          // Check if user is superadmin
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+
+          console.log('[populate-search-terms] Starting term extraction...');
+          const startTime = Date.now();
+
+          // Clear existing data first
+          await env.DB.prepare('DELETE FROM search_terms').run();
+          console.log('[populate-search-terms] Cleared existing search_terms');
+
+          // Get all unique languages from card_subtitles
+          const langResult = await env.DB.prepare(`
+            SELECT DISTINCT cs.language
+            FROM card_subtitles cs
+            INNER JOIN cards c ON c.id = cs.card_id
+            INNER JOIN episodes e ON e.id = c.episode_id
+            INNER JOIN content_items ci ON ci.id = e.content_item_id
+            WHERE c.is_available = 1
+              AND LOWER(ci.main_language) = 'en'
+          `).all();
+
+          const languages = (langResult.results || []).map(r => r.language);
+          console.log(`[populate-search-terms] Found ${languages.length} languages: ${languages.join(', ')}`);
+
+          let totalTermsInserted = 0;
+
+          for (const lang of languages) {
+            console.log(`[populate-search-terms] Processing language: ${lang}`);
+
+            // Get all distinct terms for this language with their counts
+            const termsResult = await env.DB.prepare(`
+              SELECT
+                LOWER(TRIM(cs.text)) as term,
+                COUNT(*) as frequency,
+                COUNT(DISTINCT cs.card_id) as context_count
+              FROM card_subtitles cs
+              INNER JOIN cards c ON c.id = cs.card_id
+              INNER JOIN episodes e ON e.id = c.episode_id
+              INNER JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE cs.language = ?
+                AND cs.text IS NOT NULL
+                AND LENGTH(cs.text) > 0
+                AND c.is_available = 1
+                AND LOWER(ci.main_language) = 'en'
+              GROUP BY LOWER(TRIM(cs.text))
+              ORDER BY frequency DESC
+            `).bind(lang).all();
+
+            const terms = (termsResult.results || []);
+            console.log(`[populate-search-terms] Found ${terms.length} terms for ${lang}`);
+
+            // Insert terms in batches to avoid timeouts
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < terms.length; i += BATCH_SIZE) {
+              const batch = terms.slice(i, i + BATCH_SIZE);
+              const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
+              const values = batch.flatMap(item => [
+                item.term,
+                lang,
+                item.frequency,
+                item.context_count,
+                Date.now()
+              ]);
+
+              try {
+                const result = await env.DB.prepare(`
+                  INSERT INTO search_terms (term, language, frequency, context_count, updated_at)
+                  VALUES ${placeholders}
+                `).bind(...values).run();
+
+                totalTermsInserted += result.success ? batch.length : 0;
+              } catch (batchError) {
+                console.error(`[populate-search-terms] Error inserting batch ${i}-${i+BATCH_SIZE}:`, batchError.message);
+              }
+            }
+
+            console.log(`[populate-search-terms] Completed language: ${lang}`);
+          }
+
+          const duration = Date.now() - startTime;
+          console.log(`[populate-search-terms] Complete! Inserted ${totalTermsInserted} terms in ${duration}ms`);
+
+          return json({
+            success: true,
+            terms_processed: totalTermsInserted,
+            duration_ms: duration,
+            message: 'search_terms table populated successfully'
+          });
+        } catch (e) {
+          console.error('[populate-search-terms] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
+      }
+
+      // Populate search_words table - SuperAdmin only
+      // Extracts individual words from card_subtitles for word-level autocomplete
+      if (path === '/api/admin/populate-search-words' && request.method === 'POST') {
+        try {
+          const auth = await authenticateRequest(request, env);
+          if (!auth.authenticated) {
+            return json({ error: auth.error || 'Unauthorized' }, { status: 401 });
+          }
+
+          // Check if user is superadmin
+          if (!auth.roles.includes('superadmin')) {
+            return json({ error: 'Unauthorized: SuperAdmin access required' }, { status: 403 });
+          }
+
+          console.log('[populate-search-words] Starting word extraction...');
+          const startTime = Date.now();
+
+          // Get all unique languages from card_subtitles
+          const langResult = await env.DB.prepare(`
+            SELECT DISTINCT language FROM card_subtitles
+          `).all();
+
+          const languages = (langResult.results || []).map(r => r.language);
+          console.log(`[populate-search-words] Found ${languages.length} languages: ${languages.join(', ')}`);
+
+          let totalWordsInserted = 0;
+          let totalWordsUpdated = 0;
+
+          for (const lang of languages) {
+            console.log(`[populate-search-words] Processing language: ${lang}`);
+
+            // Get distinct words for this language with their counts
+            // Uses recursive CTE to extract words from subtitle text
+            // Note: This approach splits text by common delimiters
+            const wordQuery = `
+              WITH RECURSIVE
+              split(word, rest) AS (
+                SELECT
+                  CASE
+                    WHEN LENGTH(text) = 0 THEN NULL
+                    WHEN INSTR(' ,.!?;:()[]{}"\'', SUBSTR(text, 1, 1)) > 0 THEN ''
+                    ELSE SUBSTR(text, 1, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(text, 1, 1)) - 1)
+                  END,
+                  CASE
+                    WHEN INSTR(' ,.!?;:()[]{}"\'', SUBSTR(text, 1, 1)) = 0 THEN SUBSTR(text, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(text, 1, 1)))
+                    ELSE SUBSTR(text, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(text, 1, 1)) + 1)
+                  END
+                FROM card_subtitles
+                WHERE language = ? AND text IS NOT NULL AND LENGTH(text) > 0
+
+                UNION ALL
+
+                SELECT
+                  CASE
+                    WHEN LENGTH(rest) = 0 THEN NULL
+                    WHEN INSTR(' ,.!?;:()[]{}"\'', SUBSTR(rest, 1, 1)) > 0 THEN ''
+                    ELSE SUBSTR(rest, 1, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(rest, 1, 1)) - 1)
+                  END,
+                  CASE
+                    WHEN INSTR(' ,.!?;:()[]{}"\'', SUBSTR(rest, 1, 1)) = 0 THEN SUBSTR(rest, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(rest, 1, 1)))
+                    ELSE SUBSTR(rest, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(rest, 1, 1)) + 1)
+                  END
+                FROM split
+                WHERE rest IS NOT NULL AND LENGTH(rest) > 0
+              )
+              SELECT
+                LOWER(TRIM(word)) as word,
+                COUNT(*) as frequency,
+                COUNT(DISTINCT card_id) as context_count
+              FROM (
+                SELECT cs.card_id, TRIM(
+                  CASE
+                    WHEN INSTR(' ,.!?;:()[]{}"\'', SUBSTR(cs.text, 1, 1)) = 0 THEN SUBSTR(cs.text, 1, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(cs.text, 1, 1)) - 1)
+                    ELSE SUBSTR(cs.text, INSTR(' ,.!?;:()[]{}"\'', SUBSTR(cs.text, 1, 1)) + 1)
+                  END
+                ) as word
+                FROM card_subtitles cs
+                WHERE cs.language = ? AND cs.text IS NOT NULL AND LENGTH(cs.text) > 0
+              )
+              WHERE word IS NOT NULL AND LENGTH(word) > 0
+              GROUP BY word
+              ORDER BY frequency DESC
+            `;
+
+            // For better performance, use a simpler approach with batch inserts
+            // First, get all card_subtitles for this language
+            const cardsResult = await env.DB.prepare(`
+              SELECT cs.card_id, cs.text
+              FROM card_subtitles cs
+              INNER JOIN cards c ON c.id = cs.card_id
+              INNER JOIN episodes e ON e.id = c.episode_id
+              INNER JOIN content_items ci ON ci.id = e.content_item_id
+              WHERE cs.language = ?
+                AND cs.text IS NOT NULL
+                AND LENGTH(cs.text) > 0
+                AND c.is_available = 1
+                AND LOWER(ci.main_language) = 'en'
+              ORDER BY cs.card_id
+            `).bind(lang).all();
+
+            console.log(`[populate-search-words] Processing ${cardsResult.results?.length || 0} cards for ${lang}`);
+
+            // Process cards in batches and extract words
+            const wordMap = new Map();
+            const BATCH_SIZE = 500;
+
+            for (let i = 0; i < (cardsResult.results || []).length; i += BATCH_SIZE) {
+              const batch = (cardsResult.results || []).slice(i, i + BATCH_SIZE);
+
+              for (const row of batch) {
+                // Extract words from text (simple approach)
+                const words = (row.text || '')
+                  .toLowerCase()
+                  .replace(/[^\w\s]/g, ' ')  // Replace punctuation with spaces
+                  .split(/\s+/)              // Split by whitespace
+                  .filter(w => w.length > 1); // Filter out single characters
+
+                const uniqueWords = [...new Set(words)];
+
+                for (const word of uniqueWords) {
+                  if (!wordMap.has(word)) {
+                    wordMap.set(word, { frequency: 0, context_count: new Set() });
+                  }
+                  const data = wordMap.get(word);
+                  data.frequency++;
+                  data.context_count.add(row.card_id);
+                }
+              }
+
+              if ((i + BATCH_SIZE) % 5000 === 0) {
+                console.log(`[populate-search-words] Processed ${Math.min(i + BATCH_SIZE, cardsResult.results.length)}/${cardsResult.results.length} cards for ${lang}`);
+              }
+            }
+
+            console.log(`[populate-search-words] Found ${wordMap.size} unique words for ${lang}`);
+
+            // Insert/update words in batches
+            const wordArray = Array.from(wordMap.entries()).map(([word, data]) => ({
+              word,
+              frequency: data.frequency,
+              context_count: data.context_count.size
+            }));
+
+            // Sort by frequency descending and take top 10000 words per language
+            wordArray.sort((a, b) => b.frequency - a.frequency);
+            const topWords = wordArray.slice(0, 10000);
+
+            console.log(`[populate-search-words] Inserting ${topWords.length} top words for ${lang}`);
+
+            // Use INSERT OR REPLACE for upsert
+            const INSERT_BATCH_SIZE = 100;
+            for (let i = 0; i < topWords.length; i += INSERT_BATCH_SIZE) {
+              const batch = topWords.slice(i, i + INSERT_BATCH_SIZE);
+              const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
+              const values = batch.flatMap(item => [
+                item.word,
+                lang,
+                item.frequency,
+                item.context_count,
+                Date.now()
+              ]);
+
+              const result = await env.DB.prepare(`
+                INSERT OR REPLACE INTO search_words (word, language, frequency, context_count, updated_at)
+                VALUES ${placeholders}
+              `).bind(...values).run();
+
+              totalWordsInserted += result.success ? batch.length : 0;
+            }
+
+            console.log(`[populate-search-words] Completed language: ${lang}`);
+          }
+
+          const duration = Date.now() - startTime;
+          console.log(`[populate-search-words] Complete! Inserted/updated ${totalWordsInserted} words in ${duration}ms`);
+
+          return json({
+            success: true,
+            words_processed: totalWordsInserted,
+            duration_ms: duration,
+            message: 'search_words table populated successfully'
+          });
+        } catch (e) {
+          console.error('[populate-search-words] Error:', e);
+          return json({ error: e.message }, { status: 500 });
+        }
       }
 
       // Update rewards config - SuperAdmin only

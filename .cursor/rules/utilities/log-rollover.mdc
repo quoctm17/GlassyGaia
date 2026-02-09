@@ -1,0 +1,84 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 📜 Log Rollover Utility
+Quản lý kích thước work log trong task files, tránh file quá lớn.
+
+## 🎯 Trigger Conditions
+- Work log section >50 lines
+- Task file total size >300 lines  
+- Weekly maintenance (automated)
+- Before sprint completion
+
+## 🔄 Rollover Process
+1. **Detect Oversized Logs**:
+   - Parse task files for "## Work Log" section
+   - Count entries and total lines
+   - Flag files exceeding thresholds
+
+2. **Archive Historical Entries**:
+   - Keep recent 5 entries in task file
+   - Move older entries to archive
+   - Format: `docs/tasks/logs/TASK_XXX_YYYY-MM-DD.md`
+
+3. **Update Task File**:
+   - Truncate work log to recent entries
+   - Add link to archive files
+   - Preserve task metadata and acceptance criteria
+
+## 📁 Archive Structure
+```
+docs/tasks/logs/
+├── TASK_001_2025-01-15.md    # Week 1 logs
+├── TASK_001_2025-01-22.md    # Week 2 logs  
+├── TASK_123_2025-02-01.md    # February logs
+└── archive-index.json        # Archive registry
+```
+
+## 🔧 Archive File Format
+```yaml
+# TASK_001_2025-01-15.md
+---
+task_id: TASK_001
+archive_period: "2025-01-08 to 2025-01-15"  
+total_entries: 23
+created_by: "log-rollover-utility"
+---
+## Archived Work Log Entries
+- [2025-01-08 09:00] Started implementation
+- [2025-01-08 10:30] ✅ Setup database schema
+...
+```
+
+## 📊 Maintenance Actions
+```yaml
+Weekly Rollover:
+- Archive logs >7 days old
+- Compress archives >30 days
+- Update archive index
+
+Sprint End:
+- Full archive of completed tasks
+- Summary statistics
+- Clean up temporary entries
+```
+
+## 🔗 Cross-References
+- Update task file with archive links
+- Maintain searchable index  
+- Preserve chronological order
+- Enable full history reconstruction
+
+## ⚙️ Configuration
+```yaml
+# rollover-config.yml
+thresholds:
+  max_log_lines: 50
+  max_file_size: 300
+  keep_recent_entries: 5
+archive:
+  compress_after_days: 30
+  cleanup_after_days: 180
+```

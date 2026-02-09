@@ -956,6 +956,35 @@ export async function apiSearchAutocomplete(params: {
   return res.json();
 }
 
+// New autocomplete endpoint for content/film titles (replaces search_terms based autocomplete)
+export async function apiContentAutocomplete(params: {
+  q: string;
+  limit?: number;
+}): Promise<{ suggestions: Array<{ term: string; slug: string }> }> {
+  assertApiBase();
+  const { q, limit = 10 } = params;
+  
+  const urlParams = new URLSearchParams();
+  urlParams.set('q', q);
+  if (limit !== 10) {
+    urlParams.set('limit', String(limit));
+  }
+
+  const res = await fetch(`${API_BASE}/api/content/autocomplete?${urlParams}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to get content autocomplete: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
 // New unified search API endpoint (paginated with main_language + subtitle_languages filters)
 export async function apiSearch(params: {
   query?: string;
@@ -1059,36 +1088,102 @@ export async function apiSearch(params: {
   
   // Map API response to CardDoc
   const mapStart = performance.now();
-  const items: CardDoc[] = (data.items || []).map((r: Record<string, unknown>) => ({
-    id: String(r.card_id || ''),
-    film_id: String(r.content_slug || ''),
-    episode_id: String(r.episode_slug || ''),
-    episode: Number(r.episode_number || 0),
-    image_url: r.image_url || '',
-    audio_url: r.audio_url || '',
-    start: Number(r.start_time || 0),
-    end: Number(r.end_time || 0),
-    difficulty_score: r.difficulty_score,
-    sentence: r.text || '',
-    subtitle: r.subtitle || {},
-    levels: (() => {
-      const levelsRaw = r.levels;
-      if (!levelsRaw) return undefined;
-      if (Array.isArray(levelsRaw)) {
-        return levelsRaw.map((l: unknown) => {
-          if (l && typeof l === 'object' && 'framework' in l && 'level' in l) {
-            return {
-              framework: String((l as Record<string, unknown>).framework || ''),
-              level: String((l as Record<string, unknown>).level || ''),
-              language: (l as Record<string, unknown>).language ? String((l as Record<string, unknown>).language) : undefined
-            };
-          }
-          return null;
-        }).filter(Boolean) as Array<{ framework: string; level: string; language?: string }>;
+  
+  // Helper to build media URL from key or URL
+  const buildMediaUrlFromResponse = (
+    url: string | undefined,
+    key: string | undefined,
+    filmId: string,
+    episodeId: string,
+    cardId: string,
+    type: "audio" | "image"
+  ): string => {
+    if (url) return url;
+    if (key) {
+      if (/^https?:\/\//i.test(key)) return key;
+      if (key.includes("/")) {
+        return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${key}` : `/${key}`;
       }
-      return undefined;
-    })(),
-  }));
+      // simple filename: synthesize full path using new convention
+      const ext = type === "image" ? "jpg" : "mp3";
+      let epNum = Number(String(episodeId || "e1").replace(/^e/i, ""));
+      if (!epNum || Number.isNaN(epNum)) {
+        const m = String(episodeId || "").match(/_(\d+)$/);
+        epNum = m ? Number(m[1]) : 1;
+      }
+      const epPadded = String(epNum).padStart(3, "0");
+      const isDigits = /^[0-9]+$/.test(String(cardId));
+      const cardPadded = isDigits ? String(cardId).padStart(4, "0") : String(cardId);
+      const rel = `items/${filmId}/episodes/${filmId}_${epPadded}/${type}/${filmId}_${epPadded}_${cardPadded}.${ext}`;
+      return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${rel}` : `/${rel}`;
+    }
+    // fallback: build from card data
+    const ext = type === "image" ? "jpg" : "mp3";
+    let epNum = Number(String(episodeId || "e1").replace(/^e/i, ""));
+    if (!epNum || Number.isNaN(epNum)) {
+      const m = String(episodeId || "").match(/_(\d+)$/);
+      epNum = m ? Number(m[1]) : 1;
+    }
+    const epPadded = String(epNum).padStart(3, "0");
+    const isDigits = /^[0-9]+$/.test(String(cardId));
+    const cardPadded = isDigits ? String(cardId).padStart(4, "0") : String(cardId);
+    const rel = `items/${filmId}/episodes/${filmId}_${epPadded}/${type}/${filmId}_${epPadded}_${cardPadded}.${ext}`;
+    return R2_PUBLIC_BASE ? `${R2_PUBLIC_BASE}/${rel}` : `/${rel}`;
+  };
+  
+  const items: CardDoc[] = (data.items || []).map((r: Record<string, unknown>) => {
+    const cardId = String(r.card_id || '');
+    const filmId = String(r.content_slug || '');
+    const episodeId = String(r.episode_slug || '');
+    
+    const imageUrl = buildMediaUrlFromResponse(
+      r.image_url as string | undefined,
+      r.image_key as string | undefined,
+      filmId,
+      episodeId,
+      cardId,
+      "image"
+    );
+    const audioUrl = buildMediaUrlFromResponse(
+      r.audio_url as string | undefined,
+      r.audio_key as string | undefined,
+      filmId,
+      episodeId,
+      cardId,
+      "audio"
+    );
+    
+    return {
+      id: cardId,
+      film_id: filmId,
+      episode_id: episodeId,
+      episode: Number(r.episode_number || 0),
+      image_url: imageUrl,
+      audio_url: audioUrl,
+      start: Number(r.start_time || 0),
+      end: Number(r.end_time || 0),
+      difficulty_score: r.difficulty_score,
+      sentence: r.text || '',
+      subtitle: r.subtitle || {},
+      levels: (() => {
+        const levelsRaw = r.levels;
+        if (!levelsRaw) return undefined;
+        if (Array.isArray(levelsRaw)) {
+          return levelsRaw.map((l: unknown) => {
+            if (l && typeof l === 'object' && 'framework' in l && 'level' in l) {
+              return {
+                framework: String((l as Record<string, unknown>).framework || ''),
+                level: String((l as Record<string, unknown>).level || ''),
+                language: (l as Record<string, unknown>).language ? String((l as Record<string, unknown>).language) : undefined
+              };
+            }
+            return null;
+          }).filter(Boolean) as Array<{ framework: string; level: string; language?: string }>;
+        }
+        return undefined;
+      })(),
+    };
+  });
   const mapTime = performance.now() - mapStart;
   
   const totalTime = performance.now() - perfStart;

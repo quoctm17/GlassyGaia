@@ -1,0 +1,81 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 🔍 Rules Linter (CI Utility)
+Validate rule files trong CI pipeline, đảm bảo chất lượng + consistency.
+
+## 🎯 Validation Checks
+1. **YAML Front-matter**:
+   - Valid YAML syntax
+   - Required fields: description, globs, alwaysApply
+   - No empty required fields
+   - Boolean type cho alwaysApply
+
+2. **File Naming**:
+   - Pattern: `{name}-{type}.mdc` hoặc `{name}.mdc`
+   - Types: auto, agent, manual, always
+   - No special characters
+   - Max 50 chars filename
+
+3. **Content Quality**:
+   - Markdown syntax valid
+   - No broken internal links
+   - Mermaid diagrams syntax check
+   - Length ≤ 200 lines (warning)
+
+4. **Rule Logic**:
+   - No duplicate glob patterns
+   - alwaysApply conflicts
+   - Circular dependencies
+   - Orphaned rules
+
+## 🚨 Error Categories
+```yaml
+CRITICAL (fails CI):
+- Invalid YAML front-matter
+- Missing required fields
+- Duplicate essential globs
+
+WARNING (passes but alerts):
+- Long files (>200 lines)
+- Similar rule descriptions
+- Unused rules (no references)
+
+INFO:
+- Optimization suggestions
+- Best practice recommendations
+```
+
+## 🔧 CLI Usage
+```bash
+# Run in CI
+cursor-rules-lint cursor/rules_v2/
+
+# Fix auto-fixable issues
+cursor-rules-lint --fix cursor/rules_v2/
+
+# Generate report
+cursor-rules-lint --report json cursor/rules_v2/
+```
+
+## 📊 Linter Output
+```
+✅ 12 rules validated
+⚠️  2 warnings found
+❌ 1 error requires fix
+
+Errors:
+- core/context-loader.mdc: missing alwaysApply field
+
+Warnings:  
+- modes/planning-agent.mdc: file length 156 lines (recommend ≤150)
+- utilities/log-rollover.mdc: similar description to log-manager.mdc
+```
+
+## 🔄 Integration
+- Pre-commit hook
+- GitHub Actions workflow
+- Local dev script
+- Editor extensions

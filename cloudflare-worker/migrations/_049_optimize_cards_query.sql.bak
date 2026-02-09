@@ -1,0 +1,9 @@
+-- Migration 049: Optimize /cards endpoint query performance
+-- Add index on episodes.content_item_id for faster joins with content_items
+
+-- This index helps the JOIN in the /cards endpoint to efficiently fetch content_slug
+CREATE INDEX IF NOT EXISTS idx_episodes_content_item_id ON episodes(content_item_id);
+
+-- Also add index on cards.episode_id for faster card lookups by episode
+CREATE INDEX IF NOT EXISTS idx_cards_episode_id ON cards(episode_id);
+

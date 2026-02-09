@@ -32,15 +32,10 @@ export default function PracticeWriting({ card, onCheck }: PracticeWritingProps)
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const correctAnswer = card.card_type || ''; // card_type contains the correct answer
   
-  // Resolve image URL
+  // Resolve image URL - API already returns full URL from image_key/audio_key
   const resolvedImageUrl = (() => {
     if (imageError) return '';
-    const base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
-    let url = card.image_url || '';
-    if (url && url.startsWith('/') && base) {
-      url = `${base}${url}`;
-    }
-    return url;
+    return card.image_url || '';
   })();
 
   // Handle image/audio click

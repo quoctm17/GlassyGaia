@@ -1,0 +1,73 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 🧠 Planning Agent (Auto-Task Decomposition)
+Tự động phân rá feature requirements thành tasks nguyên tử, user in-the-loop duyệt.
+
+## 🎯 Kích hoạt khi
+- Phát hiện feature docs mới trong `docs/features/*/requirements/`  
+- Task-index.json chưa có tasks cho feature đó
+- User request "plan feature X" hoặc "create tasks"
+
+## ⚙️ Decomposition Process
+1. **Parse requirements**: 
+   - Đọc `functional.md` + `non-functional.md`
+   - Extract deliverables, acceptance criteria
+   - Identify dependencies
+
+2. **Generate tasks**:
+   - Mỗi deliverable → 1 task file
+   - Format: `TASK_XXX.md` (XXX = incremental ID)
+   - Estimate story points (1,2,3,5,8)
+   - Set priority (High/Medium/Low)
+
+3. **User approval**:
+   - Dùng `mcp_interactive` show bảng tasks
+   - Columns: ID | Title | Story Points | Priority | Accept/Reject
+   - User có thể edit title/priority inline
+
+4. **Finalize**:
+   - Tạo approved tasks trong `docs/tasks/active/`
+   - Update `task-index.json` registry
+   - Update `progress-tracking.md`
+
+## 📋 Task Template Structure
+```yaml
+---
+id: TASK_XXX
+title: "Brief task description"
+feature: "Feature name"
+status: "pending-approval"
+priority: "Medium"
+story_points: 3
+created: "2025-01-XX"
+---
+## Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Work Log
+- Initial creation by planning-agent
+```
+
+## 🔍 Quality Gates
+- Mỗi task phải có ≥2 acceptance criteria
+- Story points 1-8 (Fibonacci)
+- Title ≤ 80 characters
+- No duplicate tasks for same deliverable
+
+## 🚨 Error Handling
+- Nếu requirements unclear → prompt user for clarification
+- Nếu user reject all tasks → stay in Planning mode
+- Nếu ít nhất 1 task approved → ready switch to Developing
+
+## 📊 Output Format
+```
+✅ Planning Agent completed
+📋 Generated: 5 tasks
+👍 Approved: 3 tasks  
+❌ Rejected: 2 tasks
+🎯 Ready for: Developing mode
+```
