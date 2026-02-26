@@ -94,9 +94,9 @@ export default function AdminLayout() {
           </NavLink>
           {/* Populate FTS removed - FTS5 table dropped */}
           {isSuperAdmin() && (
-            <NavLink to="/admin/populate-search-terms" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <NavLink to="/admin/populate-search-words" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
               <Search className="w-4 h-4 mr-2" />
-              <span>Populate Search Terms</span>
+              <span>Populate Search Words</span>
             </NavLink>
           )}
           <NavLink to="/admin/categories" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>

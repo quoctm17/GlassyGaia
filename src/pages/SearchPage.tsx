@@ -3,12 +3,11 @@ import SearchResultCard from "../components/SearchResultCard";
 import FilterPanel from "../components/FilterPanel";
 import FilterModal from "../components/FilterModal";
 import CustomizeModal from "../components/CustomizeModal";
-import type { CardDoc, FilmDoc } from "../types";
+import type { CardDoc } from "../types";
 import SearchBar from "../components/SearchBar";
 import { useUser } from "../context/UserContext";
 import {
   apiSearch,
-  apiListItems,
   apiSearchCardsFTS,
   apiGetCardSaveStatusBatch,
 } from "../services/cfApi";
@@ -34,7 +33,8 @@ function SearchPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [allItems, setAllItems] = useState<FilmDoc[]>([]);
+  // Content metadata from search results only (no separate /items fetch for initial load)
+  const [contentMeta, setContentMeta] = useState<Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: import("../types").LevelFrameworkStats | null }>>({});
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
   // Legacy filters (kept for API compatibility, but not used in UI)
@@ -94,7 +94,7 @@ function SearchPage() {
           const effectiveLimit = Math.min(pageNum * pageSize, maxLimit);
 
           const apiStart = performance.now();
-          const items = await apiSearchCardsFTS({
+          const { items, content_meta } = await apiSearchCardsFTS({
             q: trimmed,
             limit: effectiveLimit,
             mainLanguage: preferences.main_language || null,
@@ -115,6 +115,9 @@ function SearchPage() {
           console.log(`${logLabel}: API call took ${apiTime.toFixed(2)}ms, returned ${items.length} items`);
 
           setCards(items);
+          if (content_meta && Object.keys(content_meta).length > 0) {
+            setContentMeta(prev => ({ ...prev, ...content_meta }));
+          }
           setTotal(items.length);
           setPage(pageNum);
           // If we hit the current limit and haven't reached maxLimit, allow more loads
@@ -159,6 +162,7 @@ function SearchPage() {
             mainLanguage: preferences.main_language || null,
             subtitleLanguages: preferences.subtitle_languages || [],
             contentIds: contentFilter.length > 0 ? contentFilter : undefined,
+            includeContentMeta: true,
             minDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? minDifficulty : undefined,
             maxDifficulty: minDifficulty !== 0 || maxDifficulty !== 100 ? maxDifficulty : undefined,
             minLevel: minLevel || undefined,
@@ -174,6 +178,9 @@ function SearchPage() {
           const apiTime = performance.now() - apiStart;
           console.log(`${logLabel}: API call (browsing mode) took ${apiTime.toFixed(2)}ms, returned ${result.items.length} items (total: ${result.total})`);
 
+          if (result.content_meta && Object.keys(result.content_meta).length > 0) {
+            setContentMeta(prev => ({ ...prev, ...result.content_meta }));
+          }
           if (pageNum === 1) {
             setCards(result.items);
             // Clear save statuses when starting new search
@@ -253,26 +260,7 @@ function SearchPage() {
     [preferences.main_language, preferences.subtitle_languages, pageSize, contentFilter, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid]
   );
 
-  // Fetch all content items on mount only (cached by apiListItems)
-  // Run in parallel with initial card fetch for faster loading
-  useEffect(() => {
-    let cancelled = false;
-    apiListItems()
-      .then((items) => {
-        if (!cancelled) {
-          setAllItems(items);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.error("Failed to load content items:", error);
-          setAllItems([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Content metadata comes from search response (content_meta) - no separate /items fetch for initial load
 
   // Serialize subtitle_languages array for stable dependency comparison
   const subtitleLangsKey = useMemo(() => 
@@ -330,51 +318,42 @@ function SearchPage() {
     fetchCards(trimmed, 1);
   }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid, fetchCards, firstLoading, isFilterModalOpenState]);
 
-  // No longer filter by mainLanguage - backend handles is_available filtering
-  // Build maps for FilterPanel from all items (backend already filters invalid items)
+  // Build maps for FilterPanel from content_meta (only contents in search results - lighter load)
   const filmTitleMap = useMemo(() => {
     const map: Record<string, string> = {};
-    allItems.forEach((item) => {
-      if (item.id) {
-        map[item.id] = item.title || item.id;
-      }
+    Object.entries(contentMeta).forEach(([, meta]) => {
+      if (meta?.id) map[meta.id] = meta.title || meta.id;
     });
     return map;
-  }, [allItems]);
+  }, [contentMeta]);
 
   const filmTypeMap = useMemo(() => {
     const map: Record<string, string | undefined> = {};
-    allItems.forEach((item) => {
-      if (item.id) {
-        map[item.id] = item.type;
-      }
+    Object.entries(contentMeta).forEach(([, meta]) => {
+      if (meta?.id) map[meta.id] = meta.type;
     });
     return map;
-  }, [allItems]);
+  }, [contentMeta]);
 
   const filmLangMap = useMemo(() => {
     const map: Record<string, string> = {};
-    allItems.forEach((item) => {
-      if (item.id && item.main_language) {
-        map[item.id] = item.main_language;
-      }
+    Object.entries(contentMeta).forEach(([, meta]) => {
+      if (meta?.id && meta.main_language) map[meta.id] = meta.main_language;
     });
     return map;
-  }, [allItems]);
+  }, [contentMeta]);
 
   const filmStatsMap = useMemo(() => {
     const map: Record<string, any> = {};
-    allItems.forEach((item) => {
-      if (item.id) {
-        map[item.id] = item.level_framework_stats || null;
-      }
+    Object.entries(contentMeta).forEach(([, meta]) => {
+      if (meta?.id) map[meta.id] = meta.level_framework_stats ?? null;
     });
     return map;
-  }, [allItems]);
+  }, [contentMeta]);
 
   const allContentIds = useMemo(() => {
-    return allItems.map((item) => item.id).filter((id): id is string => !!id);
-  }, [allItems]);
+    return Object.values(contentMeta).map((m) => m.id).filter(Boolean);
+  }, [contentMeta]);
 
   // Content counts: Use client-side counting from allResults (much faster than server-side)
   // This counts only the cards that are already loaded, not the entire database

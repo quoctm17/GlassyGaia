@@ -190,8 +190,8 @@ export async function searchCardsGlobalClient(
   if (q) {
     try {
       const main = selectedMainLang ? (canonicalizeLangCode(selectedMainLang) || selectedMainLang.toLowerCase()) : null;
-      const rows = await apiSearchCardsFTS({ q, limit: max, mainLanguage: main });
-      const filteredServer = filmFilter ? rows.filter(r => r.film_id === filmFilter) : rows;
+      const { items } = await apiSearchCardsFTS({ q, limit: max, mainLanguage: main });
+      const filteredServer = filmFilter ? items.filter(r => r.film_id === filmFilter) : items;
       // If server FTS returns results, use them directly.
       if (filteredServer.length > 0) return filteredServer;
       // Fallback condition: zero results for short or single-token query -> attempt client substring match (prefix behavior)

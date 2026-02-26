@@ -64,6 +64,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const [episodeCards, setEpisodeCards] = useState<CardDoc[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState<number>(-1);
   const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
+  const episodeCardsLoadedRef = useRef<boolean>(false);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
   const [expandedSubtitles, setExpandedSubtitles] = useState<Set<string>>(new Set());
@@ -508,10 +509,9 @@ const SearchResultCard = memo(function SearchResultCard({
     const hasSubs = card.subtitle && Object.keys(card.subtitle).length > 0;
 
     // Check if ANY selected language is missing from card.subtitle
-    // This ensures we fetch ALL selected languages, not just one
     const missingLangs = selectedLangs.filter(lang => {
       const canonLang = canonicalizeLangCode(lang) || lang;
-      return !card.subtitle || !card.subtitle[canonLang];
+      return !card.subtitle || !(card.subtitle[canonLang] || card.subtitle[lang]);
     });
 
     // If card has no subtitles at all, or if ANY selected language is missing, fetch
@@ -882,10 +882,11 @@ const SearchResultCard = memo(function SearchResultCard({
   }
 
 
-  // Load episode cards for navigation (centered around current card)
-  // Only load ONCE when initialCard changes, don't reload during A/D navigation
-  // Use global cache and pending requests to prevent duplicate fetches for same episode
-  useEffect(() => {
+  // Load episode cards lazily on first A/D navigation (not on mount)
+  const loadEpisodeCards = useCallback(() => {
+    if (episodeCardsLoadedRef.current) return;
+    episodeCardsLoadedRef.current = true;
+
     const filmId = initialCard.film_id;
     const episodeId = initialCard.episode_id || (typeof initialCard.episode === 'number' ? `e${initialCard.episode}` : String(initialCard.episode || ''));
     
@@ -895,7 +896,6 @@ const SearchResultCard = memo(function SearchResultCard({
     const cached = episodeCardsCache.get(cacheKey);
     const now = Date.now();
 
-    // Check if we have valid cached data
     if (cached && (now - cached.timestamp) < CACHE_TTL) {
       setEpisodeCards(cached.cards);
       const idx = cached.cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
@@ -904,7 +904,6 @@ const SearchResultCard = memo(function SearchResultCard({
       return;
     }
 
-    // Check if there's already a pending request for this episode
     const pendingRequest = pendingEpisodeRequests.get(cacheKey);
     if (pendingRequest) {
       pendingRequest.then(cards => {
@@ -920,22 +919,17 @@ const SearchResultCard = memo(function SearchResultCard({
       return;
     }
     
-    // Load 500 cards centered around current position (250 before, 250 after)
-    const startTime = Math.max(0, initialCard.start - 250 * 5); // Assume ~5s per card average
+    const startTime = Math.max(0, initialCard.start - 250 * 5);
     
     const fetchPromise = fetchCardsForFilm(filmId, episodeId, 500, { startFrom: startTime }).then(cards => {
-      // Cache the result
       episodeCardsCache.set(cacheKey, { cards, timestamp: Date.now() });
-      // Remove from pending
       pendingEpisodeRequests.delete(cacheKey);
 
       setEpisodeCards(cards);
-      // Match by start time (API returns card_number as ID, not UUID)
       const idx = cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
       setCurrentCardIndex(idx);
-      setOriginalCardIndex(idx); // Set original position on initial load
+      setOriginalCardIndex(idx);
       
-      // Fallback: if not found, try loading from start (for early episode cards)
       if (idx === -1 && startTime > 0) {
         const fallbackCacheKey = `${filmId}/${episodeId}/start`;
         const fallbackCached = episodeCardsCache.get(fallbackCacheKey);
@@ -959,30 +953,26 @@ const SearchResultCard = memo(function SearchResultCard({
             });
           } else {
             const fallbackPromise = fetchCardsForFilm(filmId, episodeId, 500).then(fallbackCards => {
-              // Cache fallback result
               episodeCardsCache.set(fallbackCacheKey, { cards: fallbackCards, timestamp: Date.now() });
-              // Remove from pending
               pendingEpisodeRequests.delete(fallbackCacheKey);
-
-          setEpisodeCards(fallbackCards);
-          const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
-          setCurrentCardIndex(fallbackIdx);
-          setOriginalCardIndex(fallbackIdx); // Store original position
+              setEpisodeCards(fallbackCards);
+              const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+              setCurrentCardIndex(fallbackIdx);
+              setOriginalCardIndex(fallbackIdx);
               return fallbackCards;
-        }).catch(() => {
+            }).catch(() => {
               pendingEpisodeRequests.delete(fallbackCacheKey);
-          setCurrentCardIndex(-1);
-          setOriginalCardIndex(-1);
+              setCurrentCardIndex(-1);
+              setOriginalCardIndex(-1);
               throw new Error('Failed to fetch fallback cards');
-        });
+            });
             pendingEpisodeRequests.set(fallbackCacheKey, fallbackPromise);
-      }
+          }
         }
       }
 
       return cards;
     }).catch(() => {
-      // Remove from pending on error
       pendingEpisodeRequests.delete(cacheKey);
       setEpisodeCards([]);
       setCurrentCardIndex(-1);
@@ -990,7 +980,6 @@ const SearchResultCard = memo(function SearchResultCard({
       throw new Error('Failed to fetch episode cards');
     });
 
-    // Store pending request
     pendingEpisodeRequests.set(cacheKey, fetchPromise);
   }, [initialCard]);
 
@@ -1083,7 +1072,8 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Navigate to previous card
   const handlePrevCard = async () => {
-    if (currentCardIndex <= 0 || episodeCards.length === 0) return;
+    if (episodeCards.length === 0) { loadEpisodeCards(); return; }
+    if (currentCardIndex <= 0) return;
     const prevCard = episodeCards[currentCardIndex - 1];
     if (prevCard && card.film_id) {
       // Fetch full card data with all subtitles
@@ -1146,6 +1136,7 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Navigate to next card
   const handleNextCard = async () => {
+    if (episodeCards.length === 0) { loadEpisodeCards(); return; }
     if (currentCardIndex < 0 || currentCardIndex >= episodeCards.length - 1) return;
     const nextCard = episodeCards[currentCardIndex + 1];
     if (nextCard && card.film_id) {
