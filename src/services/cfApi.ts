@@ -845,7 +845,8 @@ export async function apiFetchAllCards(limit = 1000): Promise<CardDoc[]> {
 
 // Full-text search via Worker /search (FTS5) with response caching on client
 // Caches results by query hash to avoid duplicate requests
-const searchCache = new Map<string, { data: CardDoc[]; timestamp: number }>();
+type SearchCacheData = CardDoc[] | { items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> };
+const searchCache = new Map<string, { data: SearchCacheData; timestamp: number }>();
 const SEARCH_CACHE_TTL = 60000; // 60 seconds
 
 function getSearchCacheKey(params: Record<string, unknown>): string {
@@ -872,7 +873,8 @@ export async function apiSearchCardsFTS(params: {
   minReview?: number;
   maxReview?: number;
   userId?: string | null;
-}): Promise<CardDoc[]> {
+  includeContentMeta?: boolean;
+}): Promise<{ items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> }> {
   const perfStart = performance.now();
   const { q, contentIds, subtitleLanguages, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, userId } = params;
   const limit = params.limit ?? 100;
@@ -893,6 +895,7 @@ export async function apiSearchCardsFTS(params: {
   const reviewMinParam = minReview !== undefined && minReview !== null ? `&review_min=${minReview}` : '';
   const reviewMaxParam = maxReview !== undefined && maxReview !== null ? `&review_max=${maxReview}` : '';
   const userIdParam = userId ? `&user_id=${encodeURIComponent(userId)}` : '';
+  const contentMetaParam = params.includeContentMeta !== false ? `&include_content_meta=1` : '';
 
   // Check cache first (short TTL)
   const cacheKey = getSearchCacheKey(params);
@@ -900,63 +903,37 @@ export async function apiSearchCardsFTS(params: {
   if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
     const cacheTime = performance.now() - perfStart;
     console.log(`[apiSearchCardsFTS] Cache hit in ${cacheTime.toFixed(2)}ms`);
-    return cached.data;
+    const d = cached.data;
+    if (Array.isArray(d)) return { items: d, content_meta: undefined };
+    return d as { items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> };
   }
   
   const fetchStart = performance.now();
-  const rows = await getJson<Array<Record<string, unknown>>>(
-    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}${difficultyMinParam}${difficultyMaxParam}${levelMinParam}${levelMaxParam}${lengthMinParam}${lengthMaxParam}${durationMaxParam}${reviewMinParam}${reviewMaxParam}${userIdParam}`
+  const raw = await getJson<Array<Record<string, unknown>> | { items: Array<Record<string, unknown>>; content_meta?: Record<string, unknown> }>(
+    `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}${difficultyMinParam}${difficultyMaxParam}${levelMinParam}${levelMaxParam}${lengthMinParam}${lengthMaxParam}${durationMaxParam}${reviewMinParam}${reviewMaxParam}${userIdParam}${contentMetaParam}`
   );
   const fetchTime = performance.now() - fetchStart;
+  
+  const rows = Array.isArray(raw) ? raw : (raw.items || []);
+  const contentMeta: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> | undefined =
+    !Array.isArray(raw) && raw.content_meta
+      ? (raw.content_meta as Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }>)
+      : undefined;
   
   const mapStart = performance.now();
   const result = rows.map(rowToCardDoc);
   const mapTime = performance.now() - mapStart;
   
-  searchCache.set(cacheKey, { data: result, timestamp: Date.now() });
+  const out: { items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> } = { items: result, content_meta: contentMeta };
+  searchCache.set(cacheKey, { data: out, timestamp: Date.now() });
   
   const totalTime = performance.now() - perfStart;
   console.log(`[apiSearchCardsFTS] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${result.length} items`);
   
-  return result;
+  return out;
 }
 
-/**
- * Get autocomplete suggestions from search_terms table
- */
-export async function apiSearchAutocomplete(params: {
-  q: string;
-  language?: string | null;
-  limit?: number;
-}): Promise<{ suggestions: Array<{ term: string; frequency: number; language: string | null }> }> {
-  assertApiBase();
-  const { q, language, limit = 10 } = params;
-  
-  const urlParams = new URLSearchParams();
-  urlParams.set('q', q);
-  if (language) {
-    urlParams.set('language', language);
-  }
-  if (limit !== 10) {
-    urlParams.set('limit', String(limit));
-  }
-
-  const res = await fetch(`${API_BASE}/api/search/autocomplete?${urlParams}`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Failed to get autocomplete suggestions: ${res.status} ${text}`);
-  }
-
-  return res.json();
-}
-
-// New autocomplete endpoint for content/film titles (replaces search_terms based autocomplete)
+// Autocomplete endpoint for content search (uses search_words table)
 export async function apiContentAutocomplete(params: {
   q: string;
   limit?: number;
@@ -1004,7 +981,8 @@ export async function apiSearch(params: {
   maxReview?: number;
   userId?: string | null;
   signal?: AbortSignal;
-}): Promise<{ items: CardDoc[]; total: number; page: number; size: number }> {
+  includeContentMeta?: boolean;
+}): Promise<{ items: CardDoc[]; total: number; page: number; size: number; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> }> {
   const perfStart = performance.now();
   const query = params.query || '';
   const page = params.page ?? 1;
@@ -1065,6 +1043,10 @@ export async function apiSearch(params: {
   
   if (params.userId) {
     urlParams.set('user_id', params.userId);
+  }
+  
+  if (params.includeContentMeta !== false) {
+    urlParams.set('include_content_meta', '1');
   }
   
   assertApiBase();
@@ -1195,6 +1177,7 @@ export async function apiSearch(params: {
     total: data.total || 0,
     page: data.page || page,
     size: data.size || size,
+    content_meta: data.content_meta,
   };
 }
 
@@ -2095,11 +2078,6 @@ export async function apiGetDatabaseSizeAnalysis(): Promise<{
     estimatedSizeGB: number;
   }>;
   analysis: {
-    search_terms: {
-      totalRows: number;
-      uniqueRows: number;
-      duplicates: number;
-    };
     card_subtitles_fts: {
       rowCount: number;
     };
@@ -2129,70 +2107,6 @@ export async function apiGetDatabaseSizeAnalysis(): Promise<{
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Failed to fetch database size analysis: ${res.status} ${text}`);
-  }
-
-  return await res.json();
-}
-
-/**
- * Cleanup duplicate search_terms (SuperAdmin only)
- */
-export async function apiCleanupSearchTerms(minFrequency?: number): Promise<{
-  message: string;
-  duplicatesRemoved: number;
-  lowFrequencyRemoved: number;
-  remainingRows: number;
-}> {
-  assertApiBase();
-  const token = localStorage.getItem('jwt_token');
-  if (!token) {
-    throw new Error('Authentication required');
-  }
-
-  const res = await fetch(`${API_BASE}/api/admin/cleanup-search-terms`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ minFrequency: minFrequency || 1 })
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Failed to cleanup search_terms: ${res.status} ${text}`);
-  }
-
-  return await res.json();
-}
-
-/**
- * Optimize search_terms by removing low-frequency terms (SuperAdmin only)
- */
-export async function apiOptimizeSearchTerms(minFrequency: number): Promise<{
-  message: string;
-  removedRows: number;
-  remainingRows: number;
-  minFrequency: number;
-}> {
-  assertApiBase();
-  const token = localStorage.getItem('jwt_token');
-  if (!token) {
-    throw new Error('Authentication required');
-  }
-
-  const res = await fetch(`${API_BASE}/api/admin/optimize-search-terms`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ minFrequency })
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Failed to optimize search_terms: ${res.status} ${text}`);
   }
 
   return await res.json();
