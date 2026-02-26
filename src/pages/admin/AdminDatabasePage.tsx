@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Database, Table, Shield, Key, Users, Settings, BookOpen, TrendingUp, BarChart3, MoreHorizontal, Eye, Pencil, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
-import { apiGetDatabaseStats, apiGetTableData, apiUpdateTableRecord, apiDeleteTableRecord, apiGetDatabaseSizeAnalysis, apiCleanupSearchTerms, apiOptimizeSearchTerms } from '../../services/cfApi';
+import { apiGetDatabaseStats, apiGetTableData, apiUpdateTableRecord, apiDeleteTableRecord, apiGetDatabaseSizeAnalysis } from '../../services/cfApi';
 import PortalDropdown from '../../components/PortalDropdown';
 import TableDetailModal from '../../components/admin/TableDetailModal';
 import TableEditModal from '../../components/admin/TableEditModal';
@@ -101,8 +101,6 @@ export default function AdminDatabasePage() {
   const [sizeAnalysis, setSizeAnalysis] = useState<any>(null);
   const [sizeAnalysisLoading, setSizeAnalysisLoading] = useState(false);
   const [sizeAnalysisError, setSizeAnalysisError] = useState<string | null>(null);
-  const [cleaningUp, setCleaningUp] = useState(false);
-  const [optimizing, setOptimizing] = useState(false);
   // FTS5 removed - no longer needed
   
   // Only SuperAdmin can access this page
@@ -343,49 +341,6 @@ export default function AdminDatabasePage() {
             </div>
           </div>
 
-          {/* Search Terms Projection */}
-          {sizeAnalysis.tables && (() => {
-            const searchTermsTable = sizeAnalysis.tables.find((t: any) => t.name === 'search_terms');
-            const cardSubtitlesTable = sizeAnalysis.tables.find((t: any) => t.name === 'card_subtitles');
-            if (searchTermsTable && cardSubtitlesTable) {
-              const currentTerms = searchTermsTable.rowCount || 0;
-              const totalSubtitles = cardSubtitlesTable.rowCount || 0;
-              // Estimate: if we have terms from ~19% of subtitles (2.477M / 12.9M), project full size
-              const estimatedTermsWhenComplete = totalSubtitles > 0 && currentTerms > 0
-                ? Math.round((currentTerms / Math.max(2477000, totalSubtitles * 0.19)) * totalSubtitles)
-                : currentTerms;
-              const estimatedSizeMB = (estimatedTermsWhenComplete * 50) / (1024 * 1024);
-              const estimatedSizeGB = estimatedSizeMB / 1024;
-              const estimatedSizeWithOverheadGB = estimatedSizeGB * 1.9;
-              const currentSizeGB = searchTermsTable.estimatedSizeGB || 0;
-              const additionalSizeGB = estimatedSizeWithOverheadGB - (currentSizeGB * 1.9);
-              
-              if (estimatedTermsWhenComplete > currentTerms && additionalSizeGB > 0.1) {
-                return (
-                  <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(251, 191, 36, 0.1)', border: '2px solid var(--warning)', borderRadius: '0.375rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--warning)', fontWeight: 600, marginBottom: '0.5rem' }}>
-                      ⚠️ Search Terms Projection
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Current: {currentTerms.toLocaleString()} terms ({currentSizeGB.toFixed(2)} GB)
-                      <br />
-                      Projected (when complete): ~{estimatedTermsWhenComplete.toLocaleString()} terms (~{estimatedSizeGB.toFixed(2)} GB raw, ~{estimatedSizeWithOverheadGB.toFixed(2)} GB with overhead)
-                      <br />
-                      <strong style={{ color: 'var(--warning)' }}>
-                        Additional size: ~{additionalSizeGB.toFixed(2)} GB
-                      </strong>
-                      <br />
-                      <span style={{ fontSize: '0.625rem' }}>
-                        Projected total DB size: ~{((sizeAnalysis.database.estimatedSizeGB || 0) + additionalSizeGB).toFixed(2)} GB
-                      </span>
-                    </div>
-                  </div>
-                );
-              }
-            }
-            return null;
-          })()}
-
           {/* Table Sizes */}
           <div style={{ marginBottom: '1.5rem' }}>
             <h4 style={{ fontFamily: 'Press Start 2P', fontSize: '0.75rem', color: 'var(--primary)', marginBottom: '0.75rem' }}>
@@ -480,77 +435,7 @@ export default function AdminDatabasePage() {
                         <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                           {rec.description}
                         </div>
-                        {rec.action.includes('Clean duplicate') && (
-                          <button
-                            className="admin-btn"
-                            style={{ fontSize: '0.625rem', padding: '0.5rem 1rem' }}
-                            onClick={async () => {
-                              if (!window.confirm('This will remove duplicate rows from search_terms. Continue?')) return;
-                              setCleaningUp(true);
-                              try {
-                                const result = await apiCleanupSearchTerms();
-                                toast.success(`Removed ${result.duplicatesRemoved.toLocaleString()} duplicates. ${result.remainingRows.toLocaleString()} rows remaining.`);
-                                // Reload analysis
-                                const newAnalysis = await apiGetDatabaseSizeAnalysis();
-                                setSizeAnalysis(newAnalysis);
-                              } catch (e) {
-                                toast.error(e instanceof Error ? e.message : 'Cleanup failed');
-                              } finally {
-                                setCleaningUp(false);
-                              }
-                            }}
-                            disabled={cleaningUp}
-                          >
-                            {cleaningUp ? 'Cleaning...' : '🧹 Clean Duplicates'}
-                          </button>
-                        )}
-                        {rec.action.includes('Optimize search_terms') && (
-                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <input
-                              type="number"
-                              min="1"
-                              max="10"
-                              defaultValue="2"
-                              id={`minFreq-${idx}`}
-                              style={{ 
-                                padding: '0.5rem', 
-                                background: 'var(--background)', 
-                                border: '2px solid var(--border)', 
-                                borderRadius: '0.25rem',
-                                color: 'var(--text)',
-                                width: '80px',
-                                fontSize: '0.875rem'
-                              }}
-                            />
-                            <label htmlFor={`minFreq-${idx}`} style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              Min frequency
-                            </label>
-                            <button
-                              className="admin-btn"
-                              style={{ fontSize: '0.625rem', padding: '0.5rem 1rem' }}
-                              onClick={async () => {
-                                const minFreq = parseInt((document.getElementById(`minFreq-${idx}`) as HTMLInputElement)?.value || '2', 10);
-                                if (!window.confirm(`This will remove all search_terms with frequency < ${minFreq}. Continue?`)) return;
-                                setOptimizing(true);
-                                try {
-                                  const result = await apiOptimizeSearchTerms(minFreq);
-                                  toast.success(`Removed ${result.removedRows.toLocaleString()} rows. ${result.remainingRows.toLocaleString()} rows remaining.`);
-                                  // Reload analysis
-                                  const newAnalysis = await apiGetDatabaseSizeAnalysis();
-                                  setSizeAnalysis(newAnalysis);
-                                } catch (e) {
-                                  toast.error(e instanceof Error ? e.message : 'Optimization failed');
-                                } finally {
-                                  setOptimizing(false);
-                                }
-                              }}
-                              disabled={optimizing}
-                            >
-                              {optimizing ? 'Optimizing...' : '⚡ Optimize'}
-                            </button>
-                          </div>
-                        )}
-                        {/* FTS5 removed - no longer needed */}
+                        {/* FTS5 and search_terms removed - no longer needed */}
                       </div>
                       {rec.estimatedSavingsMB > 0 && (
                         <div style={{ fontFamily: 'Press Start 2P', fontSize: '0.75rem', color: 'var(--success)', marginLeft: '1rem' }}>
