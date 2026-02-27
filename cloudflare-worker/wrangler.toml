@@ -1,5 +1,5 @@
 name = "glassygaia-worker"
-main = "src/worker.js"
+main = "src/router.js"
 compatibility_date = "2025-11-09"
 
 [vars]
