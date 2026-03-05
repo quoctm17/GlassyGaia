@@ -62,32 +62,31 @@ export async function updateCardSubtitleLanguageMap(env, cardId) {
   }
 }
 
+// D1 limit: max 100 bound parameters per query
+const MAX_BIND_PER_QUERY = 100;
+
 // Batch update mapping table for multiple cards
 export async function updateCardSubtitleLanguageMapBatch(env, cardIds) {
   if (!cardIds || cardIds.length === 0) return;
 
   try {
-    // 1. Create placeholders (?,?,?)
-    const placeholders = cardIds.map(() => '?').join(',');
+    for (let i = 0; i < cardIds.length; i += MAX_BIND_PER_QUERY) {
+      const chunk = cardIds.slice(i, i + MAX_BIND_PER_QUERY);
+      const placeholders = chunk.map(() => '?').join(',');
 
-    // 2. Execute everything in a single DB transaction (Atomic Batch)
-    await env.DB.batch([
-      // STEP A: Delete old mappings for all targeted cardIds
-      env.DB.prepare(`
-        DELETE FROM card_subtitle_language_map 
-        WHERE card_id IN (${placeholders})
-      `).bind(...cardIds),
-
-      // STEP B: Insert fresh mappings directly from the source table
-      // This "INSERT INTO ... SELECT" is O(1) in terms of data transfer to JS
-      env.DB.prepare(`
-        INSERT INTO card_subtitle_language_map (card_id, language)
-        SELECT DISTINCT card_id, language 
-        FROM card_subtitles 
-        WHERE card_id IN (${placeholders})
-      `).bind(...cardIds)
-    ]);
-
+      await env.DB.batch([
+        env.DB.prepare(`
+          DELETE FROM card_subtitle_language_map 
+          WHERE card_id IN (${placeholders})
+        `).bind(...chunk),
+        env.DB.prepare(`
+          INSERT INTO card_subtitle_language_map (card_id, language)
+          SELECT DISTINCT card_id, language 
+          FROM card_subtitles 
+          WHERE card_id IN (${placeholders})
+        `).bind(...chunk)
+      ]);
+    }
     console.log(`[Batch Sync] Successfully updated ${cardIds.length} cards.`);
   } catch (e) {
     console.error(`[updateCardSubtitleLanguageMapBatch] Error:`, e.message);

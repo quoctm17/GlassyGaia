@@ -329,11 +329,23 @@
 }
 
 .search-stats {
-  text-align: right;
-  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: nowrap;
   padding-top: 8px;
   color: var(--neutral);
   font-style: italic;
+}
+
+.search-stats-text {
+  margin-left: auto;
+}
+
+.search-subtitle-selector .language-selector-btn {
+  padding: 3px 6px;
+  color: var(--text);
 }
 
 /* Large Desktop (1661px and below) */

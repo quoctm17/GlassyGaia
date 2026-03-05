@@ -937,7 +937,7 @@ export default function AdminEpisodeUpdatePage() {
                   {checkingReferenceData ? (
                     <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Checking reference data availability in database...</span>
+                      <span>Checking frequency data availability in database...</span>
                     </div>
                   ) : referenceDataStatus && referenceDataStatus.framework === framework ? (
                     <div className={`p-3 rounded-lg border ${referenceDataStatus.exists ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
@@ -953,18 +953,17 @@ export default function AdminEpisodeUpdatePage() {
                       </div>
                       {referenceDataStatus.exists ? (
                         <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
-                          <div>✓ Reference data available in database</div>
-                          {referenceDataStatus.hasReferenceList && <div className="text-xs">• Reference list imported ({framework})</div>}
-                          {referenceDataStatus.hasFrequencyData && <div className="text-xs">• Frequency data available ({framework})</div>}
+                          <div>✓ Frequency data available in database</div>
+                          {referenceDataStatus.hasFrequencyData && <div className="text-xs">• Frequency lookup data imported ({framework})</div>}
                           <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
                             Auto level assessment will run automatically after episode import.
                           </div>
                         </div>
                       ) : (
                         <div className="text-sm space-y-1" style={{ color: 'var(--text)' }}>
-                          <div>⚠ No reference data found in database</div>
+                          <div>⚠ No frequency data found in database</div>
                           <div className="text-xs mt-2" style={{ color: 'var(--neutral)' }}>
-                            Framework {getFrameworkDisplayName(framework)} is supported, but no reference data exists in database. Please import reference data for {framework} in Level Management before creating content.
+                            Framework {getFrameworkDisplayName(framework)} is supported, but no frequency data exists in database. Please import frequency JSON for {framework} in Level Management before creating content.
                           </div>
                         </div>
                       )}
@@ -972,7 +971,7 @@ export default function AdminEpisodeUpdatePage() {
                   ) : (
                     <div className="p-3 rounded-lg border bg-gray-500/10 border-gray-500/30">
                       <div className="text-sm" style={{ color: 'var(--text)' }}>
-                        Framework {getFrameworkDisplayName(framework)} is supported. Checking database for reference data...
+                        Framework {getFrameworkDisplayName(framework)} is supported. Checking database for frequency data...
                       </div>
                     </div>
                   )}

@@ -120,8 +120,6 @@ function App() {
                 <Route path="path-migration" element={<AdminPathMigrationPage />} />
                 {/* Admin Audio Migration */}
                 <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
-                {/* Admin FTS Population */}
-                {/* populate-fts route removed - FTS5 table dropped */}
                 {/* Admin Search Words Population */}
                 <Route path="populate-search-words" element={<AdminPopulateSearchWordsPage />} />
                 {/* Admin Categories Management */}

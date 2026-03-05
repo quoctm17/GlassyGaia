@@ -82,6 +82,15 @@
   letter-spacing: 0.5px;
 }
 
+/* PressStart2P - Logo (Navbar wordmark) */
+.typography-pressstart-logo {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 1px;
+}
+
 /* ================= Component-Specific Typography ================= */
 
 /* Language Selector Button */
