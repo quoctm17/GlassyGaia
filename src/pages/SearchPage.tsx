@@ -5,6 +5,7 @@ import FilterModal from "../components/FilterModal";
 import CustomizeModal from "../components/CustomizeModal";
 import type { CardDoc } from "../types";
 import SearchBar from "../components/SearchBar";
+import SubtitleLanguageSelector from "../components/SubtitleLanguageSelector";
 import { useUser } from "../context/UserContext";
 import {
   apiSearch,
@@ -607,7 +608,10 @@ function SearchPage() {
             </div>
 
             <div className="search-stats typography-inter-4">
-              {loading ? "Searching..." : `${total} Cards`}
+              <SubtitleLanguageSelector className="search-subtitle-selector" />
+              <span className="search-stats-text">
+                {loading ? "Searching..." : `${total} Cards`}
+              </span>
             </div>
           </div>
 

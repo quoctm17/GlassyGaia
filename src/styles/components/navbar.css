@@ -58,13 +58,12 @@
 .pixel-logo-wrap {
   display: flex;
   align-items: center;
-  gap: 14px;
   text-decoration: none;
 }
 
 .pixel-logo-img {
-  width: 30px;
-  height: 30px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   padding: 2px;
   object-fit: cover;
@@ -75,16 +74,13 @@
   flex-direction: column;
   justify-content: center;
   gap: 2px;
-  background: #f1aaf0;
-  color: #1a0f26;
   font-weight: 700;
-  font-size: 14px;
   padding: 8px 20px;
   line-height: 1.2;
-  border-radius: 16px;
   letter-spacing: 1px;
-  text-shadow: none;
   text-align: center;
+  color: var(--navbar-logo-text);
+  text-shadow: 0 4px 4px var(--navbar-logo-shadow);
 }
 
 .navbar-icon {
@@ -163,9 +159,47 @@
 
 .pixel-tab.active {
   color: var(--hover-select);
-  border-bottom: 3px solid var(--hover-select);
   background-color: transparent;
   font-weight: 600;
+}
+
+.navbar-portfolio-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pixel-navbar .portfolio-stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.pixel-navbar .portfolio-stat-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.pixel-navbar .portfolio-stat-value {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.navbar-theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: scale(0.9);
+  transform-origin: center;
+}
+
+.navbar-user-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 /* Sign In Button */
@@ -237,8 +271,8 @@
   }
 
   .pixel-logo-img {
-    width: 26px;
-    height: 26px;
+    width: 40px;
+    height: 40px;
   }
 
   .sign-in-btn {
@@ -302,8 +336,8 @@
   }
 
   .pixel-logo-img {
-    width: 24px;
-    height: 24px;
+    width: 34px;
+    height: 34px;
   }
 
   .pixel-logo-label {
@@ -350,8 +384,8 @@
   }
 
   .pixel-logo-img {
-    width: 20px;
-    height: 20px;
+    width: 26px;
+    height: 26px;
   }
 
   .pixel-logo-label {

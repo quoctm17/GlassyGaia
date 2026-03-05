@@ -3,15 +3,19 @@ import { useUser } from "../context/UserContext";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import MainLanguageSelector from "./MainLanguageSelector";
-import SubtitleLanguageSelector from "./SubtitleLanguageSelector";
 import ThemeToggle from "./ThemeToggle";
+import { apiGetUserPortfolio, type UserPortfolio } from "../services/portfolioApi";
+import logoImg from "../assets/imgs/logo.png";
 import searchIcon from "../assets/icons/search.svg";
 import mediaIcon from "../assets/icons/media.svg";
-import contentIcon from "../assets/icons/content.svg";
+import saveHeartIcon from "../assets/icons/save-heart.svg";
+import streakScoreIcon from "../assets/icons/streak-score.svg";
+import diamondScoreIcon from "../assets/icons/diamond-score.svg";
 import watchlistIcon from "../assets/icons/watchlist.svg";
 import loginIcon from "../assets/icons/log-in.svg";
 import logoutIcon from "../assets/icons/log-out.svg";
 import adminIcon from "../assets/icons/xp-dimond.svg";
+import masterBallIcon from "../assets/icons/master-ball.svg";
 import "../styles/components/navbar.css";
 
 export default function NavBar() {
@@ -19,6 +23,8 @@ export default function NavBar() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [portfolio, setPortfolio] = useState<UserPortfolio | null>(null);
+  const [loadingPortfolio, setLoadingPortfolio] = useState(false);
   // Show admin link if user has admin or superadmin role
   const showAdminLinks = !!user && isAdmin;
 
@@ -33,12 +39,47 @@ export default function NavBar() {
     return () => document.removeEventListener("click", onDocClick);
   }, [open]);
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setPortfolio(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingPortfolio(true);
+
+    apiGetUserPortfolio(user.uid)
+      .then((data) => {
+        if (!cancelled) {
+          setPortfolio(data);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load user portfolio in navbar:", error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingPortfolio(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
   return (
     <nav className="pixel-navbar flex justify-between items-center">
       <div className="flex items-center gap-8">
-        <Link to="/" className="pixel-logo-wrap">
-          <img src="/favicon.jpg" alt="logo" className="pixel-logo-img" />
-        </Link>
+        <div className="flex items-center">
+          <Link to="/" className="pixel-logo-wrap">
+            <img src={logoImg} alt="Glassy Gaia logo" className="pixel-logo-img" />
+            <span className="pixel-logo-label typography-pressstart-logo">
+              Glassy<br />Gaia
+            </span>
+          </Link>
+          <MainLanguageSelector className="main-language-compact" />
+        </div>
         <div className="pixel-tabs pixel-tabs-desktop">
           <NavLink
             to="/search"
@@ -55,8 +96,8 @@ export default function NavBar() {
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
-            <img src={mediaIcon} alt="Library" className="navbar-icon" />
-            Library
+            <img src={mediaIcon} alt="Media" className="navbar-icon" />
+            Media
           </NavLink>
           <NavLink
             to="/portfolio"
@@ -64,17 +105,36 @@ export default function NavBar() {
               `pixel-tab ${isActive ? "active" : ""}`
             }
           >
-            <img src={contentIcon} alt="Portfolio" className="navbar-icon" />
-            Portfolio
+            <img src={saveHeartIcon} alt="Stat" className="navbar-icon" />
+            Stat
           </NavLink>
         </div>
       </div>
       <div className="flex items-center gap-4">
-        {/* Language selectors (main + subtitles) - hidden on mobile */}
-        <div className="flex items-center gap-3 navbar-language-selectors">
-          <MainLanguageSelector />
-          <SubtitleLanguageSelector />
-        </div>
+        {user && portfolio && !loadingPortfolio && (
+          <div className="navbar-portfolio-stats">
+            <div className="portfolio-stat-item">
+              <img
+                src={streakScoreIcon}
+                alt="Streak"
+                className="portfolio-stat-icon"
+              />
+              <span className="portfolio-stat-value">
+                {portfolio.current_streak}d
+              </span>
+            </div>
+            <div className="portfolio-stat-item">
+              <img
+                src={diamondScoreIcon}
+                alt="XP"
+                className="portfolio-stat-icon"
+              />
+              <span className="portfolio-stat-value">
+                {portfolio.total_xp.toLocaleString()}xp
+              </span>
+            </div>
+          </div>
+        )}
         
         {/* Theme toggle - hidden on mobile */}
         <div className="navbar-theme-toggle">
@@ -89,22 +149,11 @@ export default function NavBar() {
               aria-haspopup="menu"
               aria-expanded={open}
             >
-              {(() => {
-                const name = user?.displayName || user?.email || "U";
-                const avatarUrl =
-                  user?.photoURL ||
-                  `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                    name
-                  )}&background=0ea5e9&color=ffffff&size=64`;
-                return (
-                  <img
-                    src={avatarUrl}
-                    alt="avatar"
-                    className="w-8 h-8 rounded-full border border-gray-600"
-                    referrerPolicy="no-referrer"
-                  />
-                );
-              })()}
+              <img
+                src={masterBallIcon}
+                alt="User menu"
+                className="navbar-user-icon"
+              />
               <ChevronDown
                 className="w-4 h-4 text-pink-200"
                 aria-hidden="true"
