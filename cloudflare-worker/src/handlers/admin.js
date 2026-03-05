@@ -1,7 +1,8 @@
 import { json } from '../utils/response.js';
 import { expandJaIndexText } from '../utils/japanese.js';
 import { authenticateRequest } from '../middleware/auth.js';
-import { getFrameworkFromLanguage, buildLevelStats } from '../utils/levels.js';
+import { getFrameworkFromLanguage, buildLevelStats, median, percentile90 } from '../utils/levels.js';
+import { deleteContentItemBySlug } from '../services/deleteContentItem.js';
 
 export function registerAdminRoutes(router) {
 
@@ -289,97 +290,6 @@ export function registerAdminRoutes(router) {
 
     } catch (e) {
       return json({ error: e.message }, { status: 500 });
-    }
-  });
-
-  router.post('/admin/populate-fts', async (request, env) => {
-    try {
-      const body = await request.json();
-      const { offset = 0, batchSize = 1000 } = body;
-
-      const totalCount = await env.DB.prepare('SELECT COUNT(*) as count FROM card_subtitles').first();
-      const total = totalCount?.count || 0;
-
-      const ftsCount = await env.DB.prepare('SELECT COUNT(*) as count FROM card_subtitles_fts').first();
-      const currentFtsCount = ftsCount?.count || 0;
-
-      const rows = await env.DB.prepare(`
-        SELECT id, card_id, language, text 
-        FROM card_subtitles 
-        ORDER BY id 
-        LIMIT ? OFFSET ?
-      `).bind(batchSize, offset).all();
-
-      const items = rows.results || [];
-      if (items.length === 0) {
-        return json({
-          ok: true,
-          done: true,
-          message: 'All subtitles have been populated',
-          stats: {
-            total,
-            processed: offset,
-            inserted: currentFtsCount,
-            remaining: 0
-          }
-        });
-      }
-
-      const stmts = [];
-      const hasBracketsRe = /\[[^\]]+\]/;
-
-      for (const r of items) {
-        let idxText;
-        const lang = String(r.language).toLowerCase();
-        const text = String(r.text);
-
-        if (lang === 'ja') {
-          if (hasBracketsRe.test(text)) {
-            idxText = expandJaIndexText(text);
-          } else {
-            idxText = text.replace(/\s+/g, '');
-          }
-        } else {
-          idxText = text;
-        }
-
-        stmts.push(env.DB.prepare(`
-          INSERT OR IGNORE INTO card_subtitles_fts (text, language, card_id) 
-          VALUES (?, ?, ?)
-        `).bind(idxText, r.language, r.card_id));
-      }
-
-      let inserted = 0;
-      const BATCH_SIZE = 1000;
-
-      for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
-        const slice = stmts.slice(i, i + BATCH_SIZE);
-        if (slice.length) {
-          const results = await env.DB.batch(slice);
-          inserted += results.reduce((sum, r) => sum + (r.meta?.changes || 0), 0);
-        }
-      }
-
-      const nextOffset = offset + items.length;
-      const remaining = Math.max(0, total - nextOffset);
-
-      const cumulativeInserted = await env.DB.prepare('SELECT COUNT(*) as count FROM card_subtitles_fts').first();
-      const totalInserted = cumulativeInserted?.count || 0;
-
-      return json({
-        ok: true,
-        done: remaining === 0,
-        message: `Processed ${items.length} subtitles, inserted ${inserted} new entries`,
-        stats: {
-          total,
-          processed: nextOffset,
-          inserted: totalInserted,
-          remaining
-        },
-        nextOffset: remaining > 0 ? nextOffset : null
-      });
-    } catch (e) {
-      return json({ error: String(e) }, { status: 500 });
     }
   });
 
@@ -948,35 +858,35 @@ export function registerAdminRoutes(router) {
   router.post('/admin/import-reference', async (request, env) => {
     try {
       const body = await request.json();
-      const { type, data, framework } = body;
+      const { type, data: rawData, framework } = body;
 
-      if (!type || (type !== 'cefr' && type !== 'frequency')) {
-        return json({ error: 'Invalid type. Must be "cefr" or "frequency"' }, { status: 400 });
+      if (!type || type !== 'frequency') {
+        return json({ error: 'Invalid type. Must be "frequency" (word frequency only)' }, { status: 400 });
       }
 
-      if (!data || !Array.isArray(data) || data.length === 0) {
-        return json({ error: 'data array is required and must not be empty' }, { status: 400 });
+      // Accept object { word: rank } or array [{ word, rank }]
+      let data = rawData;
+      if (!data) {
+        return json({ error: 'data is required (object { word: rank } or array of { word, rank })' }, { status: 400 });
+      }
+      if (typeof data === 'object' && !Array.isArray(data)) {
+        data = Object.entries(data).map(([word, rank]) => ({ word, rank }));
+      }
+      if (!Array.isArray(data) || data.length === 0) {
+        return json({ error: 'data must be a non-empty object or array' }, { status: 400 });
       }
 
       const errors = [];
       const batchSize = 500;
 
-      if (type === 'cefr') {
-        try {
-          if (framework) {
-            await env.DB.prepare('DELETE FROM reference_cefr_list WHERE framework = ?').bind(framework).run();
-          } else {
-            await env.DB.prepare('DELETE FROM reference_cefr_list').run();
-          }
-        } catch (e) {
-          console.error('Failed to clear reference data:', e);
-        }
-      } else if (type === 'frequency') {
-        try {
+      try {
+        if (framework) {
+          await env.DB.prepare('DELETE FROM reference_word_frequency WHERE framework = ?').bind(framework).run();
+        } else {
           await env.DB.prepare('DELETE FROM reference_word_frequency').run();
-        } catch (e) {
-          console.error('Failed to clear frequency data:', e);
         }
+      } catch (e) {
+        console.error('Failed to clear frequency data:', e);
       }
 
       for (let i = 0; i < data.length; i += batchSize) {
@@ -985,50 +895,26 @@ export function registerAdminRoutes(router) {
 
         for (const row of batch) {
           try {
-            if (type === 'cefr') {
-              const headword = String(row.headword || '').trim();
-              const pos = row.pos ? String(row.pos).trim() : null;
-              const level = String(row.level || row.cefr_level || '').trim().toUpperCase();
-              const fw = framework || 'CEFR';
+            const word = String(row.word != null ? row.word : '').trim();
+            const rankVal = row.rank;
+            const rank = typeof rankVal === 'number' ? rankVal : parseInt(String(rankVal), 10);
 
-              if (!headword || !level) {
-                errors.push(`Row ${i + batch.indexOf(row) + 1}: Missing headword or level`);
-                continue;
-              }
+            if (!word || isNaN(rank) || rank < 0) {
+              errors.push(`Row ${i + batch.indexOf(row) + 1}: Invalid word or rank`);
+              continue;
+            }
 
-              try {
-                stmts.push(env.DB.prepare(`
-                  INSERT OR REPLACE INTO reference_cefr_list (headword, pos, cefr_level, framework)
-                  VALUES (?, ?, ?, ?)
-                `).bind(headword, pos, level, fw));
-              } catch (e) {
-                stmts.push(env.DB.prepare(`
-                  INSERT OR REPLACE INTO reference_cefr_list (headword, pos, cefr_level)
-                  VALUES (?, ?, ?)
-                `).bind(headword, pos, level));
-              }
-            } else if (type === 'frequency') {
-              const word = String(row.word || '').trim();
-              const rank = parseInt(row.rank, 10);
-              const stem = row.stem ? String(row.stem).trim() : null;
-
-              if (!word || isNaN(rank) || rank < 0) {
-                errors.push(`Row ${i + batch.indexOf(row) + 1}: Invalid word or rank`);
-                continue;
-              }
-
-              const fw = framework || null;
-              try {
-                stmts.push(env.DB.prepare(`
-                  INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem, framework)
-                  VALUES (?, ?, ?, ?)
-                `).bind(word, rank, stem, fw));
-              } catch (e) {
-                stmts.push(env.DB.prepare(`
-                  INSERT OR REPLACE INTO reference_word_frequency (word, rank, stem)
-                  VALUES (?, ?, ?)
-                `).bind(word, rank, stem));
-              }
+            const fw = framework || null;
+            try {
+              stmts.push(env.DB.prepare(`
+                INSERT OR REPLACE INTO reference_word_frequency (word, rank, framework)
+                VALUES (?, ?, ?)
+              `).bind(word, rank, fw));
+            } catch (e) {
+              stmts.push(env.DB.prepare(`
+                INSERT OR REPLACE INTO reference_word_frequency (word, rank)
+                VALUES (?, ?)
+              `).bind(word, rank));
             }
           } catch (e) {
             errors.push(`Row ${i + batch.indexOf(row) + 1}: ${e.message}`);
@@ -1130,12 +1016,14 @@ export function registerAdminRoutes(router) {
       const levelOrders = {
         CEFR: { 'A1': 1, 'A2': 2, 'B1': 3, 'B2': 4, 'C1': 5, 'C2': 6 },
         JLPT: { 'N5': 1, 'N4': 2, 'N3': 3, 'N2': 4, 'N1': 5 },
-        HSK: { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9 }
+        HSK: { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9 },
+        TOPIK: { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6 }
       };
       const difficultyMaps = {
         CEFR: { 'A1': 10, 'A2': 25, 'B1': 45, 'B2': 65, 'C1': 80, 'C2': 95 },
         JLPT: { 'N5': 10, 'N4': 25, 'N3': 45, 'N2': 70, 'N1': 90 },
-        HSK: { '1': 5, '2': 15, '3': 30, '4': 50, '5': 70, '6': 85, '7': 92, '8': 96, '9': 98 }
+        HSK: { '1': 5, '2': 15, '3': 30, '4': 50, '5': 70, '6': 85, '7': 92, '8': 96, '9': 98 },
+        TOPIK: { '1': 15, '2': 30, '3': 50, '4': 70, '5': 85, '6': 95 }
       };
 
       const levelOrder = levelOrders[framework] || levelOrders.CEFR;
@@ -1149,30 +1037,52 @@ export function registerAdminRoutes(router) {
           .filter(t => t.length > 0);
       }
 
-      async function getWordLevel(word) {
-        let refRow;
-        try {
-          refRow = await env.DB.prepare('SELECT cefr_level FROM reference_cefr_list WHERE headword = ? AND framework = ? LIMIT 1').bind(word, framework).first();
-        } catch (e) {
-          refRow = await env.DB.prepare('SELECT cefr_level FROM reference_cefr_list WHERE headword = ? LIMIT 1').bind(word).first();
+      /** Map overallFreqRank to level using upper-bound cutoffs. Levels sorted by cutoff ascending; first level where overall <= cutoff. */
+      function overallToLevel(overallFreqRank) {
+        const levels = Object.keys(frameworkCutoffs).sort((a, b) => (frameworkCutoffs[a] || 0) - (frameworkCutoffs[b] || 0));
+        if (levels.length === 0) return null;
+        for (const level of levels) {
+          if (overallFreqRank <= (frameworkCutoffs[level] ?? Infinity)) return level;
         }
-        if (refRow) {
-          return refRow.cefr_level;
-        }
+        return levels[levels.length - 1];
+      }
 
-        const freqRow = await env.DB.prepare('SELECT rank FROM reference_word_frequency WHERE word = ? OR stem = ? LIMIT 1').bind(word, word).first();
-        if (freqRow && Object.keys(frameworkCutoffs).length > 0) {
-          const rank = freqRow.rank;
-          const levels = Object.keys(frameworkCutoffs).sort((a, b) => (frameworkCutoffs[a] || 0) - (frameworkCutoffs[b] || 0));
-          for (const level of levels) {
-            if (rank <= (frameworkCutoffs[level] || Infinity)) {
-              return level;
+      // Collect all unique tokens across all cards for batch rank lookup
+      const uniqueTokens = new Set();
+      for (const card of cards) {
+        const tokens = tokenize(card.sentence);
+        tokens.forEach(t => uniqueTokens.add(t));
+      }
+      const tokenList = Array.from(uniqueTokens);
+      // D1 hard limit: 100 bound parameters per query (see Cloudflare D1 docs)
+      const RANK_BATCH = 99; // 1 (framework) + 99 (words) = 100 params max
+      const RANK_CONCURRENCY = 5;
+      const rankByToken = new Map();
+      if (tokenList.length > 0) {
+        const batchPromises = [];
+        for (let i = 0; i < tokenList.length; i += RANK_BATCH) {
+          const batch = tokenList.slice(i, i + RANK_BATCH);
+          const ph = batch.map(() => '?').join(',');
+          batchPromises.push(
+            env.DB.prepare(
+              'SELECT word, rank, framework AS fw FROM reference_word_frequency WHERE (framework = ? OR framework IS NULL) AND word IN (' + ph + ')'
+            ).bind(framework, ...batch).all()
+          );
+        }
+        for (let c = 0; c < batchPromises.length; c += RANK_CONCURRENCY) {
+          const chunk = batchPromises.slice(c, c + RANK_CONCURRENCY);
+          const resolved = await Promise.all(chunk);
+          for (const rows of resolved) {
+            const results = rows.results || [];
+            for (const row of results) {
+              const rank = row.rank != null ? row.rank : null;
+              if (rank == null || row.word == null) continue;
+              const prefer = row.fw === framework;
+              if (prefer) rankByToken.set(row.word, rank);
+              else if (row.fw == null && !rankByToken.has(row.word)) rankByToken.set(row.word, rank);
             }
           }
-          return levels[levels.length - 1] || null;
         }
-
-        return null;
       }
 
       const updates = [];
@@ -1180,16 +1090,15 @@ export function registerAdminRoutes(router) {
 
       for (const card of cards) {
         const tokens = tokenize(card.sentence);
+        const ranks = tokens.map(t => rankByToken.get(t)).filter(r => r != null);
+
         let maxLevel = null;
-        let maxLevelNum = 0;
-
-        const levelPromises = tokens.map(token => getWordLevel(token));
-        const levels = await Promise.all(levelPromises);
-
-        for (const level of levels) {
-          if (level && levelOrder[level] && levelOrder[level] > maxLevelNum) {
-            maxLevelNum = levelOrder[level];
-            maxLevel = level;
+        if (ranks.length > 0 && Object.keys(frameworkCutoffs).length > 0) {
+          const rankMedian = median(ranks);
+          const rank90 = percentile90(ranks);
+          if (rankMedian != null && rank90 != null) {
+            const overallFreqRank = Math.pow(rank90, 0.8) * Math.pow(rankMedian, 0.2);
+            maxLevel = overallToLevel(overallFreqRank);
           }
         }
 
@@ -1199,13 +1108,14 @@ export function registerAdminRoutes(router) {
             VALUES (?, ?, ?, ?)
           `).bind(card.id, framework, maxLevel, contentItem.main_language));
 
-          const difficulty = difficultyMap[maxLevel] || card.difficulty_score || 50;
+          const difficulty = difficultyMap[maxLevel] ?? card.difficulty_score ?? 50;
           updates.push(env.DB.prepare('UPDATE cards SET difficulty_score = ?, updated_at = strftime(\'%s\',\'now\') WHERE id = ?').bind(difficulty, card.id));
         }
 
         cardsProcessed++;
 
-        if (updates.length >= 200) {
+        // D1 batch limit ~250 statements; we push 2 per card → flush every 120 cards (240 stmts)
+        if (updates.length >= 240) {
           await env.DB.batch(updates);
           updates.length = 0;
         }
@@ -1274,19 +1184,17 @@ export function registerAdminRoutes(router) {
         return json({ error: 'framework parameter is required' }, { status: 400 });
       }
 
-      const refListCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM reference_cefr_list WHERE framework = ?').bind(framework).first();
-      const hasReferenceList = (refListCount?.count || 0) > 0;
-
       const freqCount = await env.DB.prepare('SELECT COUNT(*) AS count FROM reference_word_frequency WHERE framework = ? OR framework IS NULL').bind(framework).first();
       const hasFrequencyData = (freqCount?.count || 0) > 0;
 
       return json({
-        exists: hasReferenceList || hasFrequencyData,
-        hasReferenceList,
+        exists: hasFrequencyData,
+        hasReferenceList: false,
         hasFrequencyData
       });
     } catch (e) {
       return json({ error: e.message }, { status: 500 });
     }
   });
+
 }

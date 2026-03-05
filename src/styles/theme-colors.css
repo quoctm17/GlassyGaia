@@ -90,6 +90,10 @@
   --light-practice-input-section-bg: #FFFFFF;
   --light-practice-input-bg: #FFFFFF;
 
+  /* Light Mode - Navbar specific */
+  --light-navbar-logo-text: #F2EDE5;
+  --light-navbar-logo-shadow: #AA3F55;
+
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
   --dark-secondary: #948979;
@@ -176,6 +180,10 @@
   --dark-practice-placeholder-color: #9E9E9E;
   --dark-practice-input-section-bg: #2B2328;
   --dark-practice-input-bg: #FFFFFF;
+
+  /* Dark Mode - Navbar specific */
+  --dark-navbar-logo-text: #F2EDE5;
+  --dark-navbar-logo-shadow: #FDAAAA;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -283,6 +291,8 @@
   --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
   --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
+  --navbar-logo-text: var(--light-navbar-logo-text);
+  --navbar-logo-shadow: var(--light-navbar-logo-shadow);
   
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -382,6 +392,8 @@
   --practice-input-bg: var(--dark-practice-input-bg);
   --practice-reading-wrapper-bg: var(--dark-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--dark-practice-reading-wrapper-border);
+  --navbar-logo-text: var(--dark-navbar-logo-text);
+  --navbar-logo-shadow: var(--dark-navbar-logo-shadow);
   
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);

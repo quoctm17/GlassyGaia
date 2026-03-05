@@ -1040,7 +1040,7 @@ export default function AdminContentIngestPage() {
               <li><code>type</code> tùy chọn; <code>sentence</code> tự động lấy từ phụ đề của Main Language.</li>
               <li>Hỗ trợ đa ngôn ngữ: en, vi, zh, zh_trad, yue, ja, ko, id, th, ms.</li>
               <li><code>difficulty_score</code> (0-100) + alias.</li>
-              <li><strong>Framework level columns (CEFR, JLPT, HSK, etc.) sẽ bị bỏ qua</strong>: Các cột framework level trong CSV sẽ được chủ động bỏ qua. Auto Level Assessment sẽ tự động đánh giá level cho cards dựa trên reference data.</li>
+              <li><strong>Framework level columns (CEFR, JLPT, HSK, etc.) sẽ bị bỏ qua</strong>: Các cột framework level trong CSV sẽ được chủ động bỏ qua. Auto Level Assessment sẽ tự động đánh giá level cho cards dựa trên frequency data (word + rank) và formula Overall.</li>
               <li>Infer IDs: lấy số cuối tên file làm card id; nếu tắt dùng Pad + Start Index.</li>
             </ul>
             <div className="admin-instructions-note">
@@ -1586,7 +1586,7 @@ export default function AdminContentIngestPage() {
             {checkingReferenceData ? (
               <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text)' }}>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Checking reference data availability in database...</span>
+                <span>Checking frequency data availability in database...</span>
               </div>
             ) : referenceDataStatus && referenceDataStatus.framework === framework ? (
               <div className={`p-3 rounded-lg border ${referenceDataStatus.exists ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-500/10 border-yellow-500/30'}`}>
@@ -1620,7 +1620,7 @@ export default function AdminContentIngestPage() {
             ) : (
               <div className="p-3 rounded-lg border bg-gray-500/10 border-gray-500/30">
                 <div className="text-sm" style={{ color: 'var(--text)' }}>
-                  Framework {getFrameworkDisplayName(framework)} is supported. Checking database for reference data...
+                  Framework {getFrameworkDisplayName(framework)} is supported. Checking database for frequency data...
                 </div>
               </div>
             )}

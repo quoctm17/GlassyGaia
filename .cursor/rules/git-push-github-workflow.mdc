@@ -1,0 +1,34 @@
+---
+description: When user asks to push to GitHub — follow CONTRIBUTING, update README/CHANGELOG
+alwaysApply: true
+---
+
+# Push to GitHub workflow
+
+When the user asks to **push code to GitHub**, **prepare a PR**, or **release**, do the following in order.
+
+## 1. Follow CONTRIBUTING.md
+
+- **Read** [CONTRIBUTING.md](CONTRIBUTING.md) (project root) and apply its rules.
+- **Branch:** Use a feature branch from `main`; name it with the right prefix: `feat/`, `fix/`, `chore/`, `refactor/`, or `hotfix/` (e.g. `feat/search-filters`). Do not push directly to `main`.
+- **Commits:** Use conventional messages: `feat: ...`, `fix: ...`, `chore: ...`, `refactor: ...`.
+- **PR:** After pushing the branch, remind the user to open a Pull Request into `main` and to use a title/description that matches CONTRIBUTING (What / Why / Testing).
+
+## 2. Update README.md when needed
+
+- If the change adds, removes, or significantly changes **user-facing features** (e.g. new page, new main function, major UX change), update [README.md](README.md):
+  - Adjust the "What can GlassyGaia do?" and "Main features" sections.
+  - Add or update short usage/demo bullets and screenshot placeholders if relevant.
+- Do not duplicate CONTRIBUTING or CHANGELOG content in README; keep README focused on app overview and usage.
+
+## 3. Update CHANGELOG.md
+
+- Add entries under **`[Unreleased]`** in [CHANGELOG.md](CHANGELOG.md) for the changes in this push:
+  - **Added** for new features.
+  - **Changed** for behavior/UI/API changes.
+  - **Fixed** for bug fixes.
+- Keep bullets short and user/PM-friendly (no raw commit messages). One bullet per logical change is enough.
+
+## Summary
+
+Before pushing: (1) branch + commits per CONTRIBUTING, (2) README updated if features changed, (3) CHANGELOG `[Unreleased]` updated. Then push the branch and direct the user to open a PR to `main`.

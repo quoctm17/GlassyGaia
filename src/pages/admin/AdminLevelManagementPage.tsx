@@ -8,10 +8,11 @@ import {
   apiListItems,
   type ReferenceImportProgress
 } from '../../services/cfApi';
-import type { FilmDoc } from '../../types';
+import type { FilmDoc, LevelFrameworkStats } from '../../types';
 import toast from 'react-hot-toast';
-import { Upload, Settings, Play, AlertCircle, HelpCircle, BookOpen, CheckCircle, XCircle } from 'lucide-react';
+import { Upload, Settings, Play, AlertCircle, HelpCircle, BookOpen, CheckCircle, XCircle, ChevronDown, Loader2 } from 'lucide-react';
 import '../../styles/pages/admin/admin-level-management.css';
+import '../../styles/level-framework-styles.css';
 
 type Framework = 'CEFR' | 'JLPT' | 'HSK' | 'TOPIK';
 
@@ -23,7 +24,7 @@ interface FrameworkCutoffs {
 }
 
 const DEFAULT_CUTOFFS: FrameworkCutoffs = {
-  CEFR: { A1: 1000, A2: 2500, B1: 5000, B2: 10000, C1: 20000, C2: 50000 },
+  CEFR: { A1: 3000, A2: 6000, B1: 12000, B2: 28000, C1: 58000, C2: 999999 },
   JLPT: { N5: 500, N4: 1500, N3: 3000, N2: 8000, N1: 20000 },
   HSK: { '1': 300, '2': 800, '3': 2000, '4': 5000, '5': 12000, '6': 25000, '7': 40000, '8': 60000, '9': 80000 },
   TOPIK: { '1': 500, '2': 1500, '3': 3000, '4': 8000, '5': 20000, '6': 50000 }
@@ -75,14 +76,22 @@ export default function AdminLevelManagementPage() {
   const [savingConfig, setSavingConfig] = useState(false);
   
   const [assessingContent, setAssessingContent] = useState(false);
-  const [contentSlug, setContentSlug] = useState('');
+  const [selectedContentIds, setSelectedContentIds] = useState<string[]>([]);
   const [assessmentProgress, setAssessmentProgress] = useState({ cardsProcessed: 0, totalCards: 0 });
+  const [batchProgress, setBatchProgress] = useState<{
+    currentIndex: number;
+    totalCount: number;
+    currentSlug: string | null;
+    currentTitle: string;
+    completedSlugs: string[];
+    failedSlugs: string[];
+  } | null>(null);
   const [contentItems, setContentItems] = useState<FilmDoc[]>([]);
   const [loadingContentItems, setLoadingContentItems] = useState(false);
-  
+  const [assessmentDropdownOpen, setAssessmentDropdownOpen] = useState(false);
   const [showQuickGuide, setShowQuickGuide] = useState(false);
-
   const frequencyFileRef = useRef<HTMLInputElement>(null);
+  const assessmentDropdownRef = useRef<HTMLDivElement>(null);
 
   // Load system config on mount
   useEffect(() => {
@@ -102,6 +111,47 @@ export default function AdminLevelManagementPage() {
       setLoadingContentItems(false);
     }
   }
+
+  // Parse level_framework_stats and return dominant level for badge (like FilterPanel/ContentSelector)
+  function getContentItemLevelBadge(item: FilmDoc): string {
+    const raw = item.level_framework_stats;
+    if (!raw) return '—';
+    let stats: LevelFrameworkStats | null = null;
+    if (Array.isArray(raw)) {
+      // API may return LevelFrameworkStats (array of entries) or nested array; flatten if needed
+      const flat = raw.some((x) => Array.isArray(x)) ? (raw as LevelFrameworkStats[]).flat() : raw;
+      stats = flat as LevelFrameworkStats;
+    } else if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        stats = Array.isArray(parsed) ? (parsed as LevelFrameworkStats) : null;
+      } catch { return '—'; }
+    }
+    if (!stats || stats.length === 0) return '—';
+    let maxLevel: string | null = null;
+    let maxPercent = 0;
+    for (const entry of stats) {
+      for (const [level, percent] of Object.entries(entry.levels || {})) {
+        if (percent > maxPercent) {
+          maxPercent = percent;
+          maxLevel = level;
+        }
+      }
+    }
+    return maxLevel || '—';
+  }
+
+  // Close assessment dropdown when clicking outside
+  useEffect(() => {
+    if (!assessmentDropdownOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (assessmentDropdownRef.current && !assessmentDropdownRef.current.contains(e.target as Node)) {
+        setAssessmentDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [assessmentDropdownOpen]);
 
   async function loadSystemConfig() {
     try {
@@ -277,31 +327,64 @@ export default function AdminLevelManagementPage() {
   }
 
   async function handleAssessContent() {
-    if (!contentSlug.trim()) {
-      toast.error('Please enter a content slug');
+    if (selectedContentIds.length === 0) {
+      toast.error('Please select at least one content item');
       return;
     }
 
-    try {
-      setAssessingContent(true);
-      setAssessmentProgress({ cardsProcessed: 0, totalCards: 0 });
-      
-      await apiAssessContentLevel(contentSlug.trim(), (progress) => {
-        setAssessmentProgress(progress);
+    setAssessingContent(true);
+    setBatchProgress(null);
+    const completedSlugs: string[] = [];
+    const failedSlugs: string[] = [];
+    const totalCount = selectedContentIds.length;
+
+    for (let i = 0; i < selectedContentIds.length; i++) {
+      const slug = selectedContentIds[i];
+      const title = titleById[slug] || slug;
+      setBatchProgress({
+        currentIndex: i + 1,
+        totalCount,
+        currentSlug: slug,
+        currentTitle: title,
+        completedSlugs: [...completedSlugs],
+        failedSlugs: [...failedSlugs],
       });
-      
-      toast.success('Level assessment completed successfully');
-      setContentSlug('');
-    } catch (error: any) {
-      toast.error(`Assessment failed: ${error.message}`);
-    } finally {
-      setAssessingContent(false);
+      setAssessmentProgress({ cardsProcessed: 0, totalCards: 0 });
+
+      try {
+        await apiAssessContentLevel(slug, (progress) => {
+          setAssessmentProgress(progress);
+        });
+        completedSlugs.push(slug);
+      } catch (error: any) {
+        failedSlugs.push(slug);
+        toast.error(`Assessment failed for "${title}": ${error.message}`);
+      }
+    }
+
+    setBatchProgress({
+      currentIndex: totalCount,
+      totalCount,
+      currentSlug: null,
+      currentTitle: '',
+      completedSlugs,
+      failedSlugs,
+    });
+    setAssessingContent(false);
+    if (failedSlugs.length === 0) {
+      toast.success(`Level assessment completed for ${totalCount} item(s)`);
+      setSelectedContentIds([]);
+      loadContentItems();
+    } else if (completedSlugs.length > 0) {
+      toast.success(`${completedSlugs.length} succeeded, ${failedSlugs.length} failed`);
+      loadContentItems();
     }
   }
 
   // Ensure currentCutoffs always has a valid value
   const currentCutoffs = cutoffs[selectedFramework] || DEFAULT_CUTOFFS[selectedFramework];
   const currentLevels = FRAMEWORK_LEVELS[selectedFramework];
+  const titleById: Record<string, string> = Object.fromEntries(contentItems.map((i) => [i.id, i.title || i.id]));
 
   if (!isSuperAdmin()) {
     return (
@@ -322,7 +405,7 @@ export default function AdminLevelManagementPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="admin-page-title">Level Management</h1>
-            <p className="admin-page-subtitle">Import reference data and assess content levels automatically</p>
+            <p className="admin-page-subtitle">Import frequency data (word + rank) and assess content levels automatically</p>
           </div>
           <button
             className="admin-btn secondary flex items-center gap-2"
@@ -338,13 +421,13 @@ export default function AdminLevelManagementPage() {
       {showQuickGuide && (
         <div className="admin-panel quick-guide">
           <div className="flex items-center gap-2 mb-4">
-            <BookOpen className="w-5 h-5" />
+            <BookOpen className="w-5 h-5 admin-section-icon" />
             <h2 className="admin-section-title">Quick Guide</h2>
           </div>
           <div className="quick-guide-content">
             <div className="guide-section">
               <h3 className="guide-section-title">📚 What is Level Management?</h3>
-              <p>Level Management helps you automatically assess the difficulty level of content cards using reference vocabulary lists and word frequency data.</p>
+              <p>Level Management helps you automatically assess the difficulty level of content cards using word frequency data (word + rank). Assessment uses the formula: Overall = (90th percentile of word ranks)^0.8 × (median rank)^0.2, then maps to level via cutoff thresholds.</p>
             </div>
 
             <div className="guide-section">
@@ -373,18 +456,18 @@ export default function AdminLevelManagementPage() {
                 <li>Rank 1 = most common word, higher rank = less common</li>
                 <li>Words are automatically lowercased during import</li>
               </ul>
-              <p className="guide-note mt-3">💡 The system uses frequency ranks with framework-specific cutoffs to determine word levels.</p>
+              <p className="guide-note mt-3">💡 The system uses frequency ranks with framework-specific cutoffs and the Overall formula to determine card levels.</p>
             </div>
 
             <div className="guide-section">
               <h3 className="guide-section-title">⚡ Step 3: Assess Content</h3>
               <p>Enter a content slug to automatically assess all cards. The system will:</p>
               <ol className="guide-list">
-                <li>Tokenize each card's sentence</li>
-                <li>Look up each word's frequency rank in the JSON data</li>
-                <li>Map rank to level using framework-specific cutoff thresholds</li>
-                <li>Assign the highest difficulty level found</li>
-                <li>Update card levels and recalculate statistics</li>
+                <li>Tokenize each card's sentence and look up each word's frequency rank</li>
+                <li>Compute median and 90th percentile of the ranks for the card</li>
+                <li>Apply formula: Overall Freq_Rank = (90th percentile)^0.8 × (median)^0.2</li>
+                <li>Map Overall to level using cutoff thresholds (e.g. A1 ≤3000, A2 ≤6000, …)</li>
+                <li>Update card levels and recalculate episode/content statistics</li>
               </ol>
             </div>
 
@@ -415,7 +498,7 @@ export default function AdminLevelManagementPage() {
       {/* System Configuration */}
       <div className="admin-panel">
         <div className="flex items-center gap-2 mb-4">
-          <Settings className="w-5 h-5" />
+          <Settings className="w-5 h-5 admin-section-icon" />
           <h2 className="admin-section-title">Global Hyperparameters</h2>
         </div>
         <div className="framework-selector mb-4">
@@ -470,7 +553,7 @@ export default function AdminLevelManagementPage() {
       {/* Frequency Data Import */}
       <div className="admin-panel">
         <div className="flex items-center gap-2 mb-4">
-          <Upload className="w-5 h-5" />
+          <Upload className="w-5 h-5 admin-section-icon" />
           <h2 className="admin-section-title">Import Frequency Data</h2>
         </div>
 
@@ -581,40 +664,112 @@ export default function AdminLevelManagementPage() {
       {/* Content Assessment */}
       <div className="admin-panel">
         <div className="flex items-center gap-2 mb-4">
-          <Play className="w-5 h-5" />
+          <Play className="w-5 h-5 admin-section-icon" />
           <h2 className="admin-section-title">Assess Content Level</h2>
         </div>
         <p className="assessment-description">
-          Select a content item to automatically assess levels for all cards. Assessment uses the framework matching the content's main language.
+          Select one or more content items to assess levels for all cards. Items are processed one by one to avoid rate limits. Assessment uses the framework matching each content&apos;s main language.
         </p>
-        <div className="assessment-controls">
-          <select
-            className="admin-input"
-            value={contentSlug}
-            onChange={(e) => setContentSlug(e.target.value)}
-            disabled={assessingContent || loadingContentItems}
-          >
-            <option value="">-- Select Content --</option>
-            {loadingContentItems ? (
-              <option disabled>Loading...</option>
-            ) : (
-              contentItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title} ({item.id}) {item.type ? `[${item.type}]` : ''}
-                </option>
-              ))
+        <div className="assessment-controls" ref={assessmentDropdownRef}>
+          <div className="assessment-dropdown-wrapper">
+            <button
+              type="button"
+              className="admin-input assessment-dropdown-trigger"
+              onClick={() => setAssessmentDropdownOpen((o) => !o)}
+              disabled={assessingContent || loadingContentItems}
+            >
+              <span>
+                {selectedContentIds.length === 0
+                  ? '-- Select content to assess --'
+                  : `${selectedContentIds.length} item(s) selected`}
+              </span>
+              <ChevronDown className="assessment-dropdown-chevron" />
+            </button>
+            {assessmentDropdownOpen && (
+              <div className="assessment-dropdown-list">
+                {loadingContentItems ? (
+                  <div className="assessment-dropdown-placeholder">Loading...</div>
+                ) : contentItems.length === 0 ? (
+                  <div className="assessment-dropdown-placeholder">No content items</div>
+                ) : (
+                  contentItems.map((item) => {
+                    const levelBadge = getContentItemLevelBadge(item);
+                    const isSelected = selectedContentIds.includes(item.id);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`assessment-dropdown-item ${isSelected ? 'selected' : ''}`}
+                        onClick={() => {
+                          setSelectedContentIds((prev) =>
+                            isSelected ? prev.filter((id) => id !== item.id) : [...prev, item.id]
+                          );
+                        }}
+                      >
+                        <span className={`level-badge level-${levelBadge === '—' ? 'unknown' : levelBadge.toLowerCase()}`}>
+                          {levelBadge}
+                        </span>
+                        <span className="assessment-dropdown-item-title">{item.title || item.id}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             )}
-          </select>
+          </div>
           <button
             className="admin-btn primary"
             onClick={handleAssessContent}
-            disabled={assessingContent || !contentSlug.trim() || loadingContentItems}
+            disabled={assessingContent || selectedContentIds.length === 0 || loadingContentItems}
           >
-            {assessingContent ? 'Assessing...' : 'Assess Levels'}
+            {assessingContent ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" style={{ marginRight: 8 }} />
+                Assessing...
+              </>
+            ) : (
+              'Assess Levels'
+            )}
           </button>
         </div>
-        {assessmentProgress.totalCards > 0 && (
-          <div className="import-progress mt-4">
+        {batchProgress && (
+          <div className="assessment-batch-progress mt-4">
+            <div className="assessment-batch-summary">
+              <span>
+                {batchProgress.completedSlugs.length} / {batchProgress.totalCount} items completed
+              </span>
+              <span className="assessment-batch-percent">
+                ({Math.round((batchProgress.completedSlugs.length / batchProgress.totalCount) * 100)}%
+                {batchProgress.currentSlug ? ' — assessing...' : ' — done'})
+              </span>
+            </div>
+            {batchProgress.currentSlug && (
+              <div className="assessment-batch-current">
+                Currently assessing: <strong>{batchProgress.currentTitle}</strong> ({batchProgress.currentSlug})
+              </div>
+            )}
+            {batchProgress.completedSlugs.length > 0 && (
+              <div className="assessment-batch-done">
+                Done: {batchProgress.completedSlugs.map((s) => titleById[s] || s).join(', ')}
+              </div>
+            )}
+            {batchProgress.failedSlugs.length > 0 && (
+              <div className="assessment-batch-failed">
+                Failed: {batchProgress.failedSlugs.map((s) => titleById[s] || s).join(', ')}
+              </div>
+            )}
+            <div className="progress-bar mt-2">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${(batchProgress.completedSlugs.length / batchProgress.totalCount) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {assessmentProgress.totalCards > 0 && batchProgress?.currentSlug && (
+          <div className="import-progress mt-2">
             <div className="progress-bar">
               <div
                 className="progress-fill"
@@ -622,7 +777,7 @@ export default function AdminLevelManagementPage() {
               />
             </div>
             <div className="progress-text">
-              {assessmentProgress.cardsProcessed} / {assessmentProgress.totalCards} cards
+              Current item: {assessmentProgress.cardsProcessed} / {assessmentProgress.totalCards} cards
             </div>
           </div>
         )}

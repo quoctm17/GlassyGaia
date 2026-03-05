@@ -2,7 +2,6 @@ import { useState, useRef } from "react";
 import PortalDropdown from "./PortalDropdown";
 import { useUser } from "../context/UserContext";
 import { langLabel, getFlagImageForLang } from "../utils/lang";
-import { ChevronDown } from "lucide-react";
 import "../styles/components/language-selectors.css";
 
 interface Props {
@@ -35,13 +34,16 @@ export default function MainLanguageSelector({ filmId: _filmId = "global", optio
             setOpenLanguageSelector("main");
           }
         }}
-        className="language-selector-btn"
+        className={`language-selector-btn main-language-compact ${open ? "open" : ""}`}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <img src={getFlagImageForLang(current)} alt={`${current} flag`} className="w-5 h-3.5 rounded" />
-        <span>{langLabel(current)}</span>
-        <ChevronDown className="w-4 h-4" />
+        <img
+          src={getFlagImageForLang(current)}
+          alt={`${langLabel(current)} flag`}
+          className="main-lang-flag"
+        />
+        <span className="language-triangle" aria-hidden="true" />
       </button>
       {(open || closing) && btnRef.current && (
         <PortalDropdown

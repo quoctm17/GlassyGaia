@@ -25,6 +25,34 @@
   letter-spacing: 0.5px;
 }
 
+/* Compact main-language variant for navbar (flag-only) */
+.main-language-compact {
+  padding: 2px 4px;
+  gap: 6px;
+}
+
+.main-lang-flag {
+  width: 24px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+.language-triangle {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--text);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+  transform-origin: center;
+  margin-left: 4px;
+}
+
+.language-selector-btn.open .language-triangle {
+  transform: rotate(90deg);
+}
+
 /* Responsive: smaller desktop screens (768px to 1024px) */
 @media (max-width: 1024px) and (min-width: 769px) {
   .language-selector-btn {

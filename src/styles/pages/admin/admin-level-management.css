@@ -4,6 +4,11 @@
   margin: 0 auto;
 }
 
+/* Margin between consecutive panels */
+.admin-level-management .admin-panel {
+  margin-bottom: 24px;
+}
+
 .admin-page-header {
   margin-bottom: 32px;
 }
@@ -148,9 +153,138 @@
   align-items: center;
 }
 
+.assessment-controls {
+  flex-wrap: wrap;
+}
+
 .assessment-controls .admin-input {
   flex: 1;
   min-width: 300px;
+}
+
+/* Section header icons: use theme color for light/dark mode (override .admin-panel svg) */
+.admin-level-management .admin-panel .admin-section-icon{
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+/* Assessment dropdown (multi-select with level badge) */
+.assessment-dropdown-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 280px;
+}
+
+.assessment-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.assessment-dropdown-chevron {
+  width: 18px;
+  height: 18px;
+  color: var(--neutral);
+  flex-shrink: 0;
+}
+
+.assessment-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--background);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 50;
+  padding: 6px;
+}
+
+.assessment-dropdown-placeholder {
+  padding: 12px;
+  font-size: 14px;
+  color: var(--neutral);
+  text-align: center;
+}
+
+.assessment-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.assessment-dropdown-item:hover {
+  background: var(--hover-bg-subtle);
+}
+
+.assessment-dropdown-item.selected {
+  background: var(--hover-bg-subtle);
+  border: 1px solid var(--primary);
+}
+
+.assessment-dropdown-item .level-badge {
+  flex-shrink: 0;
+}
+
+.assessment-dropdown-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Batch progress */
+.assessment-batch-progress {
+  padding: 12px;
+  background: var(--hover-bg);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+}
+
+.assessment-batch-summary {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.assessment-batch-percent {
+  color: var(--neutral);
+  margin-left: 6px;
+}
+
+.assessment-batch-current {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.assessment-batch-done {
+  font-size: 12px;
+  color: var(--success-text);
+  margin-bottom: 2px;
+}
+
+.assessment-batch-failed {
+  font-size: 12px;
+  color: var(--error-text);
+  margin-bottom: 8px;
 }
 
 /* Quick Guide Styles */

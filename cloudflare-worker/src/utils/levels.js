@@ -2,7 +2,8 @@
 export const LEVEL_MAPS = {
   'CEFR': { 'A1': 0, 'A2': 1, 'B1': 2, 'B2': 3, 'C1': 4, 'C2': 5 },
   'JLPT': { 'N5': 0, 'N4': 1, 'N3': 2, 'N2': 3, 'N1': 4 },
-  'HSK':  { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, '8': 7, '9': 8 }
+  'HSK':  { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, '8': 7, '9': 8 },
+  'TOPIK': { '1': 0, '2': 1, '3': 2, '4': 3, '5': 4, '6': 5 }
 };
 
 // Get framework from main language
@@ -11,6 +12,7 @@ export function getFrameworkFromLanguage(language) {
   const langLower = String(language || '').toLowerCase();
   if (langLower === 'ja' || langLower === 'japanese') return 'JLPT';
   if (langLower.startsWith('zh') || langLower === 'chinese') return 'HSK';
+  if (langLower === 'ko' || langLower === 'korean') return 'TOPIK';
   return 'CEFR'; // Default to CEFR for English and other languages
 }
 
@@ -52,6 +54,34 @@ export function compareLevels(level1, level2, framework) {
   // 5. Final Comparison: Use Math.sign to ensure the result is exactly {-1, 0, 1}
   // This solves the issue where (0 - 4) returned -4.
   return Math.sign(idx1 - idx2);
+}
+
+/**
+ * Median of an array of numbers. Sorts in place; returns middle value or average of two middle values.
+ */
+export function median(arr) {
+  if (!arr || arr.length === 0) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const n = sorted.length;
+  const mid = Math.floor(n / 2);
+  return n % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * 90th percentile with linear interpolation. Sorted ascending.
+ * index = 0.9 * (n - 1); interpolate between floor and ceil.
+ */
+export function percentile90(arr) {
+  if (!arr || arr.length === 0) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const n = sorted.length;
+  if (n === 1) return sorted[0];
+  const idx = 0.9 * (n - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  const t = idx - lo;
+  return sorted[lo] + t * (sorted[hi] - sorted[lo]);
 }
 
 /**
