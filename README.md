@@ -1,22 +1,36 @@
-# GlassyGaia – Multilingual Subtitle Card Explorer
+## GlassyGaia – Multilingual Subtitle Card Explorer
 
-Ứng dụng tra cứu và học từ/câu dựa trên phụ đề nội dung đa phương tiện (Movie/Series/Book/Audio). Tìm kiếm theo ngôn ngữ chính của nội dung, xem snapshot, nghe audio, hiển thị nhiều phụ đề phụ, đánh dấu yêu thích, và có khu vực Admin để ingest nội dung + media nhanh chóng.
+Ứng dụng tra cứu và học từ/câu dựa trên phụ đề nội dung đa phương tiện (Movie/Series/Book/Audio). Người dùng có thể:
 
-- Live (Vercel): https://lingua-search.vercel.app
-- Hạ tầng: Cloudflare Worker + D1 (DB) + R2 (media) & Firebase Auth
+- **Search** theo ngôn ngữ chính (per content primary language) với highlight kết quả.
+- Xem **snapshot image + audio** cho mỗi card.
+- Bật nhiều **phụ đề phụ** (en, vi, zh, zh_trad, yue, ja, ko, id, th, ms…).
+- Đánh dấu **Favorites / Saved cards** (yêu cầu đăng nhập).
+- Theo dõi **portfolio & streak / XP** ngay trên navbar.
+- Sử dụng **khu vực Admin** để ingest/update nội dung + media + level framework.
 
-## ✨ Tính năng
+- **Live (Vercel)**: `https://lingua-search.vercel.app`  
+- **Hạ tầng**: Cloudflare Worker + D1 (DB) + R2 (media) & Firebase Auth.
 
-- Search theo ngôn ngữ chính (per content primary language) với highlight kết quả
-- Subtitles phụ: en, vi, zh, zh_trad, yue, ja, ko, id, th, ms (thứ tự ổn định; yue = Cantonese)
-- Snapshot image + audio cho mỗi card
-- Favorites (yêu cầu đăng nhập Google)
-- Admin ingest/update với toast feedback:
-  - Upload cover, images, audio theo đúng cấu trúc R2 (items/<slug>/...)
-  - Import CSV để tạo content metadata + cards
-  - Tự đồng bộ ID giữa Media & Cards thông qua Infer IDs
-  - Cho phép cập nhật meta (title, description, type, release_year, total_episodes, full_audio_url, full_video_url)
-- Dark UI (TailwindCSS), flag-icons và lucide-react icons
+## ✨ Tính năng chính
+
+- **Search đa ngôn ngữ**
+  - Search theo **main language** với highlight câu.
+  - Bộ lọc theo framework trình độ (CEFR, JLPT, HSK, TOPIK, …).
+- **Cards & Media**
+  - Snapshot image + audio per card.
+  - Xem chi tiết content/episode, xem/đọc phụ đề kèm audio.
+- **Portfolio & luyện tập**
+  - Trang Portfolio hiển thị tổng quan cards đã học, streak, XP.
+  - Practice page cho các chế độ luyện tập (ví dụ word-by-word matching).
+- **Admin Ingest & Quản trị**
+  - Upload cover, images, audio theo đúng cấu trúc R2 (`items/<slug>/...`).
+  - Import CSV để tạo content metadata + cards.
+  - Đồng bộ ID giữa Media & Cards thông qua **Infer IDs** hoặc Start Index.
+  - Quản lý level frameworks, categories, episodes, reward config, v.v.
+- **UI/UX**
+  - Giao diện tối, typography custom, navbar mới với logo/stats.
+  - Responsive layout cho desktop, tablet, mobile.
 
 ## 🧱 Tech Stack
 
@@ -161,12 +175,23 @@ VITE_IMPORT_KEY=optional-admin-secret
 
 ## 🧑‍💻 Local Development
 
+### Frontend (Vite React app)
+
 ```powershell
-git clone <new-repo-url> glassygaia
+git clone <repo-url> glassygaia
 cd glassygaia
 npm install
 # Tạo file .env và điền các biến VITE_* như trên
 npm run dev
+```
+
+### Cloudflare Worker (API)
+
+```powershell
+cd cloudflare-worker
+npm install
+# Cấu hình D1, R2 và vars trong wrangler.toml
+npm run deploy # hoặc: npx wrangler deploy
 ```
 
 ## 🛠 Cloudflare Setup (Worker + D1 + R2)
@@ -190,9 +215,58 @@ wrangler deploy
    - Build: `npm run build`
    - Output: `dist`
 2) Thêm toàn bộ env `VITE_*` ở Vercel Project.  
-3) Đảm bảo file `vercel.json` có SPA rewrites (đã có sẵn trong repo).  
+3) Đảm bảo SPA rewrites cho React Router (xem `vercel.json` nếu có).  
 4) Thêm domain Vercel vào Firebase Auth → Authorized domains.  
 5) Redeploy & test Google Sign-In + Admin ingest.
+
+## 🌿 Git Branching & Pull Request Rules
+
+- **Main branch**
+  - `main` luôn ở trạng thái **có thể deploy**.
+  - Mọi thay đổi phải đi qua **feature branch + Pull Request** vào `main`.
+
+- **Branch naming**
+  - `feat/...` – tính năng mới.  
+    - Ví dụ: `feat/search-navbar-ui-refresh`, `feat/portfolio-progress-widget`.
+  - `fix/...` – sửa bug.  
+    - Ví dụ: `fix/admin-upload-path`, `fix/search-empty-state`.
+  - `chore/...` – dọn dẹp, config, tooling.  
+    - Ví dụ: `chore/upgrade-deps`, `chore/eslint-tweaks`.
+  - `refactor/...` – refactor không đổi behavior.  
+    - Ví dụ: `refactor/search-service`, `refactor/admin-layout-split`.
+  - `hotfix/...` – hotfix production khẩn cấp.  
+    - Ví dụ: `hotfix/search-query-timeout`.
+
+- **GitHub Flow (đề xuất)**
+  1. Tạo branch từ `main`: `git checkout -b feat/<tên-ngắn-rõ-ràng>`.
+  2. Commit nhỏ, message theo dạng:  
+     - `feat: ...`, `fix: ...`, `chore: ...`, `refactor: ...`.
+  3. Push branch và mở Pull Request vào `main`.
+  4. Yêu cầu ít nhất 1 review + CI pass (nếu có).
+  5. Merge bằng **Squash & Merge** hoặc Merge commit (tùy convention team).
+  6. Sau khi merge, **xóa feature branch trên GitHub** để danh sách branch gọn.
+
+- **Pull Request guidelines**
+  - **Title**: bám sát commit chính, ví dụ:
+    - `feat: refresh search navbar and stats UI`
+  - **Description**:
+    - **What**: 1–3 bullet nêu tính năng/thay đổi chính.
+    - **Why**: ngắn gọn lý do (UX, perf, bug…).
+    - **Testing**: liệt kê step đã test (screenshots nếu là UI).
+  - Link tới ticket/task nếu có (Jira/Linear/Notion…).
+
+## 📜 Changelog & Releases
+
+- File [`CHANGELOG.md`](./CHANGELOG.md) ghi lại các thay đổi theo từng phiên bản:
+  - Phần `## [Unreleased]` chứa thay đổi đã merge vào `main` nhưng chưa deploy.
+  - Mỗi bản release có block riêng: `## [vX.Y.Z] - YYYY-MM-DD`.
+- Khi deploy production:
+  1. Chốt commit trên `main` (đã merge đầy đủ PR).
+  2. Cập nhật `CHANGELOG.md` cho version mới.
+  3. Tạo git tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+  4. Tạo **GitHub Release** từ tag đó và copy nội dung từ `CHANGELOG.md`.
+
+Việc này giúp client/PM có thể xem lịch sử release rõ ràng mà không cần đọc toàn bộ git log.
 
 ## ✅ Toast Events
 
