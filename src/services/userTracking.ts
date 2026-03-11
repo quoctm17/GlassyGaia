@@ -91,16 +91,16 @@ export async function apiIncrementListeningSession(): Promise<{ success: boolean
 }
 
 /**
- * Track speaking or writing attempt and award XP
+ * Track speaking, writing, listening or reading attempt and award XP
  * @param userId - User ID
- * @param type - 'speaking' or 'writing'
+ * @param type - 'speaking' | 'writing' | 'listening' | 'reading'
  * @param cardId - Optional card ID
  * @param filmId - Optional film ID
  * @returns Promise with success status and XP awarded
  */
 export async function apiTrackAttempt(
   userId: string,
-  type: 'speaking' | 'writing',
+  type: 'speaking' | 'writing' | 'listening' | 'reading',
   cardId?: string | null,
   filmId?: string | null
 ): Promise<{ success: boolean; xp_awarded: number }> {

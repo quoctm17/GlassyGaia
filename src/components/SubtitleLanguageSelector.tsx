@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useUser } from "../context/UserContext";
 import { langLabel, canonicalizeLangCode, getFlagImageForLang } from "../utils/lang";
 import { getAvailableLanguagesForFilm } from "../services/firestore";
-import { ChevronDown, Languages } from "lucide-react";
+import { X } from "lucide-react";
 import PortalDropdown from "./PortalDropdown";
 import { toast } from "react-hot-toast";
 import "../styles/components/language-selectors.css";
@@ -65,8 +65,16 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
     onChange?.([]);
   };
 
+  const handleRemove = async (code: string) => {
+    if (!local.includes(code)) return;
+    const next = local.filter((l) => l !== code);
+    setLocal(next);
+    await setSubtitleLanguages(next);
+    onChange?.(next);
+  };
+
   return (
-    <div className={"relative " + (className || "")}>
+    <div className={`subtitle-selector-root ${className || ""}`}>
       <button
         ref={btnRef}
         onClick={() => {
@@ -77,14 +85,39 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
             setOpenLanguageSelector("subtitle");
           }
         }}
-        className="language-selector-btn"
+        className={`language-selector-btn subtitle-toggle ${open ? "open" : ""}`}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <Languages className="w-4 h-4 opacity-80" />
-        <span>{local.length}/{maxSelections} SUBS</span>
-        <ChevronDown className="w-4 h-4" />
+        <span className="subtitle-toggle-label typography-noto-subtitle-label">
+          Subtitles
+        </span>
+        <span className="language-triangle" aria-hidden="true" />
       </button>
+      {local.length > 0 && (
+        <div className="subtitle-selected-list">
+          {local.map((lang) => (
+            <div key={lang} className="subtitle-chip">
+              <img
+                src={getFlagImageForLang(lang)}
+                alt={`${langLabel(lang)} flag`}
+                className="subtitle-chip-flag"
+              />
+              <span className="subtitle-chip-label typography-noto-subtitle-chip">
+                {langLabel(lang)}
+              </span>
+              <button
+                type="button"
+                className="subtitle-chip-remove"
+                aria-label={`Remove ${langLabel(lang)} subtitles`}
+                onClick={() => handleRemove(lang)}
+              >
+                <X className="subtitle-chip-remove-icon" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {(open || closing) && btnRef.current && (
         <PortalDropdown
           anchorEl={btnRef.current}

@@ -19,11 +19,17 @@
   position: relative;
   flex: 1;
   display: flex;
+  align-items: center;
+  border: 0.8px solid var(--neutral);
+  background: var(--background);
 }
 
 .pixel-input {
   width: 100%;
-  padding: 10px 16px 10px 44px;
+  padding: 6px 16px 6px 44px;
+  padding-right: 100px;
+  border: none;
+  background: transparent;
   font-weight: 500;
   letter-spacing: 0;
   box-shadow: none;
@@ -58,26 +64,17 @@
   margin-right: 0;
 }
 
-.search-bar-divider {
-  position: absolute;
-  left: 48px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 2px;
-  height: 60%;
-  background-color: var(--neutral);
+
+.pixel-input-wrapper:focus-within {
+  border-color: var(--hover-select);
 }
 
-/* Dynamic theming */
 .pixel-input {
-  background: var(--sidenav-bg);
   color: var(--text);
-  border: 2px solid var(--neutral);
 }
 
 .pixel-input:focus {
-  background: var(--hover-bg);
-  border-color: var(--hover-select);
+  background: transparent;
 }
 
 .pixel-input::placeholder {
@@ -92,7 +89,7 @@
   right: 0;
   margin-top: 4px;
   background-color: var(--sidenav-bg);
-  border: 2px solid var(--neutral);
+  border: 0.8px solid var(--neutral);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
@@ -129,4 +126,70 @@
   font-size: 12px;
   color: var(--neutral);
   margin-top: 2px;
+}
+
+/* Search trigger/button area (main SearchBar) */
+.search-input-area {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--hover-select);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-clear-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.search-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin: 5px 5px 5px 0;
+  border: none;
+  border-radius: 5px;
+  background-color: var(--primary-50);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+
+.search-trigger-btn:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+}
+
+.search-trigger-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: var(--icon-hover-select-filter);
+}
+
+.search-trigger-text {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--hover-select);
+}
+
+.search-trigger-loader {
+  width: 20px;
+  height: 20px;
 }

@@ -412,10 +412,23 @@ export async function trackTime(env, userId, timeSeconds, type) {
   return { xpAwarded: totalXPAwarded };
 }
 
-// Track speaking or writing attempt and award XP
+// Track speaking, writing, listening or reading attempt and award XP
 export async function trackAttempt(env, userId, type, cardId, filmId) {
-  // Get reward config by ID
-  const rewardConfigId = type === 'speaking' ? REWARD_CONFIG_IDS.SPEAKING_ATTEMPT : REWARD_CONFIG_IDS.WRITING_ATTEMPT;
+  // Map attempt type to reward config ID
+  let rewardConfigId;
+  if (type === 'speaking') {
+    rewardConfigId = REWARD_CONFIG_IDS.SPEAKING_ATTEMPT;
+  } else if (type === 'writing') {
+    rewardConfigId = REWARD_CONFIG_IDS.WRITING_ATTEMPT;
+  } else if (type === 'listening') {
+    rewardConfigId = REWARD_CONFIG_IDS.LISTENING_ATTEMPT;
+  } else if (type === 'reading') {
+    rewardConfigId = REWARD_CONFIG_IDS.READING_ATTEMPT;
+  } else {
+    // Unsupported type, no-op
+    return { xpAwarded: 0 };
+  }
+
   const rewardConfig = await getRewardConfigById(env, rewardConfigId);
   if (!rewardConfig) return { xpAwarded: 0 };
 
@@ -425,10 +438,18 @@ export async function trackAttempt(env, userId, type, cardId, filmId) {
 
   // Award XP (will handle transaction, daily stats, and streak)
   if (rewardConfig.xp_amount > 0) {
-    await awardXP(env, userId, rewardConfig.xp_amount, rewardConfig.id, `${type} attempt`, cardId || null, filmId || null);
+    await awardXP(
+      env,
+      userId,
+      rewardConfig.xp_amount,
+      rewardConfig.id,
+      `${type} attempt`,
+      cardId || null,
+      filmId || null
+    );
   }
 
-  // Update speaking_attempt or writing_attempt in user_card_states if card_id is provided
+  // Update attempt counters in user_card_states if card_id is provided
   if (cardId) {
     if (type === 'speaking') {
       await env.DB.prepare(`
@@ -436,14 +457,36 @@ export async function trackAttempt(env, userId, type, cardId, filmId) {
         SET speaking_attempt = speaking_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND card_id = ?
-      `).bind(userId, cardId).run();
-    } else {
+      `)
+        .bind(userId, cardId)
+        .run();
+    } else if (type === 'writing') {
       await env.DB.prepare(`
         UPDATE user_card_states
         SET writing_attempt = writing_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND card_id = ?
-      `).bind(userId, cardId).run();
+      `)
+        .bind(userId, cardId)
+        .run();
+    } else if (type === 'listening') {
+      await env.DB.prepare(`
+        UPDATE user_card_states
+        SET listening_attempt = listening_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND card_id = ?
+      `)
+        .bind(userId, cardId)
+        .run();
+    } else if (type === 'reading') {
+      await env.DB.prepare(`
+        UPDATE user_card_states
+        SET reading_attempt = reading_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND card_id = ?
+      `)
+        .bind(userId, cardId)
+        .run();
     }
   }
 
@@ -454,14 +497,36 @@ export async function trackAttempt(env, userId, type, cardId, filmId) {
       SET total_speaking_attempt = total_speaking_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ?
-    `).bind(userId).run();
-  } else {
+    `)
+      .bind(userId)
+      .run();
+  } else if (type === 'writing') {
     await env.DB.prepare(`
       UPDATE user_scores
       SET total_writing_attempt = total_writing_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ?
-    `).bind(userId).run();
+    `)
+      .bind(userId)
+      .run();
+  } else if (type === 'listening') {
+    await env.DB.prepare(`
+      UPDATE user_scores
+      SET total_listening_attempt = total_listening_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ?
+    `)
+      .bind(userId)
+      .run();
+  } else if (type === 'reading') {
+    await env.DB.prepare(`
+      UPDATE user_scores
+      SET total_reading_attempt = total_reading_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ?
+    `)
+      .bind(userId)
+      .run();
   }
 
   // Update user_daily_activity (reset daily)
@@ -471,14 +536,36 @@ export async function trackAttempt(env, userId, type, cardId, filmId) {
       SET speaking_attempt = speaking_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ? AND activity_date = ?
-    `).bind(userId, today).run();
-  } else {
+    `)
+      .bind(userId, today)
+      .run();
+  } else if (type === 'writing') {
     await env.DB.prepare(`
       UPDATE user_daily_activity
       SET writing_attempt = writing_attempt + 1,
           updated_at = unixepoch() * 1000
       WHERE user_id = ? AND activity_date = ?
-    `).bind(userId, today).run();
+    `)
+      .bind(userId, today)
+      .run();
+  } else if (type === 'listening') {
+    await env.DB.prepare(`
+      UPDATE user_daily_activity
+      SET listening_attempt = listening_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ? AND activity_date = ?
+    `)
+      .bind(userId, today)
+      .run();
+  } else if (type === 'reading') {
+    await env.DB.prepare(`
+      UPDATE user_daily_activity
+      SET reading_attempt = reading_attempt + 1,
+          updated_at = unixepoch() * 1000
+      WHERE user_id = ? AND activity_date = ?
+    `)
+      .bind(userId, today)
+      .run();
   }
 
   // Update user_daily_stats (historical record)
@@ -493,28 +580,68 @@ export async function trackAttempt(env, userId, type, cardId, filmId) {
         SET speaking_attempt = speaking_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
-      `).bind(userId, today).run();
-    } else {
+      `)
+        .bind(userId, today)
+        .run();
+    } else if (type === 'writing') {
       await env.DB.prepare(`
         UPDATE user_daily_stats
         SET writing_attempt = writing_attempt + 1,
             updated_at = unixepoch() * 1000
         WHERE user_id = ? AND stats_date = ?
-      `).bind(userId, today).run();
+      `)
+        .bind(userId, today)
+        .run();
+    } else if (type === 'listening') {
+      await env.DB.prepare(`
+        UPDATE user_daily_stats
+        SET listening_attempt = listening_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND stats_date = ?
+      `)
+        .bind(userId, today)
+        .run();
+    } else if (type === 'reading') {
+      await env.DB.prepare(`
+        UPDATE user_daily_stats
+        SET reading_attempt = reading_attempt + 1,
+            updated_at = unixepoch() * 1000
+        WHERE user_id = ? AND stats_date = ?
+      `)
+        .bind(userId, today)
+        .run();
     }
   } else {
     // Record doesn't exist, create new one
     const statsId = crypto.randomUUID();
     if (type === 'speaking') {
       await env.DB.prepare(`
-        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
-        VALUES (?, ?, ?, 1, 0, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
-      `).bind(statsId, userId, today).run();
-    } else {
+        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_attempt, reading_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, 1, 0, 0, 0, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
+      `)
+        .bind(statsId, userId, today)
+        .run();
+    } else if (type === 'writing') {
       await env.DB.prepare(`
-        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
-        VALUES (?, ?, ?, 0, 1, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
-      `).bind(statsId, userId, today).run();
+        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_attempt, reading_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, 0, 1, 0, 0, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
+      `)
+        .bind(statsId, userId, today)
+        .run();
+    } else if (type === 'listening') {
+      await env.DB.prepare(`
+        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_attempt, reading_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, 0, 0, 1, 0, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
+      `)
+        .bind(statsId, userId, today)
+        .run();
+    } else if (type === 'reading') {
+      await env.DB.prepare(`
+        INSERT INTO user_daily_stats (id, user_id, stats_date, speaking_attempt, writing_attempt, listening_attempt, reading_attempt, listening_time, reading_time, xp_earned, created_at, updated_at)
+        VALUES (?, ?, ?, 0, 0, 0, 1, 0, 0, 0, unixepoch() * 1000, unixepoch() * 1000)
+      `)
+        .bind(statsId, userId, today)
+        .run();
     }
   }
 

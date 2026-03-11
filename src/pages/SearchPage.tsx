@@ -11,11 +11,21 @@ import {
   apiSearch,
   apiSearchCardsFTS,
   apiGetCardSaveStatusBatch,
+  apiListItems,
 } from "../services/cfApi";
 import { apiTrackTime } from "../services/userTracking";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
 import filterIcon from "../assets/icons/filter.svg";
 import customIcon from "../assets/icons/custom.svg";
+import informationIcon from "../assets/icons/information.svg";
+import practiceMonsterIcon from "../assets/icons/practice-monster.svg";
+import thumbUpIcon from "../assets/icons/thumb-up.svg";
+import thumbDownIcon from "../assets/icons/thumb-down.svg";
+import headphoneIcon from "../assets/icons/headphone.svg";
+import eyeIcon from "../assets/icons/eye.svg";
+import speakIcon from "../assets/icons/speak.svg";
+import writingIcon from "../assets/icons/writing.svg";
+import { CONTENT_TYPE_LABELS, type ContentType } from "../types/content";
 import "../styles/pages/search-page.css";
 
 function SearchPage() {
@@ -36,8 +46,13 @@ function SearchPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // Content metadata from search results only (no separate /items fetch for initial load)
   const [contentMeta, setContentMeta] = useState<Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: import("../types").LevelFrameworkStats | null }>>({});
+  // Global content items list for ContentSelector (cached via apiListItems)
+  const [allItems, setAllItems] = useState<any[]>([]);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
+  const [isPracticeOpen, setIsPracticeOpen] = useState(false);
+  const [feedbackChoice, setFeedbackChoice] = useState<'up' | 'down' | null>(null);
+  const [practiceMode, setPracticeMode] = useState<'listening' | 'reading' | 'speaking' | 'writing' | null>(null);
   // Legacy filters (kept for API compatibility, but not used in UI)
   const [minDifficulty] = useState(0);
   const [maxDifficulty] = useState(100);
@@ -52,11 +67,10 @@ function SearchPage() {
   const [maxReview, setMaxReview] = useState(1000);
   const [volume, setVolume] = useState(28);
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
-  const pageSize = 50;
-  const isTextSearch = useMemo(() => query.trim().length >= 2, [query]);
+  const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'movie' | 'series' | 'book'>('all');
+  const pageSize = 20;
   const abortControllerRef = useRef<AbortController | null>(null);
   const isFetchingRef = useRef<boolean>(false);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchCards = useCallback(
     async (searchQuery: string, pageNum: number) => {
@@ -117,6 +131,7 @@ function SearchPage() {
 
           setCards(items);
           if (content_meta && Object.keys(content_meta).length > 0) {
+            console.log("[SearchPage] content_meta titles (FTS)", Object.values(content_meta).map(m => ({ id: m.id, title: m.title })));
             setContentMeta(prev => ({ ...prev, ...content_meta }));
           }
           setTotal(items.length);
@@ -180,6 +195,7 @@ function SearchPage() {
           console.log(`${logLabel}: API call (browsing mode) took ${apiTime.toFixed(2)}ms, returned ${result.items.length} items (total: ${result.total})`);
 
           if (result.content_meta && Object.keys(result.content_meta).length > 0) {
+            console.log("[SearchPage] content_meta titles (browse)", Object.values(result.content_meta).map((m: any) => ({ id: m.id, title: m.title })));
             setContentMeta(prev => ({ ...prev, ...result.content_meta }));
           }
           if (pageNum === 1) {
@@ -319,42 +335,87 @@ function SearchPage() {
     fetchCards(trimmed, 1);
   }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid, fetchCards, firstLoading, isFilterModalOpenState]);
 
-  // Build maps for FilterPanel from content_meta (only contents in search results - lighter load)
+  // Load full content items list once for ContentSelector (lightweight, cached)
+  useEffect(() => {
+    let cancelled = false;
+    apiListItems()
+      .then((items) => {
+        if (!cancelled) setAllItems(items || []);
+      })
+      .catch((e) => {
+        console.error("[SearchPage] failed to load items for ContentSelector", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Build maps for FilterPanel / ContentSelector
+  // Prefer full items list when available, fallback to content_meta
   const filmTitleMap = useMemo(() => {
     const map: Record<string, string> = {};
-    Object.entries(contentMeta).forEach(([, meta]) => {
-      if (meta?.id) map[meta.id] = meta.title || meta.id;
-    });
+    if (allItems.length > 0) {
+      allItems.forEach((it: any) => {
+        if (it?.id) map[it.id] = it.title || it.id;
+      });
+    } else {
+      Object.entries(contentMeta).forEach(([, meta]) => {
+        if (meta?.id) map[meta.id] = meta.title || meta.id;
+      });
+    }
     return map;
-  }, [contentMeta]);
+  }, [allItems, contentMeta]);
 
   const filmTypeMap = useMemo(() => {
     const map: Record<string, string | undefined> = {};
-    Object.entries(contentMeta).forEach(([, meta]) => {
-      if (meta?.id) map[meta.id] = meta.type;
-    });
+    if (allItems.length > 0) {
+      allItems.forEach((it: any) => {
+        if (it?.id) map[it.id] = it.type;
+      });
+    } else {
+      Object.entries(contentMeta).forEach(([, meta]) => {
+        if (meta?.id) map[meta.id] = meta.type;
+      });
+    }
     return map;
-  }, [contentMeta]);
+  }, [allItems, contentMeta]);
 
   const filmLangMap = useMemo(() => {
     const map: Record<string, string> = {};
-    Object.entries(contentMeta).forEach(([, meta]) => {
-      if (meta?.id && meta.main_language) map[meta.id] = meta.main_language;
-    });
+    if (allItems.length > 0) {
+      allItems.forEach((it: any) => {
+        if (it?.id && it.main_language) map[it.id] = it.main_language;
+      });
+    } else {
+      Object.entries(contentMeta).forEach(([, meta]) => {
+        if (meta?.id && meta.main_language) map[meta.id] = meta.main_language;
+      });
+    }
     return map;
-  }, [contentMeta]);
+  }, [allItems, contentMeta]);
 
   const filmStatsMap = useMemo(() => {
     const map: Record<string, any> = {};
-    Object.entries(contentMeta).forEach(([, meta]) => {
-      if (meta?.id) map[meta.id] = meta.level_framework_stats ?? null;
-    });
+    if (allItems.length > 0) {
+      allItems.forEach((it: any) => {
+        if (it?.id) map[it.id] = it.level_framework_stats ?? null;
+      });
+    } else {
+      Object.entries(contentMeta).forEach(([, meta]) => {
+        if (meta?.id) map[meta.id] = meta.level_framework_stats ?? null;
+      });
+    }
     return map;
-  }, [contentMeta]);
+  }, [allItems, contentMeta]);
 
   const allContentIds = useMemo(() => {
-    return Object.values(contentMeta).map((m) => m.id).filter(Boolean);
-  }, [contentMeta]);
+    if (allItems.length > 0) {
+      return allItems.map((it: any) => it.id).filter(Boolean);
+    }
+    return Object.values(contentMeta)
+      .map((m) => m.id)
+      .filter(Boolean);
+  }, [allItems, contentMeta]);
 
   // Content counts: Use client-side counting from allResults (much faster than server-side)
   // This counts only the cards that are already loaded, not the entire database
@@ -387,56 +448,64 @@ function SearchPage() {
   const shuffleSeedRef = useRef<number>(Date.now());
   const filteredCards = useMemo(() => {
     if (cards.length === 0) return [];
-    
+
+    // Filter by content type when not "all"
+    let list = cards;
+    if (contentTypeFilter !== 'all') {
+      list = cards.filter((c) => c.film_id != null && filmTypeMap[c.film_id] === contentTypeFilter);
+    }
+
+    // Filter by CEFR level from URL param ?level=A1
+    const params = new URLSearchParams(window.location.search);
+    const levelFilter = params.get("level");
+    if (levelFilter) {
+      const normalizedLevel = levelFilter.toUpperCase();
+      list = list.filter((card) =>
+        Array.isArray(card.levels) &&
+        card.levels.some((lvl) => (lvl.level || "").toUpperCase() === normalizedLevel)
+      );
+    }
+
     // Skip shuffle on initial load for faster display
     // Only shuffle if explicitly requested (e.g., user clicks shuffle button)
     if (!shouldShuffle) {
-      return cards; // Return cards in original order for faster display
+      return list;
     }
-    
-    // Cards are already filtered by API (is_available and subtitle checks)
+
     // Use seeded random for consistent shuffle per card set
-    const shuffled = [...cards];
-    // Use seeded random for consistent shuffle
+    const shuffled = [...list];
     let seed = shuffleSeedRef.current;
     const seededRandom = () => {
       seed = (seed * 9301 + 49297) % 233280;
       return seed / 233280;
     };
-    
-    // Fisher-Yates shuffle with seeded random
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(seededRandom() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
-  }, [cards, shouldShuffle]);
+  }, [cards, contentTypeFilter, shouldShuffle, filmTypeMap]);
 
-  // Infinite scroll: load next page when near bottom (with debounce)
-  useEffect(() => {
-    const handleScroll = () => {
-      // Clear previous timeout
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
+  const availableTypesFromSelection = useMemo(() => {
+    const set = new Set<'movie' | 'series' | 'book'>();
+    for (const fid of contentFilter) {
+      const t = (filmTypeMap[fid] || '').toLowerCase();
+      if (t === 'movie' || t === 'series' || t === 'book') set.add(t);
+    }
+    return set;
+  }, [contentFilter, filmTypeMap]);
 
-      // Debounce scroll handler to prevent too many calls
-      scrollTimeoutRef.current = setTimeout(() => {
-        if (!hasMore || loading || isLoadingMore || isFetchingRef.current) return;
-        const threshold = 400; // px from bottom
-        if (window.innerHeight + window.scrollY >= document.body.offsetHeight - threshold) {
-          fetchCards(query, page + 1);
-        }
-      }, 200); // 200ms debounce
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
-    };
-  }, [hasMore, loading, isLoadingMore, page, query, fetchCards, isTextSearch]);
+  const handleContentTypeChange = useCallback((nextType: 'all' | 'movie' | 'series' | 'book') => {
+    setContentTypeFilter(nextType);
+    if (nextType === 'all') return;
+    // Auto-unselect any selected content not matching the chosen type
+    setContentFilter(prev => prev.filter(fid => (filmTypeMap[fid] || '').toLowerCase() === nextType));
+  }, [filmTypeMap]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loading || isLoadingMore || isFetchingRef.current) return;
+    fetchCards(query, page + 1);
+  }, [hasMore, loading, isLoadingMore, page, query, fetchCards]);
 
   // Track reading time (debounced to avoid too many API calls)
   const readingTimeAccumulatorRef = useRef<number>(0);
@@ -552,6 +621,7 @@ function SearchPage() {
         filmFilter={contentFilter}
         onSelectFilm={setContentFilter}
         mainLanguage={preferences.main_language || "en"}
+        activeContentType={contentTypeFilter}
         isOpen={isFilterPanelOpen}
         onClose={() => setIsFilterPanelOpen(false)}
       />
@@ -561,7 +631,7 @@ function SearchPage() {
           <div className="search-controls">
             <div className="search-bar-container">
               <button
-                className="filter-panel-toggle-btn"
+                className={`filter-panel-toggle-btn ${isFilterPanelOpen ? "active" : ""}`}
                 onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
                 aria-label={
                   isFilterPanelOpen ? "Close filter panel" : "Open filter panel"
@@ -582,6 +652,83 @@ function SearchPage() {
                 enableAutocomplete={true}
                 debounceMs={300}
               />
+              <div className="practice-wrapper">
+                <button
+                  type="button"
+                  className={`practice-btn ${isPracticeOpen ? "open" : ""}`}
+                  onClick={() => setIsPracticeOpen((prev) => !prev)}
+                  aria-haspopup="menu"
+                  aria-expanded={isPracticeOpen}
+                >
+                  <img
+                    src={practiceMonsterIcon}
+                    alt="Practice"
+                    className="practice-icon"
+                  />
+                  <span className="practice-label">Practice</span>
+                  <span className="practice-divider" aria-hidden="true" />
+                  <img
+                    src={rightAngleIcon}
+                    alt=""
+                    className="practice-chevron-icon"
+                    aria-hidden="true"
+                  />
+                </button>
+                {isPracticeOpen && (
+                  <div className="practice-dropdown" role="menu">
+                    <button
+                      type="button"
+                      className={`practice-dropdown-item ${practiceMode === 'listening' ? 'selected' : ''}`}
+                      onClick={() => { setPracticeMode('listening'); setIsPracticeOpen(false); }}
+                      aria-pressed={practiceMode === 'listening'}
+                      role="menuitem"
+                    >
+                      <img src={headphoneIcon} alt="" aria-hidden="true" className="practice-item-icon" />
+                      <span>Listening</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`practice-dropdown-item ${practiceMode === 'reading' ? 'selected' : ''}`}
+                      onClick={() => { setPracticeMode('reading'); setIsPracticeOpen(false); }}
+                      aria-pressed={practiceMode === 'reading'}
+                      role="menuitem"
+                    >
+                      <img src={eyeIcon} alt="" aria-hidden="true" className="practice-item-icon" />
+                      <span>Reading</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`practice-dropdown-item ${practiceMode === 'speaking' ? 'selected' : ''}`}
+                      onClick={() => { setPracticeMode('speaking'); setIsPracticeOpen(false); }}
+                      aria-pressed={practiceMode === 'speaking'}
+                      role="menuitem"
+                    >
+                      <img src={speakIcon} alt="" aria-hidden="true" className="practice-item-icon" />
+                      <span>Speaking</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`practice-dropdown-item ${practiceMode === 'writing' ? 'selected' : ''}`}
+                      onClick={() => { setPracticeMode('writing'); setIsPracticeOpen(false); }}
+                      aria-pressed={practiceMode === 'writing'}
+                      role="menuitem"
+                    >
+                      <img src={writingIcon} alt="" aria-hidden="true" className="practice-item-icon" />
+                      <span>Writing</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button
+                className="filter-panel-toggle-btn"
+                type="button"
+                onClick={() => {
+                  // TODO: wire up information modal or tooltip
+                }}
+                aria-label="Open information"
+              >
+                <img src={informationIcon} alt="Information" />
+              </button>
               <button
                 className="filter-panel-toggle-btn"
                 onClick={() => {
@@ -613,6 +760,21 @@ function SearchPage() {
                 {loading ? "Searching..." : `${total} Cards`}
               </span>
             </div>
+            <div className="content-type-filter" role="group" aria-label="Content type">
+              {(['all', 'movie', 'series', 'book'] as const)
+                .filter((type) => type === 'all' || availableTypesFromSelection.size === 0 || availableTypesFromSelection.has(type))
+                .map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    className={`content-type-option typography-noto-content-type ${contentTypeFilter === type ? 'active' : ''}`}
+                    onClick={() => handleContentTypeChange(type)}
+                    aria-pressed={contentTypeFilter === type}
+                  >
+                    {type === 'all' ? 'All' : CONTENT_TYPE_LABELS[type as ContentType]}
+                  </button>
+                ))}
+            </div>
           </div>
 
           <div className={`search-results layout-${resultLayout === 'default' ? 'default' : resultLayout === '1-column' ? '1-column' : '2-column'} ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
@@ -638,20 +800,30 @@ function SearchPage() {
                     const stableKey = `${card.film_id || "item"}-${
                       card.episode_id || card.episode || "e"
                     }-${card.id}`;
-                    const saveStatus = cardSaveStatuses[card.id] || { saved: false, srs_state: 'none', review_count: 0 };
+                    const saveStatus =
+                      cardSaveStatuses[card.id] || {
+                        saved: false,
+                        srs_state: "none",
+                        review_count: 0,
+                      };
+                    const titleFromMeta =
+                      (card.film_id && filmTitleMap[card.film_id]) || undefined;
                     return (
                       <SearchResultCard
-                      key={stableKey}
-                      card={card}
-                      highlightQuery={query}
-                      primaryLang={preferences.main_language}
-                      volume={volume}
-                      subtitleLanguages={preferences.subtitle_languages}
-                      onTrackReading={handleTrackReading}
-                      onTrackListening={handleTrackListening}
-                      initialSaveStatus={saveStatus}
-                    />
-                  )})}
+                        key={stableKey}
+                        card={card}
+                        highlightQuery={query}
+                        primaryLang={preferences.main_language}
+                        volume={volume}
+                        subtitleLanguages={preferences.subtitle_languages}
+                        filmTitle={titleFromMeta}
+                        onTrackReading={handleTrackReading}
+                        onTrackListening={handleTrackListening}
+                        initialSaveStatus={saveStatus}
+                        practiceMode={practiceMode}
+                      />
+                    );
+                  })}
                   {isLoadingMore && (
                     <div className="search-card-skeleton" style={{
                       height: "160px",
@@ -663,6 +835,43 @@ function SearchPage() {
                       marginBottom: "1rem",
                     }} />
                   )}
+
+                  <div className="search-load-more-footer" aria-label="Load more and feedback">
+                    {hasMore && (
+                      <button
+                        type="button"
+                        className="search-load-more-btn"
+                        onClick={handleLoadMore}
+                        disabled={loading || isLoadingMore}
+                      >
+                        LOAD MORE
+                      </button>
+                    )}
+                    <div className="search-found-text">
+                      Found what you were looking for? <span aria-hidden="true">👀</span>
+                    </div>
+                    <div className="search-feedback-row">
+                      <button
+                        type="button"
+                        className={`search-feedback-icon-btn ${feedbackChoice === 'up' ? 'selected' : ''}`}
+                        onClick={() => setFeedbackChoice((prev) => (prev === 'up' ? null : 'up'))}
+                        aria-pressed={feedbackChoice === 'up'}
+                        aria-label="Thumbs up"
+                      >
+                        <img src={thumbUpIcon} alt="" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`search-feedback-icon-btn ${feedbackChoice === 'down' ? 'selected' : ''}`}
+                        onClick={() => setFeedbackChoice((prev) => (prev === 'down' ? null : 'down'))}
+                        aria-pressed={feedbackChoice === 'down'}
+                        aria-label="Thumbs down"
+                      >
+                        <img src={thumbDownIcon} alt="" aria-hidden="true" />
+                      </button>
+                      <span className="search-feedback-text">Feedback</span>
+                    </div>
+                  </div>
                 </>
               )}
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useUser } from "../context/UserContext";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import MainLanguageSelector from "./MainLanguageSelector";
 import ThemeToggle from "./ThemeToggle";
@@ -16,15 +16,19 @@ import loginIcon from "../assets/icons/log-in.svg";
 import logoutIcon from "../assets/icons/log-out.svg";
 import adminIcon from "../assets/icons/xp-dimond.svg";
 import masterBallIcon from "../assets/icons/master-ball.svg";
+import settingIcon from "../assets/icons/setting.svg";
+import SetLevelModal from "./SetLevelModal";
 import "../styles/components/navbar.css";
 
 export default function NavBar() {
   const { user, signOutApp, isAdmin } = useUser();
   const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [portfolio, setPortfolio] = useState<UserPortfolio | null>(null);
   const [loadingPortfolio, setLoadingPortfolio] = useState(false);
+  const [isSetLevelOpen, setIsSetLevelOpen] = useState(false);
   // Show admin link if user has admin or superadmin role
   const showAdminLinks = !!user && isAdmin;
 
@@ -134,6 +138,36 @@ export default function NavBar() {
               </span>
             </div>
           </div>
+        )}
+        {user && (
+          <>
+            <button
+              type="button"
+              className="navbar-setlevel-btn"
+              onClick={() => setIsSetLevelOpen(true)}
+            >
+              <img
+                src={settingIcon}
+                alt="Set level"
+                className="navbar-setlevel-icon"
+              />
+              <span>Set Level</span>
+            </button>
+            <SetLevelModal
+              isOpen={isSetLevelOpen}
+              onClose={() => setIsSetLevelOpen(false)}
+              initialLevel={new URLSearchParams(location.search).get("level")}
+              onApply={(level) => {
+                const params = new URLSearchParams(location.search);
+                if (!level) {
+                  params.delete("level");
+                } else {
+                  params.set("level", level);
+                }
+                navigate(`/search?${params.toString()}`);
+              }}
+            />
+          </>
         )}
         
         {/* Theme toggle - hidden on mobile */}

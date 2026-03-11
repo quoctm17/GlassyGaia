@@ -25,7 +25,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
-*(Nothing yet.)*
+### Added
+- Inline Listening practice mode on the Search page: blank main subtitles directly in `SearchResultCard` with a Check button, percentage score, and XP + diamond display.
+- New Cloudflare D1 migrations and rewards config entries for `listening_attempt` and `reading_attempt`, wired into `trackAttempt` so listening/reading practice can award XP.
+
+### Changed
+- Search/portfolio XP tracking to treat listening/reading attempts consistently with speaking/writing attempts.
+
+### Removed
+- Legacy Practice flow (separate Practice page, modal, and dedicated Practice components/styles) in favour of the new inline Listening experience on the Search page.
 
 ---
 

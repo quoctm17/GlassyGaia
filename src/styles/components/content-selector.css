@@ -63,19 +63,19 @@
 
 .content-search-wrapper {
   position: relative;
-}
-
-.content-search-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  border: 0.8px solid var(--neutral);
+  background-color: var(--sidenav-bg);
 }
 
 .content-search-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 2px solid;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 12px;
+  padding-right: 48px;
+  border: none;
+  background: transparent;
   font-family: "Noto Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 19px;
   font-weight: 500;
@@ -85,6 +85,33 @@
   line-height: 1.3;
   word-spacing: 0;
   transition: border-color 0.15s;
+}
+
+.content-search-trigger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin: 5px 5px 5px 0;
+  border: none;
+  border-radius: 5px;
+  background-color: var(--primary-50);
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
+}
+
+.content-search-trigger-btn:hover {
+  opacity: 0.9;
+}
+
+.content-search-trigger-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: var(--icon-hover-select-filter);
 }
 
 .content-group {
@@ -151,15 +178,20 @@
   gap: 6px;
 }
 
-
+.content-flat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
 
 .content-item-btn {
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
-  border: 2px solid transparent;
+  padding: 8px 8px 8px 20px;
+  border: none;
   border-radius: 8px;
-  /* Use Inter-4 typography for content buttons */
+  background-color: transparent;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   font-weight: 500;
@@ -167,7 +199,7 @@
   letter-spacing: 0.3px;
   cursor: pointer;
   position: relative;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: color 0.15s;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -269,17 +301,15 @@
   border-color: var(--primary);
 }
 
-.content-search-icon {
-  color: var(--primary);
+.content-search-wrapper {
+  background-color: var(--sidenav-bg);
 }
 
 .content-search-input {
-  background-color: var(--sidenav-bg);
   color: var(--neutral);
-  border-color: var(--neutral);
 }
 
-.content-search-input:focus {
+.content-search-wrapper:focus-within {
   border-color: var(--hover-select);
 }
 
@@ -321,18 +351,17 @@
 }
 
 .content-item-btn {
-  background-color: var(--sidenav-bg);
+  background-color: transparent;
   color: var(--primary);
 }
 
 .content-item-btn:hover {
-  background-color: var(--hover-bg);
+  background-color: transparent;
 }
 
 .content-item-btn.active {
-  background-color: var(--primary);
-  color: var(--secondary);
-  border-color: var(--hover-select);
+  background-color: transparent;
+  color: var(--primary);
 }
 
 .content-item-text {

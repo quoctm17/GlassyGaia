@@ -59,6 +59,7 @@
   --light-chart-dot-fill: #F2EDE5;
   --light-chart-dot-stroke: #000000;
   --light-headphone-icon: #948979;
+  --light-feedback-link: rgba(87, 69, 221, 0.8);
   --light-checkbox-bg: #F2EDE5;
   --light-checkbox-border: rgba(43, 35, 40, 0.5);
   --light-collapse-button-bg: #FDAAAA;
@@ -89,10 +90,18 @@
   --light-practice-placeholder-color: #9E9E9E;
   --light-practice-input-section-bg: #FFFFFF;
   --light-practice-input-bg: #FFFFFF;
+  --light-practice-check-bg: rgba(76, 175, 147, 0.5); /* #4CAF93 at 50% */
 
   /* Light Mode - Navbar specific */
   --light-navbar-logo-text: #F2EDE5;
   --light-navbar-logo-shadow: #AA3F55;
+  --light-setlevel-text: #D65A31;
+  --light-setlevel-bg: #FFF1E8;
+  /* Light Mode - Subtitle chip */
+  --light-subtitle-chip-bg: #F2EDE5;
+  /* Primary 50% transparent (search/content trigger buttons, content-type selected) */
+  --light-primary-50: rgba(253, 170, 170, 0.5);
+  --light-content-type-shadow: rgba(148, 137, 121, 0.5);
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -180,27 +189,50 @@
   --dark-practice-placeholder-color: #9E9E9E;
   --dark-practice-input-section-bg: #2B2328;
   --dark-practice-input-bg: #FFFFFF;
+  --dark-practice-check-bg: rgba(76, 175, 147, 0.5);
 
   /* Dark Mode - Navbar specific */
   --dark-navbar-logo-text: #F2EDE5;
   --dark-navbar-logo-shadow: #FDAAAA;
+  --dark-setlevel-text: #D65A31;
+  --dark-setlevel-bg: rgba(255, 241, 232, 0.08);
+  /* Dark Mode - Subtitle chip */
+  --dark-subtitle-chip-bg: rgba(242, 237, 229, 0.16);
+  /* Primary 50% transparent */
+  --dark-primary-50: rgba(158, 39, 65, 0.5);
+  --dark-content-type-shadow: rgba(148, 137, 121, 0.5);
+  --dark-feedback-link: rgba(87, 69, 221, 0.8);
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
-  --light-primary-filter: brightness(0) saturate(100%) invert(86%) sepia(16%) saturate(978%) hue-rotate(307deg) brightness(103%) contrast(99%); /* #FDAAAA */
-  --light-secondary-filter: brightness(0) saturate(100%) invert(91%) sepia(8%) saturate(337%) hue-rotate(323deg) brightness(99%) contrast(92%); /* #F2EDE5 */
-  --light-hover-select-filter: brightness(0) saturate(100%) invert(47%) sepia(17%) saturate(1517%) hue-rotate(298deg) brightness(91%) contrast(88%); /* #AA3F55 */
-  --light-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
-  --light-text-filter: brightness(0) saturate(100%) invert(0%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(0%) contrast(100%); /* #000000 */
-  --light-comment-text-filter: brightness(0) saturate(100%) invert(58%) sepia(8%) saturate(1000%) hue-rotate(18deg) brightness(95%) contrast(89%); /* #948979 */
+  --light-primary-filter: brightness(0) saturate(100%) invert(86%) sepia(16%) saturate(978%) hue-rotate(307deg) brightness(103%) contrast(99%);
+  /* #FDAAAA */
+  --light-secondary-filter: brightness(0) saturate(100%) invert(91%) sepia(8%) saturate(337%) hue-rotate(323deg) brightness(99%) contrast(92%);
+  /* #F2EDE5 */
+  --light-hover-select-filter: brightness(0) saturate(100%) invert(47%) sepia(17%) saturate(1517%) hue-rotate(298deg) brightness(91%) contrast(88%);
+  /* #AA3F55 */
+  --light-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%);
+  /* #9E9E9E */
+  --light-text-filter: brightness(0) saturate(100%) invert(0%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(0%) contrast(100%);
+  /* #000000 */
+  --light-comment-text-filter: brightness(0) saturate(100%) invert(58%) sepia(8%) saturate(1000%) hue-rotate(18deg) brightness(95%) contrast(89%);
+  /* #948979 */
+  --light-white-filter: brightness(0) invert(1);
 
   /* Dark Mode Filters */
-  --dark-primary-filter: brightness(0) saturate(100%) invert(22%) sepia(44%) saturate(1481%) hue-rotate(318deg) brightness(92%) contrast(93%); /* #9E2741 */
-  --dark-secondary-filter: brightness(0) saturate(100%) invert(71%) sepia(7%) saturate(712%) hue-rotate(18deg) brightness(92%) contrast(87%); /* #948979 */
-  --dark-hover-select-filter: brightness(0) saturate(100%) invert(93%) sepia(22%) saturate(634%) hue-rotate(297deg) brightness(103%) contrast(98%); /* #FDAAAA */
-  --dark-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%); /* #9E9E9E */
-  --dark-text-filter: brightness(0) saturate(100%) invert(96%) sepia(5%) saturate(367%) hue-rotate(323deg) brightness(99%) contrast(92%); /* #F2EDE5 */
-  --dark-comment-text-filter: brightness(0) saturate(100%) invert(58%) sepia(8%) saturate(1000%) hue-rotate(18deg) brightness(95%) contrast(89%); /* #948979 */
+  --dark-primary-filter: brightness(0) saturate(100%) invert(22%) sepia(44%) saturate(1481%) hue-rotate(318deg) brightness(92%) contrast(93%);
+  /* #9E2741 */
+  --dark-secondary-filter: brightness(0) saturate(100%) invert(71%) sepia(7%) saturate(712%) hue-rotate(18deg) brightness(92%) contrast(87%);
+  /* #948979 */
+  --dark-hover-select-filter: brightness(0) saturate(100%) invert(93%) sepia(22%) saturate(634%) hue-rotate(297deg) brightness(103%) contrast(98%);
+  /* #FDAAAA */
+  --dark-neutral-filter: brightness(0) saturate(100%) invert(64%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(96%) contrast(89%);
+  /* #9E9E9E */
+  --dark-text-filter: brightness(0) saturate(100%) invert(96%) sepia(5%) saturate(367%) hue-rotate(323deg) brightness(99%) contrast(92%);
+  /* #F2EDE5 */
+  --dark-comment-text-filter: brightness(0) saturate(100%) invert(58%) sepia(8%) saturate(1000%) hue-rotate(18deg) brightness(95%) contrast(89%);
+  /* #948979 */
+  --dark-white-filter: brightness(0) invert(1);
 }
 
 /* Light Mode */
@@ -287,13 +319,20 @@
   --practice-placeholder-color: var(--light-practice-placeholder-color);
   --practice-input-section-bg: var(--light-practice-input-section-bg);
   --practice-input-bg: var(--light-practice-input-bg);
+  --practice-check-bg: var(--light-practice-check-bg);
   --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
   --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
+  --subtitle-chip-bg: var(--light-subtitle-chip-bg);
   --navbar-logo-text: var(--light-navbar-logo-text);
   --navbar-logo-shadow: var(--light-navbar-logo-shadow);
-  
+  --setlevel-text: var(--light-setlevel-text);
+  --setlevel-bg: var(--light-setlevel-bg);
+  --primary-50: var(--light-primary-50);
+  --content-type-shadow: var(--light-content-type-shadow);
+  --feedback-link: var(--light-feedback-link);
+
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
   --icon-secondary-filter: var(--light-secondary-filter);
@@ -301,7 +340,9 @@
   --icon-neutral-filter: var(--light-neutral-filter);
   --icon-text-filter: var(--light-text-filter);
   --icon-comment-text-filter: var(--light-comment-text-filter);
-  
+  --icon-filter-toggle-filter: var(--light-comment-text-filter);
+  --icon-on-image-filter: var(--light-white-filter);
+
   /* Firefox scrollbar */
   scrollbar-color: var(--light-primary) var(--light-secondary);
 }
@@ -390,11 +431,18 @@
   --practice-placeholder-color: var(--dark-practice-placeholder-color);
   --practice-input-section-bg: var(--dark-practice-input-section-bg);
   --practice-input-bg: var(--dark-practice-input-bg);
+  --practice-check-bg: var(--dark-practice-check-bg);
   --practice-reading-wrapper-bg: var(--dark-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--dark-practice-reading-wrapper-border);
+  --subtitle-chip-bg: var(--dark-subtitle-chip-bg);
   --navbar-logo-text: var(--dark-navbar-logo-text);
   --navbar-logo-shadow: var(--dark-navbar-logo-shadow);
-  
+  --setlevel-text: var(--dark-setlevel-text);
+  --setlevel-bg: var(--dark-setlevel-bg);
+  --primary-50: var(--dark-primary-50);
+  --content-type-shadow: var(--dark-content-type-shadow);
+  --feedback-link: var(--dark-feedback-link);
+
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);
   --icon-secondary-filter: var(--dark-secondary-filter);
@@ -402,7 +450,9 @@
   --icon-neutral-filter: var(--dark-neutral-filter);
   --icon-text-filter: var(--dark-text-filter);
   --icon-comment-text-filter: var(--dark-comment-text-filter);
-  
+  --icon-filter-toggle-filter: var(--dark-comment-text-filter);
+  --icon-on-image-filter: var(--dark-white-filter);
+
   /* Firefox scrollbar */
   scrollbar-color: var(--dark-primary) var(--dark-secondary);
 }

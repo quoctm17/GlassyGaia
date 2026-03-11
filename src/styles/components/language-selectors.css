@@ -173,6 +173,65 @@
 
 /* ================= Subtitle Selector Specific ================= */
 
+.subtitle-selector-root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtitle-toggle-label {
+  color: var(--text);
+}
+
+.subtitle-selected-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.subtitle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background-color: var(--subtitle-chip-bg);
+}
+
+.subtitle-chip-flag {
+  width: 20px;
+  height: 14px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+.subtitle-chip-label {
+  color: var(--text);
+  font-style: normal;
+}
+
+.subtitle-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: none;
+  padding: 0;
+  margin-left: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.subtitle-chip-remove-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text);
+}
+
 .subtitle-options-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--neutral);

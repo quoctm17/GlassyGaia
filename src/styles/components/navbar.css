@@ -6,7 +6,7 @@
   left: 0;
   right: 0;
   z-index: 300;
-  padding: 5px 16px;
+  padding: 0;
   min-height: 43px;
   background: var(--background);
   width: 100%;
@@ -36,7 +36,7 @@
   border-radius: 4px;
   transition: all 0.3s ease;
   font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
   letter-spacing: 0.5px;
 }
@@ -74,8 +74,9 @@
   flex-direction: column;
   justify-content: center;
   gap: 2px;
-  font-weight: 700;
-  padding: 8px 20px;
+  font-weight: 400;
+  padding: 8px 0;
+  margin-left: 10px;
   line-height: 1.2;
   letter-spacing: 1px;
   text-align: center;
@@ -84,8 +85,8 @@
 }
 
 .navbar-icon {
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
   display: inline-block;
   object-fit: contain;
   transition: filter 0.3s ease;
@@ -160,13 +161,13 @@
 .pixel-tab.active {
   color: var(--hover-select);
   background-color: transparent;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .navbar-portfolio-stats {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 17px;
 }
 
 .pixel-navbar .portfolio-stat-item {
@@ -200,6 +201,34 @@
   width: 32px;
   height: 32px;
   object-fit: contain;
+}
+
+.navbar-setlevel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--setlevel-text);
+  background-color: var(--setlevel-bg);
+  color: var(--setlevel-text);
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+}
+
+.navbar-setlevel-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.12);
+}
+
+.navbar-setlevel-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  /* Use SVG original colors (no filter) */
 }
 
 /* Sign In Button */
@@ -249,7 +278,7 @@
 /* From 1440px and below: Scale down to prevent wrapping */
 @media (max-width: 1440px) {
   .pixel-navbar {
-    padding: 6px 12px;
+    padding: 0;
     gap: 6px;
     flex-wrap: nowrap;
   }
@@ -260,14 +289,14 @@
   }
 
   .pixel-tab {
-    font-size: 13px;
+    font-size: 12px;
     gap: 4px;
     padding: 3px 5px;
   }
 
   .navbar-icon {
-    width: 12px;
-    height: 12px;
+    width: 16px;
+    height: 16px;
   }
 
   .pixel-logo-img {
@@ -285,7 +314,7 @@
 /* From 1280px: Further scale down */
 @media (max-width: 1280px) {
   .pixel-navbar {
-    padding: 5px 10px;
+    padding: 0;
     gap: 5px;
   }
 
@@ -315,7 +344,7 @@
 /* Below 1024px: Keep single row, scale down further */
 @media (max-width: 1024px) {
   .pixel-navbar {
-    padding: 5px 8px;
+    padding: 0;
     gap: 4px;
     flex-wrap: nowrap;
   }
@@ -326,7 +355,7 @@
   }
 
   .pixel-tab {
-    font-size: 12px;
+    font-size: 11px;
     padding: 2px 4px;
     gap: 3px;
   }
@@ -342,12 +371,12 @@
 
   .pixel-logo-label {
     font-size: 12px;
-    padding: 4px 12px;
+    padding: 4px 0;
   }
 
   .navbar-icon {
-    width: 11px;
-    height: 11px;
+    width: 14px;
+    height: 14px;
   }
 
   .sign-in-btn {
@@ -360,7 +389,7 @@
 /* Mobile (768px and below) */
 @media (max-width: 768px) {
   .pixel-navbar {
-    padding: 4px 8px;
+    padding: 0;
     flex-direction: row;
     flex-wrap: nowrap;
     gap: 4px;
@@ -397,13 +426,13 @@
   }
 
   .pixel-tab {
-    font-size: 11px;
+    font-size: 10px;
     padding: 2px 3px;
   }
 
   .navbar-icon {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
   }
 
   /* Hide language selectors and theme toggle on mobile */

@@ -197,3 +197,27 @@
   line-height: 1.5;
   color: var(--practice-success-icon-bg);
 }
+
+/* Noto Sans - Subtitle selector label (Search header) */
+.typography-noto-subtitle-label {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Noto Sans - Subtitle chips */
+.typography-noto-subtitle-chip {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Noto Sans - Content type filter options */
+.typography-noto-content-type {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.4;
+}

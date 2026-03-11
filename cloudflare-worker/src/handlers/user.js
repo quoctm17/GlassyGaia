@@ -102,14 +102,14 @@ export function registerUserRoutes(router) {
           totalXP += xp; // Include ALL XP types in total (including srs_state_change)
 
           // Match by reward_config_id instead of action_type string
-          if (rewardConfigId === REWARD_CONFIG_IDS.READING_8S) {
-            readingXP = xp;
-          } else if (rewardConfigId === REWARD_CONFIG_IDS.LISTENING_5S) {
-            listeningXP = xp;
+          if (rewardConfigId === REWARD_CONFIG_IDS.READING_8S || rewardConfigId === REWARD_CONFIG_IDS.READING_ATTEMPT) {
+            readingXP += xp;
+          } else if (rewardConfigId === REWARD_CONFIG_IDS.LISTENING_5S || rewardConfigId === REWARD_CONFIG_IDS.LISTENING_ATTEMPT) {
+            listeningXP += xp;
           } else if (rewardConfigId === REWARD_CONFIG_IDS.SPEAKING_ATTEMPT) {
-            speakingXP = xp;
+            speakingXP += xp;
           } else if (rewardConfigId === REWARD_CONFIG_IDS.WRITING_ATTEMPT) {
-            writingXP = xp;
+            writingXP += xp;
           }
           // Note: SRS_STATE_CHANGE XP is included in totalXP but not tracked separately
         });
@@ -292,8 +292,8 @@ export function registerUserRoutes(router) {
         return json({ error: 'Missing required parameters (user_id, type)' }, { status: 400 });
       }
 
-      if (type !== 'speaking' && type !== 'writing') {
-        return json({ error: 'Invalid type. Must be "speaking" or "writing"' }, { status: 400 });
+      if (type !== 'speaking' && type !== 'writing' && type !== 'listening' && type !== 'reading') {
+        return json({ error: 'Invalid type. Must be \"speaking\", \"writing\", \"listening\" or \"reading\"' }, { status: 400 });
       }
 
       const result = await trackAttempt(env, userId, type, card_id || null, film_id || null);

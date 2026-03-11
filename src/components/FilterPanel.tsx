@@ -16,6 +16,7 @@ interface FilterPanelProps {
   filmFilter: string[];
   onSelectFilm: (filmIds: string[]) => void;
   mainLanguage: string;
+  activeContentType?: 'all' | 'movie' | 'series' | 'book';
   isOpen?: boolean;
   onClose?: () => void;
 }
@@ -32,6 +33,7 @@ export default function FilterPanel({
   filmFilter, 
   onSelectFilm, 
   mainLanguage,
+  activeContentType = 'all',
   isOpen = true,
   onClose
 }: FilterPanelProps) {
@@ -69,6 +71,7 @@ export default function FilterPanel({
           filmLangMapExternal={filmLangMap}
           filmStatsMapExternal={filmStatsMap}
           mainLanguage={mainLanguage}
+          activeContentType={activeContentType}
         />
       </div>
     </>

@@ -5,14 +5,21 @@ import { canonicalizeLangCode } from "../utils/lang";
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
 import { apiToggleSaveCard, apiGetCardSaveStatus, apiUpdateCardSRSState, apiIncrementReviewCount } from "../services/cfApi";
-import { apiIncrementListeningSession } from "../services/userTracking";
+import { apiIncrementListeningSession, apiTrackAttempt } from "../services/userTracking";
 import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from "../types/srsStates";
 import "../styles/components/search-result-card.css";
 import threeDotsIcon from "../assets/icons/three-dots.svg";
 import buttonPlayIcon from "../assets/icons/button-play.svg";
+import buttonPauseIcon from "../assets/icons/button-pause.svg";
+import rightAngleIcon from "../assets/icons/right-angle.svg";
+import headphoneIcon from "../assets/icons/headphone.svg";
 import eyeIcon from "../assets/icons/eye.svg";
 import warningIcon from "../assets/icons/icon-warning.svg";
 import saveHeartIcon from "../assets/icons/save-heart.svg";
+import starIcon from "../assets/icons/star.svg";
+import starFillIcon from "../assets/icons/star-fill.svg";
+import { getLevelBadgeColors } from "../utils/levelColors";
+import diamondScoreIcon from "../assets/icons/diamond-score.svg";
 
 // Global registry to ensure only one audio plays at a time across all cards
 const activeAudioInstances = new Set<HTMLAudioElement>();
@@ -35,6 +42,7 @@ interface Props {
   onTrackReading?: (seconds: number) => void; // callback to track reading time
   onTrackListening?: (seconds: number) => void; // callback to track listening time
   initialSaveStatus?: { saved: boolean; srs_state: string; review_count: number }; // pre-loaded save status to avoid N+1 queries
+  practiceMode?: "listening" | "reading" | "speaking" | "writing" | null;
 }
 
 // Memoized component to prevent unnecessary re-renders
@@ -42,12 +50,14 @@ const SearchResultCard = memo(function SearchResultCard({
   card: initialCard,
   highlightQuery,
   primaryLang,
+  filmTitle,
   volume = 28,
   subtitleLanguages,
   onUnsave,
   onTrackReading,
   onTrackListening,
   initialSaveStatus,
+  practiceMode = null,
 }: Props) {
   const { user, preferences } = useUser();
   // Use prop if provided, otherwise fallback to preferences
@@ -73,6 +83,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const [reviewCount, setReviewCount] = useState<number>(0);
   const [imageError, setImageError] = useState<boolean>(false);
   const [srsDropdownOpen, setSrsDropdownOpen] = useState<boolean>(false);
+  const [isStarred, setIsStarred] = useState<boolean>(false);
   const srsDropdownRef = useRef<HTMLDivElement | null>(null);
   const hasIncrementedReview = useRef<boolean>(false);
   const incrementReviewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -87,6 +98,14 @@ const SearchResultCard = memo(function SearchResultCard({
   // Listening time tracking
   const listeningStartTimeRef = useRef<number | null>(null);
   const listeningIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Inline Listening practice state (Search page Practice dropdown)
+  const [listeningAnswers, setListeningAnswers] = useState<Record<number, string>>({});
+  const [listeningChecked, setListeningChecked] = useState<boolean>(false);
+  const [listeningScore, setListeningScore] = useState<number | null>(null);
+  const [listeningIncorrect, setListeningIncorrect] = useState<number[]>([]);
+  const [listeningXp, setListeningXp] = useState<number | null>(null);
+  const [isSubmittingListening, setIsSubmittingListening] = useState<boolean>(false);
 
 
   // Resolve image URL - API already returns full URL from image_key/audio_key
@@ -150,7 +169,6 @@ const SearchResultCard = memo(function SearchResultCard({
     
     return () => { mounted = false; };
   }, [user?.uid, card.id, card.film_id, card.episode_id, card.episode, initialSaveStatus]);
-
 
   // Close SRS dropdown when clicking outside
   useEffect(() => {
@@ -482,6 +500,119 @@ const SearchResultCard = memo(function SearchResultCard({
       return !!subtitleText(effectiveCard, code); // secondary needs subtitle
     });
   }, [card.id, subtitleKeys, langs, primaryLang]);
+
+  // Base text for inline Listening practice (primary language subtitle or sentence)
+  interface ListeningClozeConfig {
+    raw: string;
+    tokens: string[];
+    blankTokenIndexes: number[];
+    expectedNormalized: string[];
+  }
+
+  const normalizeListeningWord = (text: string): string => {
+    if (!text) return "";
+    let normalized = text.replace(/\[[^\]]+\]/g, "");
+    normalized = normalized.replace(/[、。．・，,。！!？?：:；;「」『』（）()［］\[\]…—-]/g, "");
+    normalized = normalized.replace(/[\p{P}\p{S}]/gu, "");
+    normalized = normalized.trim().replace(/\s+/g, " ").toLowerCase();
+    return normalized;
+  };
+
+  const listeningClozeConfig: ListeningClozeConfig | null = useMemo(() => {
+    if (practiceMode !== "listening") return null;
+
+    const effectiveCard = subsOverride
+      ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } }
+      : card;
+
+    const primaryCode = primaryLang
+      ? canonicalizeLangCode(primaryLang) || primaryLang
+      : undefined;
+
+    if (!primaryCode) return null;
+
+    let raw = subtitleText(effectiveCard, primaryCode) ?? "";
+    if (!raw) {
+      raw = effectiveCard.sentence ?? "";
+    }
+    if (!raw) return null;
+
+    const tokens = raw.split(/\s+/).filter((w) => w.length > 0);
+    if (tokens.length === 0) return null;
+
+    const blankTokenIndexes: number[] = [];
+    for (let i = 0; i < tokens.length && blankTokenIndexes.length < 5; i++) {
+      const word = tokens[i];
+      if (!/\p{L}/u.test(word)) continue;
+      if (blankTokenIndexes.length === 0 || i % 3 === 1) {
+        blankTokenIndexes.push(i);
+      }
+    }
+
+    if (blankTokenIndexes.length === 0) return null;
+
+    const expectedNormalized = blankTokenIndexes.map((idx) =>
+      normalizeListeningWord(tokens[idx])
+    );
+
+    return { raw, tokens, blankTokenIndexes, expectedNormalized };
+  }, [card, subsOverride, primaryLang, practiceMode, subtitleKeys]);
+
+  // Reset inline Listening practice state when card or mode changes
+  useEffect(() => {
+    setListeningAnswers({});
+    setListeningChecked(false);
+    setListeningScore(null);
+    setListeningIncorrect([]);
+    setListeningXp(null);
+    setIsSubmittingListening(false);
+  }, [card.id, practiceMode, listeningClozeConfig]);
+
+  const handleListeningCheck = async () => {
+    if (!listeningClozeConfig) return;
+    if (listeningChecked) return;
+
+    const { expectedNormalized } = listeningClozeConfig;
+    const userNormalized = expectedNormalized.map((_, idx) =>
+      normalizeListeningWord(listeningAnswers[idx] || "")
+    );
+
+    let correctCount = 0;
+    const incorrectIdxs: number[] = [];
+
+    expectedNormalized.forEach((expected, idx) => {
+      if (userNormalized[idx] && userNormalized[idx] === expected) {
+        correctCount++;
+      } else {
+        incorrectIdxs.push(idx);
+      }
+    });
+
+    const total = expectedNormalized.length || 1;
+    const score = Math.round((correctCount / total) * 10000) / 100;
+    setListeningScore(score);
+    setListeningIncorrect(incorrectIdxs);
+    setListeningChecked(true);
+
+    if (user?.uid && !isSubmittingListening) {
+      try {
+        setIsSubmittingListening(true);
+        const res = await apiTrackAttempt(
+          user.uid,
+          "listening",
+          card.id,
+          card.film_id
+        );
+        if (typeof res?.xp_awarded === "number") {
+          setListeningXp(res.xp_awarded);
+        }
+      } catch (error) {
+        console.error("Failed to track listening attempt:", error);
+      } finally {
+        setIsSubmittingListening(false);
+      }
+    }
+  };
 
   // Fetch subtitle data when subtitle languages change or when subtitles are missing
   // This ensures subtitles are always available when user selects new languages
@@ -1361,40 +1492,63 @@ const SearchResultCard = memo(function SearchResultCard({
   return (
     <div 
       ref={ref} 
-      className="pixel-result-card-new"
+      className={`pixel-result-card-new ${menuOpen ? 'menu-open' : ''}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       <div className="card-main-content">
         {/* Top: Metadata - Full width */}
         <div className="card-metadata-top">
-          {/* Level badges */}
+          {/* Level badge (only first level for now) */}
           {card.levels && Array.isArray(card.levels) && card.levels.length > 0 && (
-            <div className="level-badges-container">
-              {card.levels.map((lvl: { framework: string; level: string; language?: string }, idx: number) => (
-                <span key={idx} className={`level-badge level-${(lvl.level || '').toLowerCase()}`}>
-                  {lvl.level}
-                </span>
-              ))}
-            </div>
+            (() => {
+              const primaryLevel = card.levels[0].level || "";
+              const colors = getLevelBadgeColors(primaryLevel);
+              return (
+                <div
+                  className="level-badges-container"
+                  style={{
+                    backgroundColor: colors.background,
+                    color: colors.color,
+                  }}
+                >
+                  <span className="level-badge-label">{primaryLevel}</span>
+                  <span className="level-badge-number">1</span>
+                </div>
+              );
+            })()
           )}
-          {/* Episode slug and Time range grouped */}
-          <div className="card-slug-time-group">
-            {card.episode_id && (
-              <div className="card-episode-slug">{card.episode_id}</div>
-            )}
-            <div className="card-time-range">
-              <span>{Math.floor(card.start)}s</span>
-              <span>–</span>
-              <span>{Math.floor(card.end)}s</span>
-            </div>
+
+          {/* Title chip */}
+          <div className="card-title-chip">
+            <span className="card-title-text">
+              {filmTitle || card.content_title || card.episode_id || card.id}
+            </span>
+            <button
+              type="button"
+              className="card-star-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsStarred((prev) => !prev);
+              }}
+              aria-pressed={isStarred}
+              aria-label={isStarred ? 'Unfavorite' : 'Favorite'}
+            >
+              <img
+                src={isStarred ? starFillIcon : starIcon}
+                alt=""
+                className={`card-star-icon ${isStarred ? 'card-star-icon-active' : ''}`}
+                aria-hidden="true"
+              />
+            </button>
           </div>
         </div>
 
-        {/* Bottom row: Left (image) + Center (subtitles) + Right (menu) */}
+        {/* Top row: Left (image + bottom actions) + Center (subtitles) */}
         <div className="card-content-row">
-          {/* Left side: Image only */}
-          <div className="card-left-section">
+          <div className="card-left-and-bottom">
+            {/* Left: Image */}
+            <div className="card-left-section">
             <div className="card-image-container">
             <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
               {resolvedImageUrl && !imageError ? (
@@ -1418,7 +1572,7 @@ const SearchResultCard = memo(function SearchResultCard({
               )}
               {card.audio_url && (
                 <div className="card-image-play-overlay" onClick={handleImageClick} style={{ cursor: 'pointer', pointerEvents: 'all' }}>
-                  <img src={buttonPlayIcon} alt="Play" className="play-icon" />
+                  <img src={headphoneIcon} alt="Listen" className="card-overlay-headphone-icon" />
                 </div>
               )}
               
@@ -1458,14 +1612,100 @@ const SearchResultCard = memo(function SearchResultCard({
               {/* Review Count - Bottom Right */}
               {user?.uid && (
                 <div className="card-review-count">
-                  {reviewCount}
+                  <img src={headphoneIcon} alt="" className="card-review-count-headphone" aria-hidden="true" />
+                  <span>{reviewCount}</span>
                 </div>
               )}
             </div>
           </div>
-        </div>
+          </div>
 
-        {/* Center: Subtitles */}
+            {/* Bottom: Save, Prev/Play/Next, More options */}
+            <div className="card-bottom-section">
+              <div className="card-action-buttons">
+                <button
+                  className={`card-save-btn ${isSaved ? 'saved' : ''}`}
+                  onClick={handleToggleSave}
+                  title={isSaved ? "Unsave card" : "Save card"}
+                >
+                  <img src={saveHeartIcon} alt="" className="card-save-icon" aria-hidden="true" />
+                  <span className="card-save-text">{isSaved ? 'Saved' : 'Save'}</span>
+                </button>
+              </div>
+              <div className="card-nav-buttons-row">
+                <button
+                  type="button"
+                  className="card-nav-icon-btn"
+                  onClick={(e) => { e.stopPropagation(); handlePrevCard(); }}
+                  title="Previous card (A)"
+                  aria-label="Previous card"
+                >
+                  <img src={rightAngleIcon} alt="" className="card-nav-icon card-nav-prev" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="card-nav-icon-btn"
+                  onClick={(e) => { e.stopPropagation(); handleImageClick(); }}
+                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+                  aria-label={isPlaying ? "Pause" : "Play"}
+                >
+                  <img
+                    src={isPlaying ? buttonPauseIcon : buttonPlayIcon}
+                    alt=""
+                    className={`card-nav-icon ${isPlaying ? 'card-nav-pause' : ''}`}
+                    aria-hidden="true"
+                  />
+                </button>
+                <button
+                  type="button"
+                  className="card-nav-icon-btn"
+                  onClick={(e) => { e.stopPropagation(); handleNextCard(); }}
+                  title="Next card (D)"
+                  aria-label="Next card"
+                >
+                  <img src={rightAngleIcon} alt="" className="card-nav-icon card-nav-next" aria-hidden="true" />
+                </button>
+              </div>
+              <div className="card-menu-container" ref={menuRef}>
+                <button
+                  type="button"
+                  className="pixel-btn-menu card-more-options-btn"
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  title="More options"
+                  aria-label="More options"
+                  aria-expanded={menuOpen}
+                >
+                  <img src={threeDotsIcon} alt="" aria-hidden="true" />
+                </button>
+                {menuOpen && (
+                  <div className="card-menu-dropdown">
+                    <div
+                      className="card-menu-item"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (detailPath) window.location.href = detailPath;
+                      }}
+                    >
+                      <img src={eyeIcon} alt="View" className="menu-item-icon" />
+                      View Card
+                    </div>
+                    <div
+                      className="card-menu-item"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        alert("Report Issues feature coming soon!");
+                      }}
+                    >
+                      <img src={warningIcon} alt="Report" className="menu-item-icon" />
+                      Report Issues
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+        {/* Center: Subtitles + inline practice */}
         <div className="card-center-section">
           <div className="card-subtitles">
           {(() => {
@@ -1513,17 +1753,6 @@ const SearchResultCard = memo(function SearchResultCard({
               }
               const canon = (canonicalizeLangCode(code) || code).toLowerCase();
               const needsRuby = canon === "ja" || canon === "zh" || canon === "zh_trad" || canon === "yue";
-              let html: string;
-              if (needsRuby) {
-                const normalized = normalizeCjkSpacing(raw);
-                // Debug logging for Japanese / Chinese subtitle raw + normalized + parsed HTML
-                // removed debug logging
-                const rubyHtml = bracketToRubyHtml(normalized, canon);
-                // removed debug logging
-                html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q, canon) : rubyHtml;
-              } else {
-                html = q ? highlightHtml(raw, q) : escapeHtml(raw);
-              }
               const name = codeToName(code);
               const roleClass = isPrimary ? `${name}-main` : `${name}-sub`;
               const rubyClass = needsRuby ? "hanzi-ruby" : "";
@@ -1562,67 +1791,115 @@ const SearchResultCard = memo(function SearchResultCard({
                   onMouseUp={handleSubtitleMouseUp}
                   title={isExpanded ? "Click to collapse" : "Click to expand"}
                 >
-                  <span
-                    className="subtitle-text"
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
+                  {practiceMode === "listening" && isPrimary && listeningClozeConfig
+                    ? (() => {
+                        const { tokens, blankTokenIndexes } = listeningClozeConfig;
+                        return (
+                          <span className="subtitle-text card-practice-cloze-line">
+                            {tokens.map((word, idx) => {
+                              const blankIndex = blankTokenIndexes.indexOf(idx);
+                              const isBlank = blankIndex !== -1;
+                              const space = idx < tokens.length - 1 ? " " : "";
+
+                              if (!isBlank) {
+                                return (
+                                  <span key={`w-${idx}`} className="card-practice-word">
+                                    {word}
+                                    {space}
+                                  </span>
+                                );
+                              }
+
+                              const value = listeningAnswers[blankIndex] ?? "";
+                              const isIncorrect =
+                                listeningChecked && listeningIncorrect.includes(blankIndex);
+
+                              return (
+                                <span key={`b-${idx}`} className="card-practice-blank-wrapper">
+                                  <input
+                                    type="text"
+                                    className={
+                                      "card-practice-blank-input" +
+                                      (isIncorrect ? " card-practice-blank-input-incorrect" : "")
+                                    }
+                                    value={value}
+                                    onChange={(e) =>
+                                      setListeningAnswers((prev) => ({
+                                        ...prev,
+                                        [blankIndex]: e.target.value,
+                                      }))
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleListeningCheck();
+                                      }
+                                    }}
+                                  />
+                                  {space}
+                                </span>
+                              );
+                            })}
+                          </span>
+                        );
+                      })()
+                    : (() => {
+                        let html: string;
+                        if (needsRuby) {
+                          const normalized = normalizeCjkSpacing(raw);
+                          const rubyHtml = bracketToRubyHtml(normalized, canon);
+                          html = q ? highlightInsideHtmlPreserveTags(rubyHtml, q, canon) : rubyHtml;
+                        } else {
+                          html = q ? highlightHtml(raw, q) : escapeHtml(raw);
+                        }
+                        return (
+                          <span
+                            className="subtitle-text"
+                            dangerouslySetInnerHTML={{ __html: html }}
+                          />
+                        );
+                      })()}
                 </div>
               );
             });
           })()}
         </div>
-        </div>
 
-          {/* Right: Save button and Menu */}
-          <div className="card-right-section">
-          <div className="card-action-buttons">
-            {/* Save button */}
-            <button
-              className={`card-save-btn ${isSaved ? 'saved' : ''}`}
-              onClick={handleToggleSave}
-              title={isSaved ? "Unsave card" : "Save card"}
-            >
-              <img src={saveHeartIcon} alt={isSaved ? "Unsave" : "Save"} className="card-save-icon" />
-            </button>
-          </div>
-          <div className="card-menu-container" ref={menuRef}>
-            <button
-              className="pixel-btn-menu"
-              onClick={() => setMenuOpen(!menuOpen)}
-              title="More options"
-            >
-              <img src={threeDotsIcon} alt="Menu" />
-            </button>
-            
-            {menuOpen && (
-              <div className="card-menu-dropdown">
-                <div 
-                  className="card-menu-item"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    // Navigate to card detail view
-                    if (detailPath) {
-                      window.location.href = detailPath;
-                    }
-                  }}
-                >
-                  <img src={eyeIcon} alt="View" className="menu-item-icon" />
-                  View Card
+          {practiceMode === "listening" && listeningClozeConfig && (
+            <div className="card-practice-footer-row">
+              <button
+                type="button"
+                className="card-practice-check-btn"
+                onClick={handleListeningCheck}
+                disabled={
+                  isSubmittingListening ||
+                  listeningChecked ||
+                  Object.keys(listeningAnswers).length === 0
+                }
+              >
+                Check
+              </button>
+              {listeningScore !== null && (
+                <div className="card-practice-feedback">
+                  <span className="card-practice-score">
+                    {listeningScore.toFixed(2)}%
+                  </span>
+                  {listeningXp !== null && (
+                    <span className="card-practice-xp">
+                      <img
+                        src={diamondScoreIcon}
+                        alt="XP"
+                        className="card-practice-xp-icon"
+                      />
+                      <span className="card-practice-xp-text">
+                        +{listeningXp}xp
+                      </span>
+                    </span>
+                  )}
                 </div>
-                <div 
-                  className="card-menu-item"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    // TODO: Implement report issues functionality
-                    alert("Report Issues feature coming soon!");
-                  }}
-                >
-                  <img src={warningIcon} alt="Report" className="menu-item-icon" />
-                  Report Issues
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
         </div>
       </div>
@@ -1637,7 +1914,7 @@ const SearchResultCard = memo(function SearchResultCard({
   // Compare subtitle languages to ensure re-render when user selects new languages
   const prevLangs = (prevProps.subtitleLanguages || []).sort().join(',');
   const nextLangs = (nextProps.subtitleLanguages || []).sort().join(',');
-  
+
   return (
     prevProps.card.id === nextProps.card.id &&
     prevSubKeys === nextSubKeys &&

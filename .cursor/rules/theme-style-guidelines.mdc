@@ -1,0 +1,45 @@
+# GlassyGaia Theme & Icon Rules
+
+## Color usage
+
+- **All new UI colors must come from** `src/styles/theme-colors.css` via CSS variables.
+- **When introducing a new color**:
+  - Declare light/dark tokens in `:root` (e.g. `--light-setlevel-text`, `--dark-setlevel-text`).
+  - Map them into semantic variables inside `.light` / `.dark` (e.g. `--setlevel-text`, `--setlevel-bg`).
+- **Do not hard-code hex colors** directly in components or CSS outside `theme-colors.css`.
+
+## Typography
+
+- Prefer existing typography utilities in `src/styles/typography.css` (e.g. `typography-pressstart-*`, `typography-inter-*`).
+- New navbar buttons should generally use **Press Start 2P** to match the pixel aesthetic.
+
+## Icons and filters
+
+- SVG icons used via `<img src=\"...svg\" />` **must be tinted using CSS filters**, not inline `fill` attributes.
+- Filters must reference dynamic variables from the `/* Icon Filter Values */` section of `theme-colors.css`:
+  - Example: `filter: var(--icon-primary-filter);`, `filter: var(--icon-hover-select-filter);`.
+- When a new icon color is needed (e.g. a new brand color):
+  - Add light/dark filter values in `:root` (e.g. `--light-some-icon-filter`, `--dark-some-icon-filter`).
+  - Map them into `.light` / `.dark` as a semantic `--icon-some-filter` variable.
+
+## Component examples
+
+- **Search buttons (`SearchBar` and `ContentSelector`)**
+  - Button background uses `var(--primary)`.
+  - Text (when present) uses `var(--hover-select)`.
+  - Search icons are tinted with `filter: var(--icon-hover-select-filter);`.
+  - Input borders are thin (`0.8px`) and use theme neutrals: `border: 0.8px solid var(--neutral);`.
+
+- **Navbar `Set Level` button**
+  - Uses semantic variables from `theme-colors.css`:
+    - Text and border: `color: var(--setlevel-text); border-color: var(--setlevel-text);`
+    - Background: `background-color: var(--setlevel-bg);`
+  - The gear icon is tinted with an icon filter variable (e.g. `filter: var(--icon-primary-filter);`), not a hard-coded filter.
+
+- **Practice button on SearchPage**
+  - Background `var(--primary)`, label text `var(--hover-select)`.
+  - Monster icon uses `filter: var(--icon-hover-select-filter);`.
+  - Divider and chevron also use `var(--hover-select)` via theme variables.
+
+These rules should be followed for any future navbar/search-related UI so that light/dark themes stay consistent and easy to maintain.
+

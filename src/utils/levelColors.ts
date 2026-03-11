@@ -7,43 +7,62 @@ interface LevelColors {
   color: string;
 }
 
+// Palette of ~10 distinct colors (index 0 = easiest, higher index = harder)
+const LEVEL_PALETTE: string[] = [
+  "#CD55BF", // pink
+  "#FF8FA3", // salmon
+  "#5745DD", // indigo
+  "#3B82F6", // blue
+  "#22C55E", // green
+  "#FACC15", // yellow
+  "#F97316", // orange
+  "#EA580C", // deep orange
+  "#F97373", // light red
+  "#DC2626", // red
+];
+
+const paletteColor = (index: number): LevelColors => {
+  const safeIndex = Math.max(0, Math.min(LEVEL_PALETTE.length - 1, index));
+  return { background: LEVEL_PALETTE[safeIndex], color: "#FFFFFF" };
+};
+
 const LEVEL_COLOR_MAP: Record<string, LevelColors> = {
-  // CEFR levels
-  'A1': { background: '#86efac', color: '#065f46' },
-  'A2': { background: '#7dd3fc', color: '#0c4a6e' },
-  'B1': { background: '#fde047', color: '#713f12' },
-  'B2': { background: '#f7a45e', color: '#7c2d12' },
-  'C1': { background: '#fb923c', color: '#7c2d12' },
-  'C2': { background: '#f87171', color: '#7f1d1d' },
-  
-  // JLPT levels
-  'N5': { background: '#86efac', color: '#065f46' },
-  'N4': { background: '#7dd3fc', color: '#0c4a6e' },
-  'N3': { background: '#fde047', color: '#713f12' },
-  'N2': { background: '#fb923c', color: '#7c2d12' },
-  'N1': { background: '#f87171', color: '#7f1d1d' },
-  
-  // HSK levels
-  '1': { background: '#86efac', color: '#065f46' },
-  '2': { background: '#7dd3fc', color: '#0c4a6e' },
-  '3': { background: '#bfdbfe', color: '#1e3a8a' },
-  '4': { background: '#fde047', color: '#713f12' },
-  '5': { background: '#fcd34d', color: '#78350f' },
-  '6': { background: '#f7a45e', color: '#7c2d12' },
-  '7': { background: '#fb923c', color: '#7c2d12' },
-  '8': { background: '#fca5a5', color: '#7f1d1d' },
-  '9': { background: '#f87171', color: '#7f1d1d' },
-  
+  // CEFR levels (A1..C2) - map 6 levels across first 6 palette colors
+  A1: paletteColor(0),
+  A2: paletteColor(1),
+  B1: paletteColor(2),
+  B2: paletteColor(3),
+  C1: paletteColor(4),
+  C2: paletteColor(5),
+
+  // JLPT levels (N5 easy -> N1 hard) spread across palette
+  N5: paletteColor(0),
+  N4: paletteColor(2),
+  N3: paletteColor(4),
+  N2: paletteColor(6),
+  N1: paletteColor(8),
+
+  // HSK numeric levels (1 easy -> 9 hard) mapped roughly 1→0 .. 9→8
+  "1": paletteColor(0),
+  "2": paletteColor(1),
+  "3": paletteColor(2),
+  "4": paletteColor(3),
+  "5": paletteColor(4),
+  "6": paletteColor(5),
+  "7": paletteColor(6),
+  "8": paletteColor(7),
+  "9": paletteColor(8),
+
   // HSK with prefix
-  'HSK 1': { background: '#86efac', color: '#065f46' },
-  'HSK 2': { background: '#7dd3fc', color: '#0c4a6e' },
-  'HSK 3': { background: '#bfdbfe', color: '#1e3a8a' },
-  'HSK 4': { background: '#fde047', color: '#713f12' },
-  'HSK 5': { background: '#fcd34d', color: '#78350f' },
-  'HSK 6': { background: '#f7a45e', color: '#7c2d12' },
-  'HSK 7': { background: '#fb923c', color: '#7c2d12' },
-  'HSK 8': { background: '#fca5a5', color: '#7f1d1d' },
-  'HSK 9': { background: '#f87171', color: '#7f1d1d' },
+  "HSK 1": paletteColor(0),
+  "HSK 2": paletteColor(1),
+  "HSK 3": paletteColor(2),
+  "HSK 4": paletteColor(3),
+  "HSK 5": paletteColor(4),
+  "HSK 6": paletteColor(5),
+  "HSK 7": paletteColor(6),
+  "HSK 8": paletteColor(7),
+  "HSK 9": paletteColor(8),
 };
 
 const DEFAULT_COLOR: LevelColors = {

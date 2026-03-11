@@ -199,97 +199,100 @@ export default function SearchBar({
   return (
     <div className="pixel-searchbar">
       <div className="pixel-input-wrapper" style={{ position: 'relative' }}>
+        <div className="search-input-area">
+          <input
+            ref={inputRef}
+            value={q}
+            onChange={(e) => handleChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              if (suggestions.length > 0) {
+                setShowSuggestions(true);
+              }
+            }}
+            className="pixel-input text-center"
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+          />
+          {showClear && q && (
+            <button
+              type="button"
+              aria-label="Clear"
+              onClick={clear}
+              className="search-clear-btn"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          {/* Autocomplete suggestions dropdown */}
+          {enableAutocomplete && showSuggestions && suggestions.length > 0 && (
+            <div
+              ref={suggestionsRef}
+              className="search-autocomplete-dropdown"
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                marginTop: '4px',
+                backgroundColor: 'var(--sidenav-bg)',
+                border: '2px solid var(--neutral)',
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                zIndex: 1000,
+                maxHeight: '300px',
+                overflowY: 'auto',
+              }}
+            >
+              {loadingSuggestions && (
+                <div style={{ padding: '12px', textAlign: 'center', color: 'var(--neutral)' }}>
+                  Loading...
+                </div>
+              )}
+              {!loadingSuggestions && suggestions.map((suggestion, index) => (
+                <div
+                  key={`${suggestion.term}-${index}`}
+                  onClick={() => handleSelectSuggestion(suggestion.term)}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  style={{
+                    padding: '12px 16px',
+                    cursor: 'pointer',
+                    backgroundColor: selectedIndex === index ? 'var(--hover-bg)' : 'transparent',
+                    color: 'var(--text)',
+                    borderBottom: index < suggestions.length - 1 ? '1px solid var(--neutral)' : 'none',
+                    transition: 'background-color 0.15s',
+                  }}
+                >
+                  <div style={{ fontWeight: 500, fontSize: '15px' }}>{suggestion.term}</div>
+                  {suggestion.slug && (
+                    <div style={{ fontSize: '12px', color: 'var(--neutral)', marginTop: '2px' }}>
+                      {suggestion.slug}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={triggerSearch}
-          className="absolute inset-y-0 left-[14px] w-5 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity z-10"
+          className="search-trigger-btn"
           aria-label="Search"
         >
           {loading ? (
             <Loader2
-              className="w-5 h-5 animate-spin"
-              style={{ color: 'var(--hover-select, #ec4899)' }}
+              className="search-trigger-loader"
+              style={{ color: 'var(--hover-select)' }}
               strokeWidth={2.2}
             />
           ) : (
-            <img src={searchIcon} alt="Search" className="search-icon" />
+            <>
+              <img src={searchIcon} alt="" className="search-trigger-icon" />
+              <span className="search-trigger-text">Search</span>
+            </>
           )}
         </button>
-        <div className="search-bar-divider" />
-        <input
-          ref={inputRef}
-          value={q}
-          onChange={(e) => handleChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => {
-            if (suggestions.length > 0) {
-              setShowSuggestions(true);
-            }
-          }}
-          className="pixel-input text-center"
-          placeholder={placeholder}
-          autoFocus={autoFocus}
-        />
-        {showClear && q && (
-          <button
-            type="button"
-            aria-label="Clear"
-            onClick={clear}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-pink-600 hover:text-pink-800 z-10"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
-        
-        {/* Autocomplete suggestions dropdown */}
-        {enableAutocomplete && showSuggestions && suggestions.length > 0 && (
-          <div
-            ref={suggestionsRef}
-            className="search-autocomplete-dropdown"
-            style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              right: 0,
-              marginTop: '4px',
-              backgroundColor: 'var(--sidenav-bg)',
-              border: '2px solid var(--neutral)',
-              borderRadius: '8px',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-              zIndex: 1000,
-              maxHeight: '300px',
-              overflowY: 'auto',
-            }}
-          >
-            {loadingSuggestions && (
-              <div style={{ padding: '12px', textAlign: 'center', color: 'var(--neutral)' }}>
-                Loading...
-              </div>
-            )}
-            {!loadingSuggestions && suggestions.map((suggestion, index) => (
-              <div
-                key={`${suggestion.term}-${index}`}
-                onClick={() => handleSelectSuggestion(suggestion.term)}
-                onMouseEnter={() => setSelectedIndex(index)}
-                style={{
-                  padding: '12px 16px',
-                  cursor: 'pointer',
-                  backgroundColor: selectedIndex === index ? 'var(--hover-bg)' : 'transparent',
-                  color: 'var(--text)',
-                  borderBottom: index < suggestions.length - 1 ? '1px solid var(--neutral)' : 'none',
-                  transition: 'background-color 0.15s',
-                }}
-              >
-                <div style={{ fontWeight: 500, fontSize: '15px' }}>{suggestion.term}</div>
-                {suggestion.slug && (
-                  <div style={{ fontSize: '12px', color: 'var(--neutral)', marginTop: '2px' }}>
-                    {suggestion.slug}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
