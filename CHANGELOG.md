@@ -28,9 +28,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 ### Added
 - Inline Listening practice mode on the Search page: blank main subtitles directly in `SearchResultCard` with a Check button, percentage score, and XP + diamond display.
 - New Cloudflare D1 migrations and rewards config entries for `listening_attempt` and `reading_attempt`, wired into `trackAttempt` so listening/reading practice can award XP.
+- Improved episode navigation and keyboard shortcuts (A/D/C/S/Shift) in `SearchResultCard` for smoother review on the Search page.
 
 ### Changed
 - Search/portfolio XP tracking to treat listening/reading attempts consistently with speaking/writing attempts.
+- Search result card layout so preview images always fill the left column width responsively, and bottom controls stay on a single row.
+- Search page grid margins for viewports ≤1300px to keep results closer to the left while preserving the existing percentage offsets.
+- Content selector and `/items` backend so only content with available cards (count > 0) is shown, ordered by card count and title.
+- Search feedback like/dislike state now resets whenever a new search is performed.
 
 ### Removed
 - Legacy Practice flow (separate Practice page, modal, and dedicated Practice components/styles) in favour of the new inline Listening experience on the Search page.

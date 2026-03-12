@@ -5,14 +5,20 @@ import { deleteContentItemBySlug } from '../services/deleteContentItem.js';
 
 export function registerItemRoutes(router) {
 
-  // GET /items — list all items
+  // GET /items — list items that have at least one card, ordered by card count (desc) then slug
   router.get('/items', async (request, env) => {
     try {
       const [itemsResult, langsResult, categoriesResult] = await Promise.all([
         env.DB.prepare(`
-          SELECT ci.id as internal_id, ci.slug as id, ci.title, ci.main_language, ci.type, ci.release_year, ci.description, ci.total_episodes as episodes, ci.is_original, ci.level_framework_stats, ci.cover_key, ci.cover_landscape_key, ci.is_available
-        FROM content_items ci
-          ORDER BY ci.slug
+          SELECT ci.id AS internal_id, ci.slug AS id, ci.title, ci.main_language, ci.type, ci.release_year, ci.description, ci.total_episodes AS episodes, ci.is_original, ci.level_framework_stats, ci.cover_key, ci.cover_landscape_key, ci.is_available,
+            COUNT(c.id) AS card_count
+          FROM content_items ci
+          INNER JOIN episodes e ON e.content_item_id = ci.id
+          INNER JOIN cards c ON c.episode_id = e.id AND COALESCE(c.is_available, 1) = 1
+          WHERE COALESCE(ci.is_available, 1) = 1
+          GROUP BY ci.id
+          HAVING COUNT(c.id) > 0
+          ORDER BY card_count DESC, ci.slug
         `).all(),
         env.DB.prepare(`
           SELECT content_item_id, language

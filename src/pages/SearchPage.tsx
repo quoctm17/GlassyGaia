@@ -300,6 +300,7 @@ function SearchPage() {
   const handleSearch = useCallback((searchValue: string) => {
     const trimmed = searchValue.trim();
     setQuery(trimmed);
+    setFeedbackChoice(null);
   }, []);
 
   // Track if filter modal is open to prevent auto-fetching

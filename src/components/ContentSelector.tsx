@@ -279,7 +279,7 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
               if (list && list.length > 0) flatIds.push(...list);
             }
             if (grouped.other.length > 0) flatIds.push(...grouped.other);
-            return flatIds.map(id => {
+            return flatIds.filter(id => (counts[id] ?? 0) > 0).map(id => {
               const isSelected = value.includes(id);
               return (
                 <button
