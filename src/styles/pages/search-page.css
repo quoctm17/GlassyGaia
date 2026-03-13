@@ -655,6 +655,15 @@
   }
 }
 
+/* From 1300px down: keep % but remove +px padding */
+@media (max-width: 1300px) {
+  .search-results.layout-default,
+  .search-results.layout-1-column,
+  .search-results.layout-2-column {
+    margin-left: 24%;
+  }
+}
+
 /* Medium screens - adjust when filter panel hits min-width */
 @media (min-width: 1101px) and (max-width: 1300px) {
   .search-controls {
@@ -664,12 +673,6 @@
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
     left: 0 !important;
-  }
-  
-  .search-results.layout-default,
-  .search-results.layout-1-column,
-  .search-results.layout-2-column {
-    margin-left: calc(24% + 40px);
   }
 }
 

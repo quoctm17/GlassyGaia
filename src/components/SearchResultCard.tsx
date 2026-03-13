@@ -75,6 +75,18 @@ const SearchResultCard = memo(function SearchResultCard({
   const [currentCardIndex, setCurrentCardIndex] = useState<number>(-1);
   const [originalCardIndex, setOriginalCardIndex] = useState<number>(-1);
   const episodeCardsLoadedRef = useRef<boolean>(false);
+  const episodeCardsDataRef = useRef<{ cards: CardDoc[]; currentIndex: number } | null>(null);
+  const loadEpisodeResolveRef = useRef<(() => void) | null>(null);
+  const shortcutHandlersRef = useRef<{
+    handlePrevCard: () => void;
+    handleNextCard: () => void;
+    handleImageClick: () => void;
+    handleReplayAudio: () => void;
+    handleReturnToOriginal: () => void;
+    handleMoveToPrevCardHover: () => void;
+    handleMoveToNextCardHover: () => void;
+    handleToggleSave: (e: React.MouseEvent) => void;
+  }>(null as any);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
   const [expandedSubtitles, setExpandedSubtitles] = useState<Set<string>>(new Set());
@@ -402,44 +414,6 @@ const SearchResultCard = memo(function SearchResultCard({
     // Set volume directly - HTMLAudioElement.volume can be changed while playing
     audio.volume = normalizedVolume;
   }, [volume]);
-
-  // Keyboard shortcuts when card is hovered
-  useEffect(() => {
-    if (!isHovered) return;
-    
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input/textarea
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-      
-      if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        handlePrevCard();
-      } else if ((e.key === 'd' || e.key === 'D') && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        handleNextCard();
-      } else if (e.key === ' ' || e.key === 'Spacebar') {
-        e.preventDefault();
-        handleImageClick();
-      } else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        handleReplayAudio();
-      } else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        handleReturnToOriginal();
-      } else if (e.key === 'Shift') {
-        e.preventDefault();
-        handleMoveToPrevCardHover();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        handleMoveToNextCardHover();
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isHovered, currentCardIndex, originalCardIndex, episodeCards, card, isPlaying]);
 
   // Create stable keys for dependency tracking
   const subtitleKeys = useMemo(() => {
@@ -1013,105 +987,111 @@ const SearchResultCard = memo(function SearchResultCard({
   }
 
 
-  // Load episode cards lazily on first A/D navigation (not on mount)
-  const loadEpisodeCards = useCallback(() => {
-    if (episodeCardsLoadedRef.current) return;
-    episodeCardsLoadedRef.current = true;
-
+  // Load episode cards lazily on first A/D navigation (not on mount). Returns a promise that resolves when load is done (so caller can then navigate).
+  const loadEpisodeCards = useCallback((): Promise<void> => {
     const filmId = initialCard.film_id;
     const episodeId = initialCard.episode_id || (typeof initialCard.episode === 'number' ? `e${initialCard.episode}` : String(initialCard.episode || ''));
-    
-    if (!filmId || !episodeId) return;
+    if (!filmId || !episodeId) return Promise.resolve();
+
+    const finishLoad = (cards: CardDoc[], idx: number) => {
+      episodeCardsDataRef.current = { cards, currentIndex: idx };
+      setEpisodeCards(cards);
+      setCurrentCardIndex(idx);
+      setOriginalCardIndex(idx);
+      const resolve = loadEpisodeResolveRef.current;
+      loadEpisodeResolveRef.current = null;
+      resolve?.();
+    };
+    const failLoad = () => {
+      episodeCardsDataRef.current = null;
+      setEpisodeCards([]);
+      setCurrentCardIndex(-1);
+      setOriginalCardIndex(-1);
+      const resolve = loadEpisodeResolveRef.current;
+      loadEpisodeResolveRef.current = null;
+      resolve?.();
+    };
+
+    if (episodeCardsLoadedRef.current) {
+      return Promise.resolve();
+    }
+    episodeCardsLoadedRef.current = true;
 
     const cacheKey = `${filmId}/${episodeId}`;
     const cached = episodeCardsCache.get(cacheKey);
     const now = Date.now();
 
     if (cached && (now - cached.timestamp) < CACHE_TTL) {
-      setEpisodeCards(cached.cards);
       const idx = cached.cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
-      setCurrentCardIndex(idx);
-      setOriginalCardIndex(idx);
-      return;
+      finishLoad(cached.cards, idx);
+      return Promise.resolve();
     }
 
     const pendingRequest = pendingEpisodeRequests.get(cacheKey);
     if (pendingRequest) {
-      pendingRequest.then(cards => {
-        setEpisodeCards(cards);
-        const idx = cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
-        setCurrentCardIndex(idx);
-        setOriginalCardIndex(idx);
-      }).catch(() => {
-        setEpisodeCards([]);
-        setCurrentCardIndex(-1);
-        setOriginalCardIndex(-1);
+      return new Promise<void>((resolve) => {
+        loadEpisodeResolveRef.current = resolve;
+        pendingRequest.then(cards => {
+          const idx = cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+          finishLoad(cards, idx);
+        }).catch(() => {
+          failLoad();
+        });
       });
-      return;
     }
-    
+
     const startTime = Math.max(0, initialCard.start - 250 * 5);
-    
     const fetchPromise = fetchCardsForFilm(filmId, episodeId, 500, { startFrom: startTime }).then(cards => {
       episodeCardsCache.set(cacheKey, { cards, timestamp: Date.now() });
       pendingEpisodeRequests.delete(cacheKey);
-
-      setEpisodeCards(cards);
       const idx = cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
-      setCurrentCardIndex(idx);
-      setOriginalCardIndex(idx);
-      
-      if (idx === -1 && startTime > 0) {
+      if (idx >= 0) {
+        finishLoad(cards, idx);
+        return cards;
+      }
+      if (startTime > 0) {
         const fallbackCacheKey = `${filmId}/${episodeId}/start`;
         const fallbackCached = episodeCardsCache.get(fallbackCacheKey);
-
         if (fallbackCached && (now - fallbackCached.timestamp) < CACHE_TTL) {
-          setEpisodeCards(fallbackCached.cards);
           const fallbackIdx = fallbackCached.cards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
-          setCurrentCardIndex(fallbackIdx);
-          setOriginalCardIndex(fallbackIdx);
-        } else {
-          const fallbackPending = pendingEpisodeRequests.get(fallbackCacheKey);
-          if (fallbackPending) {
-            fallbackPending.then(fallbackCards => {
-              setEpisodeCards(fallbackCards);
-              const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
-              setCurrentCardIndex(fallbackIdx);
-              setOriginalCardIndex(fallbackIdx);
-            }).catch(() => {
-              setCurrentCardIndex(-1);
-              setOriginalCardIndex(-1);
-            });
-          } else {
-            const fallbackPromise = fetchCardsForFilm(filmId, episodeId, 500).then(fallbackCards => {
-              episodeCardsCache.set(fallbackCacheKey, { cards: fallbackCards, timestamp: Date.now() });
-              pendingEpisodeRequests.delete(fallbackCacheKey);
-              setEpisodeCards(fallbackCards);
-              const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
-              setCurrentCardIndex(fallbackIdx);
-              setOriginalCardIndex(fallbackIdx);
-              return fallbackCards;
-            }).catch(() => {
-              pendingEpisodeRequests.delete(fallbackCacheKey);
-              setCurrentCardIndex(-1);
-              setOriginalCardIndex(-1);
-              throw new Error('Failed to fetch fallback cards');
-            });
-            pendingEpisodeRequests.set(fallbackCacheKey, fallbackPromise);
-          }
+          finishLoad(fallbackCached.cards, fallbackIdx);
+          return cards;
         }
+        const fallbackPending = pendingEpisodeRequests.get(fallbackCacheKey);
+        if (fallbackPending) {
+          return fallbackPending.then(fallbackCards => {
+            const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+            finishLoad(fallbackCards, fallbackIdx);
+            return cards;
+          }).catch(() => {
+            failLoad();
+            throw new Error('Failed to fetch fallback cards');
+          });
+        }
+        return fetchCardsForFilm(filmId, episodeId, 500).then(fallbackCards => {
+          episodeCardsCache.set(fallbackCacheKey, { cards: fallbackCards, timestamp: Date.now() });
+          pendingEpisodeRequests.delete(fallbackCacheKey);
+          const fallbackIdx = fallbackCards.findIndex(c => Math.abs(c.start - initialCard.start) < 0.5);
+          finishLoad(fallbackCards, fallbackIdx);
+          return cards;
+        }).catch(() => {
+          pendingEpisodeRequests.delete(fallbackCacheKey);
+          failLoad();
+          throw new Error('Failed to fetch fallback cards');
+        });
       }
-
+      finishLoad(cards, idx);
       return cards;
     }).catch(() => {
       pendingEpisodeRequests.delete(cacheKey);
-      setEpisodeCards([]);
-      setCurrentCardIndex(-1);
-      setOriginalCardIndex(-1);
+      failLoad();
       throw new Error('Failed to fetch episode cards');
     });
-
     pendingEpisodeRequests.set(cacheKey, fetchPromise);
+
+    return new Promise<void>((resolve) => {
+      loadEpisodeResolveRef.current = resolve;
+    });
   }, [initialCard]);
 
   // Play audio on image click
@@ -1203,9 +1183,17 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Navigate to previous card
   const handlePrevCard = async () => {
-    if (episodeCards.length === 0) { loadEpisodeCards(); return; }
-    if (currentCardIndex <= 0) return;
-    const prevCard = episodeCards[currentCardIndex - 1];
+    let cards = episodeCards;
+    let idx = currentCardIndex;
+    if (cards.length === 0) {
+      await loadEpisodeCards();
+      const data = episodeCardsDataRef.current;
+      if (!data) return;
+      cards = data.cards;
+      idx = data.currentIndex;
+    }
+    if (idx <= 0) return;
+    const prevCard = cards[idx - 1];
     if (prevCard && card.film_id) {
       // Fetch full card data with all subtitles
       try {
@@ -1233,7 +1221,7 @@ const SearchResultCard = memo(function SearchResultCard({
         // Increment review count for the new card
         incrementReviewCountForCard(prevCard);
       }
-      setCurrentCardIndex(currentCardIndex - 1);
+      setCurrentCardIndex(idx - 1);
       
       // Auto-play audio for the new card
       if (audioRef.current && prevCard.audio_url) {
@@ -1267,9 +1255,17 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Navigate to next card
   const handleNextCard = async () => {
-    if (episodeCards.length === 0) { loadEpisodeCards(); return; }
-    if (currentCardIndex < 0 || currentCardIndex >= episodeCards.length - 1) return;
-    const nextCard = episodeCards[currentCardIndex + 1];
+    let cards = episodeCards;
+    let idx = currentCardIndex;
+    if (cards.length === 0) {
+      await loadEpisodeCards();
+      const data = episodeCardsDataRef.current;
+      if (!data) return;
+      cards = data.cards;
+      idx = data.currentIndex;
+    }
+    if (idx < 0 || idx >= cards.length - 1) return;
+    const nextCard = cards[idx + 1];
     if (nextCard && card.film_id) {
       // Fetch full card data with all subtitles
       try {
@@ -1297,7 +1293,7 @@ const SearchResultCard = memo(function SearchResultCard({
         // Increment review count for the new card
         incrementReviewCountForCard(nextCard);
       }
-      setCurrentCardIndex(currentCardIndex + 1);
+      setCurrentCardIndex(idx + 1);
       
       // Auto-play audio for the new card
       if (audioRef.current && nextCard.audio_url) {
@@ -1473,6 +1469,71 @@ const SearchResultCard = memo(function SearchResultCard({
       }, 300);
     }
   };
+
+  // Keep shortcut handlers ref up to date (must run after handlers are initialized)
+  useEffect(() => {
+    shortcutHandlersRef.current = {
+      handlePrevCard: () => { void handlePrevCard(); },
+      handleNextCard: () => { void handleNextCard(); },
+      handleImageClick,
+      handleReplayAudio,
+      handleReturnToOriginal: () => { void handleReturnToOriginal(); },
+      handleMoveToPrevCardHover,
+      handleMoveToNextCardHover,
+      handleToggleSave,
+    };
+  }, [
+    handleImageClick,
+    handleReplayAudio,
+    handleMoveToPrevCardHover,
+    handleMoveToNextCardHover,
+    handleToggleSave,
+    handleReturnToOriginal,
+    handleNextCard,
+    handlePrevCard,
+  ]);
+
+  // Keyboard shortcuts when card is hovered
+  useEffect(() => {
+    if (!isHovered) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      const handlers = shortcutHandlersRef.current;
+      if (!handlers) return;
+
+      if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handlers.handlePrevCard();
+      } else if ((e.key === 'd' || e.key === 'D') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handlers.handleNextCard();
+      } else if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        handlers.handleImageClick();
+      } else if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handlers.handleReplayAudio();
+      } else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handlers.handleReturnToOriginal();
+      } else if ((e.key === 's' || e.key === 'S') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handlers.handleToggleSave({ stopPropagation: () => {} } as React.MouseEvent);
+      } else if (e.key === 'Shift') {
+        e.preventDefault();
+        handlers.handleMoveToPrevCardHover();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        handlers.handleMoveToNextCardHover();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovered]);
 
   // add-to-deck deferred
 
