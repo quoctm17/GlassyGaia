@@ -25,20 +25,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+---
+
+## [v1.4.0] - 2026-03-13
+
 ### Added
-- Inline Listening practice mode on the Search page: blank main subtitles directly in `SearchResultCard` with a Check button, percentage score, and XP + diamond display.
-- New Cloudflare D1 migrations and rewards config entries for `listening_attempt` and `reading_attempt`, wired into `trackAttempt` so listening/reading practice can award XP.
-- Improved episode navigation and keyboard shortcuts (A/D/C/S/Shift) in `SearchResultCard` for smoother review on the Search page.
+- Inline **Speaking** practice mode on the Search page: click Speak → Web Speech API records user voice → transcript compared against primary subtitle → percentage score + XP awarded.
+- Inline **Reading** practice mode: subtitles hidden by default, Show/Hide toggle reveals them and awards XP (limited to 1 XP per card per day via `xp_transactions` deduplication to prevent spam).
+- Inline **Writing** practice mode: all words from the primary subtitle shown as draggable tiles in shuffled order; user drags to correct position then clicks Check → correct/incorrect tile colors + full correct sentence + score + XP.
+- Inline **Listening** practice mode (from previous sprint): blank fill-in-the-gap directly in `SearchResultCard` with Check button, percentage score, and XP + diamond display.
+- New Cloudflare D1 reward config entries for `speaking_attempt` (ID 6), `writing_attempt` (ID 7), `listening_attempt` (ID 8), `reading_attempt` (ID 9) wired into `trackAttempt`.
+- NavBar now listens for `xp-awarded` custom events to refresh portfolio XP in real time after any practice attempt.
+- Improved episode navigation and keyboard shortcuts (A/D/C/S/Shift/Enter) in `SearchResultCard` for smoother review on the Search page.
 
 ### Changed
-- Search/portfolio XP tracking to treat listening/reading attempts consistently with speaking/writing attempts.
+- Writing practice tiles use the same correct/incorrect color system (`--practice-blank-input-correct-*` / `--practice-blank-input-incorrect-*`) as Listening blanks for visual consistency.
+- Writing footer after Check shows the full correct sentence alongside score and XP (matching Listening UX).
+- Listening blank inputs now always display the full typed text: `min-width: 6ch`, dynamic width grows with content.
 - Search result card layout so preview images always fill the left column width responsively, and bottom controls stay on a single row.
 - Search page grid margins for viewports ≤1300px to keep results closer to the left while preserving the existing percentage offsets.
 - Content selector and `/items` backend so only content with available cards (count > 0) is shown, ordered by card count and title.
 - Search feedback like/dislike state now resets whenever a new search is performed.
+- Added `--practice-writing-bg` and `--practice-writing-border` CSS variables to the theme system (light/dark).
+
+### Fixed
+- Dropdown menu z-index: `.card-bottom-section` overflow changed to `visible` so the SRS dropdown renders above the card.
+- ESLint errors in `SearchResultCard.tsx`: replaced `any` types with proper interfaces (`SpeechRecognitionCtor`, `audioPlayHandlerRef` WeakMap pattern, `| null` union on `shortcutHandlersRef`), removed unnecessary regex escape `\[`.
+- Writing practice tiles now appear immediately when Writing mode is selected (fixed effect ordering bug where reset effect was clearing words after init effect).
 
 ### Removed
-- Legacy Practice flow (separate Practice page, modal, and dedicated Practice components/styles) in favour of the new inline Listening experience on the Search page.
+- Legacy Practice flow (separate Practice page, modal, and dedicated `PracticeListening`, `PracticeReading`, `PracticeSpeaking`, `PracticeWriting` components and their CSS) in favour of the new inline practice experience on the Search page.
 
 ---
 

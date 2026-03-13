@@ -157,6 +157,44 @@ User: "Add JWT authentication to the API"
 - **Gate criteria**: blueprint → code → deployment
 - **Template consistency**: standardized docs
 
+## 🎮 GlassyGaia Practice Modes
+
+GlassGaia là app học ngôn ngữ qua phim/subtitles. Dưới đây là các practice modes được implement trong SearchResultCard:
+
+### Inline Practice Modes (Search Page)
+
+| Mode | Mô tả | UX |
+|------|--------|-----|
+| **Listening** | Fill-in-the-blank trên main subtitle | Từng từ trong câu có ô trống để user điền, Check để tính điểm % |
+| **Speaking** | Speech-to-text recognition | Nhấn Speak → nói → so sánh transcript với câu gốc → điểm % + XP |
+| **Reading** | Ẩn/hiện subtitles | Subtitles ẩn mặc định, Show để hiện + nhận XP (1 lần/ngày/card) |
+| **Writing** | Drag-and-drop word ordering | Từ shuffled hiển thị dưới dạng tiles, kéo thả xếp đúng thứ tự → Check |
+
+### Reward Config IDs
+
+```typescript
+const REWARD_CONFIG_IDS = {
+  SPEAKING_ATTEMPT: 6,   // 1 XP per attempt
+  WRITING_ATTEMPT: 7,    // 1 XP per attempt
+  LISTENING_ATTEMPT: 8,  // 1 XP per attempt
+  READING_ATTEMPT: 9,    // 1 XP per day per card (dedup via xp_transactions)
+};
+```
+
+### XP Tracking
+
+- Backend: `cloudflare-worker/src/services/gamification.js` → `trackAttempt(type, cardId, filmId)`
+- Frontend: `apiTrackAttempt()` trong `src/services/userTracking.ts`
+- Events: `window.dispatchEvent(new CustomEvent('xp-awarded', { detail: { xp } }))` để NavBar refresh portfolio real-time
+- Daily limit: Reading chỉ award 1 XP/ngày/card (query `xp_transactions` table)
+
+### Tech Patterns
+
+- **React**: memoized SearchResultCard, useCallback, useRef cho audio handlers
+- **Speech API**: `window.SpeechRecognition` hoặc `webkitSpeechRecognition`, BCP-47 language mapping
+- **Drag-drop**: HTML5 native API, `onDragStart`/`onDragOver`/`onDragEnd`
+- **CSS**: Theme variables (`--practice-blank-input-correct-*`, `--practice-writing-bg`), inline styles cho dynamic colors
+
 ## 🔧 Advanced Configuration
 
 ### Custom Rules
