@@ -436,8 +436,20 @@ export async function trackAttempt(env, userId, type, cardId, filmId) {
   await getOrCreateUserScores(env, userId);
   await getOrCreateDailyActivity(env, userId);
 
+  // For reading: only award XP once per card per day (prevent Show/Hide spam)
+  let shouldAwardXp = true;
+  if (type === 'reading' && cardId && rewardConfig.xp_amount > 0) {
+    const todayStart = new Date(today + 'T00:00:00.000Z').getTime();
+    const existing = await env.DB.prepare(`
+      SELECT id FROM xp_transactions
+      WHERE user_id = ? AND card_id = ? AND reward_config_id = ? AND created_at >= ?
+      LIMIT 1
+    `).bind(userId, cardId, rewardConfigId, todayStart).first();
+    if (existing) shouldAwardXp = false;
+  }
+
   // Award XP (will handle transaction, daily stats, and streak)
-  if (rewardConfig.xp_amount > 0) {
+  if (rewardConfig.xp_amount > 0 && shouldAwardXp) {
     await awardXP(
       env,
       userId,
@@ -645,5 +657,5 @@ export async function trackAttempt(env, userId, type, cardId, filmId) {
     }
   }
 
-  return { xpAwarded: rewardConfig.xp_amount || 0 };
+  return { xpAwarded: (shouldAwardXp && rewardConfig.xp_amount) ? rewardConfig.xp_amount : 0 };
 }

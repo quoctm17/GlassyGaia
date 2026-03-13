@@ -86,7 +86,7 @@ const SearchResultCard = memo(function SearchResultCard({
     handleMoveToPrevCardHover: () => void;
     handleMoveToNextCardHover: () => void;
     handleToggleSave: (e: React.MouseEvent) => void;
-  }>(null as any);
+  } | null>(null);
   const [card, setCard] = useState<CardDoc>(initialCard);
   const [isHovered, setIsHovered] = useState<boolean>(false);
   const [expandedSubtitles, setExpandedSubtitles] = useState<Set<string>>(new Set());
@@ -102,6 +102,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const hasIncrementedListeningSession = useRef<boolean>(false);
   const isIncrementingListeningSession = useRef<boolean>(false);
   const pendingReviewIncrement = useRef<{ cardId: string; filmId?: string; episodeId?: string } | null>(null);
+  const audioPlayHandlerRef = useRef<(() => void) | null>(null);
   
   // Reading time tracking
   const readingStartTimeRef = useRef<number | null>(null);
@@ -113,11 +114,30 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Inline Listening practice state (Search page Practice dropdown)
   const [listeningAnswers, setListeningAnswers] = useState<Record<number, string>>({});
+  const listeningInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const [listeningChecked, setListeningChecked] = useState<boolean>(false);
   const [listeningScore, setListeningScore] = useState<number | null>(null);
   const [listeningIncorrect, setListeningIncorrect] = useState<number[]>([]);
   const [listeningXp, setListeningXp] = useState<number | null>(null);
   const [isSubmittingListening, setIsSubmittingListening] = useState<boolean>(false);
+
+  // Speaking practice state
+  const [speakingTranscript, setSpeakingTranscript] = useState<string>('');
+  const [speakingScore, setSpeakingScore] = useState<number | null>(null);
+  const [speakingXp, setSpeakingXp] = useState<number | null>(null);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [speakingChecked, setSpeakingChecked] = useState<boolean>(false);
+
+  // Reading practice state
+  const [readingRevealed, setReadingRevealed] = useState<boolean>(false);
+  const [readingXp, setReadingXp] = useState<number | null>(null);
+
+  // Writing practice state (drag-and-drop word ordering)
+  const [writingWords, setWritingWords] = useState<string[]>([]);
+  const [writingChecked, setWritingChecked] = useState<boolean>(false);
+  const [writingScore, setWritingScore] = useState<number | null>(null);
+  const [writingXp, setWritingXp] = useState<number | null>(null);
+  const writingDragIndex = useRef<number | null>(null);
 
 
   // Resolve image URL - API already returns full URL from image_key/audio_key
@@ -393,16 +413,16 @@ const SearchResultCard = memo(function SearchResultCard({
     };
     
     audio.addEventListener('play', handlePlay);
-    
+
     // Store handler for cleanup
-    (audio as any).__listeningSessionHandler = handlePlay;
+    audioPlayHandlerRef.current = handlePlay;
   }, [user?.uid]);
-  
+
   // Cleanup audio play listener
   const cleanupAudioPlayListener = useCallback((audio: HTMLAudioElement | null) => {
-    if (audio && (audio as any).__listeningSessionHandler) {
-      audio.removeEventListener('play', (audio as any).__listeningSessionHandler);
-      delete (audio as any).__listeningSessionHandler;
+    if (audio && audioPlayHandlerRef.current) {
+      audio.removeEventListener('play', audioPlayHandlerRef.current);
+      audioPlayHandlerRef.current = null;
     }
   }, []);
 
@@ -486,7 +506,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const normalizeListeningWord = (text: string): string => {
     if (!text) return "";
     let normalized = text.replace(/\[[^\]]+\]/g, "");
-    normalized = normalized.replace(/[、。．・，,。！!？?：:；;「」『』（）()［］\[\]…—-]/g, "");
+    normalized = normalized.replace(/[、。．・，,。！!？?：:；;「」『』（）()［］[\]…—-]/g, "");
     normalized = normalized.replace(/[\p{P}\p{S}]/gu, "");
     normalized = normalized.trim().replace(/\s+/g, " ").toLowerCase();
     return normalized;
@@ -532,6 +552,33 @@ const SearchResultCard = memo(function SearchResultCard({
     return { raw, tokens, blankTokenIndexes, expectedNormalized };
   }, [card, subsOverride, primaryLang, practiceMode, subtitleKeys]);
 
+  // Writing practice config: all tokens from primary subtitle, shuffled
+  const writingConfig = useMemo(() => {
+    if (practiceMode !== "writing") return null;
+    const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
+    const primaryCode = primaryLang ? canonicalizeLangCode(primaryLang) || primaryLang : undefined;
+    if (!primaryCode) return null;
+    let raw = subtitleText(effectiveCard, primaryCode) ?? "";
+    if (!raw) raw = effectiveCard.sentence ?? "";
+    if (!raw) return null;
+    const tokens = raw.split(/\s+/).filter(w => w.length > 0);
+    if (tokens.length < 2) return null;
+    // Fisher-Yates shuffle (seeded by card.id for consistency within a session)
+    const shuffled = [...tokens];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return { tokens, shuffled };
+  }, [card, subsOverride, primaryLang, practiceMode, subtitleKeys]);
+
+  // Initialize writingWords when writingConfig is ready
+  useEffect(() => {
+    if (writingConfig) {
+      setWritingWords([...writingConfig.shuffled]);
+    }
+  }, [writingConfig]);
+
   // Reset inline Listening practice state when card or mode changes
   useEffect(() => {
     setListeningAnswers({});
@@ -541,6 +588,29 @@ const SearchResultCard = memo(function SearchResultCard({
     setListeningXp(null);
     setIsSubmittingListening(false);
   }, [card.id, practiceMode, listeningClozeConfig]);
+
+  // Reset speaking, reading, writing practice state when card or mode changes
+  useEffect(() => {
+    setSpeakingTranscript('');
+    setSpeakingScore(null);
+    setSpeakingXp(null);
+    setIsRecording(false);
+    setSpeakingChecked(false);
+    setReadingRevealed(false);
+    setReadingXp(null);
+    // writingWords is reset by the writingConfig init effect below
+    setWritingChecked(false);
+    setWritingScore(null);
+    setWritingXp(null);
+  }, [card.id, practiceMode]);
+
+  const handleListeningAgain = () => {
+    setListeningAnswers({});
+    setListeningChecked(false);
+    setListeningScore(null);
+    setListeningIncorrect([]);
+    setListeningXp(null);
+  };
 
   const handleListeningCheck = async () => {
     if (!listeningClozeConfig) return;
@@ -579,6 +649,9 @@ const SearchResultCard = memo(function SearchResultCard({
         );
         if (typeof res?.xp_awarded === "number") {
           setListeningXp(res.xp_awarded);
+          if (res.xp_awarded > 0) {
+            window.dispatchEvent(new CustomEvent('xp-awarded', { detail: { xp: res.xp_awarded } }));
+          }
         }
       } catch (error) {
         console.error("Failed to track listening attempt:", error);
@@ -586,6 +659,169 @@ const SearchResultCard = memo(function SearchResultCard({
         setIsSubmittingListening(false);
       }
     }
+  };
+
+  // BCP-47 language code mapping for Web Speech API
+  const langToBCP47: Record<string, string> = {
+    ja: 'ja-JP', en: 'en-US', vi: 'vi-VN',
+    zh: 'zh-CN', zh_trad: 'zh-TW', ko: 'ko-KR',
+    fr: 'fr-FR', de: 'de-DE', es: 'es-ES',
+    it: 'it-IT', pt: 'pt-PT', ru: 'ru-RU',
+    ar: 'ar-SA', th: 'th-TH', id: 'id-ID',
+  };
+
+  const handleSpeakStart = () => {
+    type SpeechRecognitionCtor = new () => {
+      lang: string;
+      interimResults: boolean;
+      maxAlternatives: number;
+      onresult: ((event: { results: { [k: number]: { [k: number]: { transcript: string } } } }) => void) | null;
+      onerror: (() => void) | null;
+      onend: (() => void) | null;
+      start: () => void;
+    };
+    const SpeechRecognition: SpeechRecognitionCtor | undefined =
+      (window as Window & { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ||
+      (window as Window & { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    const primaryCode = primaryLang ? (canonicalizeLangCode(primaryLang) || primaryLang) : 'en';
+    const bcp47 = langToBCP47[primaryCode] || `${primaryCode}-${primaryCode.toUpperCase()}`;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = bcp47;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    setIsRecording(true);
+
+    recognition.onresult = async (event) => {
+      const transcript = event.results[0][0].transcript;
+      setSpeakingTranscript(transcript);
+      setIsRecording(false);
+      setSpeakingChecked(true);
+
+      // Score: compare transcript words against card.sentence
+      const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
+      const reference = subtitleText(effectiveCard, primaryCode) || effectiveCard.sentence || '';
+      const refWords = reference.toLowerCase().replace(/[^\p{L}\s]/gu, '').split(/\s+/).filter(Boolean);
+      const spokenWords = transcript.toLowerCase().replace(/[^\p{L}\s]/gu, '').split(/\s+/).filter(Boolean);
+      let correct = 0;
+      refWords.forEach(w => { if (spokenWords.includes(w)) correct++; });
+      const score = refWords.length > 0 ? Math.round((correct / refWords.length) * 10000) / 100 : 0;
+      setSpeakingScore(score);
+
+      // Award XP
+      if (user?.uid) {
+        try {
+          const res = await apiTrackAttempt(user.uid, 'speaking', card.id, card.film_id);
+          if (typeof res?.xp_awarded === 'number') {
+            setSpeakingXp(res.xp_awarded);
+            if (res.xp_awarded > 0) {
+              window.dispatchEvent(new CustomEvent('xp-awarded', { detail: { xp: res.xp_awarded } }));
+            }
+          }
+        } catch (error) {
+          console.error('Failed to track speaking attempt:', error);
+        }
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.start();
+  };
+
+  const handleSpeakAgain = () => {
+    setSpeakingTranscript('');
+    setSpeakingScore(null);
+    setSpeakingXp(null);
+    setSpeakingChecked(false);
+  };
+
+  const handleReadingShow = async () => {
+    setReadingRevealed(true);
+    if (user?.uid) {
+      try {
+        const res = await apiTrackAttempt(user.uid, 'reading', card.id, card.film_id);
+        if (typeof res?.xp_awarded === 'number') {
+          setReadingXp(res.xp_awarded);
+          if (res.xp_awarded > 0) {
+            window.dispatchEvent(new CustomEvent('xp-awarded', { detail: { xp: res.xp_awarded } }));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to track reading attempt:', error);
+      }
+    }
+  };
+
+  // Writing practice handlers
+  const handleWritingDragStart = (index: number) => {
+    writingDragIndex.current = index;
+  };
+
+  const handleWritingDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (writingDragIndex.current === null || writingDragIndex.current === index) return;
+    const newWords = [...writingWords];
+    const draggedWord = newWords[writingDragIndex.current];
+    newWords.splice(writingDragIndex.current, 1);
+    newWords.splice(index, 0, draggedWord);
+    setWritingWords(newWords);
+    writingDragIndex.current = index;
+  };
+
+  const handleWritingDragEnd = () => {
+    writingDragIndex.current = null;
+  };
+
+  const handleWritingCheck = async () => {
+    if (!writingConfig) return;
+    setWritingChecked(true);
+    const correct = writingConfig.tokens;
+    const userOrder = writingWords;
+    let matchCount = 0;
+    correct.forEach((w, i) => { if (userOrder[i] === w) matchCount++; });
+    const score = Math.round((matchCount / correct.length) * 10000) / 100;
+    setWritingScore(score);
+    if (user?.uid) {
+      try {
+        const res = await apiTrackAttempt(user.uid, 'writing', card.id, card.film_id);
+        if (typeof res?.xp_awarded === 'number') {
+          setWritingXp(res.xp_awarded);
+          if (res.xp_awarded > 0) {
+            window.dispatchEvent(new CustomEvent('xp-awarded', { detail: { xp: res.xp_awarded } }));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to track writing attempt:', error);
+      }
+    }
+  };
+
+  const handleWritingAgain = () => {
+    if (writingConfig) {
+      // Re-shuffle
+      const shuffled = [...writingConfig.shuffled];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      setWritingWords(shuffled);
+    }
+    setWritingChecked(false);
+    setWritingScore(null);
+    setWritingXp(null);
   };
 
   // Fetch subtitle data when subtitle languages change or when subtitles are missing
@@ -1803,7 +2039,9 @@ const SearchResultCard = memo(function SearchResultCard({
               return map[c] || c;
             };
             const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
-            const items = shownLangs;
+            const items = (practiceMode === "reading" && !readingRevealed)
+              ? shownLangs.filter(c => c === primaryCode)
+              : shownLangs;
             return items.map((code) => {
               let raw = subtitleText(effectiveCard, code) ?? "";
               const q = (highlightQuery ?? "").trim();
@@ -1852,7 +2090,52 @@ const SearchResultCard = memo(function SearchResultCard({
                   onMouseUp={handleSubtitleMouseUp}
                   title={isExpanded ? "Click to collapse" : "Click to expand"}
                 >
-                  {practiceMode === "listening" && isPrimary && listeningClozeConfig
+                  {practiceMode === "writing" && isPrimary && writingConfig
+                    ? (() => {
+                        return (
+                          <span className="subtitle-text card-practice-cloze-line" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                            {writingWords.map((word, idx) => {
+                              const isCorrect = writingChecked && writingConfig.tokens[idx] === writingWords[idx];
+                              const isIncorrect = writingChecked && writingConfig.tokens[idx] !== writingWords[idx];
+                              return (
+                                <span
+                                  key={idx}
+                                  draggable
+                                  onDragStart={() => handleWritingDragStart(idx)}
+                                  onDragOver={(e) => handleWritingDragOver(e, idx)}
+                                  onDragEnd={handleWritingDragEnd}
+                                  style={{
+                                    padding: '2px 8px',
+                                    background: isCorrect
+                                      ? 'var(--practice-blank-input-correct-bg)'
+                                      : isIncorrect
+                                        ? 'var(--practice-blank-input-incorrect-bg)'
+                                        : 'var(--practice-blank-input-bg)',
+                                    color: isCorrect
+                                      ? 'var(--practice-blank-input-correct-text)'
+                                      : isIncorrect
+                                        ? 'var(--practice-blank-input-incorrect-text)'
+                                        : 'var(--text)',
+                                    borderRadius: '4px',
+                                    cursor: writingChecked ? 'default' : 'grab',
+                                    userSelect: 'none',
+                                    border: `1px solid ${isCorrect
+                                      ? 'var(--practice-blank-input-correct-border)'
+                                      : isIncorrect
+                                        ? 'var(--practice-blank-input-incorrect-border)'
+                                        : 'var(--practice-blank-input-border)'}`,
+                                    fontSize: 'inherit',
+                                    lineHeight: '1.5',
+                                  }}
+                                >
+                                  {word}
+                                </span>
+                              );
+                            })}
+                          </span>
+                        );
+                      })()
+                    : practiceMode === "listening" && isPrimary && listeningClozeConfig
                     ? (() => {
                         const { tokens, blankTokenIndexes } = listeningClozeConfig;
                         return (
@@ -1874,26 +2157,32 @@ const SearchResultCard = memo(function SearchResultCard({
                               const value = listeningAnswers[blankIndex] ?? "";
                               const isIncorrect =
                                 listeningChecked && listeningIncorrect.includes(blankIndex);
+                              const isCorrect =
+                                listeningChecked && !listeningIncorrect.includes(blankIndex);
 
                               return (
                                 <span key={`b-${idx}`} className="card-practice-blank-wrapper">
                                   <input
                                     type="text"
+                                    ref={(el) => { listeningInputRefs.current[blankIndex] = el; }}
                                     className={
                                       "card-practice-blank-input" +
+                                      (isCorrect ? " card-practice-blank-input-correct" : "") +
                                       (isIncorrect ? " card-practice-blank-input-incorrect" : "")
                                     }
                                     value={value}
-                                    onChange={(e) =>
+                                    style={{ minWidth: '6ch', width: `${Math.max(6, (value || '').length + 2)}ch` }}
+                                    onChange={(e) => {
+                                      const newValue = e.target.value;
                                       setListeningAnswers((prev) => ({
                                         ...prev,
-                                        [blankIndex]: e.target.value,
-                                      }))
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        handleListeningCheck();
+                                        [blankIndex]: newValue,
+                                      }));
+                                      // Auto-focus next blank when user types expected length
+                                      const expectedLen = listeningClozeConfig.expectedNormalized[blankIndex]?.length || 3;
+                                      if (newValue.length >= expectedLen && blankIndex < listeningClozeConfig.blankTokenIndexes.length - 1) {
+                                        const nextIdx = listeningClozeConfig.blankTokenIndexes[blankIndex + 1];
+                                        setTimeout(() => listeningInputRefs.current[nextIdx]?.focus(), 0);
                                       }
                                     }}
                                   />
@@ -1928,23 +2217,51 @@ const SearchResultCard = memo(function SearchResultCard({
 
           {practiceMode === "listening" && listeningClozeConfig && (
             <div className="card-practice-footer-row">
-              <button
-                type="button"
-                className="card-practice-check-btn"
-                onClick={handleListeningCheck}
-                disabled={
-                  isSubmittingListening ||
-                  listeningChecked ||
-                  Object.keys(listeningAnswers).length === 0
-                }
-              >
-                Check
-              </button>
-              {listeningScore !== null && (
-                <div className="card-practice-feedback">
-                  <span className="card-practice-score">
-                    {listeningScore.toFixed(2)}%
+              {!listeningChecked ? (
+                <button
+                  type="button"
+                  className="card-practice-check-btn"
+                  onClick={handleListeningCheck}
+                  disabled={
+                    isSubmittingListening ||
+                    Object.keys(listeningAnswers).length === 0
+                  }
+                >
+                  Check
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="card-practice-again-btn"
+                    onClick={handleListeningAgain}
+                  >
+                    Again
+                  </button>
+                  <span className="card-practice-correct-answer">
+                    {listeningClozeConfig.tokens
+                      .map((token, idx) => {
+                        const bi = listeningClozeConfig.blankTokenIndexes.indexOf(idx);
+                        return bi >= 0
+                          ? listeningClozeConfig.expectedNormalized[bi]
+                          : token;
+                      })
+                      .join(" ")}
                   </span>
+                  {listeningScore !== null && (
+                    <span
+                      className="card-practice-score"
+                      style={{ color: (() => {
+                        const s = listeningScore / 100;
+                        const r = Math.round(201 - s * (201 - 46));
+                        const g = Math.round(74 + s * (125 - 74));
+                        const b = Math.round(74 + s * (50 - 74));
+                        return `rgb(${r},${g},${b})`;
+                      })() }}
+                    >
+                      {listeningScore.toFixed(2)}%
+                    </span>
+                  )}
                   {listeningXp !== null && (
                     <span className="card-practice-xp">
                       <img
@@ -1957,7 +2274,146 @@ const SearchResultCard = memo(function SearchResultCard({
                       </span>
                     </span>
                   )}
-                </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {practiceMode === "speaking" && (
+            <div className="card-practice-footer-row">
+              {!speakingChecked ? (
+                <button
+                  type="button"
+                  className="card-practice-check-btn"
+                  onClick={handleSpeakStart}
+                  disabled={isRecording}
+                >
+                  {isRecording ? 'Recording...' : 'Speak'}
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="card-practice-again-btn"
+                    onClick={handleSpeakAgain}
+                  >
+                    Again
+                  </button>
+                  <span className="card-practice-correct-answer">
+                    {card.sentence || ''}
+                  </span>
+                  {speakingTranscript && (
+                    <span className="card-practice-correct-answer" style={{ fontStyle: 'italic', opacity: 0.8 }}>
+                      ({speakingTranscript})
+                    </span>
+                  )}
+                  {speakingScore !== null && (
+                    <span
+                      className="card-practice-score"
+                      style={{ color: (() => {
+                        const s = speakingScore / 100;
+                        const r = Math.round(201 - s * (201 - 46));
+                        const g = Math.round(74 + s * (125 - 74));
+                        const b = Math.round(74 + s * (50 - 74));
+                        return `rgb(${r},${g},${b})`;
+                      })() }}
+                    >
+                      {speakingScore.toFixed(2)}%
+                    </span>
+                  )}
+                  {speakingXp !== null && (
+                    <span className="card-practice-xp">
+                      <img
+                        src={diamondScoreIcon}
+                        alt="XP"
+                        className="card-practice-xp-icon"
+                      />
+                      <span className="card-practice-xp-text">
+                        +{speakingXp}xp
+                      </span>
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {practiceMode === "reading" && (
+            <div className="card-practice-footer-row">
+              {!readingRevealed ? (
+                <button
+                  type="button"
+                  className="card-practice-check-btn"
+                  onClick={handleReadingShow}
+                >
+                  Show
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="card-practice-again-btn"
+                    onClick={() => setReadingRevealed(false)}
+                  >
+                    Hide
+                  </button>
+                  {readingXp !== null && (
+                    <span className="card-practice-xp">
+                      <img
+                        src={diamondScoreIcon}
+                        alt="XP"
+                        className="card-practice-xp-icon"
+                      />
+                      <span className="card-practice-xp-text">
+                        +{readingXp}xp
+                      </span>
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {practiceMode === "writing" && writingConfig && (
+            <div className="card-practice-footer-row">
+              {!writingChecked ? (
+                <button
+                  type="button"
+                  className="card-practice-check-btn"
+                  onClick={handleWritingCheck}
+                >
+                  Check
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="card-practice-again-btn"
+                    onClick={handleWritingAgain}
+                  >
+                    Again
+                  </button>
+                  <span className="card-practice-correct-answer">
+                    {writingConfig.tokens.join(' ')}
+                  </span>
+                  {writingScore !== null && (
+                    <span className="card-practice-score">
+                      {writingScore}%
+                    </span>
+                  )}
+                  {writingXp !== null && (
+                    <span className="card-practice-xp">
+                      <img
+                        src={diamondScoreIcon}
+                        alt="XP"
+                        className="card-practice-xp-icon"
+                      />
+                      <span className="card-practice-xp-text">
+                        +{writingXp}xp
+                      </span>
+                    </span>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1978,6 +2434,7 @@ const SearchResultCard = memo(function SearchResultCard({
 
   return (
     prevProps.card.id === nextProps.card.id &&
+    prevProps.practiceMode === nextProps.practiceMode &&
     prevSubKeys === nextSubKeys &&
     prevLangs === nextLangs &&
     prevProps.highlightQuery === nextProps.highlightQuery &&

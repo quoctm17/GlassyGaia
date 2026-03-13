@@ -2,7 +2,6 @@
 
 .pixel-result-card-new {
   border-radius: 0;
-  padding: 8px 16px 16px 16px;
   display: flex;
   flex-direction: column;
   transition: transform .15s ease;
@@ -56,7 +55,7 @@
 .card-left-and-bottom {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 5px;
   min-width: 280px;
   max-width: 280px;
   flex-shrink: 0;
@@ -82,7 +81,7 @@
   justify-content: space-between;
   gap: 10px;
   flex-wrap: nowrap;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .card-metadata-top {
@@ -597,7 +596,6 @@
   gap: 6px;
   justify-content: center;
   align-items: center;
-  margin-top: 8px;
   flex-wrap: wrap;
 }
 
@@ -669,6 +667,11 @@
   font-size: 16px !important;
 }
 
+/* Override main subtitle font-size to 16px in search cards */
+.card-subtitles [class*="-main"] {
+  font-size: 16px !important;
+}
+
 /* Allow selecting & copying subtitle text */
 .card-subtitles .subtitle-row,
 .card-subtitles .subtitle-row .subtitle-text {
@@ -708,27 +711,37 @@
 }
 
 .card-practice-blank-input {
-  min-width: 40px;
-  max-width: 140px;
-  padding: 2px 4px;
+  width: auto;
+  min-width: 6ch;
+  max-width: 12em;
+  padding: 2px 6px;
   margin: 0 2px;
   border-radius: 4px;
-  border: 1px solid var(--practice-input-border);
-  background-color: var(--practice-input-bg);
+  border: 1px solid var(--practice-blank-input-border);
+  background-color: var(--practice-blank-input-bg);
   font-size: inherit;
+  box-sizing: border-box;
+}
+
+.card-practice-blank-input-correct {
+  border-color: var(--practice-blank-input-correct-border);
+  background-color: var(--practice-blank-input-correct-bg);
+  color: var(--practice-blank-input-correct-text);
 }
 
 .card-practice-blank-input-incorrect {
-  border-color: var(--practice-error-input-border);
-  background-color: var(--practice-error-input-bg);
-  color: var(--practice-error-input-text);
+  border-color: var(--practice-blank-input-incorrect-border);
+  background-color: var(--practice-blank-input-incorrect-bg);
+  color: var(--practice-blank-input-incorrect-text);
 }
 
 .card-practice-footer-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 4px;
+  margin-top: 17px;
+  padding-bottom: 4px;
+  flex-wrap: wrap;
 }
 
 .card-practice-check-btn {
@@ -740,12 +753,29 @@
   font-size: 12px;
   font-weight: 600;
   background-color: var(--practice-check-bg);
-  color: #ffffff;
+  color: var(--text);
+  box-shadow: 0 4px 4px rgba(0, 0, 0, 0.25);
 }
 
 .card-practice-check-btn:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.card-practice-again-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: var(--practice-again-btn-bg);
+  color: var(--practice-again-btn-text);
+}
+
+.card-practice-again-btn:hover {
+  opacity: 0.9;
 }
 
 .card-practice-feedback {
@@ -754,6 +784,11 @@
   gap: 8px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 12px;
+}
+
+.card-practice-correct-answer {
+  color: #2E7D32;
+  font-weight: 500;
 }
 
 .card-practice-score {
@@ -1030,17 +1065,13 @@
 .pixel-btn-menu {
   border: none;
   cursor: pointer;
-  transition: all .15s ease;
+  transition: filter 0.15s ease;
   padding: 4px;
   background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-}
-
-.pixel-btn-menu:hover {
-  transform: scale(1.1);
 }
 
 .pixel-btn-menu img {
