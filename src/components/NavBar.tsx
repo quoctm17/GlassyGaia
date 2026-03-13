@@ -72,6 +72,24 @@ export default function NavBar() {
     };
   }, [user?.uid]);
 
+  // Listen for XP awarded events to refresh portfolio
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const handleXpAwarded = () => {
+      apiGetUserPortfolio(user.uid)
+        .then((data) => {
+          if (data) setPortfolio(data);
+        })
+        .catch((error) => {
+          console.error("Failed to refresh portfolio after XP awarded:", error);
+        });
+    };
+
+    window.addEventListener('xp-awarded', handleXpAwarded);
+    return () => window.removeEventListener('xp-awarded', handleXpAwarded);
+  }, [user?.uid]);
+
   return (
     <nav className="pixel-navbar flex justify-between items-center">
       <div className="flex items-center gap-8">

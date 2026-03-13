@@ -91,6 +91,20 @@
   --light-practice-input-section-bg: #FFFFFF;
   --light-practice-input-bg: #FFFFFF;
   --light-practice-check-bg: rgba(76, 175, 147, 0.5); /* #4CAF93 at 50% */
+  /* Practice listening inline blanks */
+  --light-practice-blank-input-bg: #F2EDE5; /* secondary-like */
+  --light-practice-blank-input-border: #948979;
+  --light-practice-blank-input-correct-bg: #E9F6EF;
+  --light-practice-blank-input-correct-border: #2E7D32;
+  --light-practice-blank-input-correct-text: #2E7D32;
+  --light-practice-blank-input-incorrect-bg: #FCEAEA;
+  --light-practice-blank-input-incorrect-border: #C94A4A;
+  --light-practice-blank-input-incorrect-text: #C94A4A;
+  --light-practice-again-btn-bg: #F2EDE5;
+  --light-practice-again-btn-text: #948979;
+  /* Practice writing drag tiles */
+  --light-practice-writing-bg: #F2EDE5;
+  --light-practice-writing-border: #948979;
 
   /* Light Mode - Navbar specific */
   --light-navbar-logo-text: #F2EDE5;
@@ -190,6 +204,20 @@
   --dark-practice-input-section-bg: #2B2328;
   --dark-practice-input-bg: #FFFFFF;
   --dark-practice-check-bg: rgba(76, 175, 147, 0.5);
+  /* Practice listening inline blanks */
+  --dark-practice-blank-input-bg: rgba(242, 237, 229, 0.1);
+  --dark-practice-blank-input-border: #948979;
+  --dark-practice-blank-input-correct-bg: rgba(16, 185, 129, 0.16);
+  --dark-practice-blank-input-correct-border: #6EE7B7;
+  --dark-practice-blank-input-correct-text: #6EE7B7;
+  --dark-practice-blank-input-incorrect-bg: rgba(248, 113, 113, 0.16);
+  --dark-practice-blank-input-incorrect-border: #FCA5A5;
+  --dark-practice-blank-input-incorrect-text: #FCA5A5;
+  --dark-practice-again-btn-bg: rgba(242, 237, 229, 0.08);
+  --dark-practice-again-btn-text: #948979;
+  /* Practice writing drag tiles */
+  --dark-practice-writing-bg: rgba(242, 237, 229, 0.1);
+  --dark-practice-writing-border: #948979;
 
   /* Dark Mode - Navbar specific */
   --dark-navbar-logo-text: #F2EDE5;
@@ -320,6 +348,18 @@
   --practice-input-section-bg: var(--light-practice-input-section-bg);
   --practice-input-bg: var(--light-practice-input-bg);
   --practice-check-bg: var(--light-practice-check-bg);
+  --practice-blank-input-bg: var(--light-practice-blank-input-bg);
+  --practice-blank-input-border: var(--light-practice-blank-input-border);
+  --practice-blank-input-correct-bg: var(--light-practice-blank-input-correct-bg);
+  --practice-blank-input-correct-border: var(--light-practice-blank-input-correct-border);
+  --practice-blank-input-correct-text: var(--light-practice-blank-input-correct-text);
+  --practice-blank-input-incorrect-bg: var(--light-practice-blank-input-incorrect-bg);
+  --practice-blank-input-incorrect-border: var(--light-practice-blank-input-incorrect-border);
+  --practice-blank-input-incorrect-text: var(--light-practice-blank-input-incorrect-text);
+  --practice-again-btn-bg: var(--light-practice-again-btn-bg);
+  --practice-again-btn-text: var(--light-practice-again-btn-text);
+  --practice-writing-bg: var(--light-practice-writing-bg);
+  --practice-writing-border: var(--light-practice-writing-border);
   --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
   --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
@@ -432,6 +472,18 @@
   --practice-input-section-bg: var(--dark-practice-input-section-bg);
   --practice-input-bg: var(--dark-practice-input-bg);
   --practice-check-bg: var(--dark-practice-check-bg);
+  --practice-blank-input-bg: var(--dark-practice-blank-input-bg);
+  --practice-blank-input-border: var(--dark-practice-blank-input-border);
+  --practice-blank-input-correct-bg: var(--dark-practice-blank-input-correct-bg);
+  --practice-blank-input-correct-border: var(--dark-practice-blank-input-correct-border);
+  --practice-blank-input-correct-text: var(--dark-practice-blank-input-correct-text);
+  --practice-blank-input-incorrect-bg: var(--dark-practice-blank-input-incorrect-bg);
+  --practice-blank-input-incorrect-border: var(--dark-practice-blank-input-incorrect-border);
+  --practice-blank-input-incorrect-text: var(--dark-practice-blank-input-incorrect-text);
+  --practice-again-btn-bg: var(--dark-practice-again-btn-bg);
+  --practice-again-btn-text: var(--dark-practice-again-btn-text);
+  --practice-writing-bg: var(--dark-practice-writing-bg);
+  --practice-writing-border: var(--dark-practice-writing-border);
   --practice-reading-wrapper-bg: var(--dark-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--dark-practice-reading-wrapper-border);
   --subtitle-chip-bg: var(--dark-subtitle-chip-bg);
