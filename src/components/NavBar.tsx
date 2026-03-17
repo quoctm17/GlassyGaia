@@ -52,10 +52,28 @@ export default function NavBar() {
     let cancelled = false;
     setLoadingPortfolio(true);
 
+    // Check sessionStorage cache first (5 min TTL)
+    const cacheKey = `navbar_portfolio_${user.uid}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < 5 * 60 * 1000) {
+          setPortfolio(data);
+          setLoadingPortfolio(false);
+          return;
+        }
+      }
+    } catch { /* ignore */ }
+
     apiGetUserPortfolio(user.uid)
       .then((data) => {
         if (!cancelled) {
           setPortfolio(data);
+          // Cache the result
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify({ data, timestamp: Date.now() }));
+          } catch { /* ignore */ }
         }
       })
       .catch((error) => {

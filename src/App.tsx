@@ -45,6 +45,7 @@ const AdminPathMigrationPage = lazy(() => import('./pages/admin/AdminPathMigrati
 const AdminAudioMigrationPage = lazy(() => import('./pages/admin/AdminAudioMigrationPage'));
 // AdminPopulateFtsPage removed - FTS5 table dropped
 const AdminPopulateSearchWordsPage = lazy(() => import('./pages/admin/AdminPopulateSearchWordsPage'));
+const AdminUnavailableCardsPage = lazy(() => import('./pages/admin/AdminUnavailableCardsPage'));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -126,6 +127,8 @@ function App() {
                 <Route path="level-management" element={<AdminLevelManagementPage />} />
                 {/* Admin Reward Configuration */}
                 <Route path="reward-config" element={<AdminRewardConfigPage />} />
+                {/* Admin Unavailable Cards */}
+                <Route path="unavailable-cards" element={<AdminUnavailableCardsPage />} />
                 {/* Removed legacy /admin/films routes */}
                 <Route path="create" element={<AdminContentIngestPage />} />
                 <Route path="update" element={<AdminContentUpdatePage />} />

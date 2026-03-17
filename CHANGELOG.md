@@ -25,6 +25,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+### Added
+- Admin page to list and manage unavailable cards (`AdminUnavailableCardsPage`): view cards with unavailable flag, zero length, or invalid data, and mark them as available.
+
+### Fixed
+- Card save status now persists across page refresh and new searches (stored in sessionStorage, merged with API response instead of cleared).
+- Save card API retries with exponential backoff on DB overload (500 errors) instead of failing immediately.
+- SRS dropdown button no longer shows box-shadow or zoom effect on hover.
+- TypeScript build errors in `AdminUnavailableCardsPage`: `is_available` compared as boolean (not number), `film_id` fallback to empty string.
+
 ---
 
 ## [v1.4.0] - 2026-03-13
