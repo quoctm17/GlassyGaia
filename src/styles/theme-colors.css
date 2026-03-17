@@ -105,6 +105,10 @@
   /* Practice writing drag tiles */
   --light-practice-writing-bg: #F2EDE5;
   --light-practice-writing-border: #948979;
+  /* Speaking practice score colors */
+  --light-speaking-correct: #2E7D32;
+  --light-speaking-partial: #E86730;
+  --light-speaking-incorrect: #C94A4A;
 
   /* Light Mode - Navbar specific */
   --light-navbar-logo-text: #F2EDE5;
@@ -218,6 +222,10 @@
   /* Practice writing drag tiles */
   --dark-practice-writing-bg: rgba(242, 237, 229, 0.1);
   --dark-practice-writing-border: #948979;
+  /* Speaking practice score colors */
+  --dark-speaking-correct: #2E7D32;
+  --dark-speaking-partial: #E86730;
+  --dark-speaking-incorrect: #C94A4A;
 
   /* Dark Mode - Navbar specific */
   --dark-navbar-logo-text: #F2EDE5;
@@ -360,6 +368,9 @@
   --practice-again-btn-text: var(--light-practice-again-btn-text);
   --practice-writing-bg: var(--light-practice-writing-bg);
   --practice-writing-border: var(--light-practice-writing-border);
+  --speaking-correct: var(--light-speaking-correct);
+  --speaking-partial: var(--light-speaking-partial);
+  --speaking-incorrect: var(--light-speaking-incorrect);
   --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--light-practice-reading-wrapper-border);
   --practice-reading-wrapper-bg: var(--light-practice-reading-wrapper-bg);
@@ -484,6 +495,9 @@
   --practice-again-btn-text: var(--dark-practice-again-btn-text);
   --practice-writing-bg: var(--dark-practice-writing-bg);
   --practice-writing-border: var(--dark-practice-writing-border);
+  --speaking-correct: var(--dark-speaking-correct);
+  --speaking-partial: var(--dark-speaking-partial);
+  --speaking-incorrect: var(--dark-speaking-incorrect);
   --practice-reading-wrapper-bg: var(--dark-practice-reading-wrapper-bg);
   --practice-reading-wrapper-border: var(--dark-practice-reading-wrapper-border);
   --subtitle-chip-bg: var(--dark-subtitle-chip-bg);

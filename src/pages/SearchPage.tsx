@@ -30,27 +30,68 @@ import "../styles/pages/search-page.css";
 
 function SearchPage() {
   const { user, preferences } = useUser();
+  // Session storage key prefix
+  const SP_PREFIX = 'sp_';
+
+  // Helper to safely read from sessionStorage
+  const getSessionValue = <T,>(key: string, defaultValue: T): T => {
+    try {
+      const v = sessionStorage.getItem(SP_PREFIX + key);
+      if (v === null) return defaultValue;
+      return JSON.parse(v) as T;
+    } catch { return defaultValue; }
+  };
+
+  // Helper to safely read string from sessionStorage
+  const getSessionString = (key: string, defaultValue: string): string => {
+    try {
+      return sessionStorage.getItem(SP_PREFIX + key) || defaultValue;
+    } catch { return defaultValue; }
+  };
+
+  // Helper to safely read number from sessionStorage
+  const getSessionNumber = (key: string, defaultValue: number): number => {
+    try {
+      const v = sessionStorage.getItem(SP_PREFIX + key);
+      if (v === null) return defaultValue;
+      const n = Number(v);
+      return isNaN(n) ? defaultValue : n;
+    } catch { return defaultValue; }
+  };
+
   // inputValue: giá trị đang gõ trong ô SearchBar (không dùng để query trực tiếp)
-  const [searchInput, setSearchInput] = useState("");
+  const [searchInput, setSearchInput] = useState(() => getSessionString('input', ''));
   // query: giá trị đã được debounce, dùng để gọi API + highlight
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => getSessionString('query', ''));
   const [loading, setLoading] = useState(true);
-  const [firstLoading, setFirstLoading] = useState(true);
-  const [cards, setCards] = useState<CardDoc[]>([]);
-  const [total, setTotal] = useState(0);
-  const [cardSaveStatuses, setCardSaveStatuses] = useState<Record<string, { saved: boolean; srs_state: string; review_count: number }>>({});
-  const [contentFilter, setContentFilter] = useState<string[]>([]);
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  // Check if we have cached results - skip firstLoading skeleton if cache is warm
+  const [firstLoading, setFirstLoading] = useState(() => {
+    // If query is in sessionStorage, we have cached results
+    const hasCachedQuery = sessionStorage.getItem(SP_PREFIX + 'query') !== null;
+    return !hasCachedQuery;
+  });
+  const [cards, setCards] = useState<CardDoc[]>(() => getSessionValue<CardDoc[]>('cards', []));
+  const [total, setTotal] = useState(() => getSessionNumber('total', 0));
+  const [cardSaveStatuses, setCardSaveStatuses] = useState<Record<string, { saved: boolean; srs_state: string; review_count: number }>>(() => getSessionValue<Record<string, { saved: boolean; srs_state: string; review_count: number }>>('cardSaveStatuses', {}));
+  const [contentFilter, setContentFilter] = useState<string[]>(() => getSessionValue<string[]>('content_filter', []));
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(() => {
+    const v = sessionStorage.getItem(SP_PREFIX + 'filter_panel_open');
+    return v === null ? true : v === 'true';
+  });
+  const [page, setPage] = useState(() => getSessionNumber('page', 1));
+  const [hasMore, setHasMore] = useState(() => {
+    const v = sessionStorage.getItem(SP_PREFIX + 'has_more');
+    return v === null ? true : v === 'true';
+  });
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // Content metadata from search results only (no separate /items fetch for initial load)
-  const [contentMeta, setContentMeta] = useState<Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: import("../types").LevelFrameworkStats | null }>>({});
+  const [contentMeta, setContentMeta] = useState(() => getSessionValue<Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: import("../types").LevelFrameworkStats | null }>>('content_meta', {}));
   // Global content items list for ContentSelector (cached via apiListItems)
   const [allItems, setAllItems] = useState<any[]>([]);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
   const [isPracticeOpen, setIsPracticeOpen] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const [feedbackChoice, setFeedbackChoice] = useState<'up' | 'down' | null>(null);
   const [practiceMode, setPracticeMode] = useState<'listening' | 'reading' | 'speaking' | 'writing' | null>(null);
   // Legacy filters (kept for API compatibility, but not used in UI)
@@ -58,19 +99,86 @@ function SearchPage() {
   const [maxDifficulty] = useState(100);
   const [minLevel] = useState<string | null>(null);
   const [maxLevel] = useState<string | null>(null);
-  
+
   // New filters
-  const [minLength, setMinLength] = useState(1);
-  const [maxLength, setMaxLength] = useState(100);
-  const [maxDuration, setMaxDuration] = useState(120);
-  const [minReview, setMinReview] = useState(0);
-  const [maxReview, setMaxReview] = useState(1000);
+  const [minLength, setMinLength] = useState(() => getSessionNumber('min_length', 1));
+  const [maxLength, setMaxLength] = useState(() => getSessionNumber('max_length', 100));
+  const [maxDuration, setMaxDuration] = useState(() => getSessionNumber('max_duration', 120));
+  const [minReview, setMinReview] = useState(() => getSessionNumber('min_review', 0));
+  const [maxReview, setMaxReview] = useState(() => getSessionNumber('max_review', 1000));
   const [volume, setVolume] = useState(28);
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
-  const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'movie' | 'series' | 'book'>('all');
+  const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'movie' | 'series' | 'book'>(() => (getSessionString('type_filter', 'all') as 'all' | 'movie' | 'series' | 'book'));
   const pageSize = 20;
   const abortControllerRef = useRef<AbortController | null>(null);
   const isFetchingRef = useRef<boolean>(false);
+
+  // Persist state to sessionStorage when it changes
+  // These effects ensure state survives navigation away and back to SearchPage
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'input', searchInput); } catch { /* silent */ }
+  }, [searchInput]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'query', query); } catch { /* silent */ }
+  }, [query]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'content_filter', JSON.stringify(contentFilter)); } catch { /* silent */ }
+  }, [contentFilter]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'filter_panel_open', String(isFilterPanelOpen)); } catch { /* silent */ }
+  }, [isFilterPanelOpen]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'page', String(page)); } catch { /* silent */ }
+  }, [page]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'has_more', String(hasMore)); } catch { /* silent */ }
+  }, [hasMore]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'content_meta', JSON.stringify(contentMeta)); } catch { /* silent */ }
+  }, [contentMeta]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'min_length', String(minLength)); } catch { /* silent */ }
+  }, [minLength]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'max_length', String(maxLength)); } catch { /* silent */ }
+  }, [maxLength]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'max_duration', String(maxDuration)); } catch { /* silent */ }
+  }, [maxDuration]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'min_review', String(minReview)); } catch { /* silent */ }
+  }, [minReview]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'max_review', String(maxReview)); } catch { /* silent */ }
+  }, [maxReview]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'type_filter', contentTypeFilter); } catch { /* silent */ }
+  }, [contentTypeFilter]);
+
+  // Persist cards and total separately (they come from API, not user input)
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'cards', JSON.stringify(cards)); } catch { /* silent */ }
+  }, [cards]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'total', String(total)); } catch { /* silent */ }
+  }, [total]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'cardSaveStatuses', JSON.stringify(cardSaveStatuses)); } catch { /* silent */ }
+  }, [cardSaveStatuses]);
 
   const fetchCards = useCallback(
     async (searchQuery: string, pageNum: number) => {
@@ -139,12 +247,8 @@ function SearchPage() {
           // If we hit the current limit and haven't reached maxLimit, allow more loads
           setHasMore(items.length === effectiveLimit && effectiveLimit < maxLimit);
 
-          // Clear save statuses when starting new search
-          if (pageNum === 1) {
-            setCardSaveStatuses({});
-          }
-
           // Batch load save statuses for all cards (only if user is logged in and cards exist)
+          // Note: Don't clear cardSaveStatuses here - we want to preserve persisted state and merge new statuses
           // Load in background with delay to prioritize main content loading
           if (user?.uid && items.length > 0) {
             const statusStart = performance.now();
@@ -200,8 +304,7 @@ function SearchPage() {
           }
           if (pageNum === 1) {
             setCards(result.items);
-            // Clear save statuses when starting new search
-            setCardSaveStatuses({});
+            // Note: Don't clear cardSaveStatuses - preserve persisted state and merge new statuses
           } else {
             setCards((prev) => [...prev, ...result.items]);
           }
@@ -301,6 +404,7 @@ function SearchPage() {
     const trimmed = searchValue.trim();
     setQuery(trimmed);
     setFeedbackChoice(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   // Track if filter modal is open to prevent auto-fetching
@@ -335,6 +439,15 @@ function SearchPage() {
     // The API will return available cards when query is empty
     fetchCards(trimmed, 1);
   }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid, fetchCards, firstLoading, isFilterModalOpenState]);
+
+  // Detect scroll position for back-to-top button
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowBackToTop(window.scrollY > 300);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Load full content items list once for ContentSelector (lightweight, cached)
   useEffect(() => {
@@ -652,6 +765,7 @@ function SearchPage() {
                 loading={loading || firstLoading}
                 enableAutocomplete={true}
                 debounceMs={300}
+                language={preferences.main_language || "en"}
               />
               <div className="practice-wrapper">
                 <button
@@ -821,6 +935,16 @@ function SearchPage() {
                         onTrackReading={handleTrackReading}
                         onTrackListening={handleTrackListening}
                         initialSaveStatus={saveStatus}
+                        onSaveStatusChange={(cardId, status) => {
+                          setCardSaveStatuses(prev => ({ ...prev, [cardId]: status }));
+                          // Invalidate API-level sessionStorage cache so next refresh fetches fresh data
+                          try {
+                            const keys = Object.keys(sessionStorage);
+                            for (const k of keys) {
+                              if (k.startsWith('gg_save:')) sessionStorage.removeItem(k);
+                            }
+                          } catch { /* silent */ }
+                        }}
                         practiceMode={practiceMode}
                       />
                     );
@@ -903,6 +1027,18 @@ function SearchPage() {
         resultLayout={resultLayout}
         onLayoutChange={setResultLayout}
       />
+
+      {showBackToTop && (
+        <button
+          className="back-to-top-btn"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Back to top"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 19V5M5 12l7-7 7 7"/>
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

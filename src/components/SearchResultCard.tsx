@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
 import { canonicalizeLangCode } from "../utils/lang";
@@ -39,6 +40,7 @@ interface Props {
   volume?: number; // audio volume (0-100)
   subtitleLanguages?: string[]; // selected subtitle languages for memo comparison
   onUnsave?: (cardId: string) => void; // callback when card is unsaved
+  onSaveStatusChange?: (cardId: string, status: { saved: boolean; srs_state: string; review_count: number }) => void; // callback when save status changes
   onTrackReading?: (seconds: number) => void; // callback to track reading time
   onTrackListening?: (seconds: number) => void; // callback to track listening time
   initialSaveStatus?: { saved: boolean; srs_state: string; review_count: number }; // pre-loaded save status to avoid N+1 queries
@@ -54,12 +56,14 @@ const SearchResultCard = memo(function SearchResultCard({
   volume = 28,
   subtitleLanguages,
   onUnsave,
+  onSaveStatusChange,
   onTrackReading,
   onTrackListening,
   initialSaveStatus,
   practiceMode = null,
 }: Props) {
   const { user, preferences } = useUser();
+  const navigate = useNavigate();
   // Use prop if provided, otherwise fallback to preferences
   const langs = useMemo(() =>
     subtitleLanguages || preferences.subtitle_languages || [],
@@ -127,6 +131,10 @@ const SearchResultCard = memo(function SearchResultCard({
   const [speakingXp, setSpeakingXp] = useState<number | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [speakingChecked, setSpeakingChecked] = useState<boolean>(false);
+  const [recordedBlobUrl, setRecordedBlobUrl] = useState<string | null>(null);
+  const [isPlayingRecording, setIsPlayingRecording] = useState(false);
+  const audioPlaybackRef = useRef<HTMLAudioElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   // Reading practice state
   const [readingRevealed, setReadingRevealed] = useState<boolean>(false);
@@ -147,6 +155,42 @@ const SearchResultCard = memo(function SearchResultCard({
   // card.image_url intentionally in deps (not card object) to avoid loop
   }, [card.image_url, imageError]);
 
+  // Preload image to prevent jitter during card navigation
+  const preloadImage = useCallback((url: string) => {
+    return new Promise<void>((resolve) => {
+      if (!url) { resolve(); return; }
+      const img = new Image();
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+      img.src = url;
+      // Fallback: resolve after 200ms even if image hasn't loaded
+      setTimeout(resolve, 200);
+    });
+  }, []);
+
+  // Preload adjacent cards' images for smooth transitions (eager loading)
+  const preloadAdjacentCards = useCallback(async () => {
+    if (episodeCards.length === 0) return;
+    const idx = currentCardIndex;
+    // Preload prev-1, prev-2, next-1, next-2 cards
+    const offsets = [-2, -1, 1, 2];
+    const preloadPromises = offsets.map(offset => {
+      const targetIdx = idx + offset;
+      if (targetIdx >= 0 && targetIdx < episodeCards.length) {
+        const c = episodeCards[targetIdx];
+        if (c.image_url) return preloadImage(c.image_url);
+      }
+      return null;
+    }).filter(Boolean);
+    // Don't await - preload in background
+    Promise.all(preloadPromises).catch(() => {/* ignore errors */});
+  }, [episodeCards, currentCardIndex, preloadImage]);
+
+  // Trigger adjacent card preloading when card changes
+  useEffect(() => {
+    preloadAdjacentCards();
+  }, [card.id, preloadAdjacentCards]);
+
   // Update card when initialCard changes
   useEffect(() => {
     setCard(initialCard);
@@ -160,7 +204,7 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Initialize save status from prop if provided (optimized batch loading)
   useEffect(() => {
-    if (initialSaveStatus) {
+    if (initialSaveStatus !== undefined && initialSaveStatus !== null) {
       setIsSaved(initialSaveStatus.saved);
       setSrsState(initialSaveStatus.srs_state as SRSState);
       setReviewCount(initialSaveStatus.review_count);
@@ -230,6 +274,7 @@ const SearchResultCard = memo(function SearchResultCard({
         card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || ''))
       );
       setIsSaved(result.saved);
+      const newSrsState = result.saved ? 'new' : 'none';
       if (result.saved) {
         setSrsState('new'); // Default to 'new' when saving
       } else {
@@ -239,6 +284,10 @@ const SearchResultCard = memo(function SearchResultCard({
         if (onUnsave) {
           onUnsave(card.id);
         }
+      }
+      // Notify parent so cardSaveStatuses stays in sync
+      if (onSaveStatusChange) {
+        onSaveStatusChange(card.id, { saved: result.saved, srs_state: newSrsState, review_count: reviewCount });
       }
     } catch (error) {
       console.error('Failed to toggle save card:', error);
@@ -259,6 +308,10 @@ const SearchResultCard = memo(function SearchResultCard({
       );
       setSrsState(newState);
       setSrsDropdownOpen(false);
+      // Notify parent of SRS state change
+      if (onSaveStatusChange) {
+        onSaveStatusChange(card.id, { saved: newState !== 'none', srs_state: newState, review_count: reviewCount });
+      }
     } catch (error) {
       console.error('Failed to update SRS state:', error);
     }
@@ -310,9 +363,7 @@ const SearchResultCard = memo(function SearchResultCard({
   // Handle increment review count on hover
   const handleMouseEnter = () => {
     setIsHovered(true);
-    // Increment review count (will be debounced)
-    incrementReviewCountForCard(card);
-    
+
     // Start tracking reading time
     if (onTrackReading) {
       readingStartTimeRef.current = Date.now();
@@ -525,7 +576,10 @@ const SearchResultCard = memo(function SearchResultCard({
 
     if (!primaryCode) return null;
 
-    let raw = subtitleText(effectiveCard, primaryCode) ?? "";
+    let raw = effectiveCard.card_type ?? "";
+    if (!raw) {
+      raw = subtitleText(effectiveCard, primaryCode) ?? "";
+    }
     if (!raw) {
       raw = effectiveCard.sentence ?? "";
     }
@@ -558,7 +612,8 @@ const SearchResultCard = memo(function SearchResultCard({
     const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
     const primaryCode = primaryLang ? canonicalizeLangCode(primaryLang) || primaryLang : undefined;
     if (!primaryCode) return null;
-    let raw = subtitleText(effectiveCard, primaryCode) ?? "";
+    let raw = effectiveCard.card_type ?? "";
+    if (!raw) raw = subtitleText(effectiveCard, primaryCode) ?? "";
     if (!raw) raw = effectiveCard.sentence ?? "";
     if (!raw) return null;
     const tokens = raw.split(/\s+/).filter(w => w.length > 0);
@@ -698,15 +753,35 @@ const SearchResultCard = memo(function SearchResultCard({
 
     setIsRecording(true);
 
+    // Start audio recording
+    const startRecording = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        const chunks: Blob[] = [];
+        mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorderRef.current.onstop = () => {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const url = URL.createObjectURL(blob);
+          setRecordedBlobUrl(url);
+          stream.getTracks().forEach(t => t.stop());
+        };
+        mediaRecorderRef.current.start();
+      } catch (err) {
+        console.warn('Audio recording not supported:', err);
+      }
+    };
+    startRecording();
+
     recognition.onresult = async (event) => {
       const transcript = event.results[0][0].transcript;
       setSpeakingTranscript(transcript);
       setIsRecording(false);
       setSpeakingChecked(true);
 
-      // Score: compare transcript words against card.sentence
+      // Score: compare transcript words against card_type (cleaned), subtitle, or sentence
       const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
-      const reference = subtitleText(effectiveCard, primaryCode) || effectiveCard.sentence || '';
+      const reference = effectiveCard.card_type || subtitleText(effectiveCard, primaryCode) || effectiveCard.sentence || '';
       const refWords = reference.toLowerCase().replace(/[^\p{L}\s]/gu, '').split(/\s+/).filter(Boolean);
       const spokenWords = transcript.toLowerCase().replace(/[^\p{L}\s]/gu, '').split(/\s+/).filter(Boolean);
       let correct = 0;
@@ -728,14 +803,25 @@ const SearchResultCard = memo(function SearchResultCard({
           console.error('Failed to track speaking attempt:', error);
         }
       }
+
+      // Stop audio recording
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
 
     recognition.onerror = () => {
       setIsRecording(false);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
 
     recognition.onend = () => {
       setIsRecording(false);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
 
     recognition.start();
@@ -746,6 +832,16 @@ const SearchResultCard = memo(function SearchResultCard({
     setSpeakingScore(null);
     setSpeakingXp(null);
     setSpeakingChecked(false);
+    // Cleanup recording
+    if (recordedBlobUrl) {
+      URL.revokeObjectURL(recordedBlobUrl);
+      setRecordedBlobUrl(null);
+    }
+    setIsPlayingRecording(false);
+    if (audioPlaybackRef.current) {
+      audioPlaybackRef.current.pause();
+      audioPlaybackRef.current = null;
+    }
   };
 
   const handleReadingShow = async () => {
@@ -1097,10 +1193,12 @@ const SearchResultCard = memo(function SearchResultCard({
       }
       
       // Non-Japanese: simple regex match
-      const re = new RegExp(escapeRegExp(q), "gi");
+      // Escape query HTML entities to match against escaped text (e.g., can't → can&#39;t)
+      const escapedQ = escapeHtml(q);
+      const re = new RegExp(escapeRegExp(escapedQ), "gi");
       return escapeHtml(text).replace(
         re,
-        (match) => `<span style="color: var(--hover-select)">${escapeHtml(match)}</span>`
+        (match) => `<span style="color: var(--hover-select)">${match}</span>`
       );
     } catch (err) {
       console.warn('Highlight error:', err);
@@ -1214,7 +1312,8 @@ const SearchResultCard = memo(function SearchResultCard({
       }
       
       // Non-Japanese: simple regex on whole HTML
-      const re = new RegExp(escapeRegExp(q), "gi");
+      const escapedQ = escapeHtml(q);
+      const re = new RegExp(escapeRegExp(escapedQ), "gi");
       return html.replace(re, (match) => `<span style="color: var(--hover-select)">${match}</span>`);
     } catch (err) {
       console.warn('Highlight error:', err);
@@ -1431,6 +1530,8 @@ const SearchResultCard = memo(function SearchResultCard({
     if (idx <= 0) return;
     const prevCard = cards[idx - 1];
     if (prevCard && card.film_id) {
+      // Preload image to prevent jitter
+      if (prevCard.image_url) await preloadImage(prevCard.image_url);
       // Fetch full card data with all subtitles
       try {
         const fullCard = await getCardByPath(
@@ -1440,6 +1541,9 @@ const SearchResultCard = memo(function SearchResultCard({
         );
         // Preserve levels from current card if new card doesn't have them
         const cardToSet = fullCard || prevCard;
+        if (cardToSet.image_url && cardToSet.image_url !== prevCard.image_url) {
+          await preloadImage(cardToSet.image_url);
+        }
         setCard({
           ...cardToSet,
           levels: cardToSet.levels || card.levels
@@ -1503,6 +1607,8 @@ const SearchResultCard = memo(function SearchResultCard({
     if (idx < 0 || idx >= cards.length - 1) return;
     const nextCard = cards[idx + 1];
     if (nextCard && card.film_id) {
+      // Preload image to prevent jitter
+      if (nextCard.image_url) await preloadImage(nextCard.image_url);
       // Fetch full card data with all subtitles
       try {
         const fullCard = await getCardByPath(
@@ -1514,6 +1620,9 @@ const SearchResultCard = memo(function SearchResultCard({
         const cardToSet = fullCard || nextCard;
         if (!cardToSet.levels && card.levels) {
           cardToSet.levels = card.levels;
+        }
+        if (cardToSet.image_url && cardToSet.image_url !== nextCard.image_url) {
+          await preloadImage(cardToSet.image_url);
         }
         setCard(cardToSet);
         
@@ -1675,6 +1784,10 @@ const SearchResultCard = memo(function SearchResultCard({
       // Trigger hover on previous card after a brief delay
       setTimeout(() => {
         prevCard.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        // Auto-play audio on the newly hovered card
+        setTimeout(() => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        }, 150);
       }, 300);
     }
   };
@@ -1702,6 +1815,10 @@ const SearchResultCard = memo(function SearchResultCard({
       // Trigger hover on next card after a brief delay
       setTimeout(() => {
         nextCard.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        // Auto-play audio on the newly hovered card
+        setTimeout(() => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        }, 150);
       }, 300);
     }
   };
@@ -1773,18 +1890,6 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // add-to-deck deferred
 
-  const detailPath =
-    card.film_id &&
-    (card.episode_id ||
-      (typeof card.episode === "number"
-        ? `e${card.episode}`
-        : String(card.episode)))
-      ? `/card/${card.film_id}/${card.episode_id ||
-          (typeof card.episode === "number"
-            ? `e${card.episode}`
-            : String(card.episode))
-        }/${card.id}`
-      : undefined;
 
   return (
     <div 
@@ -1889,7 +1994,7 @@ const SearchResultCard = memo(function SearchResultCard({
                   
                   {srsDropdownOpen && (
                     <div className="card-srs-dropdown-menu">
-                      {SELECTABLE_SRS_STATES.map((state) => (
+                      {SELECTABLE_SRS_STATES.filter(s => s !== 'new').map((state) => (
                         <button
                           key={state}
                           className={`card-srs-dropdown-item srs-${state} ${srsState === state ? 'active' : ''}`}
@@ -1980,7 +2085,10 @@ const SearchResultCard = memo(function SearchResultCard({
                       className="card-menu-item"
                       onClick={() => {
                         setMenuOpen(false);
-                        if (detailPath) window.location.href = detailPath;
+                        if (card.film_id) {
+                          const episodeSlug = card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode));
+                          navigate(`/watch/${card.film_id}?episode=${episodeSlug}&card=${card.id}`);
+                        }
                       }}
                     >
                       <img src={eyeIcon} alt="View" className="menu-item-icon" />
@@ -2093,7 +2201,7 @@ const SearchResultCard = memo(function SearchResultCard({
                   {practiceMode === "writing" && isPrimary && writingConfig
                     ? (() => {
                         return (
-                          <span className="subtitle-text card-practice-cloze-line" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                          <span className="subtitle-text card-practice-cloze-line" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', overflow: 'visible', maxHeight: 'none' }}>
                             {writingWords.map((word, idx) => {
                               const isCorrect = writingChecked && writingConfig.tokens[idx] === writingWords[idx];
                               const isIncorrect = writingChecked && writingConfig.tokens[idx] !== writingWords[idx];
@@ -2139,7 +2247,7 @@ const SearchResultCard = memo(function SearchResultCard({
                     ? (() => {
                         const { tokens, blankTokenIndexes } = listeningClozeConfig;
                         return (
-                          <span className="subtitle-text card-practice-cloze-line">
+                          <span className="subtitle-text card-practice-cloze-line" style={{ overflow: 'visible', maxHeight: 'none' }}>
                             {tokens.map((word, idx) => {
                               const blankIndex = blankTokenIndexes.indexOf(idx);
                               const isBlank = blankIndex !== -1;
@@ -2299,27 +2407,50 @@ const SearchResultCard = memo(function SearchResultCard({
                   >
                     Again
                   </button>
-                  <span className="card-practice-correct-answer">
-                    {card.sentence || ''}
-                  </span>
                   {speakingTranscript && (
-                    <span className="card-practice-correct-answer" style={{ fontStyle: 'italic', opacity: 0.8 }}>
-                      ({speakingTranscript})
+                    <span className={`card-practice-user-transcript ${
+                      speakingScore !== null
+                        ? (speakingScore >= 100 ? 'correct' : speakingScore >= 50 ? 'partial' : 'incorrect')
+                        : ''
+                    }`}>
+                      {speakingTranscript}
                     </span>
                   )}
                   {speakingScore !== null && (
                     <span
-                      className="card-practice-score"
-                      style={{ color: (() => {
-                        const s = speakingScore / 100;
-                        const r = Math.round(201 - s * (201 - 46));
-                        const g = Math.round(74 + s * (125 - 74));
-                        const b = Math.round(74 + s * (50 - 74));
-                        return `rgb(${r},${g},${b})`;
-                      })() }}
+                      className={`card-practice-score ${
+                        speakingScore >= 100 ? 'correct' :
+                        speakingScore >= 50 ? 'partial' : 'incorrect'
+                      }`}
                     >
                       {speakingScore.toFixed(2)}%
                     </span>
+                  )}
+                  {recordedBlobUrl && (
+                    <button
+                      type="button"
+                      className={`card-practice-replay-btn ${isPlayingRecording ? 'playing' : ''}`}
+                      onClick={() => {
+                        if (isPlayingRecording) {
+                          audioPlaybackRef.current?.pause();
+                          setIsPlayingRecording(false);
+                        } else {
+                          if (!audioPlaybackRef.current) {
+                            audioPlaybackRef.current = new Audio(recordedBlobUrl);
+                            audioPlaybackRef.current.onended = () => setIsPlayingRecording(false);
+                          }
+                          audioPlaybackRef.current.play();
+                          setIsPlayingRecording(true);
+                        }
+                      }}
+                      title={isPlayingRecording ? 'Pause' : 'Replay'}
+                    >
+                      {isPlayingRecording ? (
+                        <img src="/src/assets/icons/button-pause.svg" alt="Pause" />
+                      ) : (
+                        <img src="/src/assets/icons/headphone.svg" alt="Replay" />
+                      )}
+                    </button>
                   )}
                   {speakingXp !== null && (
                     <span className="card-practice-xp">
@@ -2440,7 +2571,9 @@ const SearchResultCard = memo(function SearchResultCard({
     prevProps.highlightQuery === nextProps.highlightQuery &&
     prevProps.primaryLang === nextProps.primaryLang &&
     prevProps.filmTitle === nextProps.filmTitle &&
-    prevProps.volume === nextProps.volume
+    prevProps.volume === nextProps.volume &&
+    prevProps.initialSaveStatus?.saved === nextProps.initialSaveStatus?.saved &&
+    prevProps.initialSaveStatus?.srs_state === nextProps.initialSaveStatus?.srs_state
   );
 });
 

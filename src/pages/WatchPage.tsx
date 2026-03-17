@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Globe } from 'lucide-react';
 import type { FilmDoc, EpisodeDetailDoc, CardDoc, GetProgressResponse, LevelFrameworkStats } from '../types';
 import { 
@@ -40,6 +40,9 @@ import '../styles/pages/watch-page.css';
 export default function WatchPage() {
   const { contentId } = useParams<{ contentId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const targetEpisodeSlug = searchParams.get('episode');
+  const targetCardId = searchParams.get('card');
   const { preferences, user } = useUser();
   const [film, setFilm] = useState<FilmDoc | null>(null);
   const [episodes, setEpisodes] = useState<EpisodeDetailDoc[]>([]);
@@ -164,9 +167,12 @@ export default function WatchPage() {
         const episodesData = await apiListEpisodes(contentId);
         setEpisodes(episodesData);
         
-        // Set first episode as current
+        // Set episode: use target from query params, or default to first
         if (episodesData.length > 0) {
-          setCurrentEpisode(episodesData[0]);
+          const targetEp = targetEpisodeSlug
+            ? episodesData.find(ep => ep.slug === targetEpisodeSlug)
+            : null;
+          setCurrentEpisode(targetEp || episodesData[0]);
         }
       } catch (error) {
         console.error('Failed to load content:', error);
@@ -404,9 +410,16 @@ export default function WatchPage() {
         setCards(sorted);
         setCurrentCardIndex(0);
         setNoMoreCards(false);
-        
-        // Load user progress for this episode
-        if (user?.uid) {
+
+        // If navigated from "View Card", scroll to the target card
+        if (targetCardId) {
+          const targetIdx = sorted.findIndex(c => String(c.id) === targetCardId);
+          if (targetIdx >= 0) {
+            setCurrentCardIndex(targetIdx);
+          }
+        }
+        // Otherwise load user progress for this episode
+        else if (user?.uid) {
           setLoadingProgress(true);
           try {
             const progressData = await getEpisodeProgress(user.uid, contentId, currentEpisode.slug);

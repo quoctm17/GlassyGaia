@@ -6,6 +6,7 @@ import { loginWithEmailPassword } from "../services/authentication";
 // Google OAuth2 (replaces Firebase) – used for Google sign-in
 import { signInWithGoogle } from "../services/googleAuth";
 import { decodeJWT, isJWTExpired } from "../utils/jwt";
+import { invalidateSearchSessionCache } from "../services/cfApi";
 import toast from "react-hot-toast";
 
 interface CtxValue {
@@ -50,7 +51,24 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const hasGoogleConfig = !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const [user, setUser] = useState<AppUser | null>(null);
-  const [preferences, setPreferences] = useState<UserPreferences>(defaultPrefs);
+  const [preferences, setPreferences] = useState<UserPreferences>(() => {
+    // Lazy initialization: read from localStorage synchronously before first render
+    // This prevents race condition where SubtitleLanguageSelector gets wrong initial value
+    const localLangs = localStorage.getItem("subtitle_languages");
+    const localMode = localStorage.getItem("subtitle_require_all");
+    const langs = localLangs ? JSON.parse(localLangs) : defaultPrefs.subtitle_languages;
+    const requireAll = localMode ? localMode === "1" : (defaultPrefs.require_all_langs ?? false);
+    const mainLang = localStorage.getItem("main_language") || defaultPrefs.main_language || "en";
+    const volume = Number(localStorage.getItem("volume")) || defaultPrefs.volume || 80;
+    const resultLayout = (localStorage.getItem("resultLayout") as 'default' | '1-column' | '2-column') || defaultPrefs.resultLayout || 'default';
+    return {
+      subtitle_languages: Array.isArray(langs) && langs.length ? langs : defaultPrefs.subtitle_languages,
+      require_all_langs: requireAll,
+      main_language: mainLang,
+      volume,
+      resultLayout,
+    };
+  });
   const [loading, setLoading] = useState(true);
   const [adminKey, setAdminKey] = useState<string>("");
   const [openLanguageSelector, setOpenLanguageSelector] = useState<"main" | "subtitle" | null>(null);
@@ -418,6 +436,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const signOutApp = async () => {
     // Clear stored JWT token
     localStorage.removeItem('jwt_token');
+    // Clear search session cache (user-specific data)
+    invalidateSearchSessionCache();
     setPreferences(defaultPrefs);
     setUser(null);
   };
