@@ -157,22 +157,26 @@ export function registerCardRoutes(router) {
     const url = new URL(request.url);
     const limitRaw = Number(url.searchParams.get('limit') || '100');
     const limit = Math.min(5000, Math.max(1, limitRaw));
+    const filter = url.searchParams.get('filter');
+    const unavailableWhere = filter === 'unavailable'
+      ? ` WHERE (c.is_available = 0 OR c.length = 0 OR c.sentence GLOB '*[Nn][Ee][Tt][Ff][Ll][Ii][Xx]*' OR c.sentence GLOB '[\\[\\]]*')`
+      : '';
     try {
       let res;
       try {
         const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
-                   FROM cards c JOIN episodes e ON c.episode_id=e.id
+                   FROM cards c JOIN episodes e ON c.episode_id=e.id${unavailableWhere}
                    ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
         res = await env.DB.prepare(sql).bind(limit).all();
       } catch (e) {
         try {
           const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id
-                   FROM cards c JOIN episodes e ON c.episode_id=e.id
+                   FROM cards c JOIN episodes e ON c.episode_id=e.id${unavailableWhere}
                    ORDER BY e.episode_num ASC, c.card_number ASC LIMIT ?`;
           res = await env.DB.prepare(sql2).bind(limit).all();
         } catch (e2) {
           const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
-                   FROM cards c JOIN episodes e ON c.episode_id=e.id
+                   FROM cards c JOIN episodes e ON c.episode_id=e.id${unavailableWhere}
                    ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
           try { res = await env.DB.prepare(sql3).bind(limit).all(); }
           catch { res = { results: [] }; }

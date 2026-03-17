@@ -21,11 +21,12 @@
   z-index: 9999;
 }
 
-/* In 2-column layout, cards should fill grid cell height so border-bottom extends properly */
+/* In 2-column layout, use equal height for both cards in a row */
 .search-results.layout-2-column .pixel-result-card-new,
 .search-results.layout-default.filter-panel-closed .pixel-result-card-new {
   height: 100%;
-  align-self: stretch;
+  display: flex;
+  flex-direction: column;
 }
 
 .pixel-result-card-new:hover {
@@ -372,11 +373,6 @@
   color: var(--text);
 }
 
-.card-srs-dropdown-btn:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-}
-
 .card-srs-dropdown-text {
   line-height: 1;
 }
@@ -396,10 +392,9 @@
   position: absolute;
   top: 100%;
   left: 0;
-  margin-top: 4px;
   background: var(--background);
-  border: 2px solid var(--primary);
-  border-radius: 4px;
+  border: 1px solid var(--neutral);
+  border-radius: 0;
   min-width: 100px;
   z-index: 21;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -409,11 +404,11 @@
 .card-srs-dropdown-item {
   display: block;
   width: 100%;
-  padding: 6px 12px;
+  padding: 4px 8px;
   border: none;
   background: none;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: opacity 0.15s ease;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   font-weight: 600;
@@ -427,7 +422,7 @@
 }
 
 .card-srs-dropdown-item:hover {
-  opacity: 0.9;
+  opacity: 0.85;
 }
 
 .card-srs-dropdown-item.active {
@@ -662,14 +657,14 @@
   width: 100%;
 }
 
-/* Ensure subtitle classes (-sub) use 16px font-size, not 19px */
+/* Ensure subtitle classes (-sub) use 16px font-size */
 .card-subtitles [class*="-sub"] {
   font-size: 16px !important;
 }
 
-/* Override main subtitle font-size to 16px in search cards */
+/* Override main subtitle font-size to 18px in search cards */
 .card-subtitles [class*="-main"] {
-  font-size: 16px !important;
+  font-size: 18px !important;
 }
 
 /* Allow selecting & copying subtitle text */
@@ -691,6 +686,13 @@
   word-break: break-word;
   line-height: 1.2;
   max-height: calc(1.2em * 2);
+}
+
+/* Auto-expand subtitles when multiple subtitle rows are shown (2+ languages selected) */
+.card-subtitles:has(.subtitle-row:nth-child(2)) .subtitle-row:not(.expanded) .subtitle-text {
+  -webkit-line-clamp: unset;
+  max-height: none;
+  overflow: visible;
 }
 
 /* Inline Listening practice (Search page Practice dropdown) */
@@ -789,11 +791,13 @@
 .card-practice-correct-answer {
   color: #2E7D32;
   font-weight: 500;
+  font-size: 18px;
 }
 
 .card-practice-score {
   color: var(--success);
   font-weight: 600;
+  font-size: 18px;
 }
 
 .card-practice-xp {
@@ -810,6 +814,43 @@
 .card-practice-xp-text {
   color: var(--hover-select);
   font-weight: 600;
+}
+
+/* Speaking practice */
+.card-practice-user-transcript {
+  font-size: 16px;
+}
+.card-practice-user-transcript.correct { color: var(--speaking-correct); }
+.card-practice-user-transcript.partial { color: var(--speaking-partial); }
+.card-practice-user-transcript.incorrect { color: var(--speaking-incorrect); }
+.card-practice-score.correct { color: var(--speaking-correct); }
+.card-practice-score.partial { color: var(--speaking-partial); }
+.card-practice-score.incorrect { color: var(--speaking-incorrect); }
+
+.card-practice-replay-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+  border: none;
+  background-color: #F2EDE5;
+  box-shadow: 0 4px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.card-practice-replay-btn:hover {
+  transform: scale(1.05);
+}
+.card-practice-replay-btn img {
+  width: 16px;
+  height: 16px;
+  filter: invert(47%) sepia(8%) saturate(464%) hue-rotate(8deg) brightness(92%) contrast(85%);
+}
+.card-practice-replay-btn.playing img {
+  filter: var(--icon-hover-select-filter);
 }
 
 /* Ruby subtitles (Japanese/Chinese) need extra vertical room for rt text above each line.

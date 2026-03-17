@@ -121,6 +121,52 @@ export function invalidateItemsCache(): void {
   }
 }
 
+// Session storage cache helpers for search results (survives navigation but not tab close)
+// This enables instant loading when returning to SearchPage after navigating away
+const SESSION_CACHE_PREFIX = 'gg_';
+
+/**
+ * Get cached data from sessionStorage if not expired
+ */
+function getSessionCache<T>(key: string, ttlMs: number): T | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_CACHE_PREFIX + key);
+    if (!raw) return null;
+    const { data, timestamp } = JSON.parse(raw);
+    if (Date.now() - timestamp < ttlMs) return data as T;
+    sessionStorage.removeItem(SESSION_CACHE_PREFIX + key);
+  } catch { /* silent - private mode or quota exceeded */ }
+  return null;
+}
+
+/**
+ * Store data in sessionStorage with timestamp
+ */
+function setSessionCache<T>(key: string, data: T): void {
+  try {
+    sessionStorage.setItem(SESSION_CACHE_PREFIX + key, JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }));
+  } catch { /* silent - quota exceeded or private mode */ }
+}
+
+/**
+ * Invalidate all search-related session caches
+ */
+export function invalidateSearchSessionCache(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith(SESSION_CACHE_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => sessionStorage.removeItem(key));
+  } catch { /* silent */ }
+}
+
 export async function apiListItems(): Promise<FilmDoc[]> {
   const CACHE_KEY = ITEMS_CACHE_KEY;
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -602,30 +648,47 @@ export async function apiToggleSaveCard(
   userId: string,
   cardId: string,
   filmId?: string,
-  episodeId?: string
+  episodeId?: string,
+  retries = 3
 ): Promise<{ saved: boolean }> {
   assertApiBase();
 
-  const res = await fetch(`${API_BASE}/api/card/save`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      user_id: userId,
-      card_id: cardId,
-      film_id: filmId,
-      episode_id: episodeId,
-    }),
-  });
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}/api/card/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          card_id: cardId,
+          film_id: filmId,
+          episode_id: episodeId,
+        }),
+      });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Failed to toggle save card: ${res.status} ${text}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        // Only retry on 500 errors (DB overload)
+        if (res.status === 500 && attempt < retries - 1) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
+          continue;
+        }
+        throw new Error(`Failed to toggle save card: ${res.status} ${text}`);
+      }
+
+      return res.json();
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
   }
-
-  return res.json();
+  throw lastError || new Error("Failed to toggle save card");
 }
 
 /**
@@ -672,10 +735,21 @@ export async function apiGetCardSaveStatus(
 /**
  * Batch get save status for multiple cards (optimized to reduce API calls)
  */
+const SAVE_STATUS_SESSION_TTL = 2 * 60 * 1000; // 2 minutes (shorter - user-specific, changes often)
+
 export async function apiGetCardSaveStatusBatch(
   userId: string,
   cards: Array<{ card_id: string; film_id?: string; episode_id?: string }>
 ): Promise<Record<string, { saved: boolean; srs_state: string; review_count: number }>> {
+  // Build cache key including userId (different users = different cache)
+  const cacheKey = `save:${userId}:${cards.map(c => c.card_id).sort().join(',')}`;
+
+  const cached = getSessionCache<Record<string, { saved: boolean; srs_state: string; review_count: number }>>(cacheKey, SAVE_STATUS_SESSION_TTL);
+  if (cached) {
+    console.log('[apiGetCardSaveStatusBatch] Session cache hit');
+    return cached;
+  }
+
   assertApiBase();
 
   const res = await fetch(`${API_BASE}/api/card/save-status-batch`, {
@@ -702,6 +776,10 @@ export async function apiGetCardSaveStatusBatch(
   }
 
   const data = await res.json();
+
+  // Store in sessionStorage cache
+  setSessionCache(cacheKey, data);
+
   return data;
 }
 
@@ -843,11 +921,17 @@ export async function apiFetchAllCards(limit = 1000): Promise<CardDoc[]> {
   return rows.map(rowToCardDoc);
 }
 
+// Fetch unavailable cards (is_available=0 OR length=0 OR sentence only brackets OR contains NETFLIX)
+export async function apiFetchUnavailableCards(): Promise<CardDoc[]> {
+  const rows = await getJson<Array<Record<string, unknown>>>(
+    `/cards?filter=unavailable`
+  );
+  return rows.map(rowToCardDoc);
+}
+
 // Full-text search via Worker /search (FTS5) with response caching on client
-// Caches results by query hash to avoid duplicate requests
-type SearchCacheData = CardDoc[] | { items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> };
-const searchCache = new Map<string, { data: SearchCacheData; timestamp: number }>();
-const SEARCH_CACHE_TTL = 60000; // 60 seconds
+// Uses sessionStorage cache (survives navigation) instead of in-memory Map
+const FTS_SESSION_TTL = 5 * 60 * 1000; // 5 minutes
 
 function getSearchCacheKey(params: Record<string, unknown>): string {
   const key = Object.entries(params)
@@ -897,15 +981,13 @@ export async function apiSearchCardsFTS(params: {
   const userIdParam = userId ? `&user_id=${encodeURIComponent(userId)}` : '';
   const contentMetaParam = params.includeContentMeta !== false ? `&include_content_meta=1` : '';
 
-  // Check cache first (short TTL)
-  const cacheKey = getSearchCacheKey(params);
-  const cached = searchCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+  // Check sessionStorage cache first
+  const cacheKey = 'fts:' + getSearchCacheKey(params);
+  const cached = getSessionCache<ReturnType<typeof apiSearchCardsFTS>>(cacheKey, FTS_SESSION_TTL);
+  if (cached) {
     const cacheTime = performance.now() - perfStart;
-    console.log(`[apiSearchCardsFTS] Cache hit in ${cacheTime.toFixed(2)}ms`);
-    const d = cached.data;
-    if (Array.isArray(d)) return { items: d, content_meta: undefined };
-    return d as { items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> };
+    console.log(`[apiSearchCardsFTS] Session cache hit in ${cacheTime.toFixed(2)}ms`);
+    return cached;
   }
   
   const fetchStart = performance.now();
@@ -925,7 +1007,7 @@ export async function apiSearchCardsFTS(params: {
   const mapTime = performance.now() - mapStart;
   
   const out: { items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> } = { items: result, content_meta: contentMeta };
-  searchCache.set(cacheKey, { data: out, timestamp: Date.now() });
+  setSessionCache(cacheKey, out);
   
   const totalTime = performance.now() - perfStart;
   console.log(`[apiSearchCardsFTS] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${result.length} items`);
@@ -937,14 +1019,19 @@ export async function apiSearchCardsFTS(params: {
 export async function apiContentAutocomplete(params: {
   q: string;
   limit?: number;
+  language?: string;
 }): Promise<{ suggestions: Array<{ term: string; slug: string }> }> {
   assertApiBase();
-  const { q, limit = 10 } = params;
-  
+  const { q, limit = 10, language } = params;
+
   const urlParams = new URLSearchParams();
   urlParams.set('q', q);
   if (limit !== 10) {
     urlParams.set('limit', String(limit));
+  }
+  // Pass language to worker - defaults to 'en' on server if not provided
+  if (language) {
+    urlParams.set('language', language);
   }
 
   const res = await fetch(`${API_BASE}/api/content/autocomplete?${urlParams}`, {
@@ -963,6 +1050,8 @@ export async function apiContentAutocomplete(params: {
 }
 
 // New unified search API endpoint (paginated with main_language + subtitle_languages filters)
+const SEARCH_SESSION_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function apiSearch(params: {
   query?: string;
   page?: number;
@@ -984,6 +1073,19 @@ export async function apiSearch(params: {
   includeContentMeta?: boolean;
 }): Promise<{ items: CardDoc[]; total: number; page: number; size: number; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> }> {
   const perfStart = performance.now();
+
+  // Build cache key (exclude signal - not serializable)
+  const cacheKeyParams: Record<string, unknown> = { ...params };
+  delete (cacheKeyParams as any).signal;
+  const cacheKey = 'search:' + getSearchCacheKey(cacheKeyParams);
+
+  // Check sessionStorage cache first
+  const cached = getSessionCache<ReturnType<typeof apiSearch>>(cacheKey, SEARCH_SESSION_TTL);
+  if (cached) {
+    console.log('[apiSearch] Session cache hit');
+    return cached;
+  }
+
   const query = params.query || '';
   const page = params.page ?? 1;
   const size = params.size ?? 50;
@@ -1167,18 +1269,23 @@ export async function apiSearch(params: {
     };
   });
   const mapTime = performance.now() - mapStart;
-  
-  const totalTime = performance.now() - perfStart;
-  const fetchTime = performance.now() - fetchStart;
-  console.log(`[apiSearch] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, json: ${jsonTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${items.length} items (total: ${data.total || 0})`);
-  
-  return {
+
+  const result = {
     items,
     total: data.total || 0,
     page: data.page || page,
     size: data.size || size,
     content_meta: data.content_meta,
   };
+
+  const totalTime = performance.now() - perfStart;
+  const fetchTime = performance.now() - fetchStart;
+  console.log(`[apiSearch] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, json: ${jsonTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${items.length} items (total: ${data.total || 0})`);
+
+  // Store in sessionStorage cache before returning
+  setSessionCache(cacheKey, result);
+
+  return result;
 }
 
 export async function apiSearchCounts(params: {
@@ -1285,6 +1392,27 @@ export async function apiGetCardByPath(
     return rowToCardDoc(row);
   } catch {
     return null;
+  }
+}
+
+export async function apiUpdateCardAvailability(
+  filmSlug: string,
+  episodeSlug: string,
+  cardId: string,
+  isAvailable: boolean
+): Promise<void> {
+  assertApiBase();
+  const res = await fetch(
+    `${API_BASE}/cards/${encodeURIComponent(filmSlug)}/${encodeURIComponent(episodeSlug)}/${encodeURIComponent(cardId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_available: isAvailable ? 1 : 0 }),
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Update card availability failed: ${res.status} ${text}`);
   }
 }
 
