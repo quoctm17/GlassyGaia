@@ -16,6 +16,7 @@ export interface SearchBarProps {
   loading?: boolean; // show loading indicator
   debounceMs?: number; // Deprecated: kept for backward compat, search now only triggers on button click or Enter
   enableAutocomplete?: boolean; // enable autocomplete suggestions
+  language?: string; // language for autocomplete (defaults to 'en' if not provided)
 }
 
 export default function SearchBar({
@@ -30,6 +31,7 @@ export default function SearchBar({
   loading = false,
   // debounceMs is deprecated - kept for backward compat
   enableAutocomplete = true,
+  language = "en",
 }: SearchBarProps) {
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
@@ -78,6 +80,7 @@ export default function SearchBar({
         const result = await apiContentAutocomplete({
           q: trimmed,
           limit: 10,
+          language,
         });
         
         if (!controller.signal.aborted) {
@@ -102,7 +105,7 @@ export default function SearchBar({
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [q, enableAutocomplete]);
+  }, [q, enableAutocomplete, language]);
 
   const handleChange = (v: string) => {
     if (controlled) {
