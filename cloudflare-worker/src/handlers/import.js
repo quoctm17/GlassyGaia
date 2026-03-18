@@ -157,7 +157,7 @@ export function registerImportRoutes(router) {
           await env.DB.prepare('DELETE FROM card_subtitles WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run();
         } catch { }
         try {
-          await env.DB.prepare('DELETE FROM card_subtitles_fts WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run();
+          // FTS table removed - DELETE disabled
         } catch { }
         try { await env.DB.prepare('DELETE FROM card_difficulty_levels WHERE card_id IN (SELECT id FROM cards WHERE episode_id=?)').bind(episode.id).run(); } catch { }
         try { await env.DB.prepare('DELETE FROM cards WHERE episode_id=?').bind(episode.id).run(); } catch { }
@@ -173,7 +173,6 @@ export function registerImportRoutes(router) {
       const cardsNewSchema = [];
       const cardsLegacySchema = [];
       const subStmts = [];
-      const ftsStmts = [];
       const diffStmts = [];
       const cardIdsForSummaryUpdate = new Set();
 
@@ -229,8 +228,6 @@ export function registerImportRoutes(router) {
           for (const [lang, text] of Object.entries(c.subtitle)) {
             if (!text) continue;
             subStmts.push(env.DB.prepare('INSERT OR IGNORE INTO card_subtitles (card_id,language,text) VALUES (?,?,?)').bind(cardUuid, lang, text));
-            const idxText = (String(lang).toLowerCase() === 'ja') ? expandJaIndexText(String(text)) : String(text);
-            ftsStmts.push(env.DB.prepare('INSERT INTO card_subtitles_fts (text, language, card_id) VALUES (?,?,?)').bind(idxText, lang, cardUuid));
           }
         }
         if (Array.isArray(c.difficulty_levels)) {
@@ -249,7 +246,6 @@ export function registerImportRoutes(router) {
         try {
           await runStmtBatches(useLegacy ? cardsLegacySchema : cardsNewSchema, 200);
           await runStmtBatches(subStmts, 400);
-          await runStmtBatches(ftsStmts, 400);
           await runStmtBatches(diffStmts, 400);
           try { await env.DB.prepare('COMMIT').run(); } catch { }
 

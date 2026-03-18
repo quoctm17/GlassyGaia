@@ -30,6 +30,15 @@
     margin-bottom: 16px;
 }
 
+.admin-nav-section-header {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    padding: 16px 12px 8px;
+    font-weight: 600;
+}
+
 .admin-nav-link {
     position: relative;
     padding: 10px 12px;

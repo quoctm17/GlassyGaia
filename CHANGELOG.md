@@ -25,14 +25,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+---
+
+## [v1.5.0] - 2026-03-18
+
 ### Added
+- `level_frequency_ranks` column on cards, episodes, and content items — stores computed frequency rank per framework/language from the level assessment formula.
+- Frequency rank badge displayed on `SearchResultCard` level badge (shows rounded `overallFreqRank` value).
+- `aggregateFrequencyRanks` utility in worker to average frequency ranks when rolling up from cards → episodes → content items.
 - Admin page to list and manage unavailable cards (`AdminUnavailableCardsPage`): view cards with unavailable flag, zero length, or invalid data, and mark them as available.
+- Admin sidebar reorganized into sections (Content Management, Migration, System) with section headers.
+- Select All / Deselect All buttons in the level assessment content dropdown.
+- Back-to-top button on the Search page.
+- Search bar loader spin animation.
+
+### Changed
+- CJK subtitle font sizes increased from 14 → 20 px (Chinese SC, Chinese TC, Japanese) for better readability.
+- Ruby annotation font size increased from 0.5 em → 0.8 em.
+- Search page grid `grid-auto-rows` changed to `1fr` for uniform card heights.
+- Autocomplete endpoint no longer hardcodes `main_language = 'en'` — supports all languages.
+- Populate search words endpoint no longer filters by `main_language = 'en'`.
+- Worker batch inserts for search words use `DB.batch()` with 90-row batches (was single large INSERT with 100-row batches) to stay within D1 parameter limits.
+- FTS insert statements removed from import handler (FTS5 table was already dropped).
+- Admin CSV preview panel tooltips and legend labels switched from Vietnamese to English.
 
 ### Fixed
 - Card save status now persists across page refresh and new searches (stored in sessionStorage, merged with API response instead of cleared).
 - Save card API retries with exponential backoff on DB overload (500 errors) instead of failing immediately.
 - SRS dropdown button no longer shows box-shadow or zoom effect on hover.
 - TypeScript build errors in `AdminUnavailableCardsPage`: `is_available` compared as boolean (not number), `film_id` fallback to empty string.
+- TypeScript strict errors in `AdminLevelManagementPage`: replaced `error: any` with `error: unknown`, removed `as any` casts in favor of proper types.
+- Removed stray `console.log` for content_meta titles in SearchPage browse mode.
 
 ---
 

@@ -1905,7 +1905,12 @@ const SearchResultCard = memo(function SearchResultCard({
           {card.levels && Array.isArray(card.levels) && card.levels.length > 0 && (
             (() => {
               const primaryLevel = card.levels[0].level || "";
+              const primaryFramework = card.levels[0].framework || "CEFR";
               const colors = getLevelBadgeColors(primaryLevel);
+              const freqEntry = card.level_frequency_ranks?.find(
+                (f) => f.framework === primaryFramework
+              );
+              const freqRank = freqEntry?.frequency_rank;
               return (
                 <div
                   className="level-badges-container"
@@ -1915,7 +1920,7 @@ const SearchResultCard = memo(function SearchResultCard({
                   }}
                 >
                   <span className="level-badge-label">{primaryLevel}</span>
-                  <span className="level-badge-number">1</span>
+                  <span className="level-badge-number">{freqRank != null ? Math.round(freqRank) : '—'}</span>
                 </div>
               );
             })()

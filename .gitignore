@@ -27,3 +27,7 @@ Thumbs.db
 
 # Cloudflare worker secrets (local dev only)
 cloudflare-worker/.dev.vars
+
+# Local AI assistant instructions (not for repo)
+CLAUDE.md
+.cursor/

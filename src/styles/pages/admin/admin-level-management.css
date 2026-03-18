@@ -214,6 +214,30 @@
   text-align: center;
 }
 
+.assessment-dropdown-actions {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.assessment-dropdown-action-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.assessment-dropdown-action-btn:hover {
+  background: var(--hover-bg-subtle);
+}
+
 .assessment-dropdown-item {
   display: flex;
   align-items: center;

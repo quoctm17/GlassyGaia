@@ -258,7 +258,7 @@
   gap: 0;
   align-items: stretch;
   align-content: start;
-  grid-auto-rows: min-content;
+  grid-auto-rows: 1fr;
   margin-top: 150px;
   margin-left: calc(14% + 40px); /* Match filter panel width + inner padding */
   transition: margin-left 0.3s ease;
@@ -503,6 +503,31 @@
 
 .content-type-option.active {
   background-color: var(--primary-50);
+  color: var(--hover-select);
+}
+
+/* ===== Back to top button ===== */
+.back-to-top-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 5px;
+  background-color: var(--primary-50);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  transition: transform 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.back-to-top-btn:hover {
+  transform: scale(1.05);
+}
+.back-to-top-btn svg {
   color: var(--hover-select);
 }
 

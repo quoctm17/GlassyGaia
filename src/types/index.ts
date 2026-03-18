@@ -24,6 +24,7 @@ export interface CardDoc {
   sentence?: string; // optional descriptive sentence
   CEFR_Level?: string; // proficiency level (legacy, prefer levels array)
   levels?: Array<{ framework: string; level: string; language?: string }>; // difficulty levels from various frameworks
+  level_frequency_ranks?: Array<{ framework: string; language: string | null; frequency_rank: number }> | null; // frequency rank from assessment formula
   words?: Record<string, string>; // optional word breakdown
   card_type?: string; // normalized type text (cleaned sentence)
   length?: number; // length of card_type for matching/scoring
@@ -60,6 +61,7 @@ export interface FilmDoc {
   num_cards?: number | null;
   avg_difficulty_score?: number | null;
   level_framework_stats?: string | LevelFrameworkStats[] | null;
+  level_frequency_ranks?: Array<{ framework: string; language: string | null; frequency_rank: number }> | null;
   is_available?: boolean; // visibility flag (default: true)
   video_has_images?: boolean; // for video content: true = has individual card images, false = uses episode cover for all cards
   imdb_score?: number | null; // IMDB rating (0-10)
@@ -111,6 +113,7 @@ export interface EpisodeDetailDoc {
   num_cards?: number | null;
   avg_difficulty_score?: number | null;
   level_framework_stats?: string | LevelFrameworkStats[] | null;
+  level_frequency_ranks?: Array<{ framework: string; language: string | null; frequency_rank: number }> | null;
   is_available?: boolean; // visibility flag (default: true)
 }
 

@@ -1,7 +1,7 @@
 import { json } from '../utils/response.js';
 import { expandJaIndexText } from '../utils/japanese.js';
 import { authenticateRequest } from '../middleware/auth.js';
-import { getFrameworkFromLanguage, buildLevelStats, median, percentile90 } from '../utils/levels.js';
+import { getFrameworkFromLanguage, buildLevelStats, aggregateFrequencyRanks, median, percentile90 } from '../utils/levels.js';
 import { deleteContentItemBySlug } from '../services/deleteContentItem.js';
 
 export function registerAdminRoutes(router) {
@@ -768,7 +768,6 @@ export function registerAdminRoutes(router) {
             AND cs.text IS NOT NULL
             AND LENGTH(cs.text) > 0
             AND c.is_available = 1
-            AND LOWER(ci.main_language) = 'en'
           ORDER BY cs.card_id
         `).bind(lang).all();
 
@@ -817,24 +816,29 @@ export function registerAdminRoutes(router) {
 
         console.log(`[populate-search-words] Inserting ${topWords.length} top words for ${lang}`);
 
-        const INSERT_BATCH_SIZE = 100;
-        for (let i = 0; i < topWords.length; i += INSERT_BATCH_SIZE) {
-          const batch = topWords.slice(i, i + INSERT_BATCH_SIZE);
-          const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ');
-          const values = batch.flatMap(item => [
-            item.word,
-            lang,
-            item.frequency,
-            item.context_count,
-            Date.now()
-          ]);
+        // Use batch inserts to avoid D1 API request limit
+        // Each row has 5 parameters, ~463 limit = max 90 rows per batch
+        const BATCH_INSERT_SIZE = 90;
+        const now = Date.now();
 
-          const result = await env.DB.prepare(`
-            INSERT OR REPLACE INTO search_words (word, language, frequency, context_count, updated_at)
-            VALUES ${placeholders}
-          `).bind(...values).run();
+        for (let i = 0; i < topWords.length; i += BATCH_INSERT_SIZE) {
+          const batch = topWords.slice(i, i + BATCH_INSERT_SIZE);
+          const batchValues = batch.map(item => [item.word, lang, item.frequency, item.context_count, now]);
 
-          totalWordsInserted += result.success ? batch.length : 0;
+          try {
+            const stmt = env.DB.prepare(
+              'INSERT OR REPLACE INTO search_words (word, language, frequency, context_count, updated_at) VALUES (?, ?, ?, ?, ?)'
+            );
+
+            // Use batch() for multiple statements in one request
+            const statements = batchValues.map(values => stmt.bind(...values));
+            await env.DB.batch(statements);
+
+            totalWordsInserted += batch.length;
+            console.log(`[populate-search-words] Inserted ${Math.min(i + BATCH_INSERT_SIZE, topWords.length)}/${topWords.length} for ${lang}`);
+          } catch (e) {
+            console.error(`[populate-search-words] Error inserting batch starting at ${i}:`, e.message);
+          }
         }
 
         console.log(`[populate-search-words] Completed language: ${lang}`);
@@ -1093,12 +1097,13 @@ export function registerAdminRoutes(router) {
         const ranks = tokens.map(t => rankByToken.get(t)).filter(r => r != null);
 
         let maxLevel = null;
+        let computedFreqRank = null;
         if (ranks.length > 0 && Object.keys(frameworkCutoffs).length > 0) {
           const rankMedian = median(ranks);
           const rank90 = percentile90(ranks);
           if (rankMedian != null && rank90 != null) {
-            const overallFreqRank = Math.pow(rank90, 0.8) * Math.pow(rankMedian, 0.2);
-            maxLevel = overallToLevel(overallFreqRank);
+            computedFreqRank = Math.pow(rank90, 0.8) * Math.pow(rankMedian, 0.2);
+            maxLevel = overallToLevel(computedFreqRank);
           }
         }
 
@@ -1109,12 +1114,25 @@ export function registerAdminRoutes(router) {
           `).bind(card.id, framework, maxLevel, contentItem.main_language));
 
           const difficulty = difficultyMap[maxLevel] ?? card.difficulty_score ?? 50;
-          updates.push(env.DB.prepare('UPDATE cards SET difficulty_score = ?, updated_at = strftime(\'%s\',\'now\') WHERE id = ?').bind(difficulty, card.id));
+
+          // Build level_frequency_ranks: merge with existing data from other frameworks
+          let cardFreqRanks = [];
+          try {
+            const existing = await env.DB.prepare('SELECT level_frequency_ranks FROM cards WHERE id = ?').bind(card.id).first();
+            if (existing?.level_frequency_ranks) {
+              cardFreqRanks = JSON.parse(existing.level_frequency_ranks);
+            }
+          } catch { /* ignore parse errors */ }
+          // Remove existing entry for this framework+language, then add new one
+          cardFreqRanks = cardFreqRanks.filter(e => !(e.framework === framework && (e.language || null) === (contentItem.main_language || null)));
+          cardFreqRanks.push({ framework, language: contentItem.main_language || null, frequency_rank: Math.round(computedFreqRank * 100) / 100 });
+
+          updates.push(env.DB.prepare('UPDATE cards SET difficulty_score = ?, level_frequency_ranks = ?, updated_at = strftime(\'%s\',\'now\') WHERE id = ?').bind(difficulty, JSON.stringify(cardFreqRanks), card.id));
         }
 
         cardsProcessed++;
 
-        // D1 batch limit ~250 statements; we push 2 per card → flush every 120 cards (240 stmts)
+        // D1 batch limit ~250 statements; we push 2 per card → flush every 80 cards (3 stmts per card now)
         if (updates.length >= 240) {
           await env.DB.batch(updates);
           updates.length = 0;
@@ -1139,11 +1157,15 @@ export function registerAdminRoutes(router) {
         const epNumCards = Number(epCountAvg?.c || 0);
         const epAvg = epCountAvg && epCountAvg.avg != null ? Number(epCountAvg.avg) : null;
 
+        // Aggregate level_frequency_ranks for episode: average frequency_rank per framework+language
+        const epFreqRows = await env.DB.prepare('SELECT level_frequency_ranks FROM cards WHERE episode_id = ? AND level_frequency_ranks IS NOT NULL').bind(ep.id).all();
+        const epFreqRanksJson = JSON.stringify(aggregateFrequencyRanks(epFreqRows.results || []));
+
         await env.DB.prepare(`
           UPDATE episodes
-          SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, updated_at=strftime('%s','now')
+          SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, level_frequency_ranks=?, updated_at=strftime('%s','now')
           WHERE id=?
-        `).bind(epNumCards, epAvg, epStatsJson, ep.id).run();
+        `).bind(epNumCards, epAvg, epStatsJson, epFreqRanksJson, ep.id).run();
       }
 
       const itemCountAvg = await env.DB.prepare(`
@@ -1163,11 +1185,19 @@ export function registerAdminRoutes(router) {
       const itemNumCards = Number(itemCountAvg?.c || 0);
       const itemAvg = itemCountAvg && itemCountAvg.avg != null ? Number(itemCountAvg.avg) : null;
 
+      // Aggregate level_frequency_ranks for content item: average frequency_rank per framework+language
+      const itemFreqRows = await env.DB.prepare(`
+        SELECT c.level_frequency_ranks FROM cards c
+        JOIN episodes e ON c.episode_id = e.id
+        WHERE e.content_item_id = ? AND c.level_frequency_ranks IS NOT NULL
+      `).bind(contentItem.id).all();
+      const itemFreqRanksJson = JSON.stringify(aggregateFrequencyRanks(itemFreqRows.results || []));
+
       await env.DB.prepare(`
         UPDATE content_items
-        SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, updated_at=strftime('%s','now')
+        SET num_cards=?, avg_difficulty_score=?, level_framework_stats=?, level_frequency_ranks=?, updated_at=strftime('%s','now')
         WHERE id=?
-      `).bind(itemNumCards, itemAvg, itemStatsJson, contentItem.id).run();
+      `).bind(itemNumCards, itemAvg, itemStatsJson, itemFreqRanksJson, contentItem.id).run();
 
       return json({ success: true, cardsProcessed, totalCards: cards.length });
     } catch (e) {
