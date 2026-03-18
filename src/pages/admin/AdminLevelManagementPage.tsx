@@ -1,16 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
 import { useUser } from '../../context/UserContext';
-import { 
-  apiImportReferenceData, 
-  apiAssessContentLevel, 
+import {
+  apiImportReferenceData,
+  apiAssessContentLevel,
   apiGetSystemConfig,
   apiUpdateSystemConfig,
   apiListItems,
-  type ReferenceImportProgress
+  apiListEpisodes,
+  apiFetchCardsForFilm,
+  apiGetCardByPath,
+  apiDebugAssessCard,
+  type ReferenceImportProgress,
+  type DebugAssessResult,
+  type EpisodeMetaApi
 } from '../../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../../types';
 import toast from 'react-hot-toast';
-import { Upload, Settings, Play, AlertCircle, HelpCircle, BookOpen, CheckCircle, XCircle, ChevronDown, Loader2 } from 'lucide-react';
+import { Upload, Settings, Play, AlertCircle, HelpCircle, BookOpen, CheckCircle, XCircle, ChevronDown, Loader2, Search } from 'lucide-react';
 import '../../styles/pages/admin/admin-level-management.css';
 import '../../styles/level-framework-styles.css';
 
@@ -89,9 +95,29 @@ export default function AdminLevelManagementPage() {
   const [contentItems, setContentItems] = useState<FilmDoc[]>([]);
   const [loadingContentItems, setLoadingContentItems] = useState(false);
   const [assessmentDropdownOpen, setAssessmentDropdownOpen] = useState(false);
+  const [assessmentSearchQuery, setAssessmentSearchQuery] = useState('');
   const [showQuickGuide, setShowQuickGuide] = useState(false);
+  // Debug single card state - 3-level dropdown
+  const [debugSelectedContentId, setDebugSelectedContentId] = useState<string>('');
+  const [debugEpisodes, setDebugEpisodes] = useState<Array<{ slug: string; episode_number: number; title: string | null }>>([]);
+  const [debugSelectedEpisodeSlug, setDebugSelectedEpisodeSlug] = useState<string>('');
+  const [debugCards, setDebugCards] = useState<Array<{ id: string; sentence: string; internalId: string }>>([]);
+  const [debugSelectedCardId, setDebugSelectedCardId] = useState<string>(''); // internal UUID preferred
+  const [debugSelectedCardDisplayId, setDebugSelectedCardDisplayId] = useState<string>(''); // e.g. "001"
+  const [debugLoadingEpisodes, setDebugLoadingEpisodes] = useState(false);
+  const [debugLoadingCards, setDebugLoadingCards] = useState(false);
+  const [debugResolvingCardId, setDebugResolvingCardId] = useState(false);
+  const [debugContentSearch, setDebugContentSearch] = useState('');
+  const [debugContentDropdownOpen, setDebugContentDropdownOpen] = useState(false);
+  const [debugEpisodeSearch, setDebugEpisodeSearch] = useState('');
+  const [debugEpisodeDropdownOpen, setDebugEpisodeDropdownOpen] = useState(false);
+  const [debugCardSearch, setDebugCardSearch] = useState('');
+  const [debugCardDropdownOpen, setDebugCardDropdownOpen] = useState(false);
+  const [debugResult, setDebugResult] = useState<DebugAssessResult | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
   const frequencyFileRef = useRef<HTMLInputElement>(null);
   const assessmentDropdownRef = useRef<HTMLDivElement>(null);
+  const debugDropdownRef = useRef<HTMLDivElement>(null);
 
   // Load system config on mount
   useEffect(() => {
@@ -152,6 +178,20 @@ export default function AdminLevelManagementPage() {
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
   }, [assessmentDropdownOpen]);
+
+  // Close debug dropdowns when clicking outside
+  useEffect(() => {
+    if (!debugContentDropdownOpen && !debugEpisodeDropdownOpen && !debugCardDropdownOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (debugDropdownRef.current && !debugDropdownRef.current.contains(e.target as Node)) {
+        setDebugContentDropdownOpen(false);
+        setDebugEpisodeDropdownOpen(false);
+        setDebugCardDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [debugContentDropdownOpen, debugEpisodeDropdownOpen, debugCardDropdownOpen]);
 
   async function loadSystemConfig() {
     try {
@@ -385,10 +425,140 @@ export default function AdminLevelManagementPage() {
     }
   }
 
+  // Load episodes when content is selected
+  useEffect(() => {
+    async function loadEpisodes() {
+      if (!debugSelectedContentId) {
+        setDebugEpisodes([]);
+        setDebugSelectedEpisodeSlug('');
+        return;
+      }
+
+      try {
+        setDebugLoadingEpisodes(true);
+        const episodes = await apiListEpisodes(debugSelectedContentId);
+        setDebugEpisodes(
+          episodes
+            .map((e: EpisodeMetaApi) => ({
+              slug: String(e.slug),
+              episode_number: e.episode_number,
+              title: e.title ?? null,
+            }))
+            .filter((e) => Boolean(e.slug))
+        );
+      } catch (error) {
+        console.error('Failed to load episodes:', error);
+        toast.error('Failed to load episodes');
+      } finally {
+        setDebugLoadingEpisodes(false);
+      }
+    }
+
+    loadEpisodes();
+  }, [debugSelectedContentId]);
+
+  // Load cards when episode is selected
+  useEffect(() => {
+    async function loadCards() {
+      if (!debugSelectedContentId || !debugSelectedEpisodeSlug) {
+        setDebugCards([]);
+        setDebugSelectedCardId('');
+        setDebugSelectedCardDisplayId('');
+        return;
+      }
+
+      try {
+        setDebugLoadingCards(true);
+        // Fetch cards for this episode (max 100 to get all cards)
+        const cards = await apiFetchCardsForFilm(debugSelectedContentId, debugSelectedEpisodeSlug, 100);
+        setDebugCards(cards.map(c => ({
+          id: c.id,
+          sentence: c.sentence || '',
+          internalId: c.card_id || c.id
+        })));
+      } catch (error) {
+        console.error('Failed to load cards:', error);
+        toast.error('Failed to load cards');
+      } finally {
+        setDebugLoadingCards(false);
+      }
+    }
+
+    loadCards();
+  }, [debugSelectedContentId, debugSelectedEpisodeSlug]);
+
+  async function handleDebugAssess() {
+    if (!debugSelectedCardId) {
+      toast.error('Please select a card');
+      return;
+    }
+
+    try {
+      setDebugLoading(true);
+      setDebugResult(null);
+      const result = await apiDebugAssessCard(
+        debugSelectedCardId,
+        selectedFramework,
+        {
+          filmSlug: debugSelectedContentId || undefined,
+          episodeSlug: debugSelectedEpisodeSlug || undefined,
+          cardDisplayId: debugSelectedCardDisplayId || undefined,
+        }
+      );
+      setDebugResult(result);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`Debug failed: ${message}`);
+    } finally {
+      setDebugLoading(false);
+    }
+  }
+
   // Ensure currentCutoffs always has a valid value
   const currentCutoffs = cutoffs[selectedFramework] || DEFAULT_CUTOFFS[selectedFramework];
   const currentLevels = FRAMEWORK_LEVELS[selectedFramework];
   const titleById: Record<string, string> = Object.fromEntries(contentItems.map((i) => [i.id, i.title || i.id]));
+
+  // Filter and sort content items (A→Z)
+  const filteredContentItems = contentItems
+    .filter((item) => {
+      const query = assessmentSearchQuery.toLowerCase();
+      return !query || (item.title || item.id).toLowerCase().includes(query);
+    })
+    .sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id));
+
+  // Filter and sort debug content items
+  const filteredDebugContentItems = contentItems
+    .filter((item) => {
+      const query = debugContentSearch.toLowerCase();
+      return !query || (item.title || item.id).toLowerCase().includes(query);
+    })
+    .sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id));
+
+  const filteredDebugEpisodes = [...debugEpisodes]
+    .sort((a, b) => a.episode_number - b.episode_number)
+    .filter((ep) => {
+      const q = debugEpisodeSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        String(ep.episode_number).includes(q) ||
+        (ep.title || '').toLowerCase().includes(q) ||
+        ep.slug.toLowerCase().includes(q)
+      );
+    });
+
+  const filteredDebugCards = debugCards
+    .map((c, idx) => ({ ...c, idx }))
+    .filter((c) => {
+      const q = debugCardSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        c.internalId.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q) ||
+        c.sentence.toLowerCase().includes(q) ||
+        String(c.idx + 1).includes(q)
+      );
+    });
 
   if (!isSuperAdmin()) {
     return (
@@ -691,6 +861,18 @@ export default function AdminLevelManagementPage() {
             </button>
             {assessmentDropdownOpen && (
               <div className="assessment-dropdown-list">
+                {/* Search box */}
+                <div className="assessment-dropdown-search">
+                  <Search className="w-4 h-4 assessment-dropdown-search-icon" />
+                  <input
+                    type="text"
+                    className="assessment-dropdown-search-input"
+                    placeholder="Search content..."
+                    value={assessmentSearchQuery}
+                    onChange={(e) => setAssessmentSearchQuery(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
                 {loadingContentItems ? (
                   <div className="assessment-dropdown-placeholder">Loading...</div>
                 ) : contentItems.length === 0 ? (
@@ -701,9 +883,9 @@ export default function AdminLevelManagementPage() {
                       <button
                         type="button"
                         className="assessment-dropdown-action-btn"
-                        onClick={() => setSelectedContentIds(contentItems.map((item) => item.id))}
+                        onClick={() => setSelectedContentIds(filteredContentItems.map((item) => item.id))}
                       >
-                        Select All ({contentItems.length})
+                        Select All ({filteredContentItems.length})
                       </button>
                       <button
                         type="button"
@@ -713,7 +895,7 @@ export default function AdminLevelManagementPage() {
                         Deselect All
                       </button>
                     </div>
-                    {contentItems.map((item) => {
+                    {filteredContentItems.map((item) => {
                     const levelBadge = getContentItemLevelBadge(item);
                     const isSelected = selectedContentIds.includes(item.id);
                     return (
@@ -800,6 +982,337 @@ export default function AdminLevelManagementPage() {
             </div>
             <div className="progress-text">
               Current item: {assessmentProgress.cardsProcessed} / {assessmentProgress.totalCards} cards
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Debug Single Card Assessment */}
+      <div className="admin-panel">
+        <div className="flex items-center gap-2 mb-4">
+          <Settings className="w-5 h-5 admin-section-icon" />
+          <h2 className="admin-section-title">Debug: Single Card Assessment</h2>
+        </div>
+        <p className="assessment-description">
+          Select a content item, episode, and card to see detailed level assessment breakdown. Use this to debug why a card gets a specific level.
+        </p>
+
+        {/* 3-level dropdown: Content → Episode → Card with search */}
+        <div className="debug-dropdown-row" ref={debugDropdownRef}>
+          <div className="debug-dropdown-group">
+            <label className="debug-dropdown-label">Content</label>
+            <div className="debug-searchable-dropdown">
+              <button
+                type="button"
+                className="admin-input debug-searchable-trigger"
+                onClick={() => {
+                  setDebugContentDropdownOpen((o) => !o);
+                  setDebugEpisodeDropdownOpen(false);
+                  setDebugCardDropdownOpen(false);
+                }}
+                disabled={loadingContentItems}
+              >
+                <span className="debug-searchable-trigger-text">
+                  {debugSelectedContentId
+                    ? (contentItems.find((x) => x.id === debugSelectedContentId)?.title || debugSelectedContentId)
+                    : '-- Select Content --'}
+                </span>
+                <ChevronDown className="assessment-dropdown-chevron" />
+              </button>
+
+              {debugContentDropdownOpen && (
+                <div className="debug-searchable-list">
+                  <div className="assessment-dropdown-search">
+                    <Search className="w-4 h-4 assessment-dropdown-search-icon" />
+                    <input
+                      type="text"
+                      className="assessment-dropdown-search-input"
+                      placeholder="Search content..."
+                      value={debugContentSearch}
+                      onChange={(e) => setDebugContentSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                  </div>
+
+                  {loadingContentItems ? (
+                    <div className="assessment-dropdown-placeholder">Loading...</div>
+                  ) : filteredDebugContentItems.length === 0 ? (
+                    <div className="assessment-dropdown-placeholder">No matching content</div>
+                  ) : (
+                    <div className="assessment-dropdown-content">
+                      {filteredDebugContentItems.map((item) => {
+                        const isSelected = debugSelectedContentId === item.id;
+                        const levelBadge = getContentItemLevelBadge(item);
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`assessment-dropdown-item ${isSelected ? 'selected' : ''}`}
+                            onClick={() => {
+                              setDebugSelectedContentId(item.id);
+                              setDebugSelectedCardId('');
+                              setDebugSelectedEpisodeSlug('');
+                              setDebugEpisodeSearch('');
+                              setDebugCardSearch('');
+                              setDebugContentDropdownOpen(false);
+                            }}
+                          >
+                            <span className={`level-badge level-${levelBadge === '—' ? 'unknown' : levelBadge.toLowerCase()}`}>
+                              {levelBadge}
+                            </span>
+                            <span className="assessment-dropdown-item-title">{item.title || item.id}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="debug-dropdown-group">
+            <label className="debug-dropdown-label">Episode</label>
+            <div className="debug-searchable-dropdown">
+              <button
+                type="button"
+                className="admin-input debug-searchable-trigger"
+                onClick={() => {
+                  setDebugEpisodeDropdownOpen((o) => !o);
+                  setDebugContentDropdownOpen(false);
+                  setDebugCardDropdownOpen(false);
+                }}
+                disabled={!debugSelectedContentId || debugLoadingEpisodes}
+              >
+                <span className="debug-searchable-trigger-text">
+                  {debugSelectedEpisodeSlug
+                    ? (() => {
+                        const ep = debugEpisodes.find((x) => x.slug === debugSelectedEpisodeSlug);
+                        if (!ep) return debugSelectedEpisodeSlug;
+                        return ep.title ? `Episode ${ep.episode_number} — ${ep.title}` : `Episode ${ep.episode_number}`;
+                      })()
+                    : '-- Select Episode --'}
+                </span>
+                <ChevronDown className="assessment-dropdown-chevron" />
+              </button>
+
+              {debugEpisodeDropdownOpen && (
+                <div className="debug-searchable-list">
+                  <div className="assessment-dropdown-search">
+                    <Search className="w-4 h-4 assessment-dropdown-search-icon" />
+                    <input
+                      type="text"
+                      className="assessment-dropdown-search-input"
+                      placeholder="Search episode..."
+                      value={debugEpisodeSearch}
+                      onChange={(e) => setDebugEpisodeSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                  </div>
+
+                  {debugLoadingEpisodes ? (
+                    <div className="assessment-dropdown-placeholder">Loading...</div>
+                  ) : filteredDebugEpisodes.length === 0 ? (
+                    <div className="assessment-dropdown-placeholder">No matching episodes</div>
+                  ) : (
+                    <div className="assessment-dropdown-content">
+                      {filteredDebugEpisodes.map((ep) => {
+                        const isSelected = debugSelectedEpisodeSlug === ep.slug;
+                        return (
+                          <button
+                            key={ep.slug}
+                            type="button"
+                            className={`assessment-dropdown-item ${isSelected ? 'selected' : ''}`}
+                            onClick={() => {
+                              setDebugSelectedEpisodeSlug(ep.slug);
+                              setDebugSelectedCardId('');
+                              setDebugCardSearch('');
+                              setDebugEpisodeDropdownOpen(false);
+                            }}
+                          >
+                            <span className="assessment-dropdown-item-title">
+                              {ep.title ? `Episode ${ep.episode_number} — ${ep.title}` : `Episode ${ep.episode_number}`}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="debug-dropdown-group">
+            <label className="debug-dropdown-label">Card</label>
+            <div className="debug-searchable-dropdown">
+              <button
+                type="button"
+                className="admin-input debug-searchable-trigger"
+                onClick={() => {
+                  setDebugCardDropdownOpen((o) => !o);
+                  setDebugContentDropdownOpen(false);
+                  setDebugEpisodeDropdownOpen(false);
+                }}
+                disabled={!debugSelectedEpisodeSlug || debugLoadingCards}
+              >
+                <span className="debug-searchable-trigger-text">
+                  {debugSelectedCardId
+                    ? (() => {
+                        const byInternal = debugCards.find((c) => c.internalId === debugSelectedCardId);
+                        const byDisplay = debugSelectedCardDisplayId
+                          ? debugCards.find((c) => c.id === debugSelectedCardDisplayId)
+                          : undefined;
+                        const card = byInternal || byDisplay;
+                        const preview = card?.sentence ? card.sentence.slice(0, 60) : '';
+                        const suffix = card?.sentence && card.sentence.length > 60 ? '…' : '';
+                        const displayNo = debugSelectedCardDisplayId || card?.id || '—';
+                        return preview ? `Card ${displayNo} — ${preview}${suffix}` : `Card ${displayNo}`;
+                      })()
+                    : '-- Select Card --'}
+                </span>
+                <ChevronDown className="assessment-dropdown-chevron" />
+              </button>
+
+              {debugCardDropdownOpen && (
+                <div className="debug-searchable-list">
+                  <div className="assessment-dropdown-search">
+                    <Search className="w-4 h-4 assessment-dropdown-search-icon" />
+                    <input
+                      type="text"
+                      className="assessment-dropdown-search-input"
+                      placeholder="Search card (id / number / text)..."
+                      value={debugCardSearch}
+                      onChange={(e) => setDebugCardSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                  </div>
+
+                  {debugLoadingCards ? (
+                    <div className="assessment-dropdown-placeholder">Loading...</div>
+                  ) : filteredDebugCards.length === 0 ? (
+                    <div className="assessment-dropdown-placeholder">No matching cards</div>
+                  ) : (
+                    <div className="assessment-dropdown-content">
+                      {filteredDebugCards.map((card) => {
+                        const isSelected = debugSelectedCardId === card.internalId;
+                        const preview = card.sentence ? card.sentence.slice(0, 80) : '';
+                        const suffix = card.sentence && card.sentence.length > 80 ? '…' : '';
+                        const displayNo = card.id || String(card.idx + 1);
+                        return (
+                          <button
+                            key={card.internalId}
+                            type="button"
+                            className={`assessment-dropdown-item ${isSelected ? 'selected' : ''}`}
+                            onClick={async () => {
+                              // Some endpoints only return display id; resolve internal UUID via /cards/:film/:episode/:cardDisplay
+                              setDebugSelectedCardDisplayId(card.id);
+                              setDebugSelectedCardId(card.internalId);
+                              setDebugResolvingCardId(false);
+                              setDebugCardDropdownOpen(false);
+
+                              const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(card.internalId);
+                              if (looksLikeUuid) return;
+                              if (!debugSelectedContentId || !debugSelectedEpisodeSlug) return;
+
+                              try {
+                                setDebugResolvingCardId(true);
+                                const resolved = await apiGetCardByPath(
+                                  debugSelectedContentId,
+                                  debugSelectedEpisodeSlug,
+                                  card.id
+                                );
+                                const internal = resolved?.card_id || '';
+                                if (internal) {
+                                  setDebugSelectedCardId(internal);
+                                  setDebugCards((prev) =>
+                                    prev.map((c) => (c.id === card.id ? { ...c, internalId: internal } : c))
+                                  );
+                                }
+                              } catch (e) {
+                                console.warn('Failed to resolve internal card id:', e);
+                              } finally {
+                                setDebugResolvingCardId(false);
+                              }
+                            }}
+                          >
+                            <span className="assessment-dropdown-item-title">
+                              {preview ? `Card ${displayNo} — ${preview}${suffix}` : `Card ${displayNo}`}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            className="admin-btn primary debug-analyze-btn"
+            onClick={handleDebugAssess}
+            disabled={debugLoading || debugResolvingCardId || !debugSelectedCardId}
+          >
+            {debugLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" style={{ marginRight: 8 }} />
+                Analyzing...
+              </>
+            ) : (
+              'Analyze'
+            )}
+          </button>
+        </div>
+
+        {debugResult && (
+          <div className="debug-result">
+            <div className="debug-section">
+              <h3 className="debug-section-title">Card Info</h3>
+              <p><strong>Card ID:</strong> {debugResult.cardId}</p>
+              <p><strong>Framework:</strong> {debugResult.framework} | <strong>Language:</strong> {debugResult.language || 'N/A'}</p>
+              <p><strong>Sentence:</strong> <span className="debug-sentence">{debugResult.sentence}</span></p>
+            </div>
+
+            <div className="debug-section">
+              <h3 className="debug-section-title">Tokens ({debugResult.uniqueTokenCount} unique)</h3>
+              <div className="debug-tokens-grid">
+                {Object.entries(debugResult.tokenSummary).map(([token, info]) => (
+                  <span key={token} className={`debug-token ${info.isOov ? 'oov' : ''}`}>
+                    {token}: <strong>{info.rank}</strong>{info.isOov ? ' (OOV)' : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="debug-section">
+              <h3 className="debug-section-title">Calculation</h3>
+              <p><strong>Rank values:</strong> [{debugResult.rankValues.join(', ')}]</p>
+              <p><strong>Median rank:</strong> {debugResult.rankMedian}</p>
+              <p><strong>90th percentile rank:</strong> {debugResult.rank90}</p>
+              <p className="debug-formula">
+                <strong>Computed Freq Rank =</strong> ({debugResult.rank90})^0.8 × ({debugResult.rankMedian})^0.2 = <strong>{debugResult.computedFreqRank}</strong>
+              </p>
+            </div>
+
+            <div className="debug-section">
+              <h3 className="debug-section-title">Level Assignment</h3>
+              <p><strong>Cutoff Ranks:</strong> {JSON.stringify(debugResult.cutoffRanks)}</p>
+              <p className="debug-level-result">
+                <strong>Assigned Level:</strong> <span className={`level-badge level-${debugResult.assignedLevel?.toLowerCase()}`}>{debugResult.assignedLevel}</span>
+              </p>
+            </div>
+
+            <div className="debug-section debug-comparison">
+              <h3 className="debug-section-title">Behavior Change</h3>
+              <p>{debugResult.comparisonOldVsNew.description}</p>
+              <ul>
+                <li><strong>Old:</strong> {debugResult.comparisonOldVsNew.oldBehavior}</li>
+                <li><strong>New:</strong> {debugResult.comparisonOldVsNew.newBehavior}</li>
+              </ul>
             </div>
           </div>
         )}

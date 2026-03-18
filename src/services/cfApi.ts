@@ -1910,7 +1910,11 @@ export async function apiR2Delete(key: string, opts?: { recursive?: boolean; con
 function rowToCardDoc(r: Record<string, unknown>): CardDoc {
   // Expect fields: card_id or id, episode_id, film_id?, start_time_ms, end_time_ms, audio_key, image_key, subtitles? or subtitle map.
   const get = (k: string): unknown => r[k];
-  const id = String(get("id") ?? get("card_id") ?? "");
+  // Prefer display id if provided, keep internal UUID separately in card_id
+  const id = String(get("id") ?? "");
+  const internalCardId =
+    (get("card_id") != null ? String(get("card_id")) : "") ||
+    (get("internal_id") != null ? String(get("internal_id")) : "");
   const episodeId = String(get("episode_id") ?? get("episode") ?? "e1");
   const filmIdVal = get("film_id");
   const filmId = filmIdVal != null ? String(filmIdVal) : undefined;
@@ -1967,7 +1971,8 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
     "image"
   );
   return {
-    id,
+    id: id || internalCardId,
+    card_id: internalCardId || undefined,
     episode: episodeId,
     episode_id: episodeId,
     start,
@@ -2527,6 +2532,65 @@ export async function apiAssessContentLevel(
   
   // For now, return immediately. Progress tracking would need server-sent events or polling
   return await res.json();
+}
+
+export interface DebugAssessResult {
+  cardId: string;
+  sentence: string;
+  framework: string;
+  language: string | null;
+  cutoffRanks: Record<string, number>;
+  tokens: string[];
+  uniqueTokenCount: number;
+  tokenSummary: Record<string, { rank: number; isOov: boolean }>;
+  rankValues: number[];
+  rankMedian: number | null;
+  rank90: number | null;
+  computedFreqRank: number | null;
+  assignedLevel: string | null;
+  comparisonOldVsNew: {
+    description: string;
+    oldBehavior: string;
+    newBehavior: string;
+  };
+}
+
+export async function apiDebugAssessCard(
+  cardId: string,
+  framework?: string,
+  opts?: { filmSlug?: string; episodeSlug?: string; cardDisplayId?: string }
+): Promise<DebugAssessResult> {
+  assertApiBase();
+  const payload = { cardId, framework, filmSlug: opts?.filmSlug, episodeSlug: opts?.episodeSlug, cardDisplayId: opts?.cardDisplayId };
+
+  async function post(path: string) {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    return res;
+  }
+
+  // Some deployments mount admin routes under different prefixes.
+  // Try the canonical path first, then fallbacks when the route itself is missing (404).
+  const candidates = ['/admin/debug-assess-card', '/api/admin/debug-assess-card', '/api/admin/debug-assess-card/'];
+
+  let lastText = '';
+  for (let i = 0; i < candidates.length; i++) {
+    const res = await post(candidates[i]);
+    if (res.ok) return await res.json();
+    lastText = await res.text().catch(() => '');
+    if (res.status !== 404) {
+      throw new Error(`Failed to debug assess card: ${res.status} ${lastText}`);
+    }
+    // If 404, try next candidate
+  }
+
+  throw new Error(`Failed to debug assess card: 404 ${lastText}`);
 }
 
 export async function apiGetSystemConfig(key: string): Promise<string | null> {

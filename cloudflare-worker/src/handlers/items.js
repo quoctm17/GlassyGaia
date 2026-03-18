@@ -405,7 +405,7 @@ export function registerItemRoutes(router) {
         const audioUrl = r.audio_key
           ? (basePublic ? `${basePublic}/${r.audio_key}` : `/${r.audio_key}`)
           : '';
-        out.push({ id: displayId, episode_id: outEpisodeId, start: startS, end: endS, duration: dur, image_url: imageUrl, audio_url: audioUrl, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, levels: levels, is_available: r.is_available, subtitle });
+        out.push({ id: displayId, card_id: r.internal_id, episode_id: outEpisodeId, start: startS, end: endS, duration: dur, image_url: imageUrl, audio_url: audioUrl, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, levels: levels, is_available: r.is_available, subtitle });
       }
       return json(out);
     } catch (e) {
@@ -759,7 +759,7 @@ export function registerItemRoutes(router) {
         const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
         const endS = (r.end_time != null) ? r.end_time : Math.round((r.end_time_ms || 0) / 1000);
         const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-        out.push({ id: displayId, episode_id: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, is_available: r.is_available, subtitle });
+        out.push({ id: displayId, card_id: r.internal_id, episode_id: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, is_available: r.is_available, subtitle });
       }
       return json(out);
     } catch { return json([]); }

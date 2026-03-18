@@ -238,6 +238,34 @@
   background: var(--hover-bg-subtle);
 }
 
+/* Search box in dropdown */
+.assessment-dropdown-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.assessment-dropdown-search-icon {
+  color: var(--neutral);
+  flex-shrink: 0;
+}
+
+.assessment-dropdown-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.assessment-dropdown-search-input::placeholder {
+  color: var(--neutral);
+}
+
 .assessment-dropdown-item {
   display: flex;
   align-items: center;
@@ -497,5 +525,166 @@
   text-align: center;
   background: var(--hover-bg);
   border-top: 1px solid var(--primary);
+}
+
+/* ============ Debug Single Card Assessment ============ */
+.debug-result {
+  border: 1px solid var(--neutral);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.debug-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--neutral);
+}
+
+.debug-section:last-child {
+  border-bottom: none;
+}
+
+.debug-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 8px;
+}
+
+.debug-section p {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+
+.debug-sentence {
+  display: inline-block;
+  background: var(--hover-bg);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-style: italic;
+  word-break: break-word;
+}
+
+.debug-tokens-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.debug-token {
+  display: inline-block;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--hover-bg);
+  color: var(--text);
+  border: 1px solid var(--neutral);
+}
+
+.debug-token.oov {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+.debug-formula {
+  background: var(--hover-bg);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 13px;
+  margin-top: 8px !important;
+}
+
+.debug-level-result {
+  font-size: 16px !important;
+  margin-top: 8px !important;
+}
+
+.debug-comparison {
+  background: var(--hover-bg);
+}
+
+.debug-comparison ul {
+  list-style: disc;
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Debug dropdown row */
+.debug-dropdown-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.debug-searchable-dropdown {
+  position: relative;
+}
+
+.debug-searchable-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.debug-searchable-trigger-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-searchable-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--background);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 60;
+  padding: 6px;
+}
+
+.debug-dropdown-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 150px;
+}
+
+.debug-dropdown-with-search {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.debug-content-search {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.debug-dropdown-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.debug-analyze-btn {
+  flex: 0 0 auto;
+  height: 38px;
 }
 

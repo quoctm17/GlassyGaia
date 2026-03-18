@@ -976,6 +976,57 @@ export function registerAdminRoutes(router) {
     }
   });
 
+  // ============ Shared constants for level assessment ============
+  const EN_STOPWORDS = new Set([
+    'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself', 'yourselves',
+    'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their',
+    'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are', 'was',
+    'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and',
+    'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between',
+    'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off',
+    'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
+    'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too',
+    'very', 's', 't', 'can', 'will', 'just', 'don', 'should', 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain',
+    'aren', 'couldn', 'didn', 'doesn', 'hadn', 'hasn', 'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan',
+    'shouldn', 'wasn', 'weren', 'won', 'wouldn', 'would', 'could', 'might', 'must', 'shall'
+  ]);
+
+  const NOISE_WORDS = new Set([
+    'hmm', 'hm', 'uh', 'um', 'erm', 'ugh', 'ah', 'oh', 'eh', 'mmm', 'mm', 'huh', 'ha', 'hey', 'yo', 'yeah',
+    'yay', 'yep', 'nah', 'okay', 'ok', 'alright', 'gonna', 'wanna', 'gotta', 'kinda', 'sorta', 'dunno', 'lemme',
+    'letme', 'im', 'ive', 'dont', 'cant', 'wont', 'thats', 'whats', 'hes', 'shes', 'its', 'theyre', 'youre',
+    'were', 'isnt', 'arent', 'wasnt', 'werent', 'hasnt', 'havent', 'hadnt', 'doesnt', 'didnt', 'wont', 'wouldnt',
+    'shouldnt', 'couldnt', 'cant', 'cannot', 'mustnt', 'lets', 'theres', 'whos', 'whats', 'heres', 'wheres',
+    'whens', 'hows', 'whys', 'didnt', 'doesnt', 'isnt', 'arent', 'wasnt', 'werent', 'hadnt', 'hasnt', 'havent'
+  ]);
+
+  const DEFAULT_OOV_RANK = 50000;
+
+  // Shared tokenization function matching Python logic (stopword removal, noise filter, OOV handling)
+  function tokenizeForLevel(text) {
+    return String(text || '')
+      .toLowerCase()
+      // Remove parentheses and their contents
+      .replace(/[\(\[\{][^()\[\]\{\}\n]*[\)\]\}]/g, ' ')
+      // Remove extra punctuation sequences
+      .replace(/(\.\.\.|…+|---+|--+|!!!+|\?\?+|!!\?+|\?!+)/g, ' ')
+      // Remove punctuation (except underscore and word chars)
+      .replace(/[^\w\s]/g, ' ')
+      // Split on whitespace
+      .split(/\s+/)
+      .filter(t => t.length > 0)
+      // Filter stopwords, noise words, possessives, single letters
+      .filter(t => {
+        if (t === 's' || t === "'s") return false;
+        if (t.length === 1 && /[a-z]/.test(t)) return false;
+        if (EN_STOPWORDS.has(t)) return false;
+        if (NOISE_WORDS.has(t)) return false;
+        // Filter elongated interjections (e.g., "ahhhh", "ughhhh")
+        if (/(.)\1{2,}/.test(t)) return false;
+        return true;
+      });
+  }
+
   router.post('/admin/assess-content-level', async (request, env) => {
     try {
       const body = await request.json();
@@ -1033,14 +1084,6 @@ export function registerAdminRoutes(router) {
       const levelOrder = levelOrders[framework] || levelOrders.CEFR;
       const difficultyMap = difficultyMaps[framework] || difficultyMaps.CEFR;
 
-      function tokenize(text) {
-        return String(text || '')
-          .toLowerCase()
-          .replace(/[^\w\s]/g, ' ')
-          .split(/\s+/)
-          .filter(t => t.length > 0);
-      }
-
       /** Map overallFreqRank to level using upper-bound cutoffs. Levels sorted by cutoff ascending; first level where overall <= cutoff. */
       function overallToLevel(overallFreqRank) {
         const levels = Object.keys(frameworkCutoffs).sort((a, b) => (frameworkCutoffs[a] || 0) - (frameworkCutoffs[b] || 0));
@@ -1054,7 +1097,7 @@ export function registerAdminRoutes(router) {
       // Collect all unique tokens across all cards for batch rank lookup
       const uniqueTokens = new Set();
       for (const card of cards) {
-        const tokens = tokenize(card.sentence);
+        const tokens = tokenizeForLevel(card.sentence);
         tokens.forEach(t => uniqueTokens.add(t));
       }
       const tokenList = Array.from(uniqueTokens);
@@ -1093,8 +1136,9 @@ export function registerAdminRoutes(router) {
       let cardsProcessed = 0;
 
       for (const card of cards) {
-        const tokens = tokenize(card.sentence);
-        const ranks = tokens.map(t => rankByToken.get(t)).filter(r => r != null);
+        const tokens = tokenizeForLevel(card.sentence);
+        // Map tokens to ranks, using DEFAULT_OOV_RANK for out-of-vocabulary words
+        const ranks = tokens.map(t => rankByToken.has(t) ? rankByToken.get(t) : DEFAULT_OOV_RANK);
 
         let maxLevel = null;
         let computedFreqRank = null;
@@ -1200,6 +1244,169 @@ export function registerAdminRoutes(router) {
       `).bind(itemNumCards, itemAvg, itemStatsJson, itemFreqRanksJson, contentItem.id).run();
 
       return json({ success: true, cardsProcessed, totalCards: cards.length });
+    } catch (e) {
+      return json({ error: e.message }, { status: 500 });
+    }
+  });
+
+  // ============ DEBUG: Single Card Assessment ============
+  // Allows debugging level assessment for a single card by ID
+  router.post('/admin/debug-assess-card', async (request, env) => {
+    try {
+      const body = await request.json();
+      const { cardId, framework: overrideFramework, filmSlug, episodeSlug, cardDisplayId } = body;
+
+      const rawCardId = String(cardId || cardDisplayId || '').trim();
+      if (!rawCardId) return json({ error: 'cardId is required' }, { status: 400 });
+
+      // Resolve to internal UUID if caller provided display id ("001") plus context
+      let resolvedCardUuid = rawCardId;
+      const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCardId);
+      if (!looksLikeUuid) {
+        const film = filmSlug ? String(filmSlug).trim() : '';
+        const epSlug = episodeSlug ? String(episodeSlug).trim() : '';
+        const num = Number(String(rawCardId).replace(/^0+/, '') || '0');
+        if (film && epSlug && Number.isFinite(num) && num > 0) {
+          const filmRow = await env.DB.prepare('SELECT id FROM content_items WHERE slug = ?').bind(film).first();
+          if (filmRow) {
+            let epNum = Number(String(epSlug).replace(/^e/i, ''));
+            if (!epNum || Number.isNaN(epNum)) {
+              const m = String(epSlug).match(/_(\d+)$/);
+              epNum = m ? Number(m[1]) : 1;
+            }
+            let ep;
+            try {
+              ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND slug=?').bind(filmRow.id, epSlug).first();
+            } catch { /* ignore */ }
+            if (!ep) {
+              try {
+                ep = await env.DB.prepare('SELECT id FROM episodes WHERE content_item_id=? AND episode_number=?').bind(filmRow.id, epNum).first();
+              } catch { /* ignore */ }
+            }
+            if (ep) {
+              const cardRow = await env.DB.prepare('SELECT id FROM cards WHERE episode_id = ? AND card_number = ?').bind(ep.id, num).first();
+              if (cardRow?.id) resolvedCardUuid = String(cardRow.id);
+            }
+          }
+        }
+      }
+
+      // Get the card
+      const card = await env.DB.prepare('SELECT c.id, c.sentence, c.difficulty_score, e.content_item_id, e.id as episode_id FROM cards c JOIN episodes e ON c.episode_id = e.id WHERE c.id = ?').bind(resolvedCardUuid).first();
+
+      if (!card) {
+        return json({ error: 'Card not found' }, { status: 404 });
+      }
+
+      // Get content item for language
+      const contentItem = await env.DB.prepare('SELECT id, main_language FROM content_items WHERE id = ?').bind(card.content_item_id).first();
+
+      const framework = overrideFramework || getFrameworkFromLanguage(contentItem?.main_language);
+
+      // Get cutoff ranks
+      const configRow = await env.DB.prepare('SELECT value FROM system_configs WHERE key = ?').bind('CUTOFF_RANKS').first();
+      let allCutoffs = configRow ? JSON.parse(configRow.value) : {};
+      if (allCutoffs && !allCutoffs.CEFR && (allCutoffs.A1 !== undefined || allCutoffs.N5 !== undefined || allCutoffs['1'] !== undefined)) {
+        if (allCutoffs.A1 !== undefined) {
+          allCutoffs = { CEFR: allCutoffs };
+        } else if (allCutoffs.N5 !== undefined) {
+          allCutoffs = { JLPT: allCutoffs };
+        } else if (allCutoffs['1'] !== undefined) {
+          allCutoffs = { HSK: allCutoffs };
+        }
+      }
+      const frameworkCutoffs = allCutoffs[framework] || {};
+
+      // Tokenize and get ranks
+      const tokens = tokenizeForLevel(card.sentence);
+      const tokenList = [...new Set(tokens)];
+
+      if (tokenList.length === 0) {
+        return json({
+          cardId,
+          sentence: card.sentence,
+          framework,
+          tokens: [],
+          tokenRanks: {},
+          error: 'No valid tokens after filtering'
+        });
+      }
+
+      // Batch query for ranks
+      const rankByToken = new Map();
+      const ph = tokenList.map(() => '?').join(',');
+      const rankRows = await env.DB.prepare(
+        'SELECT word, rank, framework AS fw FROM reference_word_frequency WHERE (framework = ? OR framework IS NULL) AND word IN (' + ph + ')'
+      ).bind(framework, ...tokenList).all();
+
+      const results = rankRows.results || [];
+      for (const row of results) {
+        const rank = row.rank != null ? row.rank : null;
+        if (rank == null || row.word == null) continue;
+        const prefer = row.fw === framework;
+        if (prefer) rankByToken.set(row.word, rank);
+        else if (row.fw == null && !rankByToken.has(row.word)) rankByToken.set(row.word, rank);
+      }
+
+      // Build token ranks with OOV handling (use DEFAULT_OOV_RANK for missing)
+      const tokenRanks = {};
+      const rankValues = [];
+      for (const token of tokens) {
+        const rank = rankByToken.has(token) ? rankByToken.get(token) : DEFAULT_OOV_RANK;
+        tokenRanks[token] = rank;
+        rankValues.push(rank);
+      }
+
+      // Calculate stats
+      const rankMedian = median(rankValues);
+      const rank90 = percentile90(rankValues);
+      let computedFreqRank = null;
+      let maxLevel = null;
+
+      if (rankMedian != null && rank90 != null) {
+        computedFreqRank = Math.pow(rank90, 0.8) * Math.pow(rankMedian, 0.2);
+
+        // Determine level using upper-bound cutoffs
+        const levels = Object.keys(frameworkCutoffs).sort((a, b) => (frameworkCutoffs[a] || 0) - (frameworkCutoffs[b] || 0));
+        for (const level of levels) {
+          if (computedFreqRank <= (frameworkCutoffs[level] ?? Infinity)) {
+            maxLevel = level;
+            break;
+          }
+        }
+        if (!maxLevel && levels.length > 0) {
+          maxLevel = levels[levels.length - 1];
+        }
+      }
+
+      // Aggregate tokens for display
+      const tokenSummary = {};
+      const uniqueTokens = [...new Set(tokens)];
+      for (const t of uniqueTokens) {
+        const rank = rankByToken.has(t) ? rankByToken.get(t) : DEFAULT_OOV_RANK;
+        tokenSummary[t] = { rank, isOov: !rankByToken.has(t) };
+      }
+
+      return json({
+        cardId: resolvedCardUuid,
+        sentence: card.sentence,
+        framework,
+        language: contentItem?.main_language,
+        cutoffRanks: frameworkCutoffs,
+        tokens: tokens,
+        uniqueTokenCount: uniqueTokens.length,
+        tokenSummary,
+        rankValues,
+        rankMedian,
+        rank90,
+        computedFreqRank: computedFreqRank != null ? Math.round(computedFreqRank * 100) / 100 : null,
+        assignedLevel: maxLevel,
+        comparisonOldVsNew: {
+          description: 'Backend now uses stopword removal + OOV default rank (50000)',
+          oldBehavior: 'OOV words were filtered out (made content appear easier)',
+          newBehavior: 'OOV words assigned rank 50000 (matches Python DEFAULT_FREQ)'
+        }
+      });
     } catch (e) {
       return json({ error: e.message }, { status: 500 });
     }
