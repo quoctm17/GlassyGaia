@@ -1266,6 +1266,15 @@ export async function apiSearch(params: {
         }
         return undefined;
       })(),
+      level_frequency_ranks: (() => {
+        const raw = r.level_frequency_ranks;
+        if (!raw) return null;
+        if (Array.isArray(raw)) return raw as Array<{ framework: string; language: string | null; frequency_rank: number }>;
+        if (typeof raw === 'string') {
+          try { return JSON.parse(raw); } catch { return null; }
+        }
+        return null;
+      })(),
     };
   });
   const mapTime = performance.now() - mapStart;
@@ -2025,6 +2034,15 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
         }).filter(Boolean) as Array<{ framework: string; level: string; language?: string }>;
       }
       return undefined;
+    })(),
+    level_frequency_ranks: (() => {
+      const raw = get("level_frequency_ranks");
+      if (!raw) return null;
+      if (Array.isArray(raw)) return raw as Array<{ framework: string; language: string | null; frequency_rank: number }>;
+      if (typeof raw === 'string') {
+        try { return JSON.parse(raw); } catch { return null; }
+      }
+      return null;
     })(),
   };
 }

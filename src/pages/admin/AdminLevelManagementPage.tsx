@@ -168,14 +168,14 @@ export default function AdminLevelManagementPage() {
               ...loaded
             } as FrameworkCutoffs);
           } else if (loaded.A1 || loaded.N5 || loaded['1']) {
-            // Old format - convert to new format
+            // Old format - convert to new format (loaded is a flat object from legacy config)
             if (loaded.A1) {
-              setCutoffs({ ...DEFAULT_CUTOFFS, CEFR: loaded as any });
+              setCutoffs({ ...DEFAULT_CUTOFFS, CEFR: { ...DEFAULT_CUTOFFS.CEFR, ...loaded } });
             } else if (loaded.N5) {
-              setCutoffs({ ...DEFAULT_CUTOFFS, JLPT: loaded as any });
+              setCutoffs({ ...DEFAULT_CUTOFFS, JLPT: { ...DEFAULT_CUTOFFS.JLPT, ...loaded } });
             } else if (loaded['1']) {
               // Could be HSK or TOPIK - default to HSK for backward compatibility
-              setCutoffs({ ...DEFAULT_CUTOFFS, HSK: loaded as any });
+              setCutoffs({ ...DEFAULT_CUTOFFS, HSK: { ...DEFAULT_CUTOFFS.HSK, ...loaded } });
             }
           }
         } catch {
@@ -194,7 +194,7 @@ export default function AdminLevelManagementPage() {
       setSavingConfig(true);
       await apiUpdateSystemConfig('CUTOFF_RANKS', JSON.stringify(cutoffs));
       toast.success('Configuration saved successfully');
-    } catch (error) {
+    } catch {
       toast.error('Failed to save configuration');
     } finally {
       setSavingConfig(false);
@@ -266,10 +266,11 @@ export default function AdminLevelManagementPage() {
         entryCount: entries.length,
         sampleEntries
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       setJsonPreview({
         valid: false,
-        errors: [`JSON parse error: ${error.message}`],
+        errors: [`JSON parse error: ${message}`],
         entryCount: 0,
         sampleEntries: []
       });
@@ -312,15 +313,17 @@ export default function AdminLevelManagementPage() {
         setFrequencyFile(null);
         setJsonPreview(null);
         if (frequencyFileRef.current) frequencyFileRef.current.value = '';
-      } catch (error: any) {
-        toast.error(`Failed to import frequency data: ${error.message}`);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        toast.error(`Failed to import frequency data: ${message}`);
         setFrequencyProgress(prev => ({
           ...prev,
-          errors: [error.message]
+          errors: [message]
         }));
       }
-    } catch (error: any) {
-      toast.error(`Failed to parse JSON file: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`Failed to parse JSON file: ${message}`);
     } finally {
       setImportingFrequency(false);
     }
@@ -356,9 +359,10 @@ export default function AdminLevelManagementPage() {
           setAssessmentProgress(progress);
         });
         completedSlugs.push(slug);
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
         failedSlugs.push(slug);
-        toast.error(`Assessment failed for "${title}": ${error.message}`);
+        toast.error(`Assessment failed for "${title}": ${message}`);
       }
     }
 
@@ -521,7 +525,7 @@ export default function AdminLevelManagementPage() {
               <input
                 type="number"
                 className="admin-input"
-                value={(currentCutoffs as any)[level] || 0}
+                value={(currentCutoffs as Record<string, number>)[level] || 0}
                 onChange={(e) => {
                   const val = parseInt(e.target.value, 10);
                   if (!isNaN(val)) {
@@ -532,7 +536,7 @@ export default function AdminLevelManagementPage() {
                         ...(DEFAULT_CUTOFFS[selectedFramework] || {}),
                         ...(prev[selectedFramework] || {}),
                         [level]: val
-                      } as any
+                      } as FrameworkCutoffs[typeof selectedFramework]
                     }));
                   }
                 }}
@@ -692,7 +696,24 @@ export default function AdminLevelManagementPage() {
                 ) : contentItems.length === 0 ? (
                   <div className="assessment-dropdown-placeholder">No content items</div>
                 ) : (
-                  contentItems.map((item) => {
+                  <div className="assessment-dropdown-content">
+                    <div className="assessment-dropdown-actions">
+                      <button
+                        type="button"
+                        className="assessment-dropdown-action-btn"
+                        onClick={() => setSelectedContentIds(contentItems.map((item) => item.id))}
+                      >
+                        Select All ({contentItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        className="assessment-dropdown-action-btn"
+                        onClick={() => setSelectedContentIds([])}
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                    {contentItems.map((item) => {
                     const levelBadge = getContentItemLevelBadge(item);
                     const isSelected = selectedContentIds.includes(item.id);
                     return (
@@ -712,7 +733,8 @@ export default function AdminLevelManagementPage() {
                         <span className="assessment-dropdown-item-title">{item.title || item.id}</span>
                       </button>
                     );
-                  })
+                  })}
+                  </div>
                 )}
               </div>
             )}

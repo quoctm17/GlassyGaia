@@ -85,6 +85,37 @@ export function percentile90(arr) {
 }
 
 /**
+ * Aggregate level_frequency_ranks from multiple card rows into averages per framework+language.
+ * Input: array of { level_frequency_ranks: string (JSON) } rows from cards.
+ * Output: array of { framework, language, frequency_rank } with averaged values.
+ */
+export function aggregateFrequencyRanks(rows) {
+  const groups = new Map(); // key = framework|language
+  for (const row of rows) {
+    let entries = [];
+    try {
+      entries = typeof row.level_frequency_ranks === 'string'
+        ? JSON.parse(row.level_frequency_ranks)
+        : row.level_frequency_ranks;
+    } catch { continue; }
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry.framework || entry.frequency_rank == null) continue;
+      const key = `${entry.framework}|${entry.language || ''}`;
+      let g = groups.get(key);
+      if (!g) { g = { framework: entry.framework, language: entry.language || null, sum: 0, count: 0 }; groups.set(key, g); }
+      g.sum += entry.frequency_rank;
+      g.count += 1;
+    }
+  }
+  const out = [];
+  for (const g of groups.values()) {
+    out.push({ framework: g.framework, language: g.language, frequency_rank: Math.round((g.sum / g.count) * 100) / 100 });
+  }
+  return out;
+}
+
+/**
  * Build level stats from rows of {framework, language, level}
  * Used by items calc-stats and admin assess-content-level endpoints
  */

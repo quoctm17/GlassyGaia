@@ -68,7 +68,7 @@ export function registerSearchRoutes(router) {
               END
             )) LIKE ? || '%'
             AND c.is_available = 1
-            AND LOWER(ci.main_language) = 'en'
+            -- Remove hardcoded 'en' filter to support all languages
           GROUP BY word
           ORDER BY frequency DESC
           LIMIT ?
@@ -240,6 +240,7 @@ export function registerSearchRoutes(router) {
             c.image_key,
             c.audio_key,
             c.difficulty_score,
+            c.level_frequency_ranks,
             c.duration,
             c.length,
             c.sentence,
@@ -326,6 +327,7 @@ export function registerSearchRoutes(router) {
               image_url: makeMediaUrl(r.image_key),
               audio_url: makeMediaUrl(r.audio_key),
               difficulty_score: r.difficulty_score,
+              level_frequency_ranks: r.level_frequency_ranks ? (() => { try { return JSON.parse(r.level_frequency_ranks); } catch { return null; } })() : null,
               text: (subsMap.get(r.card_id) && subsMap.get(r.card_id)[r.content_main_language]) || r.sentence || '',
               subtitle: subsMap.get(r.card_id) || {},
               cefr_level: cefrMap.get(r.card_id) || null,
@@ -432,6 +434,7 @@ export function registerSearchRoutes(router) {
             c.image_key,
             c.audio_key,
             c.difficulty_score,
+            c.level_frequency_ranks,
             e.slug AS episode_slug,
             e.episode_number,
             ci.slug AS content_slug,
@@ -458,7 +461,10 @@ export function registerSearchRoutes(router) {
 
         try {
           const result = await env.DB.prepare(mainQuery).bind(...params).all();
-          items = result.results || [];
+          items = (result.results || []).map(r => ({
+            ...r,
+            level_frequency_ranks: r.level_frequency_ranks ? (() => { try { return JSON.parse(r.level_frequency_ranks); } catch { return null; } })() : null
+          }));
           
           // Count query
           const countQuery = `
@@ -541,6 +547,7 @@ export function registerSearchRoutes(router) {
               c.image_key,
               c.audio_key,
               c.difficulty_score,
+              c.level_frequency_ranks,
               e.slug AS episode_slug,
               e.episode_number,
               ci.slug AS content_slug,
@@ -580,6 +587,7 @@ export function registerSearchRoutes(router) {
               c.image_key,
               c.audio_key,
               c.difficulty_score,
+              c.level_frequency_ranks,
               e.slug AS episode_slug,
               e.episode_number,
               ci.slug AS content_slug,
@@ -598,8 +606,8 @@ export function registerSearchRoutes(router) {
             JOIN card_subtitles cs_filter ON cs_filter.card_id = c.id
               AND cs_filter.language IN (${subtitleLangsArr.map(() => '?').join(',')})
             WHERE c.is_available = 1
-            GROUP BY c.id, c.card_number, c.start_time, c.end_time, c.image_key, c.audio_key, 
-                     c.difficulty_score, e.slug, e.episode_number, ci.slug, ci.main_language, ci.title
+            GROUP BY c.id, c.card_number, c.start_time, c.end_time, c.image_key, c.audio_key,
+                     c.difficulty_score, c.level_frequency_ranks, e.slug, e.episode_number, ci.slug, ci.main_language, ci.title
             HAVING COUNT(DISTINCT cs_filter.language) >= ?`;
         }
       } else {
@@ -618,6 +626,7 @@ export function registerSearchRoutes(router) {
               c.image_key,
               c.audio_key,
               c.difficulty_score,
+              c.level_frequency_ranks,
               e.slug AS episode_slug,
               e.episode_number,
               ci.slug AS content_slug,
@@ -649,6 +658,7 @@ export function registerSearchRoutes(router) {
               c.image_key,
               c.audio_key,
               c.difficulty_score,
+              c.level_frequency_ranks,
               e.slug AS episode_slug,
               e.episode_number,
               ci.slug AS content_slug,
@@ -1398,6 +1408,7 @@ export function registerSearchRoutes(router) {
           image_url: makeMediaUrl(r.image_key),
           audio_url: makeMediaUrl(r.audio_key),
           difficulty_score: r.difficulty_score,
+          level_frequency_ranks: r.level_frequency_ranks ? (() => { try { return JSON.parse(r.level_frequency_ranks); } catch { return null; } })() : null,
           text: (subsMap.get(r.card_id) && subsMap.get(r.card_id)[r.content_main_language]) || '', // Get main subtitle from batch fetch
           subtitle: subsMap.get(r.card_id) || {},
           cefr_level: cefrLevelMap.get(r.card_id) || null,

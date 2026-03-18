@@ -204,9 +204,9 @@ export default function CsvPreviewPanel({
                           : 'csv-cell-normal'
                       }`}
                       title={
-                        isEmpty && isRequired ? 'Ô trống - CSV không hợp lệ' :
-                        isEmpty && isMainLang ? 'Ô trống - card sẽ mặc định unavailable' :
-                        isEmpty && isSubtitle ? 'Ô trống - thiếu subtitle (sẽ bỏ qua khi upload)' : ''
+                        isEmpty && isRequired ? 'Empty - Blocking error' :
+                        isEmpty && isMainLang ? 'Empty - Card will be unavailable' :
+                        isEmpty && isSubtitle ? 'Empty - Will be skipped on upload' : ''
                       }
                     >
                       {displayVal}
@@ -223,9 +223,9 @@ export default function CsvPreviewPanel({
           <span className="csv-icon-subtitle">§</span> = Subtitle column |{' '}
           <span className="csv-icon-unrecognized">⚠</span> = Unrecognized column |{' '}
           <span className="csv-icon-reserved">◆</span> = Reserved column (actively ignored) |{' '}
-          <span className="csv-legend-sample-required">Ô đỏ (Required)</span> = Blocking error |{' '}
-          <span className="csv-legend-sample-main">Ô cam (Main)</span> = Card unavailable |{' '}
-          <span className="csv-legend-sample-subtitle">Ô xanh ngọc (Subtitle)</span> = Thiếu subtitle (sẽ bỏ qua khi upload)
+          <span className="csv-legend-sample-required">Red (Required)</span> = Blocking error |{' '}
+          <span className="csv-legend-sample-main">Orange (Main)</span> = Card unavailable |{' '}
+          <span className="csv-legend-sample-subtitle">Teal (Subtitle)</span> = Missing subtitle (will be skipped on upload)
         </div>
       </div>
     </div>

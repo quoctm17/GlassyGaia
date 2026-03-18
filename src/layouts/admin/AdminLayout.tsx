@@ -4,7 +4,7 @@ import { useUser } from '../../context/UserContext';
 import { decodeJWT, isJWTExpired } from '../../utils/jwt';
 import '../../styles/pages/admin/admin.css';
 import toast from 'react-hot-toast';
-import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag, BarChart3, Search, Settings } from 'lucide-react';
+import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag, BarChart3, Search, Settings, AlertCircle } from 'lucide-react';
 
 export default function AdminLayout() {
   const { user, loading, signInGoogle, adminKey, setAdminKey, isAdmin, isSuperAdmin } = useUser();
@@ -68,6 +68,8 @@ export default function AdminLayout() {
           </button>
         </div>
         <nav className="admin-sidenav-links">
+          {/* Admin Section */}
+          <div className="admin-nav-section-header">Content Management</div>
           <NavLink to="/admin/content" className={({isActive})=> 'admin-nav-link'+((isActive || isContentSection)?' active':'')}>
             <Layers className="w-4 h-4 mr-2" />
             <span>Content</span>
@@ -80,6 +82,13 @@ export default function AdminLayout() {
             <Users className="w-4 h-4 mr-2" />
             <span>Users</span>
           </NavLink>
+          <NavLink to="/admin/categories" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+            <Tag className="w-4 h-4 mr-2" />
+            <span>Categories</span>
+          </NavLink>
+
+          {/* Migration Section */}
+          <div className="admin-nav-section-header">Migration</div>
           <NavLink to="/admin/image-migration" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
             <ImageIcon className="w-4 h-4 mr-2" />
             <span>Image Migration</span>
@@ -92,19 +101,15 @@ export default function AdminLayout() {
             <Music className="w-4 h-4 mr-2" />
             <span>Audio Migration</span>
           </NavLink>
-          {/* Populate FTS removed - FTS5 table dropped */}
-          {isSuperAdmin() && (
-            <NavLink to="/admin/populate-search-words" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-              <Search className="w-4 h-4 mr-2" />
-              <span>Populate Search Words</span>
-            </NavLink>
-          )}
-          <NavLink to="/admin/categories" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-            <Tag className="w-4 h-4 mr-2" />
-            <span>Categories</span>
-          </NavLink>
+
+          {/* SuperAdmin Section */}
           {isSuperAdmin() && (
             <>
+              <div className="admin-nav-section-header">System</div>
+              <NavLink to="/admin/populate-search-words" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+                <Search className="w-4 h-4 mr-2" />
+                <span>Search Words</span>
+              </NavLink>
               <NavLink to="/admin/level-management" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
                 <BarChart3 className="w-4 h-4 mr-2" />
                 <span>Level Management</span>
@@ -117,8 +122,12 @@ export default function AdminLayout() {
                 <Database className="w-4 h-4 mr-2" />
                 <span>Database</span>
               </NavLink>
+              <NavLink to="/admin/unavailable-cards" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
+                <AlertCircle className="w-4 h-4 mr-2" />
+                <span>Unavailable Cards</span>
+              </NavLink>
             </>
-          )}  
+          )}
         </nav>
         {!user && (
           <button className="admin-btn" onClick={signInGoogle}>Sign in</button>

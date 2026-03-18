@@ -299,7 +299,6 @@ function SearchPage() {
           console.log(`${logLabel}: API call (browsing mode) took ${apiTime.toFixed(2)}ms, returned ${result.items.length} items (total: ${result.total})`);
 
           if (result.content_meta && Object.keys(result.content_meta).length > 0) {
-            console.log("[SearchPage] content_meta titles (browse)", Object.values(result.content_meta).map((m: any) => ({ id: m.id, title: m.title })));
             setContentMeta(prev => ({ ...prev, ...result.content_meta }));
           }
           if (pageNum === 1) {
