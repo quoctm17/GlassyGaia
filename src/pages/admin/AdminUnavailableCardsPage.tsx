@@ -8,6 +8,7 @@ import '../../styles/components/admin/admin-forms.css';
 interface UnavailableCard extends CardDoc {
   filmSlug?: string;
   episodeSlug?: string;
+  main_language?: string;
 }
 
 export default function AdminUnavailableCardsPage() {
@@ -58,14 +59,49 @@ export default function AdminUnavailableCardsPage() {
     }
   };
 
+  // Detect if text is only brackets / sound effects / punctuation
+  const isBracketOnlyContent = (text: string | undefined): boolean => {
+    if (!text) return false;
+    const trimmed = text.trim();
+    // Must be wrapped in square brackets
+    if (!/^\[[^\]]+\]$/.test(trimmed)) return false;
+    const inner = trimmed.slice(1, -1).trim();
+    if (!inner) return true; // empty brackets []
+    // Sound effect / music symbols only
+    if (/^[\s♪♫♬\-\.]+$/.test(inner)) return true;
+    // Common SPEAKS / sound effect phrases
+    if (/^(SPEAKS?( IN)?|APPLAUSE|LAUGHTER|MUSIC|NOISE|COUGH|SINGS?|HUMMING|SHOUTING|MUTED|SILENCE|AMBIENT|AUDIO|CAPTION|SOUND EFFECT|LANGUAGE)[\s\.\-]*$/i.test(inner)) return true;
+    return false;
+  };
+
   const getUnavailableReason = (card: UnavailableCard): string => {
     const reasons: string[] = [];
     if (card.is_available === false) reasons.push('Unavailable flag');
     if (!card.length || card.length === 0) reasons.push('Zero length');
-    if (card.sentence) {
-      if (/^\[\]+$/.test(card.sentence)) reasons.push('Only brackets');
-      if (/NETFLIX/i.test(card.sentence)) reasons.push('Contains NETFLIX');
+
+    // Check sentence (main text)
+    if (isBracketOnlyContent(card.sentence)) {
+      reasons.push('Sentence: bracket/sound-effect only');
     }
+
+    // Check only the main_language subtitle (not all subtitles)
+    if (card.subtitle && card.main_language) {
+      const mainSubText = card.subtitle[card.main_language];
+      if (mainSubText) {
+        if (isBracketOnlyContent(mainSubText)) {
+          reasons.push(`Sub [${card.main_language}]: bracket/sound-effect only`);
+        }
+        if (/NETFLIX/i.test(mainSubText)) {
+          reasons.push(`Sub [${card.main_language}]: NETFLIX`);
+        }
+      }
+    }
+
+    // Check NETFLIX in sentence
+    if (card.sentence && /NETFLIX/i.test(card.sentence)) {
+      reasons.push('Contains NETFLIX');
+    }
+
     return reasons.join(', ') || 'Unknown';
   };
 

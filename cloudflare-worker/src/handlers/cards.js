@@ -159,24 +159,24 @@ export function registerCardRoutes(router) {
     const limit = Math.min(5000, Math.max(1, limitRaw));
     const filter = url.searchParams.get('filter');
     const unavailableWhere = filter === 'unavailable'
-      ? ` WHERE (c.is_available = 0 OR c.length = 0 OR c.sentence GLOB '*[Nn][Ee][Tt][Ff][Ll][Ii][Xx]*' OR c.sentence GLOB '[\\[\\]]*')`
+      ? ` WHERE (c.is_available = 0 OR c.length = 0 OR c.sentence GLOB '*[Nn][Ee][Tt][Ff][Ll][Ii][Xx]*' OR c.sentence GLOB '[\\[\\]]*' OR EXISTS (SELECT 1 FROM card_subtitles cs2 WHERE cs2.card_id=c.id AND cs2.language=ci.main_language AND (cs2.text GLOB '[\\[\\]]*' OR cs2.text GLOB '*[Nn][Ee][Tt][Ff][Ll][Ii][Xx]*')))`
       : '';
     try {
       let res;
       try {
-        const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
-                   FROM cards c JOIN episodes e ON c.episode_id=e.id${unavailableWhere}
+        const sql = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id,ci.main_language
+                   FROM cards c JOIN episodes e ON c.episode_id=e.id JOIN content_items ci ON ci.id=e.content_item_id${unavailableWhere}
                    ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
         res = await env.DB.prepare(sql).bind(limit).all();
       } catch (e) {
         try {
-          const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id
-                   FROM cards c JOIN episodes e ON c.episode_id=e.id${unavailableWhere}
+          const sql2 = `SELECT c.card_number,c.start_time AS start_time,c.end_time AS end_time,c.duration,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_num AS episode_number,e.slug as episode_slug,c.id as internal_id,ci.main_language
+                   FROM cards c JOIN episodes e ON c.episode_id=e.id JOIN content_items ci ON ci.id=e.content_item_id${unavailableWhere}
                    ORDER BY e.episode_num ASC, c.card_number ASC LIMIT ?`;
           res = await env.DB.prepare(sql2).bind(limit).all();
         } catch (e2) {
-          const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id
-                   FROM cards c JOIN episodes e ON c.episode_id=e.id${unavailableWhere}
+          const sql3 = `SELECT c.card_number,c.start_time_ms,c.end_time_ms,c.image_key,c.audio_key,c.sentence,c.card_type,c.length,c.difficulty_score,c.is_available,e.content_item_id as film_id,e.episode_number,e.slug as episode_slug,c.id as internal_id,ci.main_language
+                   FROM cards c JOIN episodes e ON c.episode_id=e.id JOIN content_items ci ON ci.id=e.content_item_id${unavailableWhere}
                    ORDER BY e.episode_number ASC, c.card_number ASC LIMIT ?`;
           try { res = await env.DB.prepare(sql3).bind(limit).all(); }
           catch { res = { results: [] }; }
@@ -252,7 +252,7 @@ export function registerCardRoutes(router) {
         const startS = (r.start_time != null) ? r.start_time : Math.round((r.start_time_ms || 0) / 1000);
         const endS = (r.end_time != null) ? r.end_time : Math.round((r.end_time_ms || 0) / 1000);
         const dur = (r.duration != null) ? r.duration : Math.max(0, endS - startS);
-        out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, film_id: film?.slug, is_available: r.is_available, subtitle });
+        out.push({ id: displayId, episode: episodeSlug, start: startS, end: endS, duration: dur, image_key: r.image_key, audio_key: r.audio_key, sentence: r.sentence, card_type: r.card_type, length: r.length, difficulty_score: r.difficulty_score, cefr_level: cefr, film_id: film?.slug, is_available: r.is_available, subtitle, main_language: r.main_language });
       }
       return json(out);
     } catch { return json([]); }

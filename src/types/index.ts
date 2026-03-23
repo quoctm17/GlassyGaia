@@ -30,6 +30,7 @@ export interface CardDoc {
   length?: number; // length of card_type for matching/scoring
   difficulty_score?: number; // 0-100 fine-grained difficulty
   is_available?: boolean; // visibility flag (default: true)
+  main_language?: string; // main language of the content item (from content_items table)
 }
 
 export interface EpisodeDoc {
