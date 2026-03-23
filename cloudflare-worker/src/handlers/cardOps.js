@@ -109,110 +109,88 @@ export function registerCardOpsRoutes(router) {
       const MAX_BATCH_SIZE = 100;
       const cardsToProcess = cards.slice(0, MAX_BATCH_SIZE);
 
-      // Group cards by film_id and episode_id for batch lookup
-      const filmEpisodeMap = new Map();
-      cardsToProcess.forEach(card => {
-        if (!card.film_id || !card.episode_id) return;
-        const key = `${card.film_id}|${card.episode_id}`;
-        if (!filmEpisodeMap.has(key)) {
-          filmEpisodeMap.set(key, { film_id: card.film_id, episode_id: card.episode_id, cards: [] });
-        }
-        filmEpisodeMap.get(key).cards.push(card);
-      });
-
-      // Batch get card UUIDs by film/episode groups
-      const cardUUIDPromises = Array.from(filmEpisodeMap.values()).map(async (group) => {
-        // Parse episode number
-        let epNum = parseInt(String(group.episode_id).replace(/^e/i, ''));
-        if (isNaN(epNum)) {
-          const m = String(group.episode_id).match(/_(\d+)$/);
-          epNum = m ? parseInt(m[1]) : 1;
-        }
-
-        // Get film and episode IDs once per group
-        const film = await env.DB.prepare(`SELECT id FROM content_items WHERE slug = ?`).bind(group.film_id).first();
-        if (!film) return [];
-
-        const ep = await env.DB.prepare(`SELECT id FROM episodes WHERE content_item_id = ? AND episode_number = ?`).bind(film.id, epNum).first();
-        if (!ep) return [];
-
-        // Get all card UUIDs for this episode in one query
-        const cardNumbers = group.cards.map(c => {
-          const num = parseInt(c.card_id);
-          return isNaN(num) ? null : num;
-        }).filter(n => n !== null);
-
-        if (cardNumbers.length === 0) return [];
-
-        const placeholders = cardNumbers.map(() => '?').join(',');
-        const cardRows = await env.DB.prepare(`
-          SELECT card_number, id FROM cards 
-          WHERE episode_id = ? AND card_number IN (${placeholders})
-        `).bind(ep.id, ...cardNumbers).all();
-
-        // Map card_number to card_id
-        const numberToUUID = new Map();
-        if (cardRows.results) {
-          cardRows.results.forEach(row => {
-            numberToUUID.set(row.card_number, row.id);
-          });
-        }
-
-        // Return mappings for all cards in this group
-        return group.cards.map(card => {
-          const num = parseInt(card.card_id);
-          const uuid = isNaN(num) ? null : numberToUUID.get(num);
-          return { card_id: card.card_id, uuid };
-        });
-      });
-
-      const cardUUIDArrays = await Promise.all(cardUUIDPromises);
-      const cardUUIDs = cardUUIDArrays.flat();
-      const validUUIDs = cardUUIDs.filter(c => c.uuid !== null);
-
-      if (validUUIDs.length === 0) {
-        // Return default values for all cards
-        const result = {};
-        cardsToProcess.forEach(card => {
-          result[card.card_id] = { saved: false, srs_state: 'none', review_count: 0 };
-        });
-        return json(result);
-      }
-
-      // Batch query all save statuses in one query
-      const uuids = validUUIDs.map(c => c.uuid);
-      const placeholders = uuids.map(() => '?').join(',');
-      const query = `
-        SELECT card_id, srs_state, review_count 
-        FROM user_card_states
-        WHERE user_id = ? AND card_id IN (${placeholders})
-      `;
-
-      const results = await env.DB.prepare(query)
-        .bind(userId, ...uuids)
-        .all();
-
-      // Build result map
-      const resultMap = {};
-      const uuidToCardId = new Map(validUUIDs.map(c => [c.uuid, c.card_id]));
-
       // Initialize all cards with default values
+      const resultMap = {};
       cardsToProcess.forEach(card => {
         resultMap[card.card_id] = { saved: false, srs_state: 'none', review_count: 0 };
       });
 
-      // Update with actual results
-      if (results.results) {
-        for (const row of results.results) {
-          const cardId = uuidToCardId.get(row.card_id);
-          if (cardId) {
-            const saved = row.srs_state && row.srs_state !== 'none';
-            resultMap[cardId] = {
-              saved,
-              srs_state: row.srs_state || 'none',
-              review_count: row.review_count || 0
-            };
+      // Collect unique film slugs and episode slugs for a single JOIN query
+      const uniqueFilmSlugs = [...new Set(cardsToProcess.map(c => c.film_id).filter(Boolean))];
+      const uniqueEpisodeSlugs = [...new Set(cardsToProcess.map(c => c.episode_id).filter(Boolean))];
+
+      if (uniqueFilmSlugs.length === 0 || uniqueEpisodeSlugs.length === 0) {
+        return json(resultMap);
+      }
+
+      // Parse all card numbers from display IDs
+      const cardNumbers = cardsToProcess.map(c => {
+        const num = parseInt(c.card_id);
+        return isNaN(num) ? null : num;
+      }).filter(n => n !== null);
+
+      if (cardNumbers.length === 0) {
+        return json(resultMap);
+      }
+
+      // Single JOIN query to resolve all card_number → UUID mappings
+      // Joins content_items + episodes + cards in one shot instead of N×3 sequential queries
+      const filmPh = uniqueFilmSlugs.map(() => '?').join(',');
+      const epPh = uniqueEpisodeSlugs.map(() => '?').join(',');
+      const cardPh = cardNumbers.map(() => '?').join(',');
+
+      const mappingRows = await env.DB.prepare(`
+        SELECT c.id AS uuid, c.card_number, ci.slug AS film_slug, e.slug AS episode_slug
+        FROM cards c
+        JOIN episodes e ON e.id = c.episode_id
+        JOIN content_items ci ON ci.id = e.content_item_id
+        WHERE ci.slug IN (${filmPh})
+          AND e.slug IN (${epPh})
+          AND c.card_number IN (${cardPh})
+      `).bind(...uniqueFilmSlugs, ...uniqueEpisodeSlugs, ...cardNumbers).all();
+
+      // Build card_display_id → UUID map using film+episode+card_number as composite key
+      const displayToUUID = new Map();
+      for (const row of (mappingRows.results || [])) {
+        // Match by card_number since card_id in the request is the display number
+        displayToUUID.set(String(row.card_number), row.uuid);
+      }
+
+      // Resolve UUIDs for each card
+      const validUUIDs = [];
+      const uuidToCardId = new Map();
+      for (const card of cardsToProcess) {
+        const num = parseInt(card.card_id);
+        if (!isNaN(num)) {
+          const uuid = displayToUUID.get(String(num));
+          if (uuid) {
+            validUUIDs.push(uuid);
+            uuidToCardId.set(uuid, card.card_id);
           }
+        }
+      }
+
+      if (validUUIDs.length === 0) {
+        return json(resultMap);
+      }
+
+      // Single query to get all save statuses
+      const uuidPh = validUUIDs.map(() => '?').join(',');
+      const results = await env.DB.prepare(`
+        SELECT card_id, srs_state, review_count
+        FROM user_card_states
+        WHERE user_id = ? AND card_id IN (${uuidPh})
+      `).bind(userId, ...validUUIDs).all();
+
+      // Update result map with actual statuses
+      for (const row of (results.results || [])) {
+        const cardId = uuidToCardId.get(row.card_id);
+        if (cardId) {
+          resultMap[cardId] = {
+            saved: !!(row.srs_state && row.srs_state !== 'none'),
+            srs_state: row.srs_state || 'none',
+            review_count: row.review_count || 0
+          };
         }
       }
 

@@ -288,11 +288,21 @@ export function registerSearchRoutes(router) {
               : [mainLanguage || 'en'];
             const subsLangPh = subsLangs.map(() => '?').join(',');
 
-            // Batch-fetch subtitles + levels in parallel
-            const [subsResult, levelsResult] = await Promise.all([
-              env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph}) AND language IN (${subsLangPh})`).bind(...cardIds, ...subsLangs).all(),
-              env.DB.prepare(`SELECT card_id, framework, level, language FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...cardIds).all(),
-            ]);
+            // Batch-fetch subtitles + levels + content_meta all in parallel
+            const subsPromise = env.DB.prepare(`SELECT card_id, language, text FROM card_subtitles WHERE card_id IN (${ph}) AND language IN (${subsLangPh})`).bind(...cardIds, ...subsLangs).all();
+            const levelsPromise = env.DB.prepare(`SELECT card_id, framework, level, language FROM card_difficulty_levels WHERE card_id IN (${ph})`).bind(...cardIds).all();
+
+            let metaPromise = Promise.resolve(null);
+            let uniqueSlugs = [];
+            if (includeContentMeta) {
+              uniqueSlugs = [...new Set(rawCards.map(r => r.content_slug).filter(Boolean))];
+              if (uniqueSlugs.length > 0) {
+                const metaPh = uniqueSlugs.map(() => '?').join(',');
+                metaPromise = env.DB.prepare(`SELECT slug as id, title, type, main_language, level_framework_stats FROM content_items WHERE slug IN (${metaPh})`).bind(...uniqueSlugs).all();
+              }
+            }
+
+            const [subsResult, levelsResult, metaResult] = await Promise.all([subsPromise, levelsPromise, metaPromise]);
 
             const subsMap = new Map();
             for (const row of (subsResult.results || [])) {
@@ -334,24 +344,15 @@ export function registerSearchRoutes(router) {
               levels: levelsMap.get(r.card_id) || [],
             }));
 
-            // Content metadata for FilterPanel (small query on unique slugs)
-            if (includeContentMeta) {
-              const uniqueSlugs = [...new Set(rawCards.map(r => r.content_slug).filter(Boolean))];
-              if (uniqueSlugs.length > 0) {
-                try {
-                  const metaPh = uniqueSlugs.map(() => '?').join(',');
-                  const metaRows = await env.DB.prepare(`SELECT slug as id, title, type, main_language, level_framework_stats FROM content_items WHERE slug IN (${metaPh})`).bind(...uniqueSlugs).all();
-                  const contentMeta = {};
-                  for (const r of (metaRows.results || [])) {
-                    let ls = null;
-                    if (r.level_framework_stats) { try { ls = JSON.parse(r.level_framework_stats); } catch {} }
-                    contentMeta[r.id] = { id: r.id, title: r.title, type: r.type, main_language: r.main_language, level_framework_stats: ls };
-                  }
-                  items._content_meta = contentMeta; // attach temporarily, will be extracted below
-                } catch (metaErr) {
-                  console.warn('[PERF /api/search] Quick browse content_meta error:', metaErr.message);
-                }
+            // Content metadata for FilterPanel (already fetched in parallel with subtitles + levels)
+            if (includeContentMeta && metaResult) {
+              const contentMeta = {};
+              for (const r of (metaResult.results || [])) {
+                let ls = null;
+                if (r.level_framework_stats) { try { ls = JSON.parse(r.level_framework_stats); } catch {} }
+                contentMeta[r.id] = { id: r.id, title: r.title, type: r.type, main_language: r.main_language, level_framework_stats: ls };
               }
+              items._content_meta = contentMeta; // attach temporarily, will be extracted below
             }
           }
 
@@ -363,8 +364,7 @@ export function registerSearchRoutes(router) {
         }
       }
 
-      // Build subtitle language condition using EXISTS (faster than JOIN)
-      // Defined outside if blocks so it's available to all code paths
+      // Build subtitle language condition using EXISTS on card_subtitles (source of truth)
       const subtitleLangCondition = subtitleLangsCount > 0
         ? `AND EXISTS (
               SELECT 1 FROM card_subtitles cs_sub
@@ -407,7 +407,7 @@ export function registerSearchRoutes(router) {
         let stmt;
         let params = [];
         
-        // Build subtitle language condition using EXISTS (faster than JOIN)
+        // Build subtitle language condition using EXISTS on card_subtitles (source of truth)
         const subtitleLangCondition = subtitleLangsCount > 0
           ? `AND EXISTS (
                 SELECT 1 FROM card_subtitles cs_sub
@@ -465,24 +465,12 @@ export function registerSearchRoutes(router) {
             ...r,
             level_frequency_ranks: r.level_frequency_ranks ? (() => { try { return JSON.parse(r.level_frequency_ranks); } catch { return null; } })() : null
           }));
-          
-          // Count query
-          const countQuery = `
-            SELECT COUNT(*) as total
-            FROM cards c
-            JOIN episodes e ON e.id = c.episode_id
-            JOIN content_items ci ON ci.id = e.content_item_id
-            WHERE c.is_available = 1
-              AND ci.main_language = ?
-              ${subtitleLangCondition}
-              ${textSearchCondition}
-              ${contentIdsCondition}
-          `;
-          const countParams = [mainLanguage || 'en', ...subtitleLangsArr, ...textSearchParams, ...contentIdsParams];
-          const countResult = await env.DB.prepare(countQuery).bind(...countParams).first();
-          total = countResult?.total || 0;
-          
-          console.log(`[PERF /api/search] Fallback: ${items.length} cards, total: ${total}`);
+
+          // Skip count query -- use -1 to signal "not available" (frontend handles this)
+          // The complex path already skips COUNT and returns -1; do the same here for consistency
+          total = -1;
+
+          console.log(`[PERF /api/search] Fallback: ${items.length} cards`);
         } catch (e) {
           console.error(`[PERF /api/search] Fallback error:`, e.message);
         }
@@ -505,11 +493,12 @@ export function registerSearchRoutes(router) {
           useSummaryTable = false; // Force fallback until mapping table is ready
 
         try {
-          const mapCheck = await env.DB.prepare('SELECT COUNT(*) as cnt FROM card_subtitle_language_map LIMIT 1').first();
+          // Run both COUNT queries in parallel to halve the wait time
+          const [mapCheck, totalCardsCheck] = await Promise.all([
+            env.DB.prepare('SELECT COUNT(*) as cnt FROM card_subtitle_language_map LIMIT 1').first(),
+            env.DB.prepare('SELECT COUNT(*) as cnt FROM cards WHERE is_available = 1 LIMIT 1').first(),
+          ]);
           const mapCount = mapCheck?.cnt || 0;
-
-          // Check if we have enough cards to estimate coverage
-          const totalCardsCheck = await env.DB.prepare('SELECT COUNT(*) as cnt FROM cards WHERE is_available = 1 LIMIT 1').first();
           const totalCards = totalCardsCheck?.cnt || 0;
 
           // Use mapping table if it has ANY meaningful data (> 100 rows)
@@ -1171,32 +1160,6 @@ export function registerSearchRoutes(router) {
 
       const queryStart = Date.now();
       console.log(`[PERF /api/search] Query start | Params: ${params.length} | SubtitleLangs: ${subtitleLangsCount} | MainLang: ${mainLanguage || 'none'}`);
-      console.log(`[PERF /api/search] Query params:`, JSON.stringify(params.slice(0, 10))); // Log first 10 params for debugging
-
-      // Debug: Log a simplified test query to see if data exists
-      if (subtitleLangsCount > 0 && useSummaryTable) {
-        try {
-          const testQuery = `
-            SELECT COUNT(*) as cnt 
-            FROM cards c
-            JOIN episodes e ON e.id = c.episode_id
-            JOIN content_items ci ON ci.id = e.content_item_id
-            JOIN card_subtitles cs_main ON cs_main.card_id = c.id
-              AND cs_main.language = ci.main_language
-              AND cs_main.text IS NOT NULL
-              AND cs_main.text != ''
-            JOIN card_subtitle_language_map cslm ON cslm.card_id = c.id
-              AND cslm.language = ?
-            WHERE ci.main_language = ?
-              AND c.is_available = 1
-            LIMIT 10
-          `;
-          const testResult = await env.DB.prepare(testQuery).bind(subtitleLangsArr[0], mainLanguage).all();
-          console.log(`[PERF /api/search] Test query (simple JOIN): ${(testResult.results || []).length} rows`);
-        } catch (e) {
-          console.error(`[PERF /api/search] Test query error:`, e.message);
-        }
-      }
 
       let cardsResult;
       try {
@@ -1220,29 +1183,6 @@ export function registerSearchRoutes(router) {
       queryTime = Date.now() - queryStart;
       const totalStart = Date.now();
       console.log(`[PERF /api/search] [${requestId}] Main query completed: ${queryTime}ms | Rows: ${(cardsResult.results || []).length}`);
-
-      // Debug: If 0 rows, log more details
-      if ((cardsResult.results || []).length === 0 && subtitleLangsCount > 0) {
-        console.log(`[PERF /api/search] DEBUG: 0 rows returned. Checking mapping table coverage...`);
-        try {
-          const coverageCheck = await env.DB.prepare(`
-            SELECT COUNT(DISTINCT c.id) as card_count
-            FROM cards c
-            JOIN episodes e ON e.id = c.episode_id
-            JOIN content_items ci ON ci.id = e.content_item_id
-            JOIN card_subtitles cs_main ON cs_main.card_id = c.id
-              AND cs_main.language = ci.main_language
-              AND cs_main.text IS NOT NULL
-              AND cs_main.text != ''
-            WHERE ci.main_language = ?
-              AND c.is_available = 1
-              AND EXISTS (SELECT 1 FROM card_subtitle_language_map cslm WHERE cslm.card_id = c.id AND cslm.language = ?)
-          `).bind(mainLanguage, subtitleLangsArr[0]).first();
-          console.log(`[PERF /api/search] DEBUG: Cards with main_lang=${mainLanguage} AND subtitle_lang=${subtitleLangsArr[0]}: ${coverageCheck?.card_count || 0}`);
-        } catch (e) {
-          console.error(`[PERF /api/search] DEBUG query error:`, e.message);
-        }
-      }
 
       // Use placeholder total - frontend can fetch separately if needed
       total = -1; // Signal that total is not available

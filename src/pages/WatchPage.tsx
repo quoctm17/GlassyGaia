@@ -12,6 +12,7 @@ import {
   apiVoteEpisodeComment,
   apiGetEpisodeCommentVotes,
   apiGetCardSaveStatusBatch,
+  apiToggleSaveCard,
   apiUpdateCardSRSState,
   apiListItems,
   type EpisodeComment
@@ -750,6 +751,38 @@ export default function WatchPage() {
     }
   };
 
+  // Handle save/unsave toggle (media controls)
+  const handleToggleSaveCard = async (card: CardDoc, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user?.uid || !card.id) return;
+
+    const filmId = card.film_id || contentId || '';
+    const episodeId = card.episode_id ||
+      (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode || '')) ||
+      (currentEpisode?.slug || '');
+
+    if (!filmId || !episodeId) return;
+
+    const prevState = cardSaveStates[card.id]?.saved || false;
+
+    // Optimistic update
+    setCardSaveStates(prev => ({
+      ...prev,
+      [card.id]: { ...prev[card.id], saved: !prev[card.id]?.saved, srsState: prev[card.id]?.srsState || 'none' },
+    }));
+
+    try {
+      await apiToggleSaveCard(user.uid, card.id, filmId, episodeId);
+    } catch {
+      // Revert on failure
+      setCardSaveStates(prev => ({
+        ...prev,
+        [card.id]: { ...prev[card.id], saved: prev[card.id]?.srsState ? prev[card.id]!.saved : prev[card.id]?.saved ?? prevState, srsState: prev[card.id]?.srsState || 'none' },
+      }));
+      console.error('Failed to toggle save card');
+    }
+  };
+
   const handleCardClick = useCallback((index: number) => {
     // If target card is not loaded yet, load it first
     if (index >= cards.length) {
@@ -1320,11 +1353,14 @@ export default function WatchPage() {
   // Fetch review count when current card changes
   useEffect(() => {
     if (!user?.uid || !currentCard?.id) { setReviewCount(0); return; }
-    apiGetCardSaveStatusBatch(user.uid, [currentCard.id]).then(states => {
-      const s = states?.[currentCard.id];
+    const filmId = currentCard.film_id || currentEpisode?.slug || contentId || '';
+    const episodeId = currentCard.episode_id ||
+      (typeof currentCard.episode === 'number' ? `e${currentCard.episode}` : String(currentCard.episode || currentEpisode?.slug || ''));
+    apiGetCardSaveStatusBatch(user.uid, [{ card_id: String(currentCard.id), film_id: filmId, episode_id: episodeId }]).then(states => {
+      const s = states?.[String(currentCard.id)];
       setReviewCount(s?.review_count ?? 0);
     }).catch(() => setReviewCount(0));
-  }, [user?.uid, currentCard?.id]);
+  }, [user?.uid, currentCard?.id, currentEpisode, contentId]);
 
   // Close menu when clicking outside
   useEffect(() => {
