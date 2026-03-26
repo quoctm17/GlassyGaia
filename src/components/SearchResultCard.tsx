@@ -193,14 +193,18 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Update card when initialCard changes
   useEffect(() => {
-    setCard(initialCard);
+    setCard((prev) => ({
+      ...initialCard,
+      levels: initialCard.levels || prev.levels,
+      level_frequency_ranks: initialCard.level_frequency_ranks ?? prev.level_frequency_ranks ?? null,
+    }));
     // Reset to original when initialCard changes (new search result)
     setOriginalCardIndex(-1);
     // Reset image error state so new card's image can load properly
     setImageError(false);
     // Don't clear subtitle override immediately - let the subtitle fetch useEffect handle it
     // This ensures smooth transition when subtitle languages change
-  }, [initialCard.id, initialCard.image_url, initialCard.subtitle]);
+  }, [initialCard.id, initialCard.image_url, initialCard.subtitle, initialCard.level_frequency_ranks, initialCard.levels]);
 
   // Initialize save status from prop if provided (optimized batch loading)
   useEffect(() => {
@@ -1546,7 +1550,8 @@ const SearchResultCard = memo(function SearchResultCard({
         }
         setCard({
           ...cardToSet,
-          levels: cardToSet.levels || card.levels
+          levels: cardToSet.levels || card.levels,
+          level_frequency_ranks: cardToSet.level_frequency_ranks ?? card.level_frequency_ranks ?? null
         });
         
         // Increment review count for the new card
@@ -1555,7 +1560,8 @@ const SearchResultCard = memo(function SearchResultCard({
         // Preserve levels from current card if new card doesn't have them
         setCard({
           ...prevCard,
-          levels: prevCard.levels || card.levels
+          levels: prevCard.levels || card.levels,
+          level_frequency_ranks: prevCard.level_frequency_ranks ?? card.level_frequency_ranks ?? null
         });
         
         // Increment review count for the new card
@@ -1621,6 +1627,9 @@ const SearchResultCard = memo(function SearchResultCard({
         if (!cardToSet.levels && card.levels) {
           cardToSet.levels = card.levels;
         }
+        if (!cardToSet.level_frequency_ranks && card.level_frequency_ranks) {
+          cardToSet.level_frequency_ranks = card.level_frequency_ranks;
+        }
         if (cardToSet.image_url && cardToSet.image_url !== nextCard.image_url) {
           await preloadImage(cardToSet.image_url);
         }
@@ -1632,7 +1641,8 @@ const SearchResultCard = memo(function SearchResultCard({
         // Preserve levels from current card if new card doesn't have them
         setCard({
           ...nextCard,
-          levels: nextCard.levels || card.levels
+          levels: nextCard.levels || card.levels,
+          level_frequency_ranks: nextCard.level_frequency_ranks ?? card.level_frequency_ranks ?? null
         });
         
         // Increment review count for the new card
@@ -1715,6 +1725,9 @@ const SearchResultCard = memo(function SearchResultCard({
         if (!cardToSet.levels && card.levels) {
           cardToSet.levels = card.levels;
         }
+        if (!cardToSet.level_frequency_ranks && card.level_frequency_ranks) {
+          cardToSet.level_frequency_ranks = card.level_frequency_ranks;
+        }
         setCard(cardToSet);
         
         // Increment review count for the original card
@@ -1723,7 +1736,8 @@ const SearchResultCard = memo(function SearchResultCard({
         // Preserve levels from current card if new card doesn't have them
         setCard({
           ...originalCard,
-          levels: originalCard.levels || card.levels
+          levels: originalCard.levels || card.levels,
+          level_frequency_ranks: originalCard.level_frequency_ranks ?? card.level_frequency_ranks ?? null
         });
         
         // Increment review count for the original card
@@ -1907,10 +1921,12 @@ const SearchResultCard = memo(function SearchResultCard({
               const primaryLevel = card.levels[0].level || "";
               const primaryFramework = card.levels[0].framework || "CEFR";
               const colors = getLevelBadgeColors(primaryLevel);
+              const normalize = (s: string) => String(s || '').trim().toLowerCase();
+              const frameworkKey = normalize(primaryFramework);
               const freqEntry = card.level_frequency_ranks?.find(
-                (f) => f.framework === primaryFramework
-              );
-              const freqRank = freqEntry?.frequency_rank;
+                (f) => normalize(f.framework) === frameworkKey
+              ) || card.level_frequency_ranks?.[0];
+              const freqRank = typeof freqEntry?.frequency_rank === 'number' ? freqEntry.frequency_rank : null;
               return (
                 <div
                   className="level-badges-container"
@@ -2091,7 +2107,9 @@ const SearchResultCard = memo(function SearchResultCard({
                       onClick={() => {
                         setMenuOpen(false);
                         if (card.film_id) {
-                          const episodeSlug = card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode));
+                          // Prefer episode_slug (full slug from API, matches currentEpisode.slug in WatchPage),
+                          // then episode_id, finally fallback to numeric episode with 'e' prefix.
+                          const episodeSlug = card.episode_slug || card.episode_id || (typeof card.episode === 'number' ? `e${card.episode}` : String(card.episode));
                           navigate(`/watch/${card.film_id}?episode=${episodeSlug}&card=${card.id}`);
                         }
                       }}

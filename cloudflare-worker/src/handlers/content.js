@@ -151,4 +151,107 @@ export function registerContentRoutes(router) {
       return json({ error: e.message }, { status: 500 });
     }
   });
+
+  // POST /api/content/film-stats — batch fetch SRS, saved count, like count, like status for N films
+  router.post('/api/content/film-stats', async (request, env) => {
+    try {
+      const { user_id, film_ids } = await request.json();
+
+      if (!film_ids || !Array.isArray(film_ids) || film_ids.length === 0) {
+        return json({ error: 'film_ids must be a non-empty array' }, { status: 400 });
+      }
+
+      // Build IN clause placeholders
+      const inClause = film_ids.map(() => '?').join(',');
+
+      // 1. Get num_cards per film (for SRS percentage calculation)
+      const numCardsRows = await env.DB.prepare(`
+        SELECT slug, num_cards FROM content_items WHERE slug IN (${inClause})
+      `).bind(...film_ids).all();
+      const numCardsMap = {};
+      for (const r of (numCardsRows.results || [])) {
+        numCardsMap[r.slug] = r.num_cards || 0;
+      }
+
+      // 2. Get SRS state distribution per film
+      const srsRows = user_id
+        ? await env.DB.prepare(`
+            SELECT film_id, srs_state, COUNT(*) as count
+            FROM user_card_states
+            WHERE user_id = ? AND film_id IN (${inClause})
+            GROUP BY film_id, srs_state
+          `).bind(user_id, ...film_ids).all()
+        : { results: [] };
+
+      // 3. Get like counts (from denormalized table)
+      const likeCountRows = await env.DB.prepare(`
+        SELECT ci.slug as film_id, clc.like_count
+        FROM content_like_counts clc
+        JOIN content_items ci ON ci.id = clc.content_item_id
+        WHERE ci.slug IN (${inClause})
+      `).bind(...film_ids).all();
+
+      // 4. Get user like statuses (if logged in)
+      const userLikeRows = user_id
+        ? await env.DB.prepare(`
+            SELECT ci.slug as film_id
+            FROM content_likes cl
+            JOIN content_items ci ON ci.id = cl.content_item_id
+            WHERE cl.user_id = ? AND ci.slug IN (${inClause})
+          `).bind(user_id, ...film_ids).all()
+        : { results: [] };
+
+      // Build liked set for fast lookup
+      const likedSet = new Set((userLikeRows.results || []).map(r => r.film_id));
+
+      // Build result
+      const result = {};
+      for (const fid of film_ids) {
+        const totalCards = numCardsMap[fid] || 0;
+
+        // SRS distribution for this film
+        const filmSrs = (srsRows.results || []).filter(r => r.film_id === fid);
+        const dist = { none: 0, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+        const savedCards = filmSrs.reduce((s, r) => s + (r.count || 0), 0);
+
+        if (totalCards === 0) {
+          dist.none = 100;
+        } else {
+          // Fill in non-none states
+          filmSrs.forEach(row => {
+            const state = row.srs_state || 'none';
+            if (state in dist) {
+              dist[state] = Math.round((row.count / totalCards) * 100);
+            }
+          });
+          // none = cards not saved
+          dist.none = Math.round(((totalCards - savedCards) / totalCards) * 100);
+          // Normalize to 100%
+          const total = Object.values(dist).reduce((a, b) => a + b, 0);
+          if (total !== 100) {
+            const diff = 100 - total;
+            // Find largest non-none state to adjust
+            const nonNoneStates = ['new', 'again', 'hard', 'good', 'easy'];
+            let maxState = 'new';
+            let maxVal = 0;
+            for (const s of nonNoneStates) {
+              if (dist[s] > maxVal) { maxVal = dist[s]; maxState = s; }
+            }
+            dist[maxState] += diff;
+          }
+        }
+
+        result[fid] = {
+          srsDistribution: dist,
+          savedCount: savedCards,
+          likeCount: (likeCountRows.results || []).find(r => r.film_id === fid)?.like_count ?? 0,
+          liked: likedSet.has(fid),
+        };
+      }
+
+      return json(result);
+    } catch (e) {
+      return json({ error: e.message }, { status: 500 });
+    }
+  });
 }

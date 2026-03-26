@@ -149,38 +149,54 @@ export function registerCardOpsRoutes(router) {
           AND c.card_number IN (${cardPh})
       `).bind(...uniqueFilmSlugs, ...uniqueEpisodeSlugs, ...cardNumbers).all();
 
-      // Build card_display_id → UUID map using film+episode+card_number as composite key
+      // Build card_display_id → UUID map using full composite key to avoid collisions
+      // (card_number repeats across many episodes/films)
       const displayToUUID = new Map();
       for (const row of (mappingRows.results || [])) {
-        // Match by card_number since card_id in the request is the display number
-        displayToUUID.set(String(row.card_number), row.uuid);
+        const key = `${String(row.film_slug || '')}::${String(row.episode_slug || '')}::${String(row.card_number || '')}`;
+        displayToUUID.set(key, row.uuid);
       }
 
       // Resolve UUIDs for each card
       const validUUIDs = [];
       const uuidToCardId = new Map();
+      const directUUIDCandidates = [];
+
       for (const card of cardsToProcess) {
-        const num = parseInt(card.card_id);
-        if (!isNaN(num)) {
-          const uuid = displayToUUID.get(String(num));
+        const rawCardId = String(card.card_id || '').trim();
+        const num = parseInt(rawCardId, 10);
+
+        // If card_id is numeric display id, resolve with composite key
+        if (!isNaN(num) && card.film_id && card.episode_id) {
+          const key = `${String(card.film_id)}::${String(card.episode_id)}::${String(num)}`;
+          const uuid = displayToUUID.get(key);
           if (uuid) {
             validUUIDs.push(uuid);
-            uuidToCardId.set(uuid, card.card_id);
+            uuidToCardId.set(uuid, rawCardId);
           }
+          continue;
+        }
+
+        // Otherwise treat as direct UUID candidate
+        if (rawCardId) {
+          directUUIDCandidates.push(rawCardId);
+          uuidToCardId.set(rawCardId, rawCardId);
         }
       }
 
-      if (validUUIDs.length === 0) {
+      const allLookupIds = [...new Set([...validUUIDs, ...directUUIDCandidates])];
+
+      if (allLookupIds.length === 0) {
         return json(resultMap);
       }
 
       // Single query to get all save statuses
-      const uuidPh = validUUIDs.map(() => '?').join(',');
+      const uuidPh = allLookupIds.map(() => '?').join(',');
       const results = await env.DB.prepare(`
         SELECT card_id, srs_state, review_count
         FROM user_card_states
         WHERE user_id = ? AND card_id IN (${uuidPh})
-      `).bind(userId, ...validUUIDs).all();
+      `).bind(userId, ...allLookupIds).all();
 
       // Update result map with actual statuses
       for (const row of (results.results || [])) {

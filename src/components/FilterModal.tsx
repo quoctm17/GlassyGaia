@@ -143,12 +143,7 @@ function FilterModal({
             <div className="content-type-grid-filter-section-header">
               <Calendar className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">LENGTH</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Filter by number of words in the content
-                </div>
-              </div>
+              <span title="Filter by number of words in the content"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div className="content-type-grid-filter-range-inputs-wrapper">
               <span className="content-type-grid-filter-length-label">Number of words</span>
@@ -193,12 +188,7 @@ function FilterModal({
             <div className="content-type-grid-filter-section-header">
               <Clock className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">DURATION</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Filter by maximum duration in seconds
-                </div>
-              </div>
+              <span title="Filter by maximum duration in seconds"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div className="content-type-grid-filter-range-inputs-wrapper">
               <span className="content-type-grid-filter-length-label">Amount of time</span>
@@ -229,12 +219,7 @@ function FilterModal({
             <div className="content-type-grid-filter-section-header">
               <MessageSquare className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">REVIEW</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Filter by review counts
-                </div>
-              </div>
+              <span title="Filter by review counts"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div className="content-type-grid-filter-range-inputs-wrapper">
               <span className="content-type-grid-filter-length-label">Review Counts</span>

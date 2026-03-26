@@ -120,6 +120,14 @@
   /* Primary 50% transparent (search/content trigger buttons, content-type selected) */
   --light-primary-50: rgba(253, 170, 170, 0.5);
   --light-content-type-shadow: rgba(148, 137, 121, 0.5);
+  /* SetLevelModal */
+  --light-setlevel-info-text: #6B7280;
+  --light-setlevel-info-bg: rgba(254, 228, 228, 0.5);
+  --light-setlevel-btn-bg: rgba(253, 170, 170, 0.5);
+  --light-setlevel-active-color: #FF6B6B;
+  --light-setlevel-active-word-color: #2E2E2E;
+  --light-setlevel-step2-active-color: #CD285B;
+  --light-setlevel-step2-disabled-text: #948979;
 
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
@@ -238,6 +246,14 @@
   --dark-primary-50: rgba(158, 39, 65, 0.5);
   --dark-content-type-shadow: rgba(148, 137, 121, 0.5);
   --dark-feedback-link: rgba(87, 69, 221, 0.8);
+  /* SetLevelModal */
+  --dark-setlevel-info-text: #9CA3AF;
+  --dark-setlevel-info-bg: rgba(45, 36, 41, 0.6);
+  --dark-setlevel-btn-bg: rgba(253, 170, 170, 0.3);
+  --dark-setlevel-active-color: #FDAAAA;
+  --dark-setlevel-active-word-color: #F2EDE5;
+  --dark-setlevel-step2-active-color: #CD285B;
+  --dark-setlevel-step2-disabled-text: #6B6565;
 
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
@@ -380,6 +396,13 @@
   --navbar-logo-shadow: var(--light-navbar-logo-shadow);
   --setlevel-text: var(--light-setlevel-text);
   --setlevel-bg: var(--light-setlevel-bg);
+  --setlevel-info-text: var(--light-setlevel-info-text);
+  --setlevel-info-bg: var(--light-setlevel-info-bg);
+  --setlevel-btn-bg: var(--light-setlevel-btn-bg);
+  --setlevel-active-color: var(--light-setlevel-active-color);
+  --setlevel-active-word-color: var(--light-setlevel-active-word-color);
+  --setlevel-step2-active-color: var(--light-setlevel-step2-active-color);
+  --setlevel-step2-disabled-text: var(--light-setlevel-step2-disabled-text);
   --primary-50: var(--light-primary-50);
   --content-type-shadow: var(--light-content-type-shadow);
   --feedback-link: var(--light-feedback-link);
@@ -505,6 +528,13 @@
   --navbar-logo-shadow: var(--dark-navbar-logo-shadow);
   --setlevel-text: var(--dark-setlevel-text);
   --setlevel-bg: var(--dark-setlevel-bg);
+  --setlevel-info-text: var(--dark-setlevel-info-text);
+  --setlevel-info-bg: var(--dark-setlevel-info-bg);
+  --setlevel-btn-bg: var(--dark-setlevel-btn-bg);
+  --setlevel-active-color: var(--dark-setlevel-active-color);
+  --setlevel-active-word-color: var(--dark-setlevel-active-word-color);
+  --setlevel-step2-active-color: var(--dark-setlevel-step2-active-color);
+  --setlevel-step2-disabled-text: var(--dark-setlevel-step2-disabled-text);
   --primary-50: var(--dark-primary-50);
   --content-type-shadow: var(--dark-content-type-shadow);
   --feedback-link: var(--dark-feedback-link);

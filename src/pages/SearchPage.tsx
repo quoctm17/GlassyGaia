@@ -14,6 +14,11 @@ import {
   apiListItems,
 } from "../services/cfApi";
 import { createTimeTrackingRefs, cleanupTimeTracking } from "../utils/TimeTrackingUtils";
+import {
+  getStoredLevelMin,
+  getStoredLevelMax,
+  setStoredLevelRange,
+} from "../utils/levelRangeStorage";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
 import filterIcon from "../assets/icons/filter.svg";
 import customIcon from "../assets/icons/custom.svg";
@@ -22,9 +27,7 @@ import practiceMonsterIcon from "../assets/icons/practice-monster.svg";
 import thumbUpIcon from "../assets/icons/thumb-up.svg";
 import thumbDownIcon from "../assets/icons/thumb-down.svg";
 import headphoneIcon from "../assets/icons/headphone.svg";
-import eyeIcon from "../assets/icons/eye.svg";
 import speakIcon from "../assets/icons/speak.svg";
-import writingIcon from "../assets/icons/writing.svg";
 import { CONTENT_TYPE_LABELS, type ContentType } from "../types/content";
 import "../styles/pages/search-page.css";
 
@@ -106,6 +109,8 @@ function SearchPage() {
   const [maxDuration, setMaxDuration] = useState(() => getSessionNumber('max_duration', 120));
   const [minReview, setMinReview] = useState(() => getSessionNumber('min_review', 0));
   const [maxReview, setMaxReview] = useState(() => getSessionNumber('max_review', 1000));
+  const [levelMin, setLevelMin] = useState<number>(() => getStoredLevelMin());
+  const [levelMax, setLevelMax] = useState<number>(() => getStoredLevelMax());
   const [volume, setVolume] = useState(28);
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
   const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'movie' | 'series' | 'book'>(() => (getSessionString('type_filter', 'all') as 'all' | 'movie' | 'series' | 'book'));
@@ -162,6 +167,24 @@ function SearchPage() {
   useEffect(() => {
     try { sessionStorage.setItem(SP_PREFIX + 'max_review', String(maxReview)); } catch { /* silent */ }
   }, [maxReview]);
+
+  // Persist level range
+  useEffect(() => {
+    setStoredLevelRange(levelMin, levelMax);
+  }, [levelMin, levelMax]);
+
+  // Sync level range from sessionStorage when SetLevelModal applies a new range
+  useEffect(() => {
+    const sync = () => {
+      setLevelMin(getStoredLevelMin());
+      setLevelMax(getStoredLevelMax());
+    };
+    // Initial sync
+    sync();
+    // Listen for custom event from NavBar/SetLevelModal
+    window.addEventListener('level-range-updated', sync);
+    return () => window.removeEventListener('level-range-updated', sync);
+  }, []);
 
   useEffect(() => {
     try { sessionStorage.setItem(SP_PREFIX + 'type_filter', contentTypeFilter); } catch { /* silent */ }
@@ -568,7 +591,7 @@ function SearchPage() {
       list = cards.filter((c) => c.film_id != null && filmTypeMap[c.film_id] === contentTypeFilter);
     }
 
-    // Filter by CEFR level from URL param ?level=A1
+    // Filter by CEFR level from URL param ?level=A1 (legacy)
     const params = new URLSearchParams(window.location.search);
     const levelFilter = params.get("level");
     if (levelFilter) {
@@ -577,6 +600,30 @@ function SearchPage() {
         Array.isArray(card.levels) &&
         card.levels.some((lvl) => (lvl.level || "").toUpperCase() === normalizedLevel)
       );
+    }
+
+    // NEW: Filter by selected frequency range from SetLevelModal (min/max)
+    if (levelMin >= 0 && levelMax >= 0 && levelMax > levelMin) {
+      const normalize = (s: string) => String(s || '').trim().toLowerCase();
+      list = list.filter((card) => {
+        if (!Array.isArray(card.level_frequency_ranks) || card.level_frequency_ranks.length === 0) {
+          return false;
+        }
+
+        // Follow the same binding logic as level-badge-number in SearchResultCard
+        const primaryFramework = card.levels?.[0]?.framework || "CEFR";
+        const frameworkKey = normalize(primaryFramework);
+        const freqEntry = card.level_frequency_ranks.find(
+          (f) => normalize(f.framework) === frameworkKey
+        ) || card.level_frequency_ranks[0];
+
+        const freqRank = typeof freqEntry?.frequency_rank === 'number'
+          ? Math.round(freqEntry.frequency_rank)
+          : null;
+
+        if (freqRank == null) return false;
+        return freqRank >= levelMin && freqRank <= levelMax;
+      });
     }
 
     // Skip shuffle on initial load for faster display
@@ -597,7 +644,7 @@ function SearchPage() {
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
-  }, [cards, contentTypeFilter, shouldShuffle, filmTypeMap]);
+  }, [cards, contentTypeFilter, shouldShuffle, filmTypeMap, levelMin, levelMax]);
 
   const availableTypesFromSelection = useMemo(() => {
     const set = new Set<'movie' | 'series' | 'book'>();
@@ -739,16 +786,6 @@ function SearchPage() {
                     </button>
                     <button
                       type="button"
-                      className={`practice-dropdown-item ${practiceMode === 'reading' ? 'selected' : ''}`}
-                      onClick={() => { setPracticeMode('reading'); setIsPracticeOpen(false); }}
-                      aria-pressed={practiceMode === 'reading'}
-                      role="menuitem"
-                    >
-                      <img src={eyeIcon} alt="" aria-hidden="true" className="practice-item-icon" />
-                      <span>Reading</span>
-                    </button>
-                    <button
-                      type="button"
                       className={`practice-dropdown-item ${practiceMode === 'speaking' ? 'selected' : ''}`}
                       onClick={() => { setPracticeMode('speaking'); setIsPracticeOpen(false); }}
                       aria-pressed={practiceMode === 'speaking'}
@@ -756,16 +793,6 @@ function SearchPage() {
                     >
                       <img src={speakIcon} alt="" aria-hidden="true" className="practice-item-icon" />
                       <span>Speaking</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`practice-dropdown-item ${practiceMode === 'writing' ? 'selected' : ''}`}
-                      onClick={() => { setPracticeMode('writing'); setIsPracticeOpen(false); }}
-                      aria-pressed={practiceMode === 'writing'}
-                      role="menuitem"
-                    >
-                      <img src={writingIcon} alt="" aria-hidden="true" className="practice-item-icon" />
-                      <span>Writing</span>
                     </button>
                   </div>
                 )}

@@ -3,8 +3,8 @@
 export type SubtitleMap = Record<string, string>; // e.g., { en: "Hello", ja: "こんにちは" }
 
 export interface CardDoc {
-  id: string; // card id (e.g., "000" or UUID)
-  card_id?: string; // card UUID from database (search API)
+  id: string; // canonical card UUID
+  card_id?: string; // optional display/legacy card id from some APIs
   content_slug?: string; // parent content item slug (search API)
   content_title?: string; // content title (search API)
   episode_slug?: string; // episode slug (search API)

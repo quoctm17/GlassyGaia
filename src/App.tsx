@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import NavBar from './components/NavBar';
 import BottomNav from './components/BottomNav';
 import SearchPage from './pages/SearchPage';
+import LandingPage from './pages/LandingPage';
 import { UserProvider } from './context/UserContext';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -76,7 +77,7 @@ function App() {
           <div className="app-main">
             <Suspense fallback={<PageLoader />}>
               <Routes>
-                <Route path="/" element={<Navigate to="/search" replace />} />
+                <Route path="/" element={<LandingPage />} />
                 <Route path="/search" element={<SearchPage />} />
                 {/* New canonical content routes */}
                 <Route path="/content" element={<LibraryPage />} />
@@ -137,52 +138,65 @@ function App() {
             </Suspense>
           </div>
           <BottomNav />
-          <Toaster 
-            position="top-right" 
-            toastOptions={{
-              duration: 4000,
-              style: {
-                fontFamily: 'Inter, system-ui, sans-serif',
-                fontSize: '14px',
-                fontWeight: '500',
-                padding: '16px',
-                borderRadius: '8px',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-              },
-              success: {
+          <Toaster
+            position="top-right"
+            toastOptions={
+              {
+                duration: 4000,
                 style: {
-                  background: 'var(--success)',
-                  color: '#FFFFFF',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  fontFamily: 'Inter, system-ui, sans-serif',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
                 },
-                iconTheme: {
-                  primary: '#FFFFFF',
-                  secondary: 'var(--success)',
+                success: {
+                  style: {
+                    background: 'var(--success)',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  },
+                  iconTheme: {
+                    primary: '#FFFFFF',
+                    secondary: 'var(--success)',
+                  },
                 },
-              },
-              error: {
-                style: {
-                  background: 'var(--error)',
-                  color: '#FFFFFF',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                error: {
+                  style: {
+                    background: 'var(--error)',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  },
+                  iconTheme: {
+                    primary: '#FFFFFF',
+                    secondary: 'var(--error)',
+                  },
                 },
-                iconTheme: {
-                  primary: '#FFFFFF',
-                  secondary: 'var(--error)',
+                loading: {
+                  style: {
+                    background: 'var(--info)',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  },
+                  iconTheme: {
+                    primary: '#FFFFFF',
+                    secondary: 'var(--info)',
+                  },
                 },
-              },
-              loading: {
-                style: {
-                  background: 'var(--info)',
-                  color: '#FFFFFF',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                warning: {
+                  style: {
+                    background: 'var(--warning)',
+                    color: '#FFFFFF',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  },
+                  iconTheme: {
+                    primary: '#FFFFFF',
+                    secondary: 'var(--warning)',
+                  },
                 },
-                iconTheme: {
-                  primary: '#FFFFFF',
-                  secondary: 'var(--info)',
-                },
-              },
-            }} 
+              } as never
+            }
           />
         </div>
       </BrowserRouter>

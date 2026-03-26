@@ -18,6 +18,7 @@ import adminIcon from "../assets/icons/xp-dimond.svg";
 import masterBallIcon from "../assets/icons/master-ball.svg";
 import settingIcon from "../assets/icons/setting.svg";
 import SetLevelModal from "./SetLevelModal";
+import { clearStoredLevelRange, setStoredLevelRange } from "../utils/levelRangeStorage";
 import "../styles/components/navbar.css";
 
 export default function NavBar() {
@@ -193,14 +194,15 @@ export default function NavBar() {
               isOpen={isSetLevelOpen}
               onClose={() => setIsSetLevelOpen(false)}
               initialLevel={new URLSearchParams(location.search).get("level")}
-              onApply={(level) => {
-                const params = new URLSearchParams(location.search);
-                if (!level) {
-                  params.delete("level");
+              onApply={(minFreq, maxFreq) => {
+                if (minFreq == null || maxFreq == null) {
+                  clearStoredLevelRange();
                 } else {
-                  params.set("level", level);
+                  setStoredLevelRange(minFreq, maxFreq);
                 }
-                navigate(`/search?${params.toString()}`);
+                window.dispatchEvent(new Event('level-range-updated'));
+                // Navigate to search to ensure page context is search
+                navigate('/search');
               }}
             />
           </>

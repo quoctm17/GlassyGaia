@@ -435,112 +435,107 @@ export default function WatchPage() {
   // Load cards when episode changes
   useEffect(() => {
     if (!contentId || !currentEpisode) return;
-    
+
     const loadCards = async () => {
       try {
-        // Use limit 100 to avoid SQLite parameter limit (200 cards × 34 languages > 999 params)
+        setLoadingProgress(true);
         const cardsData = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100);
-        // Ensure cards are in ascending start-time order to align with media playback
         const sorted = onlyAvailableCards([...cardsData]).sort((a, b) => {
           const as = Number(a.start || 0);
           const bs = Number(b.start || 0);
           if (as !== bs) return as - bs;
-          // tie-breaker: end time
           const ae = Number(a.end || 0);
           const be = Number(b.end || 0);
           return ae - be;
         });
-        setCards(sorted);
-        setCurrentCardIndex(0);
         setNoMoreCards(false);
 
-        // If navigated from "View Card", scroll to the target card
+        // Determine initial card index: targetCardId > progress > 0
+        let initialIndex = 0;
         if (targetCardId) {
-          const targetIdx = sorted.findIndex(c => String(c.id) === targetCardId);
-          if (targetIdx >= 0) {
-            setCurrentCardIndex(targetIdx);
-          }
+          // Unified ID strategy: CardDoc.id is canonical UUID
+          const normalizedTarget = String(targetCardId);
+          const idx = sorted.findIndex(c => String(c.id) === normalizedTarget);
+          if (idx >= 0) initialIndex = idx;
         }
 
-        // Always load user progress when logged in (regardless of targetCardId)
-        // so LearningProgressBar always renders when user is authenticated
+        // Load progress and resolve the initial card index AFTER knowing if target is in first batch
+        let resolvedIndex = initialIndex;
         if (user?.uid) {
-          setLoadingProgress(true);
           try {
             const progressData = await getEpisodeProgress(user.uid, contentId, currentEpisode.slug);
             setProgress(progressData);
-
-            // Resume from last card only if NOT navigating to a specific card
+            // Resume from progress only if no targetCardId and has saved position
             if (!targetCardId && progressData.episode_stats && progressData.episode_stats.last_card_index > 0) {
-              setCurrentCardIndex(progressData.episode_stats.last_card_index);
+              resolvedIndex = progressData.episode_stats.last_card_index;
             }
           } catch (error) {
             console.error('Failed to load progress:', error);
             setProgress(null);
-          } finally {
-            setLoadingProgress(false);
           }
         }
-        
-        // Background loading: Load remaining cards in batches
-        // Only if episode has more cards than initial batch
+
+        setCards(sorted);
+        setCurrentCardIndex(resolvedIndex);
+
+        // Background loading: load remaining cards and re-check targetCardId
         if (currentEpisode.num_cards && currentEpisode.num_cards > sorted.length) {
-          const loadRemainingCards = async () => {
+          const loadRemaining = async () => {
             try {
               const allCards = [...sorted];
               let hasMore = true;
-              
+
               while (hasMore && allCards.length < currentEpisode.num_cards!) {
                 const lastCard = allCards[allCards.length - 1];
                 const startFrom = Math.floor(lastCard.end);
-                
-                // Load in batches of 100
-                const batchCards = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
-                
-                if (batchCards && batchCards.length > 0) {
+                const batch = await apiFetchCardsForFilm(contentId, currentEpisode.slug, 100, { startFrom });
+
+                if (batch && batch.length > 0) {
                   const key = (c: CardDoc) => `${c.id}|${Math.floor(c.start)}`;
                   const seen = new Set(allCards.map(key));
-                  
-                  for (const card of onlyAvailableCards(batchCards)) {
+                  for (const card of onlyAvailableCards(batch)) {
                     const k = key(card);
                     if (!seen.has(k)) {
                       allCards.push(card);
                       seen.add(k);
                     }
                   }
-                  
                   allCards.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-                  
-                  // Update cards state periodically (every 100 cards)
-                  setCards(onlyAvailableCards([...allCards]));
-                  
-                  // Small delay to avoid overwhelming the API
-                  await new Promise(resolve => setTimeout(resolve, 500));
+                  setCards([...allCards]);
+
+                  // Re-check targetCardId once we have more cards
+                  if (targetCardId && resolvedIndex === 0) {
+                    const newIdx = allCards.findIndex(c => String(c.id) === targetCardId);
+                    if (newIdx >= 0) {
+                      setCurrentCardIndex(newIdx);
+                      resolvedIndex = newIdx; // prevent future re-trigger
+                    }
+                  }
+
+                  await new Promise(r => setTimeout(r, 500));
                 } else {
                   hasMore = false;
                   setNoMoreCards(true);
                 }
               }
-              
-              console.log(`Background loading complete: ${allCards.length} cards loaded`);
             } catch (error) {
               console.error('Background card loading failed:', error);
             }
           };
-          
-          // Start background loading after a short delay
-          setTimeout(() => {
-            loadRemainingCards();
-          }, 2000);
+          setTimeout(loadRemaining, 2000);
         }
       } catch (error) {
         console.error('Failed to load cards:', error);
         setCards([]);
+        setProgress(null);
+      } finally {
+        setLoadingProgress(false);
       }
     };
-    
+
     loadCards();
-  }, [contentId, currentEpisode, user, targetCardId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentId, currentEpisode]); // user/targetCardId intentionally excluded — handled inside loadCards
 
   // Toggle card completion status
   const handleToggleComplete = useCallback(async (markAsComplete: boolean) => {
@@ -1040,6 +1035,25 @@ export default function WatchPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCardIndex, cards, filteredCards]);
 
+  // Dedicated effect: when coming from SearchPage via View Card, find and scroll to targetCardId
+  // Unified ID strategy: CardDoc.id is canonical UUID across SearchPage + WatchPage.
+  useEffect(() => {
+    if (!targetCardId || cards.length === 0) return;
+    const list = subtitlesListRef.current;
+    if (!list) return;
+
+    const targetIdx = cards.findIndex(c => String(c.id) === String(targetCardId));
+    if (targetIdx < 0) return; // Card not loaded yet — background loading will trigger this effect again
+
+    // Only scroll if not already at this card (avoids scroll loop on navigation)
+    if (targetIdx !== currentCardIndex) {
+      setCurrentCardIndex(targetIdx);
+    }
+    // Scroll to the card after setting index
+    list.scrollToItem(targetIdx, { align: 'center', behavior: 'smooth' });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetCardId, cards, searchParams]);
+
   // Get current card from filtered cards (for display and auto-play)
   // Always use original card from cards array to preserve full data (including levels)
   const currentCard = useMemo(() => {
@@ -1165,21 +1179,22 @@ export default function WatchPage() {
 
   // Play audio of current card (must be before handleAutoPlayToggle)
   const playCurrentCardAudio = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
     const audioUrl = getCurrentCardAudioUrl();
     if (!audioUrl) {
       setIsAutoPlaying(false);
       return;
     }
 
-    if (audioRef.current) {
-      audioRef.current.src = audioUrl;
-      audioRef.current.volume = (preferences.volume || 80) / 100;
-      audioRef.current.play().catch((error) => {
-        console.error('Failed to play audio:', error);
-        setIsAutoPlaying(false);
-      });
-    }
-  }, [currentCard, preferences.volume, getCurrentCardAudioUrl]);
+    // Always set src + volume (preload effect may not have run yet on first auto-play)
+    audio.src = audioUrl;
+    audio.volume = (preferences.volume || 80) / 100;
+    audio.play().catch((error) => {
+      console.error('Failed to play audio:', error);
+      setIsAutoPlaying(false);
+    });
+  }, [currentCard, preferences.volume]);
 
   // Toggle auto-play
   const handleAutoPlayToggle = useCallback(() => {
@@ -1308,47 +1323,34 @@ export default function WatchPage() {
 
   // Auto-play when card changes and auto-play is enabled (use currentCard from filtered cards)
   useEffect(() => {
-    if (isAutoPlaying && currentCard && audioRef.current) {
-      const audioUrl = getCurrentCardAudioUrl();
-      if (audioUrl) {
-        // Always update src when card changes
-        const fullUrl = audioUrl.startsWith('http') ? audioUrl : (R2Base ? R2Base + audioUrl : audioUrl);
-        const currentSrc = audioRef.current.src;
-        const currentBaseUrl = currentSrc.split('?')[0]; // Remove query params for comparison
-        
-        // Update src if different
-        if (!currentSrc || (!currentBaseUrl.endsWith(audioUrl) && !currentBaseUrl.endsWith(fullUrl))) {
-          audioRef.current.src = fullUrl;
-        }
-        audioRef.current.volume = (preferences.volume || 80) / 100;
-        
-        // Always play when card changes (will restart if already playing)
-        audioRef.current.play().catch((error) => {
-          console.error('Failed to play audio:', error);
-          setIsAutoPlaying(false);
-        });
-      } else {
+    if (!currentCard || !audioRef.current) return;
+    const audioUrl = getCurrentCardAudioUrl();
+    if (!audioUrl) return;
+
+    const fullUrl = audioUrl.startsWith('http') ? audioUrl : (R2Base ? R2Base + audioUrl : audioUrl);
+    const currentSrc = audioRef.current.src;
+    const currentBaseUrl = currentSrc.split('?')[0];
+
+    // Always preload audio src when card changes — ensures play works immediately without waiting
+    if (!currentSrc || (!currentBaseUrl.endsWith(audioUrl) && !currentBaseUrl.endsWith(fullUrl))) {
+      audioRef.current.src = fullUrl;
+    }
+    audioRef.current.volume = (preferences.volume || 80) / 100;
+
+    // Only auto-play if auto-play mode is enabled
+    if (isAutoPlaying) {
+      audioRef.current.play().catch((error) => {
+        console.error('Failed to play audio:', error);
         setIsAutoPlaying(false);
-      }
+        setIsPlaying(false);
+      });
     }
   }, [currentCard, isAutoPlaying, preferences.volume]);
 
-  // Sync isPlaying state from audio element events
+  // Reset isPlaying when card changes (audio src changes, icon must go back to play)
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-    const onEnded = () => setIsPlaying(false);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
-    audio.addEventListener('ended', onEnded);
-    return () => {
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
-      audio.removeEventListener('ended', onEnded);
-    };
-  }, []);
+    setIsPlaying(false);
+  }, [currentCard?.id]);
 
   // Fetch review count when current card changes
   useEffect(() => {
@@ -1376,13 +1378,25 @@ export default function WatchPage() {
 
   // Play / pause toggle
   const handlePlayPause = useCallback(() => {
-    if (!audioRef.current) return;
+    const audio = audioRef.current;
+    const audioUrl = getCurrentCardAudioUrl();
+    if (!audio || !audioUrl) return;
     if (isPlaying) {
-      audioRef.current.pause();
+      // Pause: reset currentTime to beginning so next Play starts from start
+      audio.currentTime = 0;
+      audio.pause();
+      setIsPlaying(false);
     } else {
-      audioRef.current.play().catch(() => {});
+      // Always set src + volume first (preload useEffect may not have run yet on first click)
+      audio.src = audioUrl;
+      audio.volume = (preferences.volume || 80) / 100;
+      // Optimistic update so icon switches to pause immediately
+      setIsPlaying(true);
+      audio.play().catch(() => {
+        setIsPlaying(false);
+      });
     }
-  }, [isPlaying]);
+  }, [isPlaying, preferences.volume, currentCard]);
 
   // Copy card link to clipboard
   const handleCopyLink = useCallback(() => {
@@ -1564,10 +1578,12 @@ export default function WatchPage() {
               const primaryLevel = currentCard.levels[0].level || "";
               const primaryFramework = currentCard.levels[0].framework || "CEFR";
               const colors = getLevelBadgeColors(primaryLevel);
-              const freqEntry = currentCard.level_frequency_ranks?.find(
-                (f) => f.framework === primaryFramework
-              );
-              const freqRank = freqEntry?.frequency_rank;
+              const ranks = currentCard.level_frequency_ranks || currentEpisode?.level_frequency_ranks || null;
+              const normalize = (s: string) => String(s || '').trim().toLowerCase();
+              const frameworkKey = normalize(primaryFramework);
+              const freqEntry = ranks?.find((f) => normalize(f.framework) === frameworkKey)
+                || ranks?.[0];
+              const freqRank = typeof freqEntry?.frequency_rank === 'number' ? freqEntry.frequency_rank : null;
               return (
                 <div
                   className="level-badges-container"
@@ -1792,9 +1808,22 @@ export default function WatchPage() {
                       <span>Auto-play</span>
                     </button>
 
-                    {getCurrentCardAudioUrl() && (
-                      <audio ref={audioRef} onEnded={handleAutoPlayAudioEnd} preload="auto" style={{ display: 'none' }} />
-                    )}
+                    <audio
+                      ref={audioRef}
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onEnded={handleAutoPlayAudioEnd}
+                      onTimeUpdate={() => {
+                        const audio = audioRef.current;
+                        if (!audio || !audio.duration) return;
+                        // If audio has reached the end naturally (within 0.5s tolerance), reset play state
+                        if (audio.currentTime >= audio.duration - 0.5 && !audio.paused) {
+                          setIsPlaying(false);
+                        }
+                      }}
+                      preload="auto"
+                      style={{ display: 'none' }}
+                    />
                   </div>
                 </>
               ) : (

@@ -67,12 +67,7 @@ export default function CustomizeModal({
             <div className="content-type-grid-filter-section-header">
               <Volume2 className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">VOLUME</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Adjust the audio volume (0-100%)
-                </div>
-              </div>
+              <span title="Adjust the audio volume (0-100%)"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div className="content-type-grid-filter-range-inputs-wrapper">
               <span className="content-type-grid-filter-length-label">Volume Level</span>
@@ -104,12 +99,7 @@ export default function CustomizeModal({
             <div className="content-type-grid-filter-section-header">
               <LayoutGrid className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">LAYOUT</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Choose the display layout for search results
-                </div>
-              </div>
+              <span title="Choose the display layout for search results"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div className="content-type-grid-filter-options-group">
               <button

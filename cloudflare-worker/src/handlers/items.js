@@ -11,6 +11,7 @@ export function registerItemRoutes(router) {
       const [itemsResult, langsResult, categoriesResult] = await Promise.all([
         env.DB.prepare(`
           SELECT ci.id AS internal_id, ci.slug AS id, ci.title, ci.main_language, ci.type, ci.release_year, ci.description, ci.total_episodes AS episodes, ci.is_original, ci.level_framework_stats, ci.cover_key, ci.cover_landscape_key, ci.is_available,
+            ci.num_cards, ci.avg_difficulty_score, ci.imdb_score,
             COUNT(c.id) AS card_count
           FROM content_items ci
           INNER JOIN episodes e ON e.content_item_id = ci.id
@@ -85,6 +86,9 @@ export function registerItemRoutes(router) {
           cover_url,
           cover_landscape_url,
           is_available: r.is_available ?? 1,
+          num_cards: r.num_cards ?? null,
+          avg_difficulty_score: r.avg_difficulty_score ?? null,
+          imdb_score: r.imdb_score ?? null,
           categories: categoriesMap.get(r.internal_id) || [],
         };
         map.set(r.id, it);

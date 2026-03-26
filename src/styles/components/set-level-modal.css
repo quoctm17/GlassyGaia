@@ -1,0 +1,410 @@
+/* ================= Set Level Modal ================= */
+
+.setlevel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: setlevel-fadeIn 0.2s ease;
+}
+
+@keyframes setlevel-fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.setlevel-container {
+  background: var(--background);
+  border: 2px solid var(--hover-select);
+  box-shadow: 8px 4px 0 var(--hover-select);
+  border-radius: 8px;
+  min-width: 680px;
+  max-width: 708px;
+  width: 90%;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  animation: setlevel-slideIn 0.3s ease;
+  overflow: hidden;
+}
+
+@keyframes setlevel-slideIn {
+  from {
+    transform: translateY(-20px) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---- Header ---- */
+.setlevel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+}
+
+.setlevel-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.setlevel-header-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.setlevel-title {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--hover-select);
+  text-transform: uppercase;
+  line-height: 1.4;
+  letter-spacing: 0.5px;
+}
+
+.setlevel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.setlevel-tooltip-icon {
+  width: 16px;
+  height: 16px;
+  filter: var(--icon-comment-text-filter);
+  cursor: help;
+}
+
+.setlevel-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+  transition: color 0.15s ease, transform 0.15s ease;
+  font-family: 'Inter', sans-serif;
+}
+
+.setlevel-close-btn:hover {
+  color: var(--text);
+  transform: scale(1.15);
+}
+
+/* ---- Body ---- */
+.setlevel-body {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--background);
+}
+
+.setlevel-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.setlevel-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.setlevel-body::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 3px;
+}
+
+.setlevel-body::-webkit-scrollbar-thumb:hover {
+  background: var(--hover-select);
+}
+
+/* ---- Step Row ---- */
+.setlevel-step-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: var(--setlevel-info-bg);
+}
+
+.setlevel-step-emoji {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.setlevel-step-text {
+  color: var(--setlevel-info-text);
+}
+
+/* ---- Level List ---- */
+.setlevel-level-list {
+  padding: 4px 0;
+}
+
+/* Each row: 2-column CSS grid (label | words + divider) */
+.setlevel-level-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  column-gap: 16px;
+  cursor: pointer;
+  transition: background 0.12s ease, opacity 0.15s ease;
+  outline: none;
+}
+
+.setlevel-level-row:hover {
+  background: var(--hover-bg);
+}
+
+.setlevel-level-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* Frequency label (left column) */
+.setlevel-level-label {
+  white-space: nowrap;
+  transition: color 0.15s ease;
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 0 12px 20px;
+  line-height: 1.6;
+}
+
+/* Words + divider container (right column) */
+.setlevel-level-words {
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 0 0;
+  min-width: 0;
+}
+
+/* The 8 words — single row, comma-separated, inside .setlevel-words-row */
+.setlevel-words-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 0 8px;
+  overflow: hidden;
+  transition: color 0.15s ease;
+}
+
+/* Divider line */
+.setlevel-divider {
+  height: 1px;
+  position: relative;
+  transition: background 0.15s ease;
+  margin-top: 2px;
+}
+
+/* Dot at left end of divider (always present on the divider line) */
+.setlevel-divider::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+/* ================= BASE state — inactive ================= */
+/* Label: primary color, words: description-text, divider: primary */
+.setlevel-level-row:not(.active) .setlevel-level-label {
+  color: var(--primary);
+}
+
+.setlevel-level-row:not(.active) .setlevel-words-row {
+  color: var(--description-text);
+}
+
+.setlevel-level-row:not(.active) .setlevel-divider {
+  background: var(--primary);
+}
+
+/* ================= ACTIVE state — Step 1 selected ================= */
+/* Label: active color, words: active-word color, divider+dot: active color */
+.setlevel-level-row.active .setlevel-level-label {
+  color: var(--setlevel-active-color);
+}
+
+.setlevel-level-row.active .setlevel-words-row {
+  color: var(--setlevel-active-word-color);
+}
+
+.setlevel-level-row.active .setlevel-divider {
+  background: var(--setlevel-active-color);
+}
+
+.setlevel-level-row.active .setlevel-divider::before {
+  background: var(--setlevel-active-color);
+}
+
+/* ================= STEP1-SELECTION — Step 1 choice preserved in Step 2 ================= */
+/* Keeps the dot, active colors, but is not selectable */
+.setlevel-level-row.step1-selection {
+  cursor: not-allowed;
+}
+
+.setlevel-level-row.step1-selection:hover {
+  background: transparent;
+}
+
+.setlevel-level-row.step1-selection .setlevel-level-label {
+  color: var(--setlevel-active-color);
+}
+
+.setlevel-level-row.step1-selection .setlevel-words-row {
+  color: var(--setlevel-active-word-color);
+}
+
+.setlevel-level-row.step1-selection .setlevel-divider {
+  background: var(--setlevel-active-color);
+}
+
+.setlevel-level-row.step1-selection .setlevel-divider::before {
+  background: var(--setlevel-active-color);
+}
+
+/* ================= STEP2-WITHIN — between min and max in Step 2 ================= */
+/* Words use active-word-color, label stays muted, no dot */
+.setlevel-level-row.step2-within {
+  cursor: not-allowed;
+}
+
+.setlevel-level-row.step2-within:hover {
+  background: transparent;
+}
+
+.setlevel-level-row.step2-within .setlevel-level-label {
+  color: var(--primary);
+}
+
+.setlevel-level-row.step2-within .setlevel-words-row {
+  color: var(--setlevel-active-word-color);
+}
+
+.setlevel-level-row.step2-within .setlevel-divider {
+  background: transparent;
+}
+
+/* ================= STEP2-ACTIVE — Step 2 max selection (CD285B) ================= */
+/* Label + divider + dot use step2 color */
+.setlevel-level-row.step2-active .setlevel-level-label {
+  color: var(--setlevel-step2-active-color);
+}
+
+.setlevel-level-row.step2-active .setlevel-words-row {
+  color: var(--setlevel-active-word-color);
+}
+
+.setlevel-level-row.step2-active .setlevel-divider {
+  background: var(--setlevel-step2-active-color);
+}
+
+.setlevel-level-row.step2-active .setlevel-divider::before {
+  background: var(--setlevel-step2-active-color);
+}
+
+/* ================= LOCKED — highest row (Step 1) / non-selectable (Step 2) ================= */
+/* All locked rows: muted, cursor not-allowed, no hover effect */
+.setlevel-level-row.highest-locked,
+.setlevel-level-row.step2-locked {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.setlevel-level-row.highest-locked:hover,
+.setlevel-level-row.step2-locked:hover {
+  background: transparent;
+}
+
+.setlevel-level-row.highest-locked .setlevel-level-label,
+.setlevel-level-row.step2-locked .setlevel-level-label {
+  color: var(--description-text);
+}
+
+.setlevel-level-row.highest-locked .setlevel-words-row,
+.setlevel-level-row.step2-locked .setlevel-words-row {
+  color: var(--description-text);
+}
+
+.setlevel-level-row.highest-locked .setlevel-divider,
+.setlevel-level-row.step2-locked .setlevel-divider {
+  background: var(--description-text);
+}
+
+/* ================= Footer ---- */
+.setlevel-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px 16px;
+}
+
+.setlevel-reset-btn {
+  border: 1px solid var(--hover-select);
+  background: transparent;
+  color: var(--hover-select);
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.setlevel-reset-btn:hover {
+  opacity: 0.8;
+}
+
+.setlevel-next-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--setlevel-btn-bg);
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.setlevel-next-btn:hover {
+  opacity: 0.8;
+}
+
+.setlevel-next-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.setlevel-next-btn:disabled:hover {
+  opacity: 0.45;
+}
+
+.setlevel-next-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.setlevel-next-text {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--hover-select);
+  letter-spacing: 0.5px;
+}

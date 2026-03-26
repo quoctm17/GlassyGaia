@@ -308,12 +308,7 @@ function ContentTypeGridFilterModal({
             <div className="content-type-grid-filter-section-header">
               <Tag className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">CATEGORIES</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Select one or more categories to filter content
-                </div>
-              </div>
+              <span title="Select one or more categories to filter content"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div style={{ position: 'relative' }}>
               <button
@@ -426,12 +421,7 @@ function ContentTypeGridFilterModal({
             <div className="content-type-grid-filter-section-header">
               <Languages className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">LANGUAGE AVAILABLE</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Select languages that must be available in the content. Content must have ALL selected languages.
-                </div>
-              </div>
+              <span title="Select languages that must be available in the content. Content must have ALL selected languages."><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div style={{ position: 'relative' }}>
               <button
@@ -549,12 +539,7 @@ function ContentTypeGridFilterModal({
             <div className="content-type-grid-filter-section-header">
               <Film className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">MEDIA TYPE</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Filter content by media type (Movie, Series, Video, Book)
-                </div>
-              </div>
+              <span title="Filter content by media type (Movie, Series, Video, Book)"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div className="content-type-grid-filter-options-group">
               {availableMediaTypes.map(type => (
@@ -588,12 +573,7 @@ function ContentTypeGridFilterModal({
             <div className="content-type-grid-filter-section-header">
               <Star className="content-type-grid-filter-section-icon" size={16} color="var(--primary)" />
               <span className="content-type-grid-filter-section-title">IMDB</span>
-              <div className="content-type-grid-filter-tooltip-wrapper">
-                <Info className="content-type-grid-filter-tooltip-icon" size={14} />
-                <div className="content-type-grid-filter-tooltip">
-                  Audience rating on IMDB
-                </div>
-              </div>
+              <span title="Audience rating on IMDB"><Info className="content-type-grid-filter-tooltip-icon" size={14} /></span>
             </div>
             <div className="content-type-grid-filter-range-inputs-wrapper imdb-wrapper">
               <span className="content-type-grid-filter-length-label">Audience rating on IMDB</span>

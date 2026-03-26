@@ -148,6 +148,7 @@
   color: var(--text);
   font-size: 9px;
   font-weight: 600;
+  margin-right: 1px;
 }
 
 .card-title-chip {

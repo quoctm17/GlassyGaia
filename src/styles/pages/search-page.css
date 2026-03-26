@@ -685,15 +685,14 @@
   .search-results.layout-default,
   .search-results.layout-1-column,
   .search-results.layout-2-column {
-    margin-left: 24%;
+    margin-left: 23%;
   }
 }
 
 /* Medium screens - adjust when filter panel hits min-width */
 @media (min-width: 1101px) and (max-width: 1300px) {
   .search-controls {
-    left: 22%;
-    padding-left: 20px;
+    left: 17%;
   }
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
@@ -704,9 +703,8 @@
 /* Desktop and below (xl: 1280px) */
 @media (max-width: 1280px) {
   .search-controls {
-    padding: 8px 10px 8px 20px;
     padding-top: 20px;
-    left: 21%;
+    left: 20%;
   }
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
@@ -716,15 +714,14 @@
   .search-results.layout-default,
   .search-results.layout-1-column,
   .search-results.layout-2-column {
-    margin-left: calc(23% + 40px);
+    margin-left: calc(23%);
   }
 }
 
 /* Adjust for filter panel min-width on smaller screens */
 @media (max-width: 1100px) {
   .search-controls {
-    left: 25%;
-    padding-left: 20px;
+    left: 17%;
   }
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
@@ -734,16 +731,15 @@
   .search-results.layout-default,
   .search-results.layout-1-column,
   .search-results.layout-2-column {
-    margin-left: calc(27% + 40px);
+    margin-left: calc(25%);
   }
 }
 
 /* Laptop and below (lg: 1024px) */
 @media (max-width: 1024px) {
   .search-controls {
-    padding: 6px 10px 6px 20px;
     padding-top: 40px;
-    left: 24%;
+    left: 18%;
   }
   
   .search-layout-wrapper.filter-panel-closed .search-controls {
@@ -753,7 +749,7 @@
   .search-results.layout-default,
   .search-results.layout-1-column,
   .search-results.layout-2-column {
-    margin-left: calc(26% + 40px);
+    margin-left: calc(24%);
   }
 
   /* Keep sidebar roughly 20–22% of viewport on tablet */

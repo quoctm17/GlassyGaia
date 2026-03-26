@@ -438,6 +438,7 @@ function ContentTypeGridSaveModal({
               <select
                 value={selectedEpisodeSlug || ''}
                 onChange={(e) => setSelectedEpisodeSlug(e.target.value)}
+                className="typography-noto-14"
                 style={{
                   width: '100%',
                   padding: '8px 12px',
@@ -445,8 +446,6 @@ function ContentTypeGridSaveModal({
                   borderRadius: '8px',
                   background: '#FFFFFF',
                   color: 'var(--text)',
-                  fontFamily: 'Noto Sans, sans-serif',
-                  fontSize: '14px',
                   cursor: 'pointer'
                 }}
               >

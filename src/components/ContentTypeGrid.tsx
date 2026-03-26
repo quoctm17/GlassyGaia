@@ -1,15 +1,11 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, Star } from 'lucide-react';
-import { 
-  apiGetFilm, 
+import {
   apiListItems,
-  apiGetSRSDistribution, 
-  apiGetSavedCardsCount,
-  apiGetLikeCount,
-  apiGetLikeStatus,
+  apiGetContentFilmStatsBatch,
   apiToggleLike,
-  type SRSDistribution 
+  type SRSDistribution
 } from '../services/cfApi';
 import type { FilmDoc, LevelFrameworkStats } from '../types';
 import { type ContentType } from '../types/content';
@@ -74,16 +70,13 @@ export default function ContentTypeGrid({}: ContentTypeGridProps) {
     (async () => {
       setLoading(true);
       try {
-        // Get all items regardless of type
+        // apiListItems now returns full data (num_cards, imdb_score, etc.)
+        // so no N+1 enrichment loop needed
         const all = await apiListItems();
-        const detailed = await Promise.all(all.map(async (f) => {
-          const d = await apiGetFilm(f.id).catch(() => null);
-          return d ? { ...f, ...d } : f;
-        }));
         if (!mounted) return;
         // Filter by main_language (always filter by selected main language)
         const canonSelected = canonicalizeLangCode(selectedMain) || selectedMain;
-        const filtered = detailed.filter((f) => {
+        const filtered = all.filter((f) => {
               const canon = canonicalizeLangCode(f.main_language || '');
               return !!f.main_language && (canon || f.main_language) === canonSelected;
         });
@@ -137,95 +130,82 @@ export default function ContentTypeGrid({}: ContentTypeGridProps) {
     return maxLevel;
   };
 
-  // Load SRS distributions, saved cards counts, like counts, and like statuses for all films
+  // Load all stats (SRS distribution, saved count, like count, like status) for all films
+  // using a single batch API call — replaces 4N individual calls
   useEffect(() => {
     if (allItems.length === 0) return;
-    
+
     let mounted = true;
     (async () => {
-      const distributions: Record<string, SRSDistribution> = {};
-      const savedCounts: Record<string, number> = {};
-      const likes: Record<string, number> = {};
-      const liked: Record<string, boolean> = {};
-      
-      // Load data for all films in parallel
-      await Promise.all(
-        allItems.map(async (film) => {
-          try {
-            // Load SRS distribution (requires user)
-            if (user?.uid) {
-              try {
-                const dist = await apiGetSRSDistribution(user.uid, film.id);
-                if (mounted) {
-                  distributions[film.id] = dist;
-                }
-              } catch (error) {
-                console.error(`Failed to load SRS distribution for ${film.id}:`, error);
-                if (mounted) {
-                  distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
-                }
-              }
-              
-              // Load saved cards count
-              try {
-                const count = await apiGetSavedCardsCount(user.uid, film.id);
-                if (mounted) {
-                  savedCounts[film.id] = count;
-                }
-              } catch (error) {
-                console.error(`Failed to load saved cards count for ${film.id}:`, error);
-                if (mounted) {
-                  savedCounts[film.id] = 0;
-                }
-              }
-              
-              // Load like status
-              try {
-                const status = await apiGetLikeStatus(user.uid, film.id);
-                if (mounted) {
-                  liked[film.id] = status;
-                }
-              } catch (error) {
-                console.error(`Failed to load like status for ${film.id}:`, error);
-                if (mounted) {
-                  liked[film.id] = false;
-                }
-              }
-            } else {
-              // No user, set defaults
-              if (mounted) {
-                distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
-                savedCounts[film.id] = 0;
-                liked[film.id] = false;
-              }
-            }
-            
-            // Load like count (doesn't require user)
-            try {
-              const count = await apiGetLikeCount(film.id);
-              if (mounted) {
-                likes[film.id] = count;
-              }
-            } catch (error) {
-              console.error(`Failed to load like count for ${film.id}:`, error);
-              if (mounted) {
-                likes[film.id] = 0;
-              }
-            }
-          } catch (error) {
-            console.error(`Failed to load data for ${film.id}:`, error);
-          }
-        })
-      );
-      
-      if (mounted) {
+      // Guest users get default stats without any API call
+      if (!user?.uid) {
+        const distributions: Record<string, SRSDistribution> = {};
+        const savedCounts: Record<string, number> = {};
+        const likes: Record<string, number> = {};
+        const liked: Record<string, boolean> = {};
+        for (const film of allItems) {
+          distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+          savedCounts[film.id] = 0;
+          likes[film.id] = 0;
+          liked[film.id] = false;
+        }
+        if (!mounted) return;
+        setSrsDistributions(distributions);
+        setSavedCardsCounts(savedCounts);
+        setLikeCounts(likes);
+        setLikeStatuses(liked);
+        return;
+      }
+
+      try {
+        const filmIds = allItems.map(f => f.id);
+        const stats = await apiGetContentFilmStatsBatch(user.uid, filmIds);
+        if (!mounted) return;
+
+        const distributions: Record<string, SRSDistribution> = {};
+        const savedCounts: Record<string, number> = {};
+        const likes: Record<string, number> = {};
+        const liked: Record<string, boolean> = {};
+
+        for (const film of allItems) {
+          const s = stats[film.id] || {
+            srsDistribution: { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 },
+            savedCount: 0,
+            likeCount: 0,
+            liked: false,
+          };
+          distributions[film.id] = s.srsDistribution;
+          savedCounts[film.id] = s.savedCount;
+          likes[film.id] = s.likeCount;
+          liked[film.id] = s.liked;
+        }
+
+        if (!mounted) return;
+        setSrsDistributions(distributions);
+        setSavedCardsCounts(savedCounts);
+        setLikeCounts(likes);
+        setLikeStatuses(liked);
+      } catch (error) {
+        console.error('Failed to load film stats batch:', error);
+        // Set defaults on failure
+        if (!mounted) return;
+        const distributions: Record<string, SRSDistribution> = {};
+        const savedCounts: Record<string, number> = {};
+        const likes: Record<string, number> = {};
+        const liked: Record<string, boolean> = {};
+        for (const film of allItems) {
+          distributions[film.id] = { none: 100, new: 0, again: 0, hard: 0, good: 0, easy: 0 };
+          savedCounts[film.id] = 0;
+          likes[film.id] = 0;
+          liked[film.id] = false;
+        }
         setSrsDistributions(distributions);
         setSavedCardsCounts(savedCounts);
         setLikeCounts(likes);
         setLikeStatuses(liked);
       }
     })();
-    
+
     return () => { mounted = false; };
   }, [user?.uid, allItems]);
 

@@ -126,6 +126,9 @@ body,
 /* Language selectors styles moved to styles/components/language-selectors.css */
 /* NavBar logo and other NavBar styles moved to styles/components/navbar.css */
 
+/* ================= Tooltip (Native browser default) ================= */
+/* All tooltip icons use native browser title tooltip — no custom CSS styling needed */
+
 .sign-in-btn {
   position: relative;
   display: inline-flex;

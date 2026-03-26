@@ -7,7 +7,7 @@
   right: 0;
   z-index: 300;
   padding: 0;
-  min-height: 43px;
+  min-height: 36px;
   background: var(--background);
   width: 100%;
   flex-wrap: nowrap;
@@ -30,7 +30,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
+  padding: 2px 4px;
   background: transparent;
   text-decoration: none;
   border-radius: 4px;
@@ -62,8 +62,8 @@
 }
 
 .pixel-logo-img {
-  width: 48px;
-  height: 48px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   padding: 2px;
   object-fit: cover;
@@ -75,8 +75,8 @@
   justify-content: center;
   gap: 2px;
   font-weight: 400;
-  padding: 8px 0;
-  margin-left: 10px;
+  padding: 4px 0;
+  margin-left: 8px;
   line-height: 1.2;
   letter-spacing: 1px;
   text-align: center;

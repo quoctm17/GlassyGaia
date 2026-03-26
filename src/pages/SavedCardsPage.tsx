@@ -250,7 +250,7 @@ export default function SavedCardsPage() {
                     onChange={toggleSelectAll}
                     style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                   />
-                  <span style={{ fontFamily: 'Noto Sans, sans-serif', fontSize: '14px', color: 'var(--text)' }}>
+                  <span className="typography-noto-14" style={{ color: 'var(--text)' }}>
                     Select All
                   </span>
                 </label>

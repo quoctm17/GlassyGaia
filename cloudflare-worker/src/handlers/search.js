@@ -1320,8 +1320,8 @@ export function registerSearchRoutes(router) {
           }
         }
 
-        // Execute batches with increased concurrency for better performance
-        const maxConcurrentBatchQueries = 20; // Increased for better parallelism
+        // Execute batches with limited concurrency to avoid D1 CPU overload on free tier
+        const maxConcurrentBatchQueries = 5; // Reduced from 20 to stay within D1 free CPU limits
         const batchExecuteStart = Date.now();
         for (let i = 0; i < allPromises.length; i += maxConcurrentBatchQueries) {
           const batch = allPromises.slice(i, i + maxConcurrentBatchQueries);

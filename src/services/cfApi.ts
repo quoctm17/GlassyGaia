@@ -223,9 +223,12 @@ export async function apiListItems(): Promise<FilmDoc[]> {
       return undefined;
     })(),
     level_framework_stats: (f as Partial<FilmDoc> & { level_framework_stats?: string | LevelFrameworkStats[] | null }).level_framework_stats ?? null,
-    categories: Array.isArray((f as Partial<FilmDoc> & { categories?: Category[] }).categories) 
-      ? (f as Partial<FilmDoc> & { categories?: Category[] }).categories 
+    categories: Array.isArray((f as Partial<FilmDoc> & { categories?: Category[] }).categories)
+      ? (f as Partial<FilmDoc> & { categories?: Category[] }).categories
       : [],
+    num_cards: (f as Partial<FilmDoc> & { num_cards?: number | null }).num_cards ?? null,
+    avg_difficulty_score: (f as Partial<FilmDoc> & { avg_difficulty_score?: number | null }).avg_difficulty_score ?? null,
+    imdb_score: (f as Partial<FilmDoc> & { imdb_score?: number | null }).imdb_score ?? null,
   }));
   
   // Save to localStorage cache
@@ -477,6 +480,38 @@ export async function apiGetLikeStatus(
 
   const data = await res.json();
   return data.liked || false;
+}
+
+/**
+ * Batch fetch all stats (SRS distribution, saved count, like count, like status) for N films.
+ * Single API call replaces 4N individual calls.
+ */
+export async function apiGetContentFilmStatsBatch(
+  userId: string,
+  filmIds: string[]
+): Promise<Record<string, {
+  srsDistribution: SRSDistribution;
+  savedCount: number;
+  likeCount: number;
+  liked: boolean;
+}>> {
+  if (!filmIds || filmIds.length === 0) return {};
+
+  const res = await fetch(`${API_BASE}/api/content/film-stats`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ user_id: userId, film_ids: filmIds }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to get film stats batch: ${res.status} ${text}`);
+  }
+
+  return res.json();
 }
 
 /**
@@ -1910,11 +1945,12 @@ export async function apiR2Delete(key: string, opts?: { recursive?: boolean; con
 function rowToCardDoc(r: Record<string, unknown>): CardDoc {
   // Expect fields: card_id or id, episode_id, film_id?, start_time_ms, end_time_ms, audio_key, image_key, subtitles? or subtitle map.
   const get = (k: string): unknown => r[k];
-  // Prefer display id if provided, keep internal UUID separately in card_id
-  const id = String(get("id") ?? "");
+  // Normalize IDs: prefer UUID as canonical CardDoc.id for consistency across pages.
+  const displayId = String(get("id") ?? "");
   const internalCardId =
     (get("card_id") != null ? String(get("card_id")) : "") ||
     (get("internal_id") != null ? String(get("internal_id")) : "");
+  const canonicalCardId = internalCardId || displayId;
   const episodeId = String(get("episode_id") ?? get("episode") ?? "e1");
   const filmIdVal = get("film_id");
   const filmId = filmIdVal != null ? String(filmIdVal) : undefined;
@@ -1960,19 +1996,19 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
     (get("audio_url") as string | undefined) || (get("audio_key") as string | undefined),
     filmId,
     episodeId,
-    id,
+    displayId || canonicalCardId,
     "audio"
   );
   const imageUrl = buildMediaUrlFromKey(
     (get("image_url") as string | undefined) || (get("image_key") as string | undefined),
     filmId,
     episodeId,
-    id,
+    displayId || canonicalCardId,
     "image"
   );
   return {
-    id: id || internalCardId,
-    card_id: internalCardId || undefined,
+    id: canonicalCardId,
+    card_id: displayId || undefined,
     episode: episodeId,
     episode_id: episodeId,
     start,
@@ -2041,11 +2077,30 @@ function rowToCardDoc(r: Record<string, unknown>): CardDoc {
       return undefined;
     })(),
     level_frequency_ranks: (() => {
-      const raw = get("level_frequency_ranks");
+      const raw =
+        get("level_frequency_ranks") ??
+        get("frequency_ranks") ??
+        get("level_frequency_rank");
       if (!raw) return null;
-      if (Array.isArray(raw)) return raw as Array<{ framework: string; language: string | null; frequency_rank: number }>;
+
+      const normalizeRanks = (value: unknown) => {
+        if (!Array.isArray(value)) return null;
+        return value
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object') return null;
+            const row = entry as Record<string, unknown>;
+            const framework = String(row.framework || '').trim();
+            const rank = Number(row.frequency_rank);
+            return framework && Number.isFinite(rank)
+              ? { framework, language: row.language == null ? null : String(row.language), frequency_rank: rank }
+              : null;
+          })
+          .filter(Boolean) as Array<{ framework: string; language: string | null; frequency_rank: number }>;
+      };
+
+      if (Array.isArray(raw)) return normalizeRanks(raw);
       if (typeof raw === 'string') {
-        try { return JSON.parse(raw); } catch { return null; }
+        try { return normalizeRanks(JSON.parse(raw)); } catch { return null; }
       }
       return null;
     })(),
