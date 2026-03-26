@@ -25,9 +25,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
-### Added
-- New `LandingPage` as the default `/` route — shows the full search experience (search bar, filter panel, content selector, results grid) with a left icon sidebar (Home, Search, Media, Saved, Watchlist). Previously the app redirected `/` to `/search`.
-
 ### Fixed
 - Admin Level Management: fix Single Card Assessment debug dropdowns (searchable Content/Episode/Card) and ensure debug assessment resolves card UUID correctly.
 - Worker level assessment: align tokenization with stopword/noise filtering and OOV rank handling to prevent under-estimating difficulty.

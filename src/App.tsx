@@ -2,7 +2,6 @@ import { lazy, Suspense } from 'react';
 import NavBar from './components/NavBar';
 import BottomNav from './components/BottomNav';
 import SearchPage from './pages/SearchPage';
-import LandingPage from './pages/LandingPage';
 import { UserProvider } from './context/UserContext';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -77,7 +76,7 @@ function App() {
           <div className="app-main">
             <Suspense fallback={<PageLoader />}>
               <Routes>
-                <Route path="/" element={<LandingPage />} />
+                <Route path="/" element={<Navigate to="/search" replace />} />
                 <Route path="/search" element={<SearchPage />} />
                 {/* New canonical content routes */}
                 <Route path="/content" element={<LibraryPage />} />
