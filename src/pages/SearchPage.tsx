@@ -28,7 +28,6 @@ import thumbUpIcon from "../assets/icons/thumb-up.svg";
 import thumbDownIcon from "../assets/icons/thumb-down.svg";
 import headphoneIcon from "../assets/icons/headphone.svg";
 import speakIcon from "../assets/icons/speak.svg";
-import { CONTENT_TYPE_LABELS, type ContentType } from "../types/content";
 import "../styles/pages/search-page.css";
 
 function SearchPage() {
@@ -62,10 +61,20 @@ function SearchPage() {
     } catch { return defaultValue; }
   };
 
+  // Helper to safely read boolean from sessionStorage
+  const getSessionBool = (key: string, defaultValue: boolean): boolean => {
+    try {
+      const v = sessionStorage.getItem(SP_PREFIX + key);
+      if (v === null) return defaultValue;
+      return v === 'true';
+    } catch { return defaultValue; }
+  };
+
   // inputValue: giá trị đang gõ trong ô SearchBar (không dùng để query trực tiếp)
   const [searchInput, setSearchInput] = useState(() => getSessionString('input', ''));
   // query: giá trị đã được debounce, dùng để gọi API + highlight
   const [query, setQuery] = useState(() => getSessionString('query', ''));
+  const [hasEnteredSearch, setHasEnteredSearch] = useState(() => getSessionBool('entered_search', true));
   const [loading, setLoading] = useState(true);
   // Check if we have cached results - skip firstLoading skeleton if cache is warm
   const [firstLoading, setFirstLoading] = useState(() => {
@@ -113,7 +122,7 @@ function SearchPage() {
   const [levelMax, setLevelMax] = useState<number>(() => getStoredLevelMax());
   const [volume, setVolume] = useState(28);
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
-  const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'movie' | 'series' | 'book'>(() => (getSessionString('type_filter', 'all') as 'all' | 'movie' | 'series' | 'book'));
+  const contentTypeFilter: 'all' | 'movie' | 'series' | 'book' = 'all';
   const pageSize = 20;
   const abortControllerRef = useRef<AbortController | null>(null);
   const isFetchingRef = useRef<boolean>(false);
@@ -127,6 +136,10 @@ function SearchPage() {
   useEffect(() => {
     try { sessionStorage.setItem(SP_PREFIX + 'query', query); } catch { /* silent */ }
   }, [query]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(SP_PREFIX + 'entered_search', String(hasEnteredSearch)); } catch { /* silent */ }
+  }, [hasEnteredSearch]);
 
   useEffect(() => {
     try { sessionStorage.setItem(SP_PREFIX + 'content_filter', JSON.stringify(contentFilter)); } catch { /* silent */ }
@@ -185,10 +198,6 @@ function SearchPage() {
     window.addEventListener('level-range-updated', sync);
     return () => window.removeEventListener('level-range-updated', sync);
   }, []);
-
-  useEffect(() => {
-    try { sessionStorage.setItem(SP_PREFIX + 'type_filter', contentTypeFilter); } catch { /* silent */ }
-  }, [contentTypeFilter]);
 
   // Persist cards and total separately (they come from API, not user input)
   useEffect(() => {
@@ -424,6 +433,7 @@ function SearchPage() {
   // This should only trigger when user explicitly searches, not while typing
   const handleSearch = useCallback((searchValue: string) => {
     const trimmed = searchValue.trim();
+    setHasEnteredSearch(true);
     setQuery(trimmed);
     setFeedbackChoice(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -435,32 +445,30 @@ function SearchPage() {
   // Khi query (đã debounce) hoặc filter / language đổi thì gọi API
   // BUT: Skip if filter modal is open (wait for Apply button)
   useEffect(() => {
+    // Keep search layout visible but don't load result list until user enters search flow
+    if (!hasEnteredSearch) {
+      return;
+    }
+
     // Don't fetch if filter modal is open - wait for Apply button
     if (isFilterModalOpenState) {
       console.log('[SearchPage] Skipping fetch - filter modal is open');
       return;
     }
 
-    // FIX: Always fetch cards (browsing mode) even when query is empty
-    // This ensures new users see cards immediately on first load
     const trimmed = query.trim();
 
-    // Track when filter change started
     if (!firstLoading) {
       setLoading(true);
     }
 
-    // Immediate fetch for query/language changes, debounced for filter changes
     setPage(1);
     setHasMore(true);
-    // Reset shuffle on new search/filter
     setShouldShuffle(false);
     shuffleSeedRef.current = Date.now();
 
-    // FIX: Always call fetchCards - empty query means browsing mode
-    // The API will return available cards when query is empty
     fetchCards(trimmed, 1);
-  }, [query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid, fetchCards, firstLoading, isFilterModalOpenState]);
+  }, [hasEnteredSearch, query, preferences.main_language, subtitleLangsKey, contentFilterKey, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, user?.uid, fetchCards, firstLoading, isFilterModalOpenState]);
 
   // Detect scroll position for back-to-top button
   useEffect(() => {
@@ -646,22 +654,6 @@ function SearchPage() {
     return shuffled;
   }, [cards, contentTypeFilter, shouldShuffle, filmTypeMap, levelMin, levelMax]);
 
-  const availableTypesFromSelection = useMemo(() => {
-    const set = new Set<'movie' | 'series' | 'book'>();
-    for (const fid of contentFilter) {
-      const t = (filmTypeMap[fid] || '').toLowerCase();
-      if (t === 'movie' || t === 'series' || t === 'book') set.add(t);
-    }
-    return set;
-  }, [contentFilter, filmTypeMap]);
-
-  const handleContentTypeChange = useCallback((nextType: 'all' | 'movie' | 'series' | 'book') => {
-    setContentTypeFilter(nextType);
-    if (nextType === 'all') return;
-    // Auto-unselect any selected content not matching the chosen type
-    setContentFilter(prev => prev.filter(fid => (filmTypeMap[fid] || '').toLowerCase() === nextType));
-  }, [filmTypeMap]);
-
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loading || isLoadingMore || isFetchingRef.current) return;
     fetchCards(query, page + 1);
@@ -835,23 +827,8 @@ function SearchPage() {
             <div className="search-stats typography-inter-4">
               <SubtitleLanguageSelector className="search-subtitle-selector" />
               <span className="search-stats-text">
-                {loading ? "Searching..." : `${total} Cards`}
+                {hasEnteredSearch ? (loading ? "Searching..." : `${total} Cards`) : "Ready to explore"}
               </span>
-            </div>
-            <div className="content-type-filter" role="group" aria-label="Content type">
-              {(['all', 'movie', 'series', 'book'] as const)
-                .filter((type) => type === 'all' || availableTypesFromSelection.size === 0 || availableTypesFromSelection.has(type))
-                .map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    className={`content-type-option typography-noto-content-type ${contentTypeFilter === type ? 'active' : ''}`}
-                    onClick={() => handleContentTypeChange(type)}
-                    aria-pressed={contentTypeFilter === type}
-                  >
-                    {type === 'all' ? 'All' : CONTENT_TYPE_LABELS[type as ContentType]}
-                  </button>
-                ))}
             </div>
           </div>
 
@@ -898,7 +875,6 @@ function SearchPage() {
                         initialSaveStatus={saveStatus}
                         onSaveStatusChange={(cardId, status) => {
                           setCardSaveStatuses(prev => ({ ...prev, [cardId]: status }));
-                          // Invalidate API-level sessionStorage cache so next refresh fetches fresh data
                           try {
                             const keys = Object.keys(sessionStorage);
                             for (const k of keys) {

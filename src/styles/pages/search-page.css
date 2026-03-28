@@ -224,7 +224,7 @@
   align-items: start;
   align-content: start;
   grid-auto-rows: min-content;
-  margin-top: 150px;
+  margin-top: 100px;
   margin-left: calc(14% + 40px);
   transition: margin-left 0.3s ease;
 }
@@ -246,7 +246,7 @@
   align-items: start;
   align-content: start;
   grid-auto-rows: min-content;
-  margin-top: 150px;
+  margin-top: 100px;
   margin-left: calc(14% + 40px); /* Match filter panel width + inner padding */
   transition: margin-left 0.3s ease;
 }
@@ -259,7 +259,7 @@
   align-items: stretch;
   align-content: start;
   grid-auto-rows: 1fr;
-  margin-top: 150px;
+  margin-top: 100px;
   margin-left: calc(14% + 40px); /* Match filter panel width + inner padding */
   transition: margin-left 0.3s ease;
 }
