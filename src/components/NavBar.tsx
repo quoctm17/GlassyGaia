@@ -3,7 +3,6 @@ import { useUser } from "../context/UserContext";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import MainLanguageSelector from "./MainLanguageSelector";
-import ThemeToggle from "./ThemeToggle";
 import { apiGetUserPortfolio, type UserPortfolio } from "../services/portfolioApi";
 import logoImg from "../assets/imgs/logo.png";
 import searchIcon from "../assets/icons/search.svg";
@@ -208,11 +207,8 @@ export default function NavBar() {
           </>
         )}
         
-        {/* Theme toggle - hidden on mobile */}
-        <div className="navbar-theme-toggle">
-          <ThemeToggle />
-        </div>
-        
+        {/* Theme toggle - DISABLED. See src/utils/ThemeToggleUtils.ts to restore */}
+
         {user ? (
           <div className="relative" ref={menuRef}>
             <button

@@ -308,6 +308,480 @@
   animation: skeleton-loading 1.5s ease-in-out infinite;
 }
 
+/* Welcome overlay - covers search-results while API loads in background */
+.search-results-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ================ Welcome Overlay ================ */
+/* Overlay: fixed covers the results area below search-controls.
+   margin-left mirrors .search-results.layout-default at each breakpoint.
+   No padding — padding moved to inner container. */
+.welcome-overlay {
+  position: fixed;
+  top: calc(45px + 100px);
+  bottom: 0;
+  left: calc(14% + 40px);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  background-color: var(--background);
+  box-sizing: border-box;
+  /* No margin-left needed — left + right handle width automatically */
+}
+
+@media (max-width: 1661px) {
+  .welcome-overlay {
+    left: calc(16% + 40px);
+  }
+}
+
+@media (max-width: 1575px) {
+  .welcome-overlay {
+    left: calc(17% + 40px);
+  }
+}
+
+@media (max-width: 1475px) {
+  .welcome-overlay {
+    left: calc(18% + 40px);
+  }
+}
+
+@media (max-width: 1375px) {
+  .welcome-overlay {
+    left: calc(19% + 40px);
+  }
+}
+
+@media (max-width: 1300px) {
+  .welcome-overlay {
+    left: 23%;
+  }
+}
+
+@media (max-width: 1100px) {
+  .welcome-overlay {
+    left: 25%;
+  }
+}
+
+@media (max-width: 1024px) {
+  .welcome-overlay {
+    left: 24%;
+  }
+}
+
+@media (max-width: 850px) {
+  .welcome-overlay {
+    left: 26%;
+  }
+}
+
+/* When filter panel is closed, overlay spans full width */
+.welcome-overlay.full-width {
+  left: 0 !important;
+}
+
+/* Inner scrollable container — stretches to fill overlay width */
+.welcome-overlay-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+  padding-right: 20px;
+  overflow-y: auto;
+  max-height: 100%;
+  box-sizing: border-box;
+}
+
+/* Header */
+.welcome-overlay-header {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--hover-select);
+  text-align: left;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Description */
+.welcome-overlay-description {
+  color: var(--text);
+  text-align: left;
+  margin: 0;
+  width: 100%;
+}
+
+/* Stats table: 2-column grid — each col 50%, both centered */
+.welcome-overlay-stats-table {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  align-items: center;
+  justify-items: center;
+}
+
+/* Left column: stat cards in a SINGLE row (no wrap) */
+.welcome-overlay-stat-cards {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  max-width: 700px;
+  justify-content: center;
+}
+
+.welcome-overlay-stat-card {
+  border: 1px solid var(--border);
+  background-color: transparent;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  text-align: center;
+  flex: 1;
+  min-width: 240px;
+  max-width: 240px;
+  box-sizing: border-box;
+}
+
+.welcome-overlay-stat-number {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 25px;
+  font-weight: 400;
+  color: #5745DD;
+  line-height: 1.2;
+}
+
+.welcome-overlay-stat-label {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--hover-select);
+  line-height: 1.4;
+}
+
+/* Right column: level bar chart — exactly 3 columns, large row gap, small col gap.
+   Fixed to content size, 50% width like stat cards, centered. */
+.welcome-overlay-level-chart {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  row-gap: 16px;
+  column-gap: 6px;
+  min-height: 60px;
+  align-items: center;
+  width: 100%;
+  max-width: 700px;
+  justify-content: center;
+}
+
+/* Grid cell: label + bar-row side by side, fixed width so cols don't stretch */
+.welcome-overlay-level-grid-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 140px;
+  flex-shrink: 0;
+}
+
+/* Level bar row: fixed 5:1 ratio (100:20), rectangular */
+.welcome-overlay-level-bar-row {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background-color: transparent;
+  box-sizing: border-box;
+  height: 20px;
+  min-width: 100px;
+  max-width: 100%;
+  flex: 1;
+}
+
+/* Level label text (e.g. A1, N5, HSK1) — OUTSIDE bar-row, sibling in grid cell */
+.welcome-overlay-level-text {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* Per-level text colors mirroring .level-badge from level-framework-styles.css */
+.level-text-a1, .level-text-n5, .level-text-hsk1, .level-text-1  { color: #065f46; }
+.level-text-a2, .level-text-n4, .level-text-hsk2, .level-text-2  { color: #0c4a6e; }
+.level-text-b1, .level-text-n3, .level-text-hsk3, .level-text-3  { color: #1e3a8a; }
+.level-text-b2, .level-text-n2, .level-text-hsk4, .level-text-4  { color: #713f12; }
+.level-text-c1, .level-text-n1, .level-text-hsk5, .level-text-5  { color: #78350f; }
+.level-text-c2, .level-text-hsk6, .level-text-6                   { color: #7c2d12; }
+.level-text-hsk7, .level-text-7                                     { color: #7c2d12; }
+.level-text-hsk8, .level-text-8                                     { color: #7f1d1d; }
+.level-text-hsk9, .level-text-9                                     { color: #7f1d1d; }
+
+/* Track: just a flex container wrapping the colored square */
+.welcome-overlay-level-bar-track {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+/* Colored square — height matches bar-row (20px), width = height - border*2 = 18px */
+.welcome-overlay-level-bar-fill {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+/* Colored square backgrounds */
+.level-fill-a1, .level-fill-n5, .level-fill-hsk1, .level-fill-1  { background-color: #86efac; }
+.level-fill-a2, .level-fill-n4, .level-fill-hsk2, .level-fill-2  { background-color: #7dd3fc; }
+.level-fill-b1, .level-fill-n3, .level-fill-hsk3, .level-fill-3  { background-color: #bfdbfe; }
+.level-fill-b2, .level-fill-n2, .level-fill-hsk4, .level-fill-4  { background-color: #fde047; }
+.level-fill-c1, .level-fill-n1, .level-fill-hsk5, .level-fill-5  { background-color: #fcd34d; }
+.level-fill-c2, .level-fill-hsk6, .level-fill-6                   { background-color: #f7a45e; }
+.level-fill-hsk7, .level-fill-7                                     { background-color: #fb923c; }
+.level-fill-hsk8, .level-fill-8                                     { background-color: #fca5a5; }
+.level-fill-hsk9, .level-fill-9                                     { background-color: #f87171; }
+
+/* Feature table: 2 cols × 3 rows */
+.welcome-overlay-feature-table {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 40px 40px;
+  width: 100%;
+}
+
+.welcome-overlay-feature-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.welcome-overlay-feature-header {
+  color: var(--text);
+}
+
+.welcome-overlay-feature-desc {
+  color: var(--text);
+}
+
+/* Explore button: transparent, icon left, text #948979 */
+.welcome-overlay-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--comment-text);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 4px;
+}
+
+.welcome-overlay-btn:hover {
+  opacity: 0.7;
+}
+
+.welcome-overlay-btn:active {
+  opacity: 1;
+}
+
+.welcome-overlay-btn-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* ================= Recently Added Media Section ================= */
+
+.welcome-overlay-recent-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.welcome-overlay-recent-header {
+  color: var(--hover-select);
+  margin: 0;
+}
+
+/* Single row, fixed columns, no wrap */
+.welcome-overlay-recent-grid {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.welcome-overlay-recent-card {
+  flex-shrink: 0;
+  width: 160px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 0.2s ease;
+}
+
+.welcome-overlay-recent-card:hover {
+  transform: translateY(-4px);
+}
+
+.welcome-overlay-recent-card-image {
+  position: relative;
+  width: 160px;
+  height: 240px;
+  background: var(--background);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.welcome-overlay-recent-card-image .film-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.welcome-overlay-recent-card-image .film-cover-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-elevated);
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.welcome-overlay-recent-card-image .film-cover-placeholder span {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 8px;
+  color: var(--text);
+  text-align: center;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.welcome-overlay-recent-card-title {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Mobile: overlay full-width */
+@media (max-width: 768px) {
+  .welcome-overlay {
+    top: calc(45px + 60px);
+    left: 0;
+  }
+
+  .welcome-overlay-inner {
+    padding: 20px 16px 28px;
+  }
+
+  .welcome-overlay-stats-table {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    max-width: 100%;
+  }
+
+  .welcome-overlay-stat-cards,
+  .welcome-overlay-level-chart {
+    max-width: 100%;
+  }
+
+  .welcome-overlay-stat-cards {
+    flex-direction: row;
+    gap: 10px;
+  }
+
+  .welcome-overlay-stat-card {
+    flex: 1;
+    padding: 10px 12px;
+  }
+
+  .welcome-overlay-stat-number {
+    font-size: 18px;
+  }
+
+  .welcome-overlay-stat-label {
+    font-size: 10px;
+  }
+
+  .welcome-overlay-level-chart {
+    grid-template-columns: 1fr;
+    row-gap: 10px;
+    column-gap: 4px;
+  }
+
+  .welcome-overlay-recent-card {
+    width: 120px;
+  }
+
+  .welcome-overlay-recent-card-image {
+    width: 120px;
+    height: 180px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .welcome-overlay-recent-card {
+    width: 130px;
+  }
+
+  .welcome-overlay-recent-card-image {
+    width: 130px;
+    height: 195px;
+  }
+}
+
+@media (max-width: 900px) {
+  .welcome-overlay-recent-card {
+    width: 140px;
+  }
+
+  .welcome-overlay-recent-card-image {
+    width: 140px;
+    height: 210px;
+  }
+}
+
+@media (max-width: 600px) {
+  .welcome-overlay-recent-card {
+    width: 150px;
+  }
+
+  .welcome-overlay-recent-card-image {
+    width: 150px;
+    height: 225px;
+  }
+}
+
 .search-controls {
   position: fixed;
   top: 45px;

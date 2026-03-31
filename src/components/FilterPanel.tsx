@@ -19,23 +19,28 @@ interface FilterPanelProps {
   activeContentType?: 'all' | 'movie' | 'series' | 'book';
   isOpen?: boolean;
   onClose?: () => void;
+  // Starred content props
+  starredContentIds?: Set<string>;
+  onToggleStar?: (filmId: string) => void;
 }
 
-export default function FilterPanel({ 
-  filmTitleMap, 
-  filmTypeMap, 
-  filmLangMap, 
+export default function FilterPanel({
+  filmTitleMap,
+  filmTypeMap,
+  filmLangMap,
   filmStatsMap,
-  allResults, 
-  contentCounts, 
-  totalCount, 
+  allResults,
+  contentCounts,
+  totalCount,
   allContentIds,
-  filmFilter, 
-  onSelectFilm, 
+  filmFilter,
+  onSelectFilm,
   mainLanguage,
   activeContentType = 'all',
   isOpen = true,
-  onClose
+  onClose,
+  starredContentIds,
+  onToggleStar,
 }: FilterPanelProps) {
   const prevMainLanguageRef = useRef<string | null>(null);
 
@@ -72,6 +77,8 @@ export default function FilterPanel({
           filmStatsMapExternal={filmStatsMap}
           mainLanguage={mainLanguage}
           activeContentType={activeContentType}
+          starredContentIds={starredContentIds}
+          onToggleStar={onToggleStar}
         />
       </div>
     </>

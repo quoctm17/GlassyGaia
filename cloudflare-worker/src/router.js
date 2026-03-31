@@ -14,6 +14,7 @@ import { registerContentRoutes } from './handlers/content.js';
 import { registerCommentRoutes } from './handlers/comments.js';
 import { registerUsersRoutes } from './handlers/users.js';
 import { registerAdminRoutes } from './handlers/admin.js';
+import { registerStarredRoutes } from './handlers/starred.js';
 import { resetDailyTables } from './services/scheduled.js';
 
 const { preflight, corsify } = cors({
@@ -50,6 +51,7 @@ registerContentRoutes(router);
 registerCommentRoutes(router);
 registerUsersRoutes(router);
 registerAdminRoutes(router);
+registerStarredRoutes(router);
 
 router.all('*', () => error(404, 'Not found'));
 
