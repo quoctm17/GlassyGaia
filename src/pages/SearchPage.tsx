@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import SearchResultCard from "../components/SearchResultCard";
 import FilterPanel from "../components/FilterPanel";
 import FilterModal from "../components/FilterModal";
 import CustomizeModal from "../components/CustomizeModal";
-import type { CardDoc } from "../types";
+import type { CardDoc, FilmDoc, LevelFrameworkEntry } from "../types";
 import SearchBar from "../components/SearchBar";
 import SubtitleLanguageSelector from "../components/SubtitleLanguageSelector";
 import { useUser } from "../context/UserContext";
@@ -12,7 +13,14 @@ import {
   apiSearchCardsFTS,
   apiGetCardSaveStatusBatch,
   apiListItems,
+  apiListRecentItems,
+  apiGetStatsSummary,
+  type GlobalStats,
 } from "../services/cfApi";
+import {
+  WELCOME_STATS,
+  WELCOME_RECENT_ITEMS,
+} from "../data/welcomeOverlayData";
 import { createTimeTrackingRefs, cleanupTimeTracking } from "../utils/TimeTrackingUtils";
 import {
   getStoredLevelMin,
@@ -28,9 +36,11 @@ import thumbUpIcon from "../assets/icons/thumb-up.svg";
 import thumbDownIcon from "../assets/icons/thumb-down.svg";
 import headphoneIcon from "../assets/icons/headphone.svg";
 import speakIcon from "../assets/icons/speak.svg";
+import contextExpandIcon from "../assets/icons/context-expand.svg";
 import "../styles/pages/search-page.css";
 
 function SearchPage() {
+  const navigate = useNavigate();
   const { user, preferences } = useUser();
   // Session storage key prefix
   const SP_PREFIX = 'sp_';
@@ -99,7 +109,11 @@ function SearchPage() {
   // Content metadata from search results only (no separate /items fetch for initial load)
   const [contentMeta, setContentMeta] = useState(() => getSessionValue<Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: import("../types").LevelFrameworkStats | null }>>('content_meta', {}));
   // Global content items list for ContentSelector (cached via apiListItems)
-  const [allItems, setAllItems] = useState<any[]>([]);
+  const [allItems, setAllItems] = useState<FilmDoc[]>([]);
+  // Stats for welcome overlay: hardcoded for instant render, refreshed in background
+  const [globalStats, setGlobalStats] = useState<GlobalStats>(WELCOME_STATS);
+  // Recent items for welcome overlay: hardcoded for instant render, refreshed in background
+  const [recentItems, setRecentItems] = useState<Array<{ id: string; title?: string; cover_url?: string | null; num_cards?: number | null }>>(WELCOME_RECENT_ITEMS);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
   const [isPracticeOpen, setIsPracticeOpen] = useState(false);
@@ -122,10 +136,40 @@ function SearchPage() {
   const [levelMax, setLevelMax] = useState<number>(() => getStoredLevelMax());
   const [volume, setVolume] = useState(28);
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
+  // Welcome overlay: show until user clicks "Explore More" — API still loads underneath
+  const [showWelcomeOverlay, setShowWelcomeOverlay] = useState(true);
+
+  // Background refresh: update recent items from API (runs after hardcoded initial render)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const items = await apiListRecentItems();
+        if (!mounted) return;
+        setRecentItems(items);
+      } catch {
+        // silent fail
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const contentTypeFilter: 'all' | 'movie' | 'series' | 'book' = 'all';
   const pageSize = 20;
   const abortControllerRef = useRef<AbortController | null>(null);
   const isFetchingRef = useRef<boolean>(false);
+
+  // Prevent body scroll when welcome overlay is active
+  useEffect(() => {
+    if (showWelcomeOverlay) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showWelcomeOverlay]);
 
   // Persist state to sessionStorage when it changes
   // These effects ensure state survives navigation away and back to SearchPage
@@ -494,12 +538,27 @@ function SearchPage() {
     };
   }, []);
 
+  // Load lightweight stats summary for welcome overlay (runs in parallel, independent of allItems)
+  useEffect(() => {
+    let cancelled = false;
+    apiGetStatsSummary()
+      .then((stats) => {
+        if (!cancelled) setGlobalStats(stats);
+      })
+      .catch((e) => {
+        console.error("[SearchPage] failed to load stats summary", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Build maps for FilterPanel / ContentSelector
   // Prefer full items list when available, fallback to content_meta
   const filmTitleMap = useMemo(() => {
     const map: Record<string, string> = {};
     if (allItems.length > 0) {
-      allItems.forEach((it: any) => {
+      allItems.forEach((it) => {
         if (it?.id) map[it.id] = it.title || it.id;
       });
     } else {
@@ -513,7 +572,7 @@ function SearchPage() {
   const filmTypeMap = useMemo(() => {
     const map: Record<string, string | undefined> = {};
     if (allItems.length > 0) {
-      allItems.forEach((it: any) => {
+      allItems.forEach((it) => {
         if (it?.id) map[it.id] = it.type;
       });
     } else {
@@ -527,7 +586,7 @@ function SearchPage() {
   const filmLangMap = useMemo(() => {
     const map: Record<string, string> = {};
     if (allItems.length > 0) {
-      allItems.forEach((it: any) => {
+      allItems.forEach((it) => {
         if (it?.id && it.main_language) map[it.id] = it.main_language;
       });
     } else {
@@ -539,14 +598,21 @@ function SearchPage() {
   }, [allItems, contentMeta]);
 
   const filmStatsMap = useMemo(() => {
-    const map: Record<string, any> = {};
+    const map: Record<string, LevelFrameworkEntry[] | null> = {};
     if (allItems.length > 0) {
-      allItems.forEach((it: any) => {
-        if (it?.id) map[it.id] = it.level_framework_stats ?? null;
+      allItems.forEach((it) => {
+        if (it?.id) {
+          // DB stores LevelFrameworkEntry[] directly; the type LevelFrameworkStats[] is a mismatch
+          const stats = it.level_framework_stats;
+          map[it.id] = Array.isArray(stats) ? (stats as unknown as LevelFrameworkEntry[]) : null;
+        }
       });
     } else {
       Object.entries(contentMeta).forEach(([, meta]) => {
-        if (meta?.id) map[meta.id] = meta.level_framework_stats ?? null;
+        if (meta?.id) {
+          const stats = meta.level_framework_stats;
+          map[meta.id] = Array.isArray(stats) ? (stats as unknown as LevelFrameworkEntry[]) : null;
+        }
       });
     }
     return map;
@@ -554,7 +620,7 @@ function SearchPage() {
 
   const allContentIds = useMemo(() => {
     if (allItems.length > 0) {
-      return allItems.map((it: any) => it.id).filter(Boolean);
+      return allItems.map((it) => it.id).filter(Boolean);
     }
     return Object.values(contentMeta)
       .map((m) => m.id)
@@ -685,6 +751,12 @@ function SearchPage() {
     console.log(`[SearchPage] Review filter changed: ${min}-${max}`);
     setMinReview(min);
     setMaxReview(max);
+  }, []);
+
+  // Dismiss welcome overlay and show results immediately (API already loaded in background)
+  const handleExploreMore = useCallback(() => {
+    setShowWelcomeOverlay(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   return (
@@ -832,7 +904,12 @@ function SearchPage() {
             </div>
           </div>
 
-          <div className={`search-results layout-${resultLayout === 'default' ? 'default' : resultLayout === '1-column' ? '1-column' : '2-column'} ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
+          <div
+            className={`search-results-wrapper ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}
+            style={{ position: 'relative' }}
+          >
+            {/* Results area - hidden under overlay while loading */}
+            <div className={`search-results layout-${resultLayout === 'default' ? 'default' : resultLayout === '1-column' ? '1-column' : '2-column'} ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
             {loading && cards.length === 0
               ? Array.from({ length: 6 }).map((_, i) => (
                   <div
@@ -936,6 +1013,180 @@ function SearchPage() {
                   </div>
                 </>
               )}
+            </div>
+
+            {/* Welcome overlay - hides results while user decides to explore */}
+            {showWelcomeOverlay && (
+              <div className={`welcome-overlay${isFilterPanelOpen ? '' : ' full-width'}`}>
+                <div className="welcome-overlay-inner">
+
+                  {/* Header */}
+                  <h2 className="welcome-overlay-header typography-pressstart-18">About Glassy-Gaia</h2>
+
+                  {/* Description */}
+                  <p className="welcome-overlay-description typography-noto-20">
+                    A multimedia sentence dictionary from movies, film series, videos, &amp; books
+                    that delivers original, high-quality media context through images, audios,
+                    and multilingual subtitles.
+                  </p>
+
+                  {/* Stats table: left = stat cards, right = level bars */}
+                  <div className="welcome-overlay-stats-table">
+                    {/* Left column: stat cards */}
+                    <div className="welcome-overlay-stat-cards">
+                      <div className="welcome-overlay-stat-card">
+                        <span className="welcome-overlay-stat-number">
+                          {globalStats.totalMediaCards.toLocaleString()}
+                        </span>
+                        <span className="welcome-overlay-stat-label">Media cards</span>
+                      </div>
+                      <div className="welcome-overlay-stat-card">
+                        <span className="welcome-overlay-stat-number">
+                          {globalStats.totalContentItems.toLocaleString()}
+                        </span>
+                        <span className="welcome-overlay-stat-label">Content</span>
+                      </div>
+                    </div>
+
+                    {/* Right column: level bar chart — 3-column grid */}
+                    <div className="welcome-overlay-level-chart">
+                      {globalStats.levelDistribution.length === 0 ? (
+                        <span className="welcome-overlay-level-loading">Loading levels…</span>
+                      ) : (
+                        globalStats.levelDistribution.flatMap((framework) =>
+                          Object.entries(framework.levels)
+                            .sort(([a], [b]) => {
+                              const orderA = a.match(/\d+/)?.[0] ?? a;
+                              const orderB = b.match(/\d+/)?.[0] ?? b;
+                              return parseInt(orderA) - parseInt(orderB);
+                            })
+                            .map(([level]) => (
+                              <div key={level} className="welcome-overlay-level-grid-cell">
+                                <span className={`welcome-overlay-level-text level-text-${level.toLowerCase()}`}>
+                                  {level}
+                                </span>
+                                <div className="welcome-overlay-level-bar-row">
+                                  <div className="welcome-overlay-level-bar-track">
+                                    <div
+                                      className={`welcome-overlay-level-bar-fill level-fill-${level.toLowerCase()}`}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Feature table: 2 cols × 3 rows */}
+                  <div className="welcome-overlay-feature-table">
+                    <div className="welcome-overlay-feature-card">
+                      <span className="welcome-overlay-feature-header typography-noto-18-b">
+                        🎬 Immersive, Authentic Media
+                      </span>
+                      <span className="welcome-overlay-feature-desc typography-noto-16">
+                        Immerse yourself in real-world media—original audio, vivid images, and high quality human-translated subtitles. Learn language the way it&apos;s actually used.
+                      </span>
+                    </div>
+                    <div className="welcome-overlay-feature-card">
+                      <span className="welcome-overlay-feature-header typography-noto-18-b">
+                        📚 Your Personal Dictionary
+                      </span>
+                      <span className="welcome-overlay-feature-desc typography-noto-16">
+                        Build your own word bank effortlessly. Save cards in bulk from your favorite media and turn your learning into a personalized dictionary that grows with you.
+                      </span>
+                    </div>
+                    <div className="welcome-overlay-feature-card">
+                      <span className="welcome-overlay-feature-header typography-noto-18-b">
+                        🎯 Targeted Comprehensible Input
+                      </span>
+                      <span className="welcome-overlay-feature-desc typography-noto-16">
+                        Control the difficulty. Set your vocabulary level to discover content that&apos;s perfectly challenging—not too easy, not overwhelming.
+                      </span>
+                    </div>
+                    <div className="welcome-overlay-feature-card">
+                      <span className="welcome-overlay-feature-header typography-noto-18-b">
+                        🎤 Practice to Mastery
+                      </span>
+                      <span className="welcome-overlay-feature-desc typography-noto-16">
+                        Don&apos;t just consume—produce. Actively test your abilities with dedicated listening &amp; speaking practice modes.
+                      </span>
+                    </div>
+                    <div className="welcome-overlay-feature-card">
+                      <span className="welcome-overlay-feature-header typography-noto-18-b">
+                        🧠 SRS Algorithm
+                      </span>
+                      <span className="welcome-overlay-feature-desc typography-noto-16">
+                        Review smarter with spaced repetition for long-term memory.
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Recently Added Media */}
+                  <div className="welcome-overlay-recent-section">
+                    <h2 className="welcome-overlay-recent-header typography-pressstart-18">
+                      Recently Added Media
+                    </h2>
+                    <div className="welcome-overlay-recent-grid">
+                      {recentItems.map(f => {
+                        const R2Base = (import.meta.env.VITE_R2_PUBLIC_BASE as string | undefined)?.replace(/\/$/, '') || '';
+                        const cover = f.cover_url || (R2Base ? `${R2Base}/items/${f.id}/cover_image/cover.jpg` : `/items/${f.id}/cover_image/cover.jpg`);
+                        return (
+                          <div
+                            key={f.id}
+                            className="welcome-overlay-recent-card"
+                            onClick={() => navigate(`/watch/${f.id}`)}
+                          >
+                            <div className="welcome-overlay-recent-card-image">
+                              <img
+                                src={cover}
+                                alt={String(f.title || f.id)}
+                                className="film-cover"
+                                onError={e => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  const placeholder = target.nextElementSibling as HTMLElement;
+                                  if (placeholder && placeholder.classList.contains('film-cover-placeholder')) {
+                                    placeholder.style.display = 'flex';
+                                  }
+                                }}
+                                draggable={false}
+                                onContextMenu={e => e.preventDefault()}
+                              />
+                              <div className="film-cover-placeholder" style={{ display: 'none' }}>
+                                <span>{f.title || f.id}</span>
+                              </div>
+                              {f.num_cards !== null && f.num_cards !== undefined && (
+                                <div className="film-card-total-count">
+                                  {f.num_cards}
+                                </div>
+                              )}
+                            </div>
+                            <p className="welcome-overlay-recent-card-title" title={f.title || f.id}>
+                              {f.title || f.id}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="welcome-overlay-btn"
+                    onClick={handleExploreMore}
+                  >
+                    <img
+                      src={contextExpandIcon}
+                      alt=""
+                      className="welcome-overlay-btn-icon"
+                    />
+                    <span className="typography-noto-18-sb">Explore More</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </main>
       </div>
