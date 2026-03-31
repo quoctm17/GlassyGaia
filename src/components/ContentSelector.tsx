@@ -3,6 +3,8 @@ import { listFilms } from '../services/firestore';
 import type { FilmDoc, CardDoc, LevelFrameworkStats } from '../types';
 import { CONTENT_TYPES } from '../types/content';
 import searchIcon from '../assets/icons/search.svg';
+import starIcon from '../assets/icons/star.svg';
+import starFillIcon from '../assets/icons/star-fill.svg';
 import '../styles/components/content-selector.css';
 
 interface ContentSelectorProps {
@@ -25,6 +27,7 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [isStarred, setIsStarred] = useState(false);
 
   useEffect(() => {
     if (filmTitleMapExternal && filmTypeMapExternal) return; // parent handles fetching
@@ -258,6 +261,19 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
             placeholder=""
             className="content-search-input"
           />
+          <button
+            type="button"
+            className="content-star-btn"
+            aria-label={isStarred ? 'Unfavorite' : 'Favorite'}
+            aria-pressed={isStarred}
+            onClick={() => setIsStarred(prev => !prev)}
+          >
+            {isStarred ? (
+              <img src={starFillIcon} alt="" className="content-star-icon" />
+            ) : (
+              <img src={starIcon} alt="" className="content-star-icon" />
+            )}
+          </button>
           <button
             type="button"
             className="content-search-trigger-btn"

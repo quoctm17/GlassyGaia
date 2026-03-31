@@ -13,14 +13,31 @@ import {
   apiSearchCardsFTS,
   apiGetCardSaveStatusBatch,
   apiListItems,
-  apiListRecentItems,
-  apiGetStatsSummary,
-  type GlobalStats,
 } from "../services/cfApi";
 import {
   WELCOME_STATS,
   WELCOME_RECENT_ITEMS,
 } from "../data/welcomeOverlayData";
+
+// Local type + fallback functions for features not yet on remote cfApi
+export interface GlobalStats {
+  totalContentItems: number;
+  totalMediaCards: number;
+  levelDistribution: Array<{
+    framework: string;
+    language: string | null;
+    levels: Record<string, number>;
+    totalCount: number;
+  }>;
+}
+
+async function apiListRecentItemsFallback(): Promise<Array<{ id: string; title?: string; cover_url?: string | null; num_cards?: number | null }>> {
+  return WELCOME_RECENT_ITEMS;
+}
+
+async function apiGetStatsSummaryFallback(): Promise<GlobalStats> {
+  return WELCOME_STATS;
+}
 import { createTimeTrackingRefs, cleanupTimeTracking } from "../utils/TimeTrackingUtils";
 import {
   getStoredLevelMin,
@@ -144,7 +161,7 @@ function SearchPage() {
     let mounted = true;
     (async () => {
       try {
-        const items = await apiListRecentItems();
+        const items = await apiListRecentItemsFallback();
         if (!mounted) return;
         setRecentItems(items);
       } catch {
@@ -541,7 +558,7 @@ function SearchPage() {
   // Load lightweight stats summary for welcome overlay (runs in parallel, independent of allItems)
   useEffect(() => {
     let cancelled = false;
-    apiGetStatsSummary()
+    apiGetStatsSummaryFallback()
       .then((stats) => {
         if (!cancelled) setGlobalStats(stats);
       })

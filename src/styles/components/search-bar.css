@@ -22,12 +22,12 @@
   align-items: center;
   border: 0.8px solid var(--neutral);
   background: var(--background);
+  overflow: visible;
 }
 
 .pixel-input {
   width: 100%;
-  padding: 6px 16px 6px 44px;
-  padding-right: 100px;
+  padding: 6px 6px 6px 6px;
   border: none;
   background: transparent;
   font-weight: 500;
@@ -35,15 +35,47 @@
   box-shadow: none;
   outline: none;
   transition: border-color .15s, background .15s, color .15s;
-  text-align: center;
+  text-align: left;
   font-family: "Noto Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 19px;
   line-height: 1.3;
   word-spacing: 0;
 }
 
+/* Save-heart icon inside search bar — positioned on the right */
+.search-bar-save-btn {
+  position: absolute;
+  right: 100px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  z-index: 2;
+  transition: filter 0.15s ease;
+  filter: var(--icon-neutral-filter);
+}
+
+.search-bar-save-btn:hover,
+.search-bar-save-btn:active,
+.search-bar-save-btn[aria-pressed="true"] {
+  filter: var(--icon-hover-select-filter);
+}
+
+.search-bar-save-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
 .pixel-input::placeholder {
   opacity: .55;
+  text-align: left;
 }
 
 .search-icon {

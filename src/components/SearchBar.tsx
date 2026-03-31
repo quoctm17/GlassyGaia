@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Loader2 } from "lucide-react";
 import "../styles/components/search-bar.css";
 import searchIcon from "../assets/icons/search.svg";
+import saveHeartIcon from "../assets/icons/save-heart.svg";
 import { apiContentAutocomplete } from "../services/cfApi";
 
 export interface SearchBarProps {
@@ -39,6 +40,7 @@ export default function SearchBar({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -277,6 +279,24 @@ export default function SearchBar({
             </div>
           )}
         </div>
+        <button
+          type="button"
+          className="search-bar-save-btn"
+          aria-label={isSaved ? 'Unsave' : 'Save'}
+          aria-pressed={isSaved}
+          onClick={() => setIsSaved(prev => !prev)}
+        >
+          {isSaved ? (
+            <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="search-bar-save-icon">
+              <path d="M12.95 16h1.52v1.52H16v1.53h1.52v1.52h1.52v-1.52h1.53v-1.53h1.52V16h1.53v-1.53h1.52V9.9h-1.52V8.38h-4.58V9.9h-1.52V8.38h-4.57V9.9h-1.52v4.57h1.52V16z" fill="var(--hover-select)"/>
+              <path d="M6.85.76h22.86v1.52H6.85Z" fill="var(--hover-select)"/>
+              <path d="M3.81 26.66h1.52v1.53H3.81Z" fill="var(--hover-select)"/>
+              <path d="M3.81 26.66v-1.52H2.28v-3.05h1.53v-1.52H2.28v-3.05h1.53V16H2.28v-3.05h1.53v-1.52H2.28V8.38h1.53V6.85h1.52v1.53H3.81V9.9h1.52v3.05H3.81v1.52h1.52v3.05H3.81v1.53h1.52v3.04H3.81v1.53h1.52v1.52h1.52V2.28H5.33v3.05H2.28v1.52H.76v22.86h1.52v-3.05h1.53z" fill="var(--hover-select)"/>
+            </svg>
+          ) : (
+            <img src={saveHeartIcon} alt="" className="search-bar-save-icon" />
+          )}
+        </button>
         <button
           type="button"
           onClick={triggerSearch}
