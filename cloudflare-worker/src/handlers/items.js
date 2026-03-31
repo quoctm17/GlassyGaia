@@ -105,6 +105,215 @@ export function registerItemRoutes(router) {
     }
   });
 
+  // GET /items/recent — list items sorted by created_at (desc), limited to N items
+  router.get('/items/recent', async (request, env) => {
+    try {
+      const url = new URL(request.url);
+      const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || '10')));
+
+      const itemsResult = await env.DB.prepare(`
+        SELECT ci.id AS internal_id, ci.slug AS id, ci.title, ci.main_language, ci.type,
+          ci.release_year, ci.description, ci.total_episodes AS episodes, ci.is_original,
+          ci.level_framework_stats, ci.cover_key, ci.cover_landscape_key, ci.is_available,
+          ci.num_cards, ci.avg_difficulty_score, ci.imdb_score, ci.created_at
+        FROM content_items ci
+        WHERE COALESCE(ci.is_available, 1) = 1
+        ORDER BY ci.created_at DESC
+        LIMIT ?
+      `).bind(limit).all();
+
+      const langsResult = await env.DB.prepare(`
+        SELECT content_item_id, language
+        FROM content_item_languages
+      `).all();
+
+      const categoriesResult = await env.DB.prepare(`
+        SELECT cic.content_item_id, c.id, c.name
+        FROM content_item_categories cic
+        INNER JOIN categories c ON c.id = cic.category_id
+        ORDER BY c.name ASC
+      `).all();
+
+      const base = env.R2_PUBLIC_BASE || '';
+
+      // Build language map
+      const langMap = new Map();
+      for (const r of (langsResult.results || [])) {
+        if (!langMap.has(r.content_item_id)) {
+          langMap.set(r.content_item_id, []);
+        }
+        if (r.language && !langMap.get(r.content_item_id).includes(r.language)) {
+          langMap.get(r.content_item_id).push(r.language);
+        }
+      }
+
+      // Build categories map
+      const categoriesMap = new Map();
+      for (const r of (categoriesResult.results || [])) {
+        if (!categoriesMap.has(r.content_item_id)) {
+          categoriesMap.set(r.content_item_id, []);
+        }
+        categoriesMap.get(r.content_item_id).push({ id: r.id, name: r.name });
+      }
+
+      const out = (itemsResult.results || []).map(r => {
+        let levelStats = null;
+        if (r.level_framework_stats) {
+          try {
+            levelStats = JSON.parse(r.level_framework_stats);
+          } catch { }
+        }
+
+        let cover_url = null;
+        if (r.cover_key) {
+          cover_url = base ? `${base}/${r.cover_key}` : `/${r.cover_key}`;
+        }
+
+        let cover_landscape_url = null;
+        if (r.cover_landscape_key) {
+          cover_landscape_url = base ? `${base}/${r.cover_landscape_key}` : `/${r.cover_landscape_key}`;
+        }
+
+        return {
+          id: r.id,
+          title: r.title,
+          main_language: r.main_language,
+          type: r.type,
+          release_year: r.release_year,
+          description: r.description,
+          episodes: r.episodes,
+          is_original: r.is_original,
+          level_framework_stats: levelStats,
+          available_subs: langMap.get(r.internal_id) || [],
+          cover_url,
+          cover_landscape_url,
+          is_available: r.is_available ?? 1,
+          num_cards: r.num_cards ?? null,
+          avg_difficulty_score: r.avg_difficulty_score ?? null,
+          imdb_score: r.imdb_score ?? null,
+          categories: categoriesMap.get(r.internal_id) || [],
+          created_at: r.created_at,
+        };
+      });
+
+      return json(out, {
+        headers: {
+          'Cache-Control': 'public, max-age=300, s-maxage=300'
+        }
+      });
+    } catch (e) {
+      return json({ error: e.message }, { status: 500 });
+    }
+  });
+
+  // GET /items/stats-summary — lightweight endpoint for welcome overlay stats (levels chart + stat cards)
+  // Returns: totalContentItems, totalMediaCards, levelDistribution (aggregated from level_framework_stats JSON)
+  router.get('/items/stats-summary', async (request, env) => {
+    try {
+      const itemsResult = await env.DB.prepare(`
+        SELECT ci.num_cards, ci.level_framework_stats
+        FROM content_items ci
+        WHERE COALESCE(ci.is_available, 1) = 1
+      `).all();
+
+      const rows = itemsResult.results || [];
+      let totalContentItems = rows.length;
+      let totalMediaCards = 0;
+
+      // Aggregate level stats from level_framework_stats JSON
+      const frameworkMap = new Map(); // key = "framework|language"
+      for (const r of rows) {
+        if (r.num_cards && Number(r.num_cards) > 0) {
+          totalMediaCards += Number(r.num_cards);
+        }
+
+        let stats = null;
+        if (r.level_framework_stats) {
+          try {
+            stats = JSON.parse(r.level_framework_stats);
+          } catch { }
+        }
+        if (!stats || !Array.isArray(stats)) continue;
+
+        for (const entry of stats) {
+          if (!entry?.framework || !entry?.levels) continue;
+          const key = `${entry.framework}::${entry.language ?? ''}`;
+          let existing = frameworkMap.get(key);
+          if (!existing) {
+            existing = { framework: entry.framework, language: entry.language ?? null, levels: {}, totalCount: 0 };
+            frameworkMap.set(key, existing);
+          }
+          for (const [lvl, pct] of Object.entries(entry.levels)) {
+            existing.levels[lvl] = (existing.levels[lvl] ?? 0) + pct;
+            existing.totalCount += 1;
+          }
+        }
+      }
+
+      // Sort levels within each framework and pick top unique levels (deduplicated across frameworks)
+      const levelDistribution = [];
+      const seenLevels = new Set();
+      for (const [, g] of frameworkMap) {
+        const sortedLevels = {};
+        const sortedEntries = Object.entries(g.levels).sort((a, b) => {
+          const na = a[0].match(/\d+/)?.[0] ?? a[0];
+          const nb = b[0].match(/\d+/)?.[0] ?? b[0];
+          return parseInt(na) - parseInt(nb);
+        });
+        for (const [lvl, pct] of sortedEntries) {
+          if (!seenLevels.has(lvl)) {
+            sortedLevels[lvl] = pct;
+            seenLevels.add(lvl);
+          }
+        }
+        levelDistribution.push({
+          framework: g.framework,
+          language: g.language,
+          levels: sortedLevels,
+          totalCount: g.totalCount,
+        });
+      }
+
+      return json({
+        totalContentItems,
+        totalMediaCards,
+        levelDistribution,
+      }, {
+        headers: { 'Cache-Control': 'public, max-age=300, s-maxage=300' }
+      });
+    } catch (e) {
+      return json({ error: e.message }, { status: 500 });
+    }
+  });
+
+  // GET /items/recent — list items sorted by created_at (desc), limited to 9
+  // Lightweight: only id, title, cover_url, num_cards
+  router.get('/items/recent', async (request, env) => {
+    try {
+      const itemsResult = await env.DB.prepare(`
+        SELECT ci.slug AS id, ci.title, ci.cover_key, ci.num_cards
+        FROM content_items ci
+        WHERE COALESCE(ci.is_available, 1) = 1
+        ORDER BY ci.created_at DESC
+        LIMIT 9
+      `).all();
+
+      const base = env.R2_PUBLIC_BASE || '';
+      const out = (itemsResult.results || []).map(r => ({
+        id: r.id,
+        title: r.title,
+        cover_url: r.cover_key ? (base ? `${base}/${r.cover_key}` : `/${r.cover_key}`) : null,
+        num_cards: r.num_cards ?? null,
+      }));
+
+      return json(out, {
+        headers: { 'Cache-Control': 'public, max-age=120, s-maxage=120' }
+      });
+    } catch (e) {
+      return json({ error: e.message }, { status: 500 });
+    }
+  });
+
   // POST /items/:slug/episodes/:episode/calc-stats
   router.post('/items/:slug/episodes/:episode/calc-stats', async (request, env) => {
     const filmSlug = decodeURIComponent(request.params.slug);

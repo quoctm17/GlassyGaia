@@ -20,14 +20,21 @@ interface ContentSelectorProps {
   filmStatsMapExternal?: Record<string, LevelFrameworkStats | null>; // level framework stats for each film
   mainLanguage?: string;
   activeContentType?: 'all' | 'movie' | 'series' | 'book';
+  // Starred content props
+  starredContentIds?: Set<string>;
+  onToggleStar?: (filmId: string) => void;
+  showStarredOnly?: boolean; // parent-controlled starred-only filter
 }
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
-export default function ContentSelector({ value, onChange, allResults, contentCounts, allContentIds, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage, activeContentType = 'all' }: ContentSelectorProps) {
+export default function ContentSelector({ value, onChange, allResults, contentCounts, allContentIds, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage, activeContentType = 'all', starredContentIds, showStarredOnly }: ContentSelectorProps) {
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
-  const [isStarred, setIsStarred] = useState(false);
+  // Internal starred-only state (can be toggled by star button — only used if showStarredOnly prop not provided)
+  const [showStarredOnlyInternal, setShowStarredOnlyInternal] = useState(false);
+  // Resolved: use parent prop if provided, otherwise use internal state
+  const isStarredOnly = showStarredOnly ?? showStarredOnlyInternal;
 
   useEffect(() => {
     if (filmTitleMapExternal && filmTypeMapExternal) return; // parent handles fetching
@@ -128,12 +135,22 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
   }, [films, filmTitleMapExternal, filmLangMap, mainLanguage, allContentIds]);
 
   // Apply search filter - still show content even if 0 cards (unless search filters them out)
-  // visibleIds = filtered by search, not by card count
+  // visibleIds = filtered by search + starred-only
   const visibleIds = useMemo(() => {
+    let list = filmIds;
+
+    // Filter by starred content when starred-only mode is active
+    if (isStarredOnly) {
+      if (!starredContentIds || starredContentIds.size === 0) {
+        return []; // No starred content
+      }
+      list = list.filter(id => starredContentIds.has(id));
+    }
+
     const normalizedSearch = search.trim().toLowerCase();
     const byType = activeContentType === 'all'
-      ? filmIds
-      : filmIds.filter(id => (filmTypeMap[id] || '').toLowerCase() === activeContentType);
+      ? list
+      : list.filter(id => (filmTypeMap[id] || '').toLowerCase() === activeContentType);
 
     if (!normalizedSearch) return byType; // Show all when no search
 
@@ -141,7 +158,7 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
       const title = (filmTitleMap[id] || id).toLowerCase();
       return title.includes(normalizedSearch) || id.toLowerCase().includes(normalizedSearch);
     });
-  }, [filmIds, search, filmTitleMap, activeContentType, filmTypeMap]);
+  }, [filmIds, search, filmTitleMap, activeContentType, filmTypeMap, isStarredOnly, starredContentIds]);
 
   // Grouping and sorting
   const grouped = useMemo(() => {
@@ -263,12 +280,18 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
           />
           <button
             type="button"
-            className="content-star-btn"
-            aria-label={isStarred ? 'Unfavorite' : 'Favorite'}
-            aria-pressed={isStarred}
-            onClick={() => setIsStarred(prev => !prev)}
+            className={`content-star-btn ${isStarredOnly ? 'active' : ''}`}
+            aria-label={isStarredOnly ? 'Show all content' : 'Show starred content only'}
+            aria-pressed={isStarredOnly}
+            onClick={() => {
+              if (showStarredOnly !== undefined) {
+                // Parent-controlled mode — button is display-only, toggle handled by parent
+              } else {
+                setShowStarredOnlyInternal(prev => !prev);
+              }
+            }}
           >
-            {isStarred ? (
+            {isStarredOnly ? (
               <img src={starFillIcon} alt="" className="content-star-icon" />
             ) : (
               <img src={starIcon} alt="" className="content-star-icon" />

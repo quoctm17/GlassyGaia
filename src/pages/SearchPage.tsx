@@ -13,11 +13,30 @@ import {
   apiSearchCardsFTS,
   apiGetCardSaveStatusBatch,
   apiListItems,
+  apiToggleStarContent,
+  apiGetStarredContentIds,
 } from "../services/cfApi";
 import {
   WELCOME_STATS,
   WELCOME_RECENT_ITEMS,
 } from "../data/welcomeOverlayData";
+import { createTimeTrackingRefs, cleanupTimeTracking } from "../utils/TimeTrackingUtils";
+import {
+  getStoredLevelMin,
+  getStoredLevelMax,
+  setStoredLevelRange,
+} from "../utils/levelRangeStorage";
+import rightAngleIcon from "../assets/icons/right-angle.svg";
+import filterIcon from "../assets/icons/filter.svg";
+import customIcon from "../assets/icons/custom.svg";
+import informationIcon from "../assets/icons/information.svg";
+import practiceMonsterIcon from "../assets/icons/practice-monster.svg";
+import thumbUpIcon from "../assets/icons/thumb-up.svg";
+import thumbDownIcon from "../assets/icons/thumb-down.svg";
+import headphoneIcon from "../assets/icons/headphone.svg";
+import speakIcon from "../assets/icons/speak.svg";
+import contextExpandIcon from "../assets/icons/context-expand.svg";
+import "../styles/pages/search-page.css";
 
 // Local type + fallback functions for features not yet on remote cfApi
 export interface GlobalStats {
@@ -38,23 +57,6 @@ async function apiListRecentItemsFallback(): Promise<Array<{ id: string; title?:
 async function apiGetStatsSummaryFallback(): Promise<GlobalStats> {
   return WELCOME_STATS;
 }
-import { createTimeTrackingRefs, cleanupTimeTracking } from "../utils/TimeTrackingUtils";
-import {
-  getStoredLevelMin,
-  getStoredLevelMax,
-  setStoredLevelRange,
-} from "../utils/levelRangeStorage";
-import rightAngleIcon from "../assets/icons/right-angle.svg";
-import filterIcon from "../assets/icons/filter.svg";
-import customIcon from "../assets/icons/custom.svg";
-import informationIcon from "../assets/icons/information.svg";
-import practiceMonsterIcon from "../assets/icons/practice-monster.svg";
-import thumbUpIcon from "../assets/icons/thumb-up.svg";
-import thumbDownIcon from "../assets/icons/thumb-down.svg";
-import headphoneIcon from "../assets/icons/headphone.svg";
-import speakIcon from "../assets/icons/speak.svg";
-import contextExpandIcon from "../assets/icons/context-expand.svg";
-import "../styles/pages/search-page.css";
 
 function SearchPage() {
   const navigate = useNavigate();
@@ -155,6 +157,10 @@ function SearchPage() {
   const [resultLayout, setResultLayout] = useState<'default' | '1-column' | '2-column'>('default');
   // Welcome overlay: show until user clicks "Explore More" — API still loads underneath
   const [showWelcomeOverlay, setShowWelcomeOverlay] = useState(true);
+  // Starred content filter state
+  const [starredContentIds, setStarredContentIds] = useState<Set<string>>(new Set());
+  // Saved cards filter state (from SearchBar save-heart btn)
+  const [showSavedFilter, setShowSavedFilter] = useState(false);
 
   // Background refresh: update recent items from API (runs after hardcoded initial render)
   useEffect(() => {
@@ -170,6 +176,25 @@ function SearchPage() {
     })();
     return () => { mounted = false; };
   }, []);
+
+  // Load starred content IDs when user changes
+  useEffect(() => {
+    if (!user?.uid) {
+      setStarredContentIds(new Set());
+      return;
+    }
+    let mounted = true;
+    (async () => {
+      try {
+        const result = await apiGetStarredContentIds(user.uid, 1, 500);
+        if (!mounted) return;
+        setStarredContentIds(new Set(result.film_ids));
+      } catch {
+        // silent fail — starred IDs stay empty
+      }
+    })();
+    return () => { mounted = false; };
+  }, [user?.uid]);
 
   const contentTypeFilter: 'all' | 'movie' | 'series' | 'book' = 'all';
   const pageSize = 20;
@@ -717,6 +742,15 @@ function SearchPage() {
       });
     }
 
+    // Filter by saved cards when saved-filter mode is active
+    // Show cards that have srs_state !== 'none' (i.e., saved in SRS system)
+    if (showSavedFilter) {
+      list = list.filter((card) => {
+        const status = cardSaveStatuses[card.id];
+        return status && (status.saved || status.srs_state !== 'none');
+      });
+    }
+
     // Skip shuffle on initial load for faster display
     // Only shuffle if explicitly requested (e.g., user clicks shuffle button)
     if (!shouldShuffle) {
@@ -735,7 +769,7 @@ function SearchPage() {
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
     return shuffled;
-  }, [cards, contentTypeFilter, shouldShuffle, filmTypeMap, levelMin, levelMax]);
+  }, [cards, contentTypeFilter, shouldShuffle, filmTypeMap, levelMin, levelMax, showSavedFilter, cardSaveStatuses]);
 
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loading || isLoadingMore || isFetchingRef.current) return;
@@ -770,6 +804,25 @@ function SearchPage() {
     setMaxReview(max);
   }, []);
 
+  // Handle star/unstar toggle from card's star button
+  const handleToggleStar = useCallback(async (filmId: string) => {
+    if (!user?.uid) return;
+    try {
+      const result = await apiToggleStarContent(user.uid, filmId);
+      setStarredContentIds(prev => {
+        const next = new Set(prev);
+        if (result.starred) {
+          next.add(filmId);
+        } else {
+          next.delete(filmId);
+        }
+        return next;
+      });
+    } catch (error) {
+      console.error('[SearchPage] Failed to toggle star:', error);
+    }
+  }, [user?.uid]);
+
   // Dismiss welcome overlay and show results immediately (API already loaded in background)
   const handleExploreMore = useCallback(() => {
     setShowWelcomeOverlay(false);
@@ -802,6 +855,8 @@ function SearchPage() {
         activeContentType={contentTypeFilter}
         isOpen={isFilterPanelOpen}
         onClose={() => setIsFilterPanelOpen(false)}
+        starredContentIds={starredContentIds}
+        onToggleStar={handleToggleStar}
       />
 
       <div className={`search-layout-wrapper ${!isFilterPanelOpen ? 'filter-panel-closed' : ''}`}>
@@ -830,6 +885,8 @@ function SearchPage() {
                 enableAutocomplete={true}
                 debounceMs={300}
                 language={preferences.main_language || "en"}
+                showSavedFilter={showSavedFilter}
+                onSavedFilterChange={setShowSavedFilter}
               />
               <div className="practice-wrapper">
                 <button
@@ -977,6 +1034,8 @@ function SearchPage() {
                           } catch { /* silent */ }
                         }}
                         practiceMode={practiceMode}
+                        onToggleStar={handleToggleStar}
+                        starredContentIds={starredContentIds}
                       />
                     );
                   })}

@@ -18,6 +18,8 @@ export interface SearchBarProps {
   debounceMs?: number; // Deprecated: kept for backward compat, search now only triggers on button click or Enter
   enableAutocomplete?: boolean; // enable autocomplete suggestions
   language?: string; // language for autocomplete (defaults to 'en' if not provided)
+  showSavedFilter?: boolean; // whether saved-filter is active (parent-controlled)
+  onSavedFilterChange?: (show: boolean) => void; // fires when save-filter button is toggled
 }
 
 export default function SearchBar({
@@ -33,6 +35,8 @@ export default function SearchBar({
   // debounceMs is deprecated - kept for backward compat
   enableAutocomplete = true,
   language = "en",
+  showSavedFilter = false,
+  onSavedFilterChange,
 }: SearchBarProps) {
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
@@ -40,7 +44,6 @@ export default function SearchBar({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -281,12 +284,12 @@ export default function SearchBar({
         </div>
         <button
           type="button"
-          className="search-bar-save-btn"
-          aria-label={isSaved ? 'Unsave' : 'Save'}
-          aria-pressed={isSaved}
-          onClick={() => setIsSaved(prev => !prev)}
+          className={`search-bar-save-btn ${showSavedFilter ? 'active' : ''}`}
+          aria-label={showSavedFilter ? 'Show all cards' : 'Show saved cards only'}
+          aria-pressed={showSavedFilter}
+          onClick={() => onSavedFilterChange?.(!showSavedFilter)}
         >
-          {isSaved ? (
+          {showSavedFilter ? (
             <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="search-bar-save-icon">
               <path d="M12.95 16h1.52v1.52H16v1.53h1.52v1.52h1.52v-1.52h1.53v-1.53h1.52V16h1.53v-1.53h1.52V9.9h-1.52V8.38h-4.58V9.9h-1.52V8.38h-4.57V9.9h-1.52v4.57h1.52V16z" fill="var(--hover-select)"/>
               <path d="M6.85.76h22.86v1.52H6.85Z" fill="var(--hover-select)"/>

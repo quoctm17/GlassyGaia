@@ -26,6 +26,15 @@
   letter-spacing: 1px;
 }
 
+/* PressStart2P - Size 18 (Welcome overlay headers) */
+.typography-pressstart-18 {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0.5px;
+}
+
 /* ================= Inter Font ================= */
 
 /* Inter - Size 1 (Bold Heading) */
@@ -192,6 +201,30 @@
   font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif;
   font-weight: 500;
   font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Noto Sans - 18px Bold (welcome-overlay header) */
+.typography-noto-18-b {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+/* Noto Sans - 20px Regular (welcome-overlay description) */
+.typography-noto-20 {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 400;
+  font-size: 20px;
+  line-height: 1.6;
+}
+
+/* Noto Sans - 18px SemiBold (welcome-overlay button text) */
+.typography-noto-18-sb {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 600;
+  font-size: 18px;
   line-height: 1.4;
 }
 

@@ -45,6 +45,8 @@ interface Props {
   onTrackListening?: (seconds: number) => void; // callback to track listening time
   initialSaveStatus?: { saved: boolean; srs_state: string; review_count: number }; // pre-loaded save status to avoid N+1 queries
   practiceMode?: "listening" | "reading" | "speaking" | "writing" | null;
+  onToggleStar?: (filmId: string) => void; // callback when star button is clicked — parent handles API call + state update
+  starredContentIds?: Set<string>; // set of starred film_ids for quick lookup
 }
 
 // Memoized component to prevent unnecessary re-renders
@@ -61,6 +63,8 @@ const SearchResultCard = memo(function SearchResultCard({
   onTrackListening,
   initialSaveStatus,
   practiceMode = null,
+  onToggleStar,
+  starredContentIds,
 }: Props) {
   const { user, preferences } = useUser();
   const navigate = useNavigate();
@@ -249,6 +253,15 @@ const SearchResultCard = memo(function SearchResultCard({
     
     return () => { mounted = false; };
   }, [user?.uid, card.id, card.film_id, card.episode_id, card.episode, initialSaveStatus]);
+
+  // Initialize starred state from starredContentIds prop
+  useEffect(() => {
+    if (starredContentIds && card.film_id) {
+      setIsStarred(starredContentIds.has(card.film_id));
+    } else {
+      setIsStarred(false);
+    }
+  }, [starredContentIds, card.film_id]);
 
   // Close SRS dropdown when clicking outside
   useEffect(() => {
@@ -1952,10 +1965,14 @@ const SearchResultCard = memo(function SearchResultCard({
               className="card-star-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                setIsStarred((prev) => !prev);
+                // Optimistic toggle + call parent handler
+                setIsStarred(prev => !prev);
+                if (onToggleStar && card.film_id) {
+                  onToggleStar(card.film_id);
+                }
               }}
               aria-pressed={isStarred}
-              aria-label={isStarred ? 'Unfavorite' : 'Favorite'}
+              aria-label={isStarred ? 'Unstar content' : 'Star content'}
             >
               <img
                 src={isStarred ? starFillIcon : starIcon}

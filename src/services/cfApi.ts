@@ -245,6 +245,25 @@ export async function apiListItems(): Promise<FilmDoc[]> {
   return mapped;
 }
 
+export async function apiListRecentItems(): Promise<Array<{ id: string; title?: string; cover_url?: string | null; num_cards?: number | null }>> {
+  return getJson(`/items/recent`);
+}
+
+export interface GlobalStats {
+  totalContentItems: number;
+  totalMediaCards: number;
+  levelDistribution: Array<{
+    framework: string;
+    language: string | null;
+    levels: Record<string, number>;
+    totalCount: number;
+  }>;
+}
+
+export async function apiGetStatsSummary(): Promise<GlobalStats> {
+  return getJson<GlobalStats>(`/items/stats-summary`);
+}
+
 export async function apiGetFilm(filmId: string): Promise<FilmDoc | null> {
   try {
     const f = await getJson<Partial<FilmDoc> & { id?: string }>(
@@ -538,6 +557,132 @@ export async function apiToggleLike(
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Failed to toggle like: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Starred Content API
+ */
+
+/**
+ * Toggle star/unstar a content item for the current user
+ */
+export async function apiToggleStarContent(
+  userId: string,
+  filmId: string
+): Promise<{ starred: boolean }> {
+  assertApiBase();
+
+  const res = await fetch(`${API_BASE}/api/content/star`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      film_id: filmId,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to toggle star: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Get star status for a single content item
+ */
+export async function apiGetStarStatus(
+  userId: string,
+  filmId: string
+): Promise<{ starred: boolean }> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    user_id: userId,
+    film_id: filmId,
+  });
+
+  const res = await fetch(`${API_BASE}/api/content/star-status?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get star status: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Get star status for multiple content items (batch)
+ */
+export async function apiGetStarStatusBatch(
+  userId: string,
+  filmIds: string[]
+): Promise<Record<string, { starred: boolean }>> {
+  assertApiBase();
+  const res = await fetch(`${API_BASE}/api/content/star-status-batch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      user_id: userId,
+      film_ids: filmIds,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get star status batch: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * List starred content IDs for a user (paginated)
+ */
+export async function apiGetStarredContentIds(
+  userId: string,
+  page: number = 1,
+  limit: number = 50
+): Promise<{
+  items: Array<{ film_id: string; title?: string; main_language?: string; type?: string; cover_key?: string; num_cards?: number; starred_at: number }>;
+  film_ids: string[];
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
+}> {
+  assertApiBase();
+  const params = new URLSearchParams({
+    user_id: userId,
+    page: String(page),
+    limit: String(limit),
+  });
+
+  const res = await fetch(`${API_BASE}/api/user/starred-content?${params}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to get starred content: ${res.status} ${text}`);
   }
 
   return res.json();
