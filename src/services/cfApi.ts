@@ -926,7 +926,6 @@ export async function apiGetCardSaveStatusBatch(
 
   const cached = getSessionCache<Record<string, { saved: boolean; srs_state: string; review_count: number }>>(cacheKey, SAVE_STATUS_SESSION_TTL);
   if (cached) {
-    console.log('[apiGetCardSaveStatusBatch] Session cache hit');
     return cached;
   }
 
@@ -1139,7 +1138,6 @@ export async function apiSearchCardsFTS(params: {
   userId?: string | null;
   includeContentMeta?: boolean;
 }): Promise<{ items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> }> {
-  const perfStart = performance.now();
   const { q, contentIds, subtitleLanguages, minDifficulty, maxDifficulty, minLevel, maxLevel, minLength, maxLength, maxDuration, minReview, maxReview, userId } = params;
   const limit = params.limit ?? 100;
   const main = params.mainLanguage ? `&main=${encodeURIComponent(params.mainLanguage)}` : "";
@@ -1165,16 +1163,12 @@ export async function apiSearchCardsFTS(params: {
   const cacheKey = 'fts:' + getSearchCacheKey(params);
   const cached = getSessionCache<ReturnType<typeof apiSearchCardsFTS>>(cacheKey, FTS_SESSION_TTL);
   if (cached) {
-    const cacheTime = performance.now() - perfStart;
-    console.log(`[apiSearchCardsFTS] Session cache hit in ${cacheTime.toFixed(2)}ms`);
     return cached;
   }
   
-  const fetchStart = performance.now();
   const raw = await getJson<Array<Record<string, unknown>> | { items: Array<Record<string, unknown>>; content_meta?: Record<string, unknown> }>(
     `/search?q=${encodeURIComponent(q)}&limit=${limit}${main}${contentIdsParam}${subtitleLangsParam}${difficultyMinParam}${difficultyMaxParam}${levelMinParam}${levelMaxParam}${lengthMinParam}${lengthMaxParam}${durationMaxParam}${reviewMinParam}${reviewMaxParam}${userIdParam}${contentMetaParam}`
   );
-  const fetchTime = performance.now() - fetchStart;
   
   const rows = Array.isArray(raw) ? raw : (raw.items || []);
   const contentMeta: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> | undefined =
@@ -1182,51 +1176,12 @@ export async function apiSearchCardsFTS(params: {
       ? (raw.content_meta as Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }>)
       : undefined;
   
-  const mapStart = performance.now();
   const result = rows.map(rowToCardDoc);
-  const mapTime = performance.now() - mapStart;
-  
+
   const out: { items: CardDoc[]; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> } = { items: result, content_meta: contentMeta };
   setSessionCache(cacheKey, out);
   
-  const totalTime = performance.now() - perfStart;
-  console.log(`[apiSearchCardsFTS] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${result.length} items`);
-  
   return out;
-}
-
-// Autocomplete endpoint for content search (uses search_words table)
-export async function apiContentAutocomplete(params: {
-  q: string;
-  limit?: number;
-  language?: string;
-}): Promise<{ suggestions: Array<{ term: string; slug: string }> }> {
-  assertApiBase();
-  const { q, limit = 10, language } = params;
-
-  const urlParams = new URLSearchParams();
-  urlParams.set('q', q);
-  if (limit !== 10) {
-    urlParams.set('limit', String(limit));
-  }
-  // Pass language to worker - defaults to 'en' on server if not provided
-  if (language) {
-    urlParams.set('language', language);
-  }
-
-  const res = await fetch(`${API_BASE}/api/content/autocomplete?${urlParams}`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Failed to get content autocomplete: ${res.status} ${text}`);
-  }
-
-  return res.json();
 }
 
 // New unified search API endpoint (paginated with main_language + subtitle_languages filters)
@@ -1252,8 +1207,6 @@ export async function apiSearch(params: {
   signal?: AbortSignal;
   includeContentMeta?: boolean;
 }): Promise<{ items: CardDoc[]; total: number; page: number; size: number; content_meta?: Record<string, { id: string; title?: string; type?: string; main_language?: string; level_framework_stats?: LevelFrameworkStats | null }> }> {
-  const perfStart = performance.now();
-
   // Build cache key (exclude signal - not serializable)
   const cacheKeyParams: Record<string, unknown> = { ...params };
   delete (cacheKeyParams as any).signal;
@@ -1262,97 +1215,89 @@ export async function apiSearch(params: {
   // Check sessionStorage cache first
   const cached = getSessionCache<ReturnType<typeof apiSearch>>(cacheKey, SEARCH_SESSION_TTL);
   if (cached) {
-    console.log('[apiSearch] Session cache hit');
     return cached;
   }
 
   const query = params.query || '';
   const page = params.page ?? 1;
   const size = params.size ?? 50;
-  
+
   const urlParams = new URLSearchParams();
   urlParams.set('q', query);
   urlParams.set('page', String(page));
   urlParams.set('size', String(size));
-  
+
   if (params.mainLanguage) {
     urlParams.set('main_language', params.mainLanguage);
   }
-  
+
   if (params.subtitleLanguages && params.subtitleLanguages.length > 0) {
     urlParams.set('subtitle_languages', params.subtitleLanguages.join(','));
   }
-  
+
   if (params.contentIds && params.contentIds.length > 0) {
     urlParams.set('content_ids', params.contentIds.join(','));
   }
-  
+
   if (params.minDifficulty !== undefined && params.minDifficulty !== null) {
     urlParams.set('difficulty_min', String(params.minDifficulty));
   }
-  
+
   if (params.maxDifficulty !== undefined && params.maxDifficulty !== null) {
     urlParams.set('difficulty_max', String(params.maxDifficulty));
   }
-  
+
   if (params.minLevel) {
     urlParams.set('level_min', params.minLevel);
   }
-  
+
   if (params.maxLevel) {
     urlParams.set('level_max', params.maxLevel);
   }
-  
+
   if (params.minLength !== undefined && params.minLength !== null && params.minLength > 1) {
     urlParams.set('length_min', String(params.minLength));
   }
-  
+
   if (params.maxLength !== undefined && params.maxLength !== null && params.maxLength < 1000) {
     urlParams.set('length_max', String(params.maxLength));
   }
-  
+
   if (params.maxDuration !== undefined && params.maxDuration !== null && params.maxDuration < 300) {
     urlParams.set('duration_max', String(params.maxDuration));
   }
-  
+
   if (params.minReview !== undefined && params.minReview !== null && params.minReview > 0) {
     urlParams.set('review_min', String(params.minReview));
   }
-  
+
   if (params.maxReview !== undefined && params.maxReview !== null && params.maxReview < 10000) {
     urlParams.set('review_max', String(params.maxReview));
   }
-  
+
   if (params.userId) {
     urlParams.set('user_id', params.userId);
   }
-  
+
   if (params.includeContentMeta !== false) {
     urlParams.set('include_content_meta', '1');
   }
-  
+
   assertApiBase();
   const fullUrl = `${API_BASE}/api/search?${urlParams.toString()}`;
-  
-  const fetchStart = performance.now();
+
   const res = await fetch(fullUrl, {
     headers: { Accept: 'application/json' },
     signal: params.signal,
   });
-  
+
   if (!res.ok) {
-    const fetchTime = performance.now() - fetchStart;
-    console.error(`[apiSearch] API failed after ${fetchTime.toFixed(2)}ms: ${res.status}`);
+    console.error(`[apiSearch] API failed: ${res.status}`);
     throw new Error(`Search API failed: ${res.status}`);
   }
-  
-  const jsonStart = performance.now();
+
   const data = await res.json();
-  const jsonTime = performance.now() - jsonStart;
-  
-  // Map API response to CardDoc
-  const mapStart = performance.now();
-  
+
   // Helper to build media URL from key or URL
   const buildMediaUrlFromResponse = (
     url: string | undefined,
@@ -1457,7 +1402,6 @@ export async function apiSearch(params: {
       })(),
     };
   });
-  const mapTime = performance.now() - mapStart;
 
   const result = {
     items,
@@ -1466,10 +1410,6 @@ export async function apiSearch(params: {
     size: data.size || size,
     content_meta: data.content_meta,
   };
-
-  const totalTime = performance.now() - perfStart;
-  const fetchTime = performance.now() - fetchStart;
-  console.log(`[apiSearch] Total: ${totalTime.toFixed(2)}ms (fetch: ${fetchTime.toFixed(2)}ms, json: ${jsonTime.toFixed(2)}ms, map: ${mapTime.toFixed(2)}ms), returned ${items.length} items (total: ${data.total || 0})`);
 
   // Store in sessionStorage cache before returning
   setSessionCache(cacheKey, result);

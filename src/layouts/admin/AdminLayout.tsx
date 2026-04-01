@@ -4,7 +4,7 @@ import { useUser } from '../../context/UserContext';
 import { decodeJWT, isJWTExpired } from '../../utils/jwt';
 import '../../styles/pages/admin/admin.css';
 import toast from 'react-hot-toast';
-import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag, BarChart3, Search, Settings, AlertCircle } from 'lucide-react';
+import { Menu, Layers, HardDrive, Users, Database, ImageIcon, Music, Tag, BarChart3, Settings, AlertCircle } from 'lucide-react';
 
 export default function AdminLayout() {
   const { user, loading, signInGoogle, adminKey, setAdminKey, isAdmin, isSuperAdmin } = useUser();
@@ -106,10 +106,6 @@ export default function AdminLayout() {
           {isSuperAdmin() && (
             <>
               <div className="admin-nav-section-header">System</div>
-              <NavLink to="/admin/populate-search-words" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
-                <Search className="w-4 h-4 mr-2" />
-                <span>Search Words</span>
-              </NavLink>
               <NavLink to="/admin/level-management" className={({isActive})=> 'admin-nav-link'+(isActive?' active':'')}>
                 <BarChart3 className="w-4 h-4 mr-2" />
                 <span>Level Management</span>

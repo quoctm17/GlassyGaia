@@ -5,6 +5,8 @@ import { CONTENT_TYPES } from '../types/content';
 import searchIcon from '../assets/icons/search.svg';
 import starIcon from '../assets/icons/star.svg';
 import starFillIcon from '../assets/icons/star-fill.svg';
+import toast from 'react-hot-toast';
+import { useUser } from '../context/UserContext';
 import '../styles/components/content-selector.css';
 
 interface ContentSelectorProps {
@@ -28,6 +30,7 @@ interface ContentSelectorProps {
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
 export default function ContentSelector({ value, onChange, allResults, contentCounts, allContentIds, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage, activeContentType = 'all', starredContentIds, showStarredOnly }: ContentSelectorProps) {
+  const { user } = useUser();
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -284,6 +287,10 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
             aria-label={isStarredOnly ? 'Show all content' : 'Show starred content only'}
             aria-pressed={isStarredOnly}
             onClick={() => {
+              if (!user?.uid) {
+                toast.error('Please sign in to filter starred content.');
+                return;
+              }
               if (showStarredOnly !== undefined) {
                 // Parent-controlled mode — button is display-only, toggle handled by parent
               } else {

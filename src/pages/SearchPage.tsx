@@ -303,13 +303,8 @@ function SearchPage() {
       const trimmed = searchQuery.trim();
       const isText = trimmed.length >= 2;
       
-      // Performance logging
-      const perfStart = performance.now();
-      const logLabel = `[SearchPage] fetchCards ${isText ? 'FTS' : 'Browse'} page=${pageNum}`;
-      
       // Prevent concurrent requests
       if (isFetchingRef.current && pageNum > 1) {
-        console.log(`${logLabel}: Skipped - already fetching`);
         return; // Skip if already fetching (only for pagination)
       }
 
@@ -334,7 +329,6 @@ function SearchPage() {
           const maxLimit = 200;
           const effectiveLimit = Math.min(pageNum * pageSize, maxLimit);
 
-          const apiStart = performance.now();
           const { items, content_meta } = await apiSearchCardsFTS({
             q: trimmed,
             limit: effectiveLimit,
@@ -352,12 +346,8 @@ function SearchPage() {
             maxReview: maxReview !== 1000 ? maxReview : undefined,
             userId: user?.uid || null,
           });
-          const apiTime = performance.now() - apiStart;
-          console.log(`${logLabel}: API call took ${apiTime.toFixed(2)}ms, returned ${items.length} items`);
-
           setCards(items);
           if (content_meta && Object.keys(content_meta).length > 0) {
-            console.log("[SearchPage] content_meta titles (FTS)", Object.values(content_meta).map(m => ({ id: m.id, title: m.title })));
             setContentMeta(prev => ({ ...prev, ...content_meta }));
           }
           setTotal(items.length);
@@ -369,7 +359,6 @@ function SearchPage() {
           // Note: Don't clear cardSaveStatuses here - we want to preserve persisted state and merge new statuses
           // Load in background with delay to prioritize main content loading
           if (user?.uid && items.length > 0) {
-            const statusStart = performance.now();
             const cardsToLoad = items.map(card => ({
               card_id: card.id,
               film_id: card.film_id,
@@ -380,19 +369,14 @@ function SearchPage() {
             setTimeout(() => {
               apiGetCardSaveStatusBatch(user.uid!, cardsToLoad)
                 .then(statuses => {
-                  const statusTime = performance.now() - statusStart;
-                  console.log(`${logLabel}: Save status batch took ${statusTime.toFixed(2)}ms for ${cardsToLoad.length} cards`);
                   setCardSaveStatuses(prev => ({ ...prev, ...statuses }));
                 })
-                .catch(error => {
-                  console.error(`${logLabel}: Failed to load batch save statuses:`, error);
-                });
+                .catch(() => { /* silent - non-critical */ });
             }, 500);
           }
         } else {
           // FIX: Browsing mode - use /api/search with empty query to get available cards
           // This shows cards even when user hasn't searched yet
-          const apiStart = performance.now();
           const result = await apiSearch({
             query: "", // Empty query = browsing mode, shows available cards
             page: pageNum,
@@ -413,8 +397,6 @@ function SearchPage() {
             userId: user?.uid || null,
             signal: abortControllerRef.current.signal,
           });
-          const apiTime = performance.now() - apiStart;
-          console.log(`${logLabel}: API call (browsing mode) took ${apiTime.toFixed(2)}ms, returned ${result.items.length} items (total: ${result.total})`);
 
           if (result.content_meta && Object.keys(result.content_meta).length > 0) {
             setContentMeta(prev => ({ ...prev, ...result.content_meta }));
@@ -440,7 +422,6 @@ function SearchPage() {
           // Batch load save statuses for all cards (only if user is logged in and cards exist)
           // Load in background with delay to prioritize main content loading
           if (user?.uid && result.items.length > 0) {
-            const statusStart = performance.now();
             const cardsToLoad = result.items.map(card => ({
               card_id: card.id,
               film_id: card.film_id,
@@ -451,23 +432,15 @@ function SearchPage() {
             setTimeout(() => {
               apiGetCardSaveStatusBatch(user.uid!, cardsToLoad)
                 .then(statuses => {
-                  const statusTime = performance.now() - statusStart;
-                  console.log(`${logLabel}: Save status batch took ${statusTime.toFixed(2)}ms for ${cardsToLoad.length} cards`);
                   setCardSaveStatuses(prev => ({ ...prev, ...statuses }));
                 })
-                .catch(error => {
-                  console.error(`${logLabel}: Failed to load batch save statuses:`, error);
-                });
+                .catch(() => { /* silent - non-critical */ });
             }, 500);
           }
         }
-        
-        const totalTime = performance.now() - perfStart;
-        console.log(`${logLabel}: Total time ${totalTime.toFixed(2)}ms`);
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           // Request was cancelled - still need to reset loading
-          console.log(`${logLabel}: Cancelled`);
           if (pageNum === 1) {
             setLoading(false);
             setFirstLoading(false);
@@ -477,8 +450,6 @@ function SearchPage() {
           isFetchingRef.current = false;
           return;
         }
-        const totalTime = performance.now() - perfStart;
-        console.error(`${logLabel}: Error after ${totalTime.toFixed(2)}ms:`, error);
         // Don't clear cards on error for pagination - keep what we have
         if (pageNum === 1) {
           setCards([]);
@@ -538,7 +509,6 @@ function SearchPage() {
 
     // Don't fetch if filter modal is open - wait for Apply button
     if (isFilterModalOpenState) {
-      console.log('[SearchPage] Skipping fetch - filter modal is open');
       return;
     }
 
@@ -788,18 +758,15 @@ function SearchPage() {
 
   // Memoized filter change handlers to prevent unnecessary re-renders
   const handleLengthChange = useCallback((min: number, max: number) => {
-    console.log(`[SearchPage] Length filter changed: ${min}-${max}`);
     setMinLength(min);
     setMaxLength(max);
   }, []);
 
   const handleDurationChange = useCallback((max: number) => {
-    console.log(`[SearchPage] Duration filter changed: ${max}`);
     setMaxDuration(max);
   }, []);
 
   const handleReviewChange = useCallback((min: number, max: number) => {
-    console.log(`[SearchPage] Review filter changed: ${min}-${max}`);
     setMinReview(min);
     setMaxReview(max);
   }, []);
@@ -882,9 +849,6 @@ function SearchPage() {
                 onSearch={handleSearch}
                 placeholder=""
                 loading={loading || firstLoading}
-                enableAutocomplete={true}
-                debounceMs={300}
-                language={preferences.main_language || "en"}
                 showSavedFilter={showSavedFilter}
                 onSavedFilterChange={setShowSavedFilter}
               />

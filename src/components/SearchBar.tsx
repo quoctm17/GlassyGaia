@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2 } from "lucide-react";
 import "../styles/components/search-bar.css";
 import searchIcon from "../assets/icons/search.svg";
 import saveHeartIcon from "../assets/icons/save-heart.svg";
-import { apiContentAutocomplete } from "../services/cfApi";
 import toast from 'react-hot-toast';
 import { useUser } from "../context/UserContext";
 
@@ -17,9 +16,6 @@ export interface SearchBarProps {
   showClear?: boolean; // whether to show clear button when query non-empty
   autoFocus?: boolean;
   loading?: boolean; // show loading indicator
-  debounceMs?: number; // Deprecated: kept for backward compat, search now only triggers on button click or Enter
-  enableAutocomplete?: boolean; // enable autocomplete suggestions
-  language?: string; // language for autocomplete (defaults to 'en' if not provided)
   showSavedFilter?: boolean; // whether saved-filter is active (parent-controlled)
   onSavedFilterChange?: (show: boolean) => void; // fires when save-filter button is toggled
 }
@@ -34,22 +30,13 @@ export default function SearchBar({
   showClear = true,
   autoFocus = false,
   loading = false,
-  // debounceMs is deprecated - kept for backward compat
-  enableAutocomplete = true,
-  language = "en",
   showSavedFilter = false,
   onSavedFilterChange,
 }: SearchBarProps) {
   const { user } = useUser();
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
-  const [suggestions, setSuggestions] = useState<Array<{ term: string; slug?: string }>>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   // keep internal state synced if parent drives value
   useEffect(() => {
@@ -58,63 +45,6 @@ export default function SearchBar({
 
   const q = controlled ? (value as string) : internalQuery;
 
-  // Fetch autocomplete suggestions (debounced)
-  useEffect(() => {
-    if (!enableAutocomplete) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    const trimmed = q.trim();
-    if (trimmed.length < 1) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    // Cancel previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setLoadingSuggestions(true);
-
-    const timeoutId = setTimeout(async () => {
-      try {
-        const result = await apiContentAutocomplete({
-          q: trimmed,
-          limit: 10,
-          language,
-        });
-        
-        if (!controller.signal.aborted) {
-          setSuggestions(result.suggestions);
-          setShowSuggestions(result.suggestions.length > 0);
-          setSelectedIndex(-1);
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          console.error('Failed to fetch autocomplete suggestions:', error);
-          setSuggestions([]);
-          setShowSuggestions(false);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoadingSuggestions(false);
-        }
-      }
-    }, 200); // 200ms debounce for autocomplete
-
-    return () => {
-      clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [q, enableAutocomplete, language]);
-
   const handleChange = (v: string) => {
     if (controlled) {
       onChange?.(v);
@@ -122,26 +52,9 @@ export default function SearchBar({
       setInternalQuery(v);
       onChange?.(v); // still notify
     }
-    setSelectedIndex(-1);
   };
 
-  const handleSelectSuggestion = useCallback((term: string) => {
-    if (controlled) {
-      onChange?.(term);
-    } else {
-      setInternalQuery(term);
-      onChange?.(term);
-    }
-    setShowSuggestions(false);
-    setSelectedIndex(-1);
-    // Trigger search immediately when suggestion is selected
-    onSearch?.(term);
-    inputRef.current?.blur();
-  }, [controlled, onChange, onSearch]);
-
   const triggerSearch = () => {
-    setShowSuggestions(false);
-    setSelectedIndex(-1);
     onSearch?.(q);
   };
 
@@ -151,76 +64,25 @@ export default function SearchBar({
     } else {
       setInternalQuery("");
     }
-    setSuggestions([]);
-    setShowSuggestions(false);
-    setSelectedIndex(-1);
     onClear?.();
     // After clearing also trigger an empty search
     onSearch?.("");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showSuggestions || suggestions.length === 0) {
-      if (e.key === "Enter") triggerSearch();
-      if (e.key === "Escape" && q && showClear) clear();
-      return;
-    }
-
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setSelectedIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        setSelectedIndex(prev => (prev > 0 ? prev - 1 : -1));
-        break;
-      case "Enter":
-        e.preventDefault();
-        if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
-          handleSelectSuggestion(suggestions[selectedIndex].term);
-        } else {
-          triggerSearch();
-        }
-        break;
-      case "Escape":
-        e.preventDefault();
-        setShowSuggestions(false);
-        setSelectedIndex(-1);
-        if (q && showClear) clear();
-        break;
-    }
+    if (e.key === "Enter") triggerSearch();
+    if (e.key === "Escape" && q && showClear) clear();
   };
-
-  // Close suggestions when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node) &&
-          inputRef.current && !inputRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-
-    if (showSuggestions) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showSuggestions]);
 
   return (
     <div className="pixel-searchbar">
-      <div className="pixel-input-wrapper" style={{ position: 'relative' }}>
+      <div className="pixel-input-wrapper">
         <div className="search-input-area">
           <input
             ref={inputRef}
             value={q}
             onChange={(e) => handleChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            onFocus={() => {
-              if (suggestions.length > 0) {
-                setShowSuggestions(true);
-              }
-            }}
             className="pixel-input text-center"
             placeholder={placeholder}
             autoFocus={autoFocus}
@@ -235,62 +97,12 @@ export default function SearchBar({
               <X className="w-4 h-4" />
             </button>
           )}
-          {/* Autocomplete suggestions dropdown */}
-          {enableAutocomplete && showSuggestions && suggestions.length > 0 && (
-            <div
-              ref={suggestionsRef}
-              className="search-autocomplete-dropdown"
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                marginTop: '4px',
-                backgroundColor: 'var(--sidenav-bg)',
-                border: '2px solid var(--neutral)',
-                borderRadius: '8px',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                zIndex: 1000,
-                maxHeight: '300px',
-                overflowY: 'auto',
-              }}
-            >
-              {loadingSuggestions && (
-                <div style={{ padding: '12px', textAlign: 'center', color: 'var(--neutral)' }}>
-                  Loading...
-                </div>
-              )}
-              {!loadingSuggestions && suggestions.map((suggestion, index) => (
-                <div
-                  key={`${suggestion.term}-${index}`}
-                  onClick={() => handleSelectSuggestion(suggestion.term)}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  style={{
-                    padding: '12px 16px',
-                    cursor: 'pointer',
-                    backgroundColor: selectedIndex === index ? 'var(--hover-bg)' : 'transparent',
-                    color: 'var(--text)',
-                    borderBottom: index < suggestions.length - 1 ? '1px solid var(--neutral)' : 'none',
-                    transition: 'background-color 0.15s',
-                  }}
-                >
-                  <div style={{ fontWeight: 500, fontSize: '15px' }}>{suggestion.term}</div>
-                  {suggestion.slug && (
-                    <div style={{ fontSize: '12px', color: 'var(--neutral)', marginTop: '2px' }}>
-                      {suggestion.slug}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
         <button
           type="button"
           className={`search-bar-save-btn ${showSavedFilter ? 'active' : ''}`}
           aria-label={showSavedFilter ? 'Show all cards' : 'Show saved cards only'}
           aria-pressed={showSavedFilter}
-          style={{ left: '-4px' }}
           onClick={() => {
             if (!user?.uid) {
               toast.error('Please sign in to filter saved cards.');

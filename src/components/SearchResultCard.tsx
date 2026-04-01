@@ -1973,10 +1973,8 @@ const SearchResultCard = memo(function SearchResultCard({
                   toast.error('Please sign in to star content.');
                   return;
                 }
-                // Optimistic toggle
                 const nextStarred = !isStarred;
                 setIsStarred(nextStarred);
-                // Call parent handler to hit the API
                 if (onToggleStar && card.film_id) {
                   onToggleStar(card.film_id);
                 }

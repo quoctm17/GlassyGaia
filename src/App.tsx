@@ -44,7 +44,6 @@ const AdminImageMigrationPage = lazy(() => import('./pages/admin/AdminImageMigra
 const AdminPathMigrationPage = lazy(() => import('./pages/admin/AdminPathMigrationPage'));
 const AdminAudioMigrationPage = lazy(() => import('./pages/admin/AdminAudioMigrationPage'));
 // AdminPopulateFtsPage removed - FTS5 table dropped
-const AdminPopulateSearchWordsPage = lazy(() => import('./pages/admin/AdminPopulateSearchWordsPage'));
 const AdminUnavailableCardsPage = lazy(() => import('./pages/admin/AdminUnavailableCardsPage'));
 
 // Loading fallback component
@@ -119,8 +118,6 @@ function App() {
                 <Route path="path-migration" element={<AdminPathMigrationPage />} />
                 {/* Admin Audio Migration */}
                 <Route path="audio-migration" element={<AdminAudioMigrationPage />} />
-                {/* Admin Search Words Population */}
-                <Route path="populate-search-words" element={<AdminPopulateSearchWordsPage />} />
                 {/* Admin Categories Management */}
                 <Route path="categories" element={<AdminCategoriesPage />} />
                 {/* Admin Level Management */}
