@@ -642,10 +642,11 @@
   overflow: visible;
   min-height: fit-content;
   height: auto;
+  justify-content: space-between;
 }
 
 .card-subtitles {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -719,9 +720,10 @@
   max-width: 12em;
   padding: 2px 6px;
   margin: 0 2px;
-  border-radius: 4px;
-  border: 1px solid var(--practice-blank-input-border);
-  background-color: var(--practice-blank-input-bg);
+  border-radius: 0;
+  border: none;
+  border-bottom: 1.5px solid var(--practice-blank-input-border);
+  background-color: transparent;
   font-size: inherit;
   box-sizing: border-box;
 }
@@ -742,9 +744,11 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 17px;
   padding-bottom: 4px;
   flex-wrap: wrap;
+  /* Always pin to the bottom of the subtitle section with fixed spacing */
+  margin-top: 17px;
+  flex-shrink: 0;
 }
 
 .card-practice-check-btn {
@@ -820,12 +824,37 @@
 /* Speaking practice */
 .card-practice-user-transcript {
   font-size: 16px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
-.card-practice-user-transcript.correct { color: var(--speaking-correct); }
-.card-practice-user-transcript.partial { color: var(--speaking-partial); }
-.card-practice-user-transcript.incorrect { color: var(--speaking-incorrect); }
+
+.card-practice-transcript-word {
+  display: inline;
+}
+
+.card-practice-transcript-correct {
+  color: var(--speaking-correct);
+}
+
+.card-practice-transcript-partial {
+  color: #E86730;
+}
+
+.card-practice-transcript-missing {
+  color: var(--speaking-incorrect);
+  text-decoration: none;
+  /* Highlight missing word: dashed underline to show it was expected but not spoken */
+  border-bottom: 1.5px dashed var(--speaking-incorrect);
+}
+
+.card-practice-transcript-extra {
+  color: var(--neutral);
+  opacity: 0.6;
+}
+
 .card-practice-score.correct { color: var(--speaking-correct); }
-.card-practice-score.partial { color: var(--speaking-partial); }
+.card-practice-score.partial { color: #E86730; }
 .card-practice-score.incorrect { color: var(--speaking-incorrect); }
 
 .card-practice-replay-btn {
