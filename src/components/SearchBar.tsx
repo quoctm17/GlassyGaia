@@ -4,6 +4,8 @@ import "../styles/components/search-bar.css";
 import searchIcon from "../assets/icons/search.svg";
 import saveHeartIcon from "../assets/icons/save-heart.svg";
 import { apiContentAutocomplete } from "../services/cfApi";
+import toast from 'react-hot-toast';
+import { useUser } from "../context/UserContext";
 
 export interface SearchBarProps {
   value?: string; // controlled value
@@ -38,6 +40,7 @@ export default function SearchBar({
   showSavedFilter = false,
   onSavedFilterChange,
 }: SearchBarProps) {
+  const { user } = useUser();
   const controlled = typeof value === "string" && onChange;
   const [internalQuery, setInternalQuery] = useState<string>(defaultValue);
   const [suggestions, setSuggestions] = useState<Array<{ term: string; slug?: string }>>([]);
@@ -287,7 +290,14 @@ export default function SearchBar({
           className={`search-bar-save-btn ${showSavedFilter ? 'active' : ''}`}
           aria-label={showSavedFilter ? 'Show all cards' : 'Show saved cards only'}
           aria-pressed={showSavedFilter}
-          onClick={() => onSavedFilterChange?.(!showSavedFilter)}
+          style={{ left: '-4px' }}
+          onClick={() => {
+            if (!user?.uid) {
+              toast.error('Please sign in to filter saved cards.');
+              return;
+            }
+            onSavedFilterChange?.(!showSavedFilter);
+          }}
         >
           {showSavedFilter ? (
             <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="search-bar-save-icon">

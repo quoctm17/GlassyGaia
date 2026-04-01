@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
 import { canonicalizeLangCode } from "../utils/lang";
+import toast from 'react-hot-toast';
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
 import { apiToggleSaveCard, apiGetCardSaveStatus, apiUpdateCardSRSState, apiIncrementReviewCount } from "../services/cfApi";
@@ -281,7 +282,10 @@ const SearchResultCard = memo(function SearchResultCard({
   // Handle save/unsave card
   const handleToggleSave = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user?.uid || !card.id) return;
+    if (!user?.uid || !card.id) {
+      toast.error('Please sign in to save cards.');
+      return;
+    }
     
     try {
       const result = await apiToggleSaveCard(
@@ -1965,8 +1969,14 @@ const SearchResultCard = memo(function SearchResultCard({
               className="card-star-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                // Optimistic toggle + call parent handler
-                setIsStarred(prev => !prev);
+                if (!user?.uid) {
+                  toast.error('Please sign in to star content.');
+                  return;
+                }
+                // Optimistic toggle
+                const nextStarred = !isStarred;
+                setIsStarred(nextStarred);
+                // Call parent handler to hit the API
                 if (onToggleStar && card.film_id) {
                   onToggleStar(card.film_id);
                 }

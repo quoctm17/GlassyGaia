@@ -45,7 +45,7 @@
 /* Save-heart icon inside search bar — positioned on the right */
 .search-bar-save-btn {
   position: absolute;
-  right: 100px;
+  right: 114px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -166,6 +166,7 @@
   flex: 1;
   display: flex;
   align-items: center;
+  overflow: visible;
 }
 
 .search-clear-btn {
