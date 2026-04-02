@@ -310,6 +310,28 @@
   line-height: 1.4;
 }
 
+/* Select All text - label part */
+.typography-select-all-label {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-weight: 600;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+  color: var(--neutral-948979);
+}
+
+/* Select All text - count part (selected/total) */
+.typography-select-all-count {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+  font-weight: 600;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+  color: var(--primary);
+}
+
 /* ================= Press Start 2P — Extra Sizes ================= */
 
 /* Press Start 2P 12px — Modal level label */
@@ -328,4 +350,51 @@
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: 0.5px;
+}
+
+/* ================= Language Dropdown Typography ================= */
+
+/* Language dropdown selection count — "3/3" text */
+.typography-lang-dropdown-selection-count {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--lang-dropdown-selection-count);
+}
+
+/* Language dropdown selection label — "Selected" text */
+.typography-lang-dropdown-selection-label {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--lang-dropdown-selection-label);
+}
+
+/* Language dropdown Clear button text */
+.typography-lang-dropdown-clear-btn {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--lang-dropdown-clear-text);
+}
+
+/* Language dropdown Done button text */
+.typography-lang-dropdown-done-btn {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--lang-dropdown-done-text);
+}
+
+/* Language dropdown option language name text */
+.typography-lang-dropdown-option-text {
+  font-family: 'Noto Sans', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', sans-serif !important;
+  font-weight: 400;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--lang-dropdown-option-text);
 }

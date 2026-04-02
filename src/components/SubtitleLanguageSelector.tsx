@@ -5,6 +5,8 @@ import { getAvailableLanguagesForFilm } from "../services/firestore";
 import { X } from "lucide-react";
 import PortalDropdown from "./PortalDropdown";
 import { toast } from "react-hot-toast";
+import checkIcon from "../assets/icons/check.svg";
+import searchIcon from "../assets/icons/search.svg";
 import "../styles/components/language-selectors.css";
 
 interface Props {
@@ -128,35 +130,48 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
             }
           }}
           align="center"
-          offset={10}
+          offset={5}
           className="language-dropdown"
           durationMs={200}
           closing={closing}
         >
-          <div className="subtitle-options-header">
-            <span>{local.length}/{maxSelections}</span>
-            <span className="subtitle-clear-btn" onClick={clearAll}>Clear</span>
-            <span className="subtitle-done-btn" onClick={apply}>Done</span>
-          </div>
-          <div className="px-1 mb-2">
+          <div className="language-search-container">
             <input
               type="text"
               value={query}
-              onChange={(e)=>setQuery(e.target.value)}
-              placeholder="Search..."
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder=""
               className="language-search-input"
             />
+            <button
+              type="button"
+              className="language-search-trigger-btn"
+              aria-label="Search"
+            >
+              <img src={searchIcon} alt="" className="language-search-trigger-icon" />
+            </button>
           </div>
+
+          <div className="language-selection-count-row">
+            <div className="language-selection-count-text">
+              <span className="typography-lang-dropdown-selection-count">
+                {local.length}/{maxSelections}
+              </span>
+              <span className="typography-lang-dropdown-selection-label">
+                &nbsp;Selected
+              </span>
+            </div>
+          </div>
+
           <div className="language-options-list">
             {options.length === 0 && (
-              <div className="px-2 py-1 text-xs text-pink-200/80">No subtitle languages</div>
+              <div className="px-2 py-1 typography-lang-dropdown-clear-btn">No subtitle languages</div>
             )}
             {options.filter(l => {
               const q = query.trim().toLowerCase();
               if (!q) return true;
               const label = langLabel(l).toLowerCase();
-              // normalize accents
-              const normalize = (s:string) => s.normalize('NFD').replace(/\p{Diacritic}/gu,'');
+              const normalize = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
               return normalize(l.toLowerCase()).includes(q) || normalize(label).includes(q);
             })
               .map((lang) => {
@@ -167,11 +182,41 @@ export default function SubtitleLanguageSelector({ filmId = "global", optionsOve
                   onClick={() => toggle(lang)}
                   className={`language-option ${active ? 'active' : ''}`}
                 >
-                  <img src={getFlagImageForLang(lang)} alt={`${lang} flag`} className="w-5 h-3.5 rounded" />
-                  <span>{langLabel(lang)}</span>
+                  <img
+                    src={getFlagImageForLang(lang)}
+                    alt={`${lang} flag`}
+                    className="language-option-flag"
+                  />
+                  <span className="typography-lang-dropdown-option-text">
+                    {langLabel(lang)}
+                  </span>
                 </button>
               );
             })}
+          </div>
+
+          <div className="language-dropdown-footer">
+            <button
+              type="button"
+              className="subtitle-clear-btn typography-lang-dropdown-clear-btn"
+              onClick={clearAll}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              className="subtitle-done-btn"
+              onClick={apply}
+            >
+              <img
+                src={checkIcon}
+                alt=""
+                className="subtitle-done-check-icon"
+              />
+              <span className="typography-lang-dropdown-done-btn">
+                Done
+              </span>
+            </button>
           </div>
         </PortalDropdown>
       )}

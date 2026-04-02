@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { CardDoc } from "../types";
 import { useUser } from "../context/UserContext";
 import { canonicalizeLangCode } from "../utils/lang";
+import toast from 'react-hot-toast';
 import { subtitleText, normalizeCjkSpacing } from "../utils/subtitles";
 import { getCardByPath, fetchCardsForFilm } from "../services/firestore";
 import { apiToggleSaveCard, apiGetCardSaveStatus, apiUpdateCardSRSState, apiIncrementReviewCount } from "../services/cfApi";
@@ -11,7 +12,6 @@ import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from "../types
 import "../styles/components/search-result-card.css";
 import threeDotsIcon from "../assets/icons/three-dots.svg";
 import buttonPlayIcon from "../assets/icons/button-play.svg";
-import buttonPauseIcon from "../assets/icons/button-pause.svg";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
 import headphoneIcon from "../assets/icons/headphone.svg";
 import eyeIcon from "../assets/icons/eye.svg";
@@ -130,7 +130,7 @@ const SearchResultCard = memo(function SearchResultCard({
   const [isSubmittingListening, setIsSubmittingListening] = useState<boolean>(false);
 
   // Speaking practice state
-  const [speakingTranscript, setSpeakingTranscript] = useState<string>('');
+  const [speakingWordResults, setSpeakingWordResults] = useState<Array<{ word: string; status: 'correct' | 'partial' | 'missing' | 'extra' }>>([]);
   const [speakingScore, setSpeakingScore] = useState<number | null>(null);
   const [speakingXp, setSpeakingXp] = useState<number | null>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -281,7 +281,10 @@ const SearchResultCard = memo(function SearchResultCard({
   // Handle save/unsave card
   const handleToggleSave = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user?.uid || !card.id) return;
+    if (!user?.uid || !card.id) {
+      toast.error('Please sign in to save cards.');
+      return;
+    }
     
     try {
       const result = await apiToggleSaveCard(
@@ -663,7 +666,7 @@ const SearchResultCard = memo(function SearchResultCard({
 
   // Reset speaking, reading, writing practice state when card or mode changes
   useEffect(() => {
-    setSpeakingTranscript('');
+    setSpeakingWordResults([]);
     setSpeakingScore(null);
     setSpeakingXp(null);
     setIsRecording(false);
@@ -792,18 +795,82 @@ const SearchResultCard = memo(function SearchResultCard({
 
     recognition.onresult = async (event) => {
       const transcript = event.results[0][0].transcript;
-      setSpeakingTranscript(transcript);
       setIsRecording(false);
       setSpeakingChecked(true);
 
-      // Score: compare transcript words against card_type (cleaned), subtitle, or sentence
+      // Per-word scoring: compare transcript words against reference in REFERENCE ORDER
       const effectiveCard = subsOverride ? { ...card, subtitle: { ...(card.subtitle || {}), ...subsOverride } } : card;
       const reference = effectiveCard.card_type || subtitleText(effectiveCard, primaryCode) || effectiveCard.sentence || '';
       const refWords = reference.toLowerCase().replace(/[^\p{L}\s]/gu, '').split(/\s+/).filter(Boolean);
       const spokenWords = transcript.toLowerCase().replace(/[^\p{L}\s]/gu, '').split(/\s+/).filter(Boolean);
-      let correct = 0;
-      refWords.forEach(w => { if (spokenWords.includes(w)) correct++; });
-      const score = refWords.length > 0 ? Math.round((correct / refWords.length) * 10000) / 100 : 0;
+
+      // Normalize for comparison: strip accents, convert to lowercase
+      const normalizeWord = (w: string) =>
+        w.normalize('NFD').replace(/[\u0300-\u036F]/g, '').toLowerCase();
+
+      // Find best spoken match for a reference word
+      const findBestMatch = (refNorm: string, usedSpoken: Set<number>): { idx: number; score: number } | null => {
+        let best: { idx: number; score: number } | null = null;
+        for (let i = 0; i < spokenWords.length; i++) {
+          if (usedSpoken.has(i)) continue;
+          const spokenNorm = normalizeWord(spokenWords[i]);
+
+          if (spokenNorm === refNorm) {
+            return { idx: i, score: 1 };
+          }
+        }
+        for (let i = 0; i < spokenWords.length; i++) {
+          if (usedSpoken.has(i)) continue;
+          const spokenNorm = normalizeWord(spokenWords[i]);
+          if (spokenNorm.length >= 3 && refNorm.length >= 3) {
+            if (spokenNorm.includes(refNorm) || refNorm.includes(spokenNorm)) {
+              const score = Math.min(spokenNorm.length, refNorm.length) / Math.max(spokenNorm.length, refNorm.length);
+              if (best === null || score > best.score) {
+                best = { idx: i, score };
+              }
+            }
+          }
+        }
+        return best;
+      };
+
+      const usedSpoken = new Set<number>();
+      const wordResults: Array<{ word: string; status: 'correct' | 'partial' | 'missing' | 'extra' }> = [];
+
+      // Pass through reference words IN ORDER — match each with best available spoken word
+      for (let ri = 0; ri < refWords.length; ri++) {
+        const refNorm = normalizeWord(refWords[ri]);
+        const match = findBestMatch(refNorm, usedSpoken);
+
+        if (match && match.score >= 1) {
+          // Exact match → correct
+          usedSpoken.add(match.idx);
+          wordResults.push({ word: spokenWords[match.idx], status: 'correct' });
+        } else if (match && match.score >= 0.5) {
+          // Partial match → partial (spoken word shown, reference word is source for display)
+          usedSpoken.add(match.idx);
+          wordResults.push({ word: spokenWords[match.idx], status: 'partial' });
+        } else {
+          // No match → missing (show the reference word itself at its position)
+          wordResults.push({ word: refWords[ri], status: 'missing' });
+        }
+      }
+
+      // Pass 2: remaining spoken words → extra (in sentence order, appended)
+      for (let i = 0; i < spokenWords.length; i++) {
+        if (!usedSpoken.has(i)) {
+          wordResults.push({ word: spokenWords[i], status: 'extra' });
+        }
+      }
+
+      setSpeakingWordResults(wordResults);
+
+      // Score: percentage of correct+partial vs reference length
+      const correctCount = wordResults.filter(r => r.status === 'correct').length;
+      const partialCount = wordResults.filter(r => r.status === 'partial').length;
+      const score = refWords.length > 0
+        ? Math.round(((correctCount + partialCount * 0.5) / refWords.length) * 10000) / 100
+        : 0;
       setSpeakingScore(score);
 
       // Award XP
@@ -845,7 +912,7 @@ const SearchResultCard = memo(function SearchResultCard({
   };
 
   const handleSpeakAgain = () => {
-    setSpeakingTranscript('');
+    setSpeakingWordResults([]);
     setSpeakingScore(null);
     setSpeakingXp(null);
     setSpeakingChecked(false);
@@ -1965,8 +2032,12 @@ const SearchResultCard = memo(function SearchResultCard({
               className="card-star-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                // Optimistic toggle + call parent handler
-                setIsStarred(prev => !prev);
+                if (!user?.uid) {
+                  toast.error('Please sign in to star content.');
+                  return;
+                }
+                const nextStarred = !isStarred;
+                setIsStarred(nextStarred);
                 if (onToggleStar && card.film_id) {
                   onToggleStar(card.film_id);
                 }
@@ -1990,7 +2061,7 @@ const SearchResultCard = memo(function SearchResultCard({
             {/* Left: Image */}
             <div className="card-left-section">
             <div className="card-image-container">
-            <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
+            <div className={`card-image-wrapper ${isPlaying ? 'is-playing' : ''}`} title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
               {resolvedImageUrl && !imageError ? (
                 <img
                   src={resolvedImageUrl}
@@ -2015,7 +2086,31 @@ const SearchResultCard = memo(function SearchResultCard({
                   <img src={headphoneIcon} alt="Listen" className="card-overlay-headphone-icon" />
                 </div>
               )}
-              
+
+              {/* Prev/Next navigation buttons - overlay style */}
+              <div className="card-image-nav-overlay" style={{ pointerEvents: 'none' }}>
+                <button
+                  type="button"
+                  className="card-nav-overlay-btn card-nav-overlay-prev"
+                  onClick={(e) => { e.stopPropagation(); handlePrevCard(); }}
+                  title="Previous card (A)"
+                  aria-label="Previous card"
+                  style={{ pointerEvents: 'all' }}
+                >
+                  <img src={rightAngleIcon} alt="" className="card-nav-overlay-icon card-nav-overlay-prev-icon" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="card-nav-overlay-btn card-nav-overlay-next"
+                  onClick={(e) => { e.stopPropagation(); handleNextCard(); }}
+                  title="Next card (D)"
+                  aria-label="Next card"
+                  style={{ pointerEvents: 'all' }}
+                >
+                  <img src={buttonPlayIcon} alt="" className="card-nav-overlay-icon card-nav-overlay-next-icon" aria-hidden="true" />
+                </button>
+              </div>
+
               {/* SRS State Dropdown - Top Left */}
               {isSaved && srsState !== 'none' && (
                 <div className="card-srs-dropdown-container" ref={srsDropdownRef}>
@@ -2070,40 +2165,6 @@ const SearchResultCard = memo(function SearchResultCard({
                 >
                   <img src={saveHeartIcon} alt="" className="card-save-icon" aria-hidden="true" />
                   <span className="card-save-text">{isSaved ? 'Saved' : 'Save'}</span>
-                </button>
-              </div>
-              <div className="card-nav-buttons-row">
-                <button
-                  type="button"
-                  className="card-nav-icon-btn"
-                  onClick={(e) => { e.stopPropagation(); handlePrevCard(); }}
-                  title="Previous card (A)"
-                  aria-label="Previous card"
-                >
-                  <img src={rightAngleIcon} alt="" className="card-nav-icon card-nav-prev" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="card-nav-icon-btn"
-                  onClick={(e) => { e.stopPropagation(); handleImageClick(); }}
-                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                  aria-label={isPlaying ? "Pause" : "Play"}
-                >
-                  <img
-                    src={isPlaying ? buttonPauseIcon : buttonPlayIcon}
-                    alt=""
-                    className={`card-nav-icon ${isPlaying ? 'card-nav-pause' : ''}`}
-                    aria-hidden="true"
-                  />
-                </button>
-                <button
-                  type="button"
-                  className="card-nav-icon-btn"
-                  onClick={(e) => { e.stopPropagation(); handleNextCard(); }}
-                  title="Next card (D)"
-                  aria-label="Next card"
-                >
-                  <img src={rightAngleIcon} alt="" className="card-nav-icon card-nav-next" aria-hidden="true" />
                 </button>
               </div>
               <div className="card-menu-container" ref={menuRef}>
@@ -2303,6 +2364,7 @@ const SearchResultCard = memo(function SearchResultCard({
                               }
 
                               const value = listeningAnswers[blankIndex] ?? "";
+                              const expectedLen = listeningClozeConfig.expectedNormalized[blankIndex]?.length || 3;
                               const isIncorrect =
                                 listeningChecked && listeningIncorrect.includes(blankIndex);
                               const isCorrect =
@@ -2319,18 +2381,29 @@ const SearchResultCard = memo(function SearchResultCard({
                                       (isIncorrect ? " card-practice-blank-input-incorrect" : "")
                                     }
                                     value={value}
-                                    style={{ minWidth: '6ch', width: `${Math.max(6, (value || '').length + 2)}ch` }}
+                                    style={{ width: `${expectedLen + 1}ch` }}
                                     onChange={(e) => {
                                       const newValue = e.target.value;
                                       setListeningAnswers((prev) => ({
                                         ...prev,
                                         [blankIndex]: newValue,
                                       }));
-                                      // Auto-focus next blank when user types expected length
-                                      const expectedLen = listeningClozeConfig.expectedNormalized[blankIndex]?.length || 3;
-                                      if (newValue.length >= expectedLen && blankIndex < listeningClozeConfig.blankTokenIndexes.length - 1) {
-                                        const nextIdx = listeningClozeConfig.blankTokenIndexes[blankIndex + 1];
-                                        setTimeout(() => listeningInputRefs.current[nextIdx]?.focus(), 0);
+                                      // Auto-focus the next blank after the token at the expected length.
+                                      // We look for the next blank whose token index (blankTokenIndexes[bi]) is
+                                      // strictly greater than the current token index (idx).
+                                      if (newValue.length >= expectedLen) {
+                                        const currentTokenIdx = idx;
+                                        let nextBlankIndex = -1;
+                                        for (let bi = 0; bi < listeningClozeConfig.blankTokenIndexes.length; bi++) {
+                                          if (listeningClozeConfig.blankTokenIndexes[bi] > currentTokenIdx) {
+                                            nextBlankIndex = bi;
+                                            break;
+                                          }
+                                        }
+                                        if (nextBlankIndex >= 0) {
+                                          const nextInput = listeningInputRefs.current[nextBlankIndex];
+                                          setTimeout(() => nextInput?.focus(), 0);
+                                        }
                                       }
                                     }}
                                   />
@@ -2447,13 +2520,14 @@ const SearchResultCard = memo(function SearchResultCard({
                   >
                     Again
                   </button>
-                  {speakingTranscript && (
-                    <span className={`card-practice-user-transcript ${
-                      speakingScore !== null
-                        ? (speakingScore >= 100 ? 'correct' : speakingScore >= 50 ? 'partial' : 'incorrect')
-                        : ''
-                    }`}>
-                      {speakingTranscript}
+                  {speakingWordResults.length > 0 && (
+                    <span className="card-practice-user-transcript">
+                      {speakingWordResults.map((r, i) => (
+                        <span key={i} className={`card-practice-transcript-word card-practice-transcript-${r.status}`}>
+                          {r.word}
+                          {i < speakingWordResults.length - 1 ? ' ' : ''}
+                        </span>
+                      ))}
                     </span>
                   )}
                   {speakingScore !== null && (

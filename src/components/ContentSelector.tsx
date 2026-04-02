@@ -1,10 +1,13 @@
 import { useEffect, useState, useMemo } from 'react';
+import { Check } from 'lucide-react';
 import { listFilms } from '../services/firestore';
 import type { FilmDoc, CardDoc, LevelFrameworkStats } from '../types';
 import { CONTENT_TYPES } from '../types/content';
 import searchIcon from '../assets/icons/search.svg';
 import starIcon from '../assets/icons/star.svg';
 import starFillIcon from '../assets/icons/star-fill.svg';
+import toast from 'react-hot-toast';
+import { useUser } from '../context/UserContext';
 import '../styles/components/content-selector.css';
 
 interface ContentSelectorProps {
@@ -28,6 +31,7 @@ interface ContentSelectorProps {
 
 // ContentSelector replaces FilmSelector. Provides grouped listing + search box.
 export default function ContentSelector({ value, onChange, allResults, contentCounts, allContentIds, filmTypeMapExternal, filmTitleMapExternal, filmLangMapExternal, filmStatsMapExternal, mainLanguage, activeContentType = 'all', starredContentIds, showStarredOnly }: ContentSelectorProps) {
+  const { user } = useUser();
   const [films, setFilms] = useState<FilmDoc[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -268,6 +272,23 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
     return { map, other: sortedOther };
   }, [visibleIds, filmTypeMap, filmTitleMap, filmStatsMap]);
 
+  // Total visible content items (items that have count > 0)
+  const totalVisibleItems = useMemo(() => {
+    let count = 0;
+    for (const t of CONTENT_TYPES) {
+      const list = grouped.map[t];
+      if (list && list.length > 0) {
+        count += list.filter(id => (counts[id] ?? 0) > 0).length;
+      }
+    }
+    if (grouped.other.length > 0) {
+      count += grouped.other.filter(id => (counts[id] ?? 0) > 0).length;
+    }
+    return count;
+  }, [grouped, counts]);
+
+  const isAllSelected = totalVisibleItems > 0 && value.length === totalVisibleItems;
+
   return (
     <div className="content-selector-panel">
       <div className="content-search-row">
@@ -284,6 +305,10 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
             aria-label={isStarredOnly ? 'Show all content' : 'Show starred content only'}
             aria-pressed={isStarredOnly}
             onClick={() => {
+              if (!user?.uid) {
+                toast.error('Please sign in to filter starred content.');
+                return;
+              }
               if (showStarredOnly !== undefined) {
                 // Parent-controlled mode — button is display-only, toggle handled by parent
               } else {
@@ -305,8 +330,43 @@ export default function ContentSelector({ value, onChange, allResults, contentCo
             <img src={searchIcon} alt="" className="content-search-trigger-icon" />
           </button>
         </div>
-        <div className="typography-inter-4" style={{ textAlign: 'right', marginTop: '8px', color: 'var(--neutral)' }}>
-          {value.length === 0 ? '0 selected' : `${value.length} selected`}
+      </div>
+      {/* Select All Row - right-aligned below search bar */}
+      <div className="content-select-all-row">
+        <div
+          className="content-select-all-wrapper"
+          role="checkbox"
+          aria-checked={isAllSelected}
+          aria-label={isAllSelected ? 'Deselect all content' : 'Select all content'}
+          onClick={() => {
+            if (isAllSelected) {
+              // Deselect all
+              onChange([]);
+            } else {
+              // Select all visible items that have count > 0
+              const allIds: string[] = [];
+              for (const t of CONTENT_TYPES) {
+                const list = grouped.map[t];
+                if (list && list.length > 0) {
+                  allIds.push(...list.filter(id => (counts[id] ?? 0) > 0));
+                }
+              }
+              if (grouped.other.length > 0) {
+                allIds.push(...grouped.other.filter(id => (counts[id] ?? 0) > 0));
+              }
+              onChange(allIds);
+            }
+          }}
+        >
+          <div className={`content-select-all-checkbox ${isAllSelected ? 'checked' : ''}`}>
+            {isAllSelected && (
+              <Check className="content-select-all-check-icon" size={10} strokeWidth={3} />
+            )}
+          </div>
+          <div className="content-select-all-text">
+            <span className="typography-select-all-label">Select All</span>
+            <span className="typography-select-all-count">{value.length}/{totalVisibleItems}</span>
+          </div>
         </div>
       </div>
       <div className="content-selector-body">

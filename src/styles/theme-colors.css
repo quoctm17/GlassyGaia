@@ -3,10 +3,13 @@
 :root {
   /* Light Mode Colors */
   --light-primary: #FDAAAA;
+  --light-nav-overlay-hover-bg: #FDAAAA;
+  --light-nav-overlay-hover-bg-rgb: 253, 170, 170;
   --light-secondary: #F2EDE5;
   --light-sidenav-bg: #F2EDE5;
   --light-background: #F8F5EF;
   --light-neutral: #9E9E9E;
+  --light-neutral-948979: #948979;
   --light-hover-select: #AA3F55;
   --light-hover-bg: rgba(254, 228, 228, 0.5);
   --light-text: #000000;
@@ -129,12 +132,26 @@
   --light-setlevel-step2-active-color: #CD285B;
   --light-setlevel-step2-disabled-text: #948979;
 
+  /* Language Dropdown specific */
+  --light-lang-dropdown-bg: #F8F5EF;
+  --light-lang-dropdown-border: #9E9E9E;
+  --light-lang-dropdown-selection-count: #AA3F55;
+  --light-lang-dropdown-selection-label: #948979;
+  --light-lang-dropdown-clear-text: #948979;
+  --light-lang-dropdown-done-bg: rgba(253, 170, 170, 0.5);
+  --light-lang-dropdown-done-text: #AA3F55;
+  --light-lang-dropdown-done-shadow: rgba(148, 137, 121, 0.8);
+  --light-lang-dropdown-option-text: #000000;
+
   /* Dark Mode Colors */
   --dark-primary: #9E2741;
+  --dark-nav-overlay-hover-bg: #FDAAAA;
+  --dark-nav-overlay-hover-bg-rgb: 253, 170, 170;
   --dark-secondary: #948979;
   --dark-sidenav-bg: #2A3747;
   --dark-background: #000000;
   --dark-neutral: #9E9E9E;
+  --dark-neutral-948979: #948979;
   --dark-hover-select: #FDAAAA;
   --dark-hover-bg: rgba(45, 36, 41, 0.88);
   --dark-text: #F2EDE5;
@@ -255,6 +272,17 @@
   --dark-setlevel-step2-active-color: #CD285B;
   --dark-setlevel-step2-disabled-text: #6B6565;
 
+  /* Language Dropdown specific */
+  --dark-lang-dropdown-bg: #F8F5EF;
+  --dark-lang-dropdown-border: #9E9E9E;
+  --dark-lang-dropdown-selection-count: #AA3F55;
+  --dark-lang-dropdown-selection-label: #948979;
+  --dark-lang-dropdown-clear-text: #948979;
+  --dark-lang-dropdown-done-bg: rgba(253, 170, 170, 0.5);
+  --dark-lang-dropdown-done-text: #AA3F55;
+  --dark-lang-dropdown-done-shadow: rgba(148, 137, 121, 0.8);
+  --dark-lang-dropdown-option-text: #000000;
+
   /* Icon Filter Values (CSS filters can't use color variables directly) */
   /* Light Mode Filters */
   --light-primary-filter: brightness(0) saturate(100%) invert(86%) sepia(16%) saturate(978%) hue-rotate(307deg) brightness(103%) contrast(99%);
@@ -290,10 +318,13 @@
 /* Light Mode */
 .light {
   --primary: var(--light-primary);
+  --nav-overlay-hover-bg: var(--light-nav-overlay-hover-bg);
+  --nav-overlay-hover-bg-rgb: var(--light-nav-overlay-hover-bg-rgb);
   --secondary: var(--light-secondary);
   --sidenav-bg: var(--light-sidenav-bg);
   --background: var(--light-background);
   --neutral: var(--light-neutral);
+  --neutral-948979: var(--light-neutral-948979);
   --hover-select: var(--light-hover-select);
   --hover-bg: var(--light-hover-bg);
   --text: var(--light-text);
@@ -406,6 +437,15 @@
   --primary-50: var(--light-primary-50);
   --content-type-shadow: var(--light-content-type-shadow);
   --feedback-link: var(--light-feedback-link);
+  --lang-dropdown-bg: var(--light-lang-dropdown-bg);
+  --lang-dropdown-border: var(--light-lang-dropdown-border);
+  --lang-dropdown-selection-count: var(--light-lang-dropdown-selection-count);
+  --lang-dropdown-selection-label: var(--light-lang-dropdown-selection-label);
+  --lang-dropdown-clear-text: var(--light-lang-dropdown-clear-text);
+  --lang-dropdown-done-bg: var(--light-lang-dropdown-done-bg);
+  --lang-dropdown-done-text: var(--light-lang-dropdown-done-text);
+  --lang-dropdown-done-shadow: var(--light-lang-dropdown-done-shadow);
+  --lang-dropdown-option-text: var(--light-lang-dropdown-option-text);
 
   /* Icon Filters */
   --icon-primary-filter: var(--light-primary-filter);
@@ -424,10 +464,13 @@
 /* Dark Mode */
 .dark {
   --primary: var(--dark-primary);
+  --nav-overlay-hover-bg: var(--dark-nav-overlay-hover-bg);
+  --nav-overlay-hover-bg-rgb: var(--dark-nav-overlay-hover-bg-rgb);
   --secondary: var(--dark-secondary);
   --sidenav-bg: var(--dark-sidenav-bg);
   --background: var(--dark-background);
   --neutral: var(--dark-neutral);
+  --neutral-948979: var(--dark-neutral-948979);
   --hover-select: var(--dark-hover-select);
   --hover-bg: var(--dark-hover-bg);
   --text: var(--dark-text);
@@ -538,6 +581,15 @@
   --primary-50: var(--dark-primary-50);
   --content-type-shadow: var(--dark-content-type-shadow);
   --feedback-link: var(--dark-feedback-link);
+  --lang-dropdown-bg: var(--dark-lang-dropdown-bg);
+  --lang-dropdown-border: var(--dark-lang-dropdown-border);
+  --lang-dropdown-selection-count: var(--dark-lang-dropdown-selection-count);
+  --lang-dropdown-selection-label: var(--dark-lang-dropdown-selection-label);
+  --lang-dropdown-clear-text: var(--dark-lang-dropdown-clear-text);
+  --lang-dropdown-done-bg: var(--dark-lang-dropdown-done-bg);
+  --lang-dropdown-done-text: var(--dark-lang-dropdown-done-text);
+  --lang-dropdown-done-shadow: var(--dark-lang-dropdown-done-shadow);
+  --lang-dropdown-option-text: var(--dark-lang-dropdown-option-text);
 
   /* Icon Filters */
   --icon-primary-filter: var(--dark-primary-filter);
