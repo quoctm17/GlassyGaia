@@ -25,6 +25,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+---
+
+## [v1.6.0] - 2026-04-02
+
+### Changed
+- SubtitleLanguageSelector dropdown: full restyle with new layout (search bar → selection count → options list → footer), Done button with blur pink background + check icon, Clear button as plain text, flag images with no border-radius, reduced dropdown width to 260px, removed browser default focus tint on search input, reduced toggle offset spacing.
+- Subtitle dropdown: added dedicated CSS variables (`--lang-dropdown-*`) and typography classes for consistent theming.
+- ContentSelector search input styling matched across components.
+
+### Fixed
+- Search bar: ensure icon click targets are not obscured on smaller screens.
+- SearchResultCard: improved layout and sizing consistency.
+
+---
+
+## [Unreleased]
+
 ### Fixed
 - Admin Level Management: fix Single Card Assessment debug dropdowns (searchable Content/Episode/Card) and ensure debug assessment resolves card UUID correctly.
 - Worker level assessment: align tokenization with stopword/noise filtering and OOV rank handling to prevent under-estimating difficulty.
