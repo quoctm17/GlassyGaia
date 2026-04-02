@@ -45,7 +45,7 @@
 /* Save-heart icon inside search bar — positioned on the right */
 .search-bar-save-btn {
   position: absolute;
-  right: 17%;
+  right: 12%;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -58,6 +58,85 @@
   z-index: 2;
   transition: filter 0.15s ease;
   filter: var(--icon-neutral-filter);
+}
+
+/* Responsive: increase right % as screen gets smaller */
+@media (min-width: 1920px) {
+  .search-bar-save-btn {
+    right: 12%;
+  }
+}
+
+@media (min-width: 1800px) and (max-width: 1919px) {
+  .search-bar-save-btn {
+    right: 13%;
+  }
+}
+
+@media (min-width: 1680px) and (max-width: 1799px) {
+  .search-bar-save-btn {
+    right: 13.5%;
+  }
+}
+
+@media (min-width: 1600px) and (max-width: 1679px) {
+  .search-bar-save-btn {
+    right: 14.5%;
+  }
+}
+
+@media (min-width: 1440px) and (max-width: 1599px) {
+  .search-bar-save-btn {
+    right: 15%;
+  }
+}
+
+@media (min-width: 1366px) and (max-width: 1439px) {
+  .search-bar-save-btn {
+    right: 16%;
+  }
+}
+
+@media (min-width: 1280px) and (max-width: 1365px) {
+  .search-bar-save-btn {
+    right: 17%;
+  }
+}
+
+@media (min-width: 1152px) and (max-width: 1279px) {
+  .search-bar-save-btn {
+    right: 18%;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1151px) {
+  .search-bar-save-btn {
+    right: 20%;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1023px) {
+  .search-bar-save-btn {
+    right: 21%;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 899px) {
+  .search-bar-save-btn {
+    right: 22%;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 767px) {
+  .search-bar-save-btn {
+    right: 24%;
+  }
+}
+
+@media (max-width: 599px) {
+  .search-bar-save-btn {
+    right: 26%;
+  }
 }
 
 .search-bar-save-btn:hover,

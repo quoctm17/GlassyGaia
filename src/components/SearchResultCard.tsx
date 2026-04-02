@@ -12,7 +12,6 @@ import { SELECTABLE_SRS_STATES, SRS_STATE_LABELS, type SRSState } from "../types
 import "../styles/components/search-result-card.css";
 import threeDotsIcon from "../assets/icons/three-dots.svg";
 import buttonPlayIcon from "../assets/icons/button-play.svg";
-import buttonPauseIcon from "../assets/icons/button-pause.svg";
 import rightAngleIcon from "../assets/icons/right-angle.svg";
 import headphoneIcon from "../assets/icons/headphone.svg";
 import eyeIcon from "../assets/icons/eye.svg";
@@ -2062,7 +2061,7 @@ const SearchResultCard = memo(function SearchResultCard({
             {/* Left: Image */}
             <div className="card-left-section">
             <div className="card-image-container">
-            <div className="card-image-wrapper" title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
+            <div className={`card-image-wrapper ${isPlaying ? 'is-playing' : ''}`} title="Shortcuts: A/D (Navigate) • Space (Play) • R (Replay) • S (Save) • C (Return) • Shift/Enter (Move Hover)">
               {resolvedImageUrl && !imageError ? (
                 <img
                   src={resolvedImageUrl}
@@ -2087,7 +2086,31 @@ const SearchResultCard = memo(function SearchResultCard({
                   <img src={headphoneIcon} alt="Listen" className="card-overlay-headphone-icon" />
                 </div>
               )}
-              
+
+              {/* Prev/Next navigation buttons - overlay style */}
+              <div className="card-image-nav-overlay" style={{ pointerEvents: 'none' }}>
+                <button
+                  type="button"
+                  className="card-nav-overlay-btn card-nav-overlay-prev"
+                  onClick={(e) => { e.stopPropagation(); handlePrevCard(); }}
+                  title="Previous card (A)"
+                  aria-label="Previous card"
+                  style={{ pointerEvents: 'all' }}
+                >
+                  <img src={rightAngleIcon} alt="" className="card-nav-overlay-icon card-nav-overlay-prev-icon" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="card-nav-overlay-btn card-nav-overlay-next"
+                  onClick={(e) => { e.stopPropagation(); handleNextCard(); }}
+                  title="Next card (D)"
+                  aria-label="Next card"
+                  style={{ pointerEvents: 'all' }}
+                >
+                  <img src={buttonPlayIcon} alt="" className="card-nav-overlay-icon card-nav-overlay-next-icon" aria-hidden="true" />
+                </button>
+              </div>
+
               {/* SRS State Dropdown - Top Left */}
               {isSaved && srsState !== 'none' && (
                 <div className="card-srs-dropdown-container" ref={srsDropdownRef}>
@@ -2142,40 +2165,6 @@ const SearchResultCard = memo(function SearchResultCard({
                 >
                   <img src={saveHeartIcon} alt="" className="card-save-icon" aria-hidden="true" />
                   <span className="card-save-text">{isSaved ? 'Saved' : 'Save'}</span>
-                </button>
-              </div>
-              <div className="card-nav-buttons-row">
-                <button
-                  type="button"
-                  className="card-nav-icon-btn"
-                  onClick={(e) => { e.stopPropagation(); handlePrevCard(); }}
-                  title="Previous card (A)"
-                  aria-label="Previous card"
-                >
-                  <img src={rightAngleIcon} alt="" className="card-nav-icon card-nav-prev" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="card-nav-icon-btn"
-                  onClick={(e) => { e.stopPropagation(); handleImageClick(); }}
-                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
-                  aria-label={isPlaying ? "Pause" : "Play"}
-                >
-                  <img
-                    src={isPlaying ? buttonPauseIcon : buttonPlayIcon}
-                    alt=""
-                    className={`card-nav-icon ${isPlaying ? 'card-nav-pause' : ''}`}
-                    aria-hidden="true"
-                  />
-                </button>
-                <button
-                  type="button"
-                  className="card-nav-icon-btn"
-                  onClick={(e) => { e.stopPropagation(); handleNextCard(); }}
-                  title="Next card (D)"
-                  aria-label="Next card"
-                >
-                  <img src={rightAngleIcon} alt="" className="card-nav-icon card-nav-next" aria-hidden="true" />
                 </button>
               </div>
               <div className="card-menu-container" ref={menuRef}>

@@ -493,6 +493,8 @@ function SearchPage() {
     setHasEnteredSearch(true);
     setQuery(trimmed);
     setFeedbackChoice(null);
+    // Reset content filter when user searches
+    setContentFilter([]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 

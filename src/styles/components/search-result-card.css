@@ -504,21 +504,78 @@
   transition: opacity 0.2s ease;
   pointer-events: none;
   z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+  background: rgba(var(--nav-overlay-hover-bg-rgb), 0.5);
+  backdrop-filter: blur(50%);
+  -webkit-backdrop-filter: blur(50%);
 }
 
-.card-image-wrapper:hover .card-image-play-overlay {
+.card-image-wrapper:hover .card-image-play-overlay,
+.card-image-wrapper.is-playing .card-image-play-overlay {
   opacity: 1;
 }
 
 .card-overlay-headphone-icon {
   width: 48px;
   height: 48px;
-  filter: var(--icon-text-filter);
+  filter: var(--icon-on-image-filter);
   opacity: 0.95;
 }
 
-.card-image-wrapper:hover .card-overlay-headphone-icon {
+/* Navigation overlay buttons */
+.card-image-nav-overlay {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 8px;
+}
+
+.card-image-wrapper:hover .card-image-nav-overlay,
+.card-image-wrapper.is-playing .card-image-nav-overlay {
+  opacity: 1;
+}
+
+.card-nav-overlay-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+  opacity: 0.85;
+  border-radius: 5px;
+}
+
+.card-nav-overlay-btn:hover {
+  opacity: 1;
+  background: rgba(var(--nav-overlay-hover-bg-rgb), 0.5);
+  backdrop-filter: blur(50%);
+  -webkit-backdrop-filter: blur(50%);
+}
+
+.card-nav-overlay-icon {
   filter: var(--icon-on-image-filter);
+}
+
+.card-nav-overlay-prev-icon {
+  transform: rotate(180deg);
 }
 
 .card-review-count-headphone {

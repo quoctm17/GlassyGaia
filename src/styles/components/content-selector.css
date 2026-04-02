@@ -52,6 +52,50 @@
   padding: 0px 12px;
 }
 
+.content-select-all-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 12px 8px;
+}
+
+.content-select-all-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.content-select-all-checkbox {
+  width: 14px;
+  height: 14px;
+  border: 0.8px solid var(--neutral-948979);
+  border-radius: 2px;
+  background-color: transparent;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s;
+  cursor: pointer;
+}
+
+.content-select-all-checkbox.checked {
+  background-color: var(--primary);
+}
+
+.content-select-all-check-icon {
+  color: var(--hover-select);
+  flex-shrink: 0;
+}
+
+.content-select-all-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .content-selector-body {
   flex: 1 1 auto;
   overflow-y: auto;

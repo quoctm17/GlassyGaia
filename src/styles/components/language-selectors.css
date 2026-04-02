@@ -60,12 +60,12 @@
     padding: 3px 5px;
     gap: 3px;
   }
-  
+
   .language-selector-btn img {
     width: 18px;
     height: 12px;
   }
-  
+
   .language-selector-btn svg {
     width: 14px;
     height: 14px;
@@ -80,95 +80,6 @@
 .language-selector-btn:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-}
-
-.language-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 8px;
-  background-color: var(--sidenav-bg);
-  border: 2px solid var(--primary);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 50;
-  padding: 0;
-  min-width: 260px;
-  max-width: 320px;
-}
-
-.language-options-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--neutral);
-  color: var(--primary);
-}
-
-/* Apply typography from typography.css */
-.language-options-header {
-  font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.5;
-  letter-spacing: 0.5px;
-}
-
-.language-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  color: var(--primary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  width: 100%;
-  text-align: left;
-}
-
-/* Apply typography from typography.css */
-.language-option {
-  font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.5;
-  letter-spacing: 0.5px;
-}
-
-.language-option:hover {
-  background-color: var(--hover-bg);
-  color: var(--hover-select);
-}
-
-.language-option.active {
-  background-color: var(--hover-bg);
-  color: var(--hover-select);
-  font-weight: 600;
-}
-
-.language-options-list {
-  max-height: 240px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-
-.language-options-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.language-options-list::-webkit-scrollbar-track {
-  background: #f3f4f6;
-  border-radius: 0;
-}
-
-.language-options-list::-webkit-scrollbar-thumb {
-  background: #d1d5db;
-  border-radius: 0;
-  transition: background 0.2s;
-}
-
-.language-options-list::-webkit-scrollbar-button {
-  display: none;
 }
 
 /* ================= Subtitle Selector Specific ================= */
@@ -232,116 +143,221 @@
   color: var(--text);
 }
 
-.subtitle-options-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--neutral);
+/* ================= Language Dropdown (Subtitle) ================= */
+
+.language-dropdown {
+  background-color: var(--lang-dropdown-bg);
+  border: 1px solid var(--lang-dropdown-border);
+  border-radius: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 50;
+  padding: 0;
+  width: fit-content;
+  max-width: 260px;
+}
+
+/* Outer container that holds input + trigger button, carries the border + margins */
+.language-search-container {
+  display: flex;
+  align-items: center;
+  border: 0.8px solid var(--neutral);
+  background-color: var(--lang-dropdown-bg);
+  margin: 6px 10px;
+  width: calc(100% - 20px);
+}
+
+.language-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  font-family: "Noto Sans", "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: left;
+  letter-spacing: 0;
+  line-height: 1.3;
+  word-spacing: 0;
+  color: var(--text);
+}
+
+.language-search-input:focus {
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.language-search-input::placeholder {
+  opacity: .55;
+  text-align: left;
+}
+
+.language-search-trigger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin: 2px;
+  border: none;
+  border-radius: 5px;
+  background-color: var(--primary-50);
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
+}
+
+.language-search-trigger-btn:hover {
+  opacity: 0.9;
+}
+
+.language-search-trigger-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: var(--icon-hover-select-filter);
+}
+
+/* Selection count row — below search, right-aligned */
+.language-selection-count-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 10px;
+}
+
+/* Footer row — Clear (left) + Done (right) buttons */
+.language-dropdown-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--primary);
+  padding: 8px 10px 10px;
 }
 
-/* Apply typography from typography.css */
-.subtitle-options-header {
-  font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.5;
-  letter-spacing: 0.5px;
-}
-
-.subtitle-done-btn {
-  padding: 4px 8px;
-  background-color: var(--primary);
-  color: white;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-
-/* Clear button styled like filter modal CLEAR button */
+/* Clear button */
 .subtitle-clear-btn {
   background: transparent;
   border: none;
-  color: var(--primary);
-  text-decoration: underline;
   cursor: pointer;
-  font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0.5px;
   padding: 4px 8px;
-  transition: all 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 
 .subtitle-clear-btn:hover {
-  color: var(--hover-select);
-  transform: translateY(-2px);
+  opacity: 0.7;
+}
+
+/* Done button with check icon */
+.subtitle-done-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background-color: var(--lang-dropdown-done-bg);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 4px 4px var(--lang-dropdown-done-shadow);
 }
 
 .subtitle-done-btn:hover {
-  background-color: var(--hover-select);
-  color: white;
+  opacity: 0.9;
 }
 
-@media (max-width: 768px) {
-  .language-selector-btn {
-    font-size: 13px;
-    padding: 3px 5px;
-    gap: 3px;
-  }
-  
-  .language-selector-btn img {
-    width: 18px;
-    height: 12px;
-  }
-  
-  .language-selector-btn svg {
-    width: 14px;
-    height: 14px;
-  }
-  
-  .language-options-list {
-    max-height: 320px;
-  }
+.subtitle-done-check-icon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
-/* Scrollbar styling - dynamic theming */
+/* Language options list */
+.language-options-list {
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.language-options-list::-webkit-scrollbar {
+  width: 6px;
+}
+
 .language-options-list::-webkit-scrollbar-track {
   background: var(--secondary);
+  border-radius: 0;
 }
 
 .language-options-list::-webkit-scrollbar-thumb {
   background: var(--primary);
+  border-radius: 0;
+  transition: background 0.2s;
 }
 
 .language-options-list::-webkit-scrollbar-thumb:hover {
   background: var(--hover-select);
 }
 
-/* Search input styling */
-.language-search-input {
+/* Individual language option */
+.language-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--neutral);
-  border-radius: 4px;
-  background-color: transparent;
-  color: var(--primary);
-  font-family: 'Press Start 2P', 'Courier New', monospace;
-  font-size: 12px;
-  transition: all 0.2s ease;
+  text-align: left;
 }
 
-.language-search-input:focus {
-  outline: none;
-  border-color: var(--primary);
+.language-option:hover {
   background-color: var(--hover-bg);
 }
 
-.language-search-input::placeholder {
-  color: var(--neutral);
-  opacity: 0.6;
+.language-option.active {
+  background-color: var(--hover-bg);
+}
+
+/* Flag image — no border-radius (keep original rectangle shape) */
+.language-option-flag {
+  width: 20px;
+  height: 14px;
+  border-radius: 0;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .language-selector-btn {
+    font-size: 13px;
+    padding: 3px 5px;
+    gap: 3px;
+  }
+
+  .language-selector-btn img {
+    width: 18px;
+    height: 12px;
+  }
+
+  .language-selector-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .language-options-list {
+    max-height: 320px;
+  }
 }
